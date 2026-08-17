@@ -27,7 +27,6 @@ const item = (overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem => ({
   expected_output:
     "Yes. Run `ast deploy` from the project root, then watch the deployment status in Astro.",
   metadata: {
-    verdict: 1,
     judged_by_user_id: "user-1",
     judged_at: "2026-06-23T14:30:00Z",
   },
@@ -100,7 +99,6 @@ export const BadExample: Story = {
       row={item({
         id: "item-2",
         metadata: {
-          verdict: -1,
           judged_by_user_id: "user-1",
           judged_at: "2026-06-23T14:35:00Z",
         },

@@ -114,44 +114,6 @@ func langfuseDatasetItemsHandler(items []langfuse.DatasetItem, totalPages int) h
 	}
 }
 
-func langfuseDatasetItemsPagesHandler(t *testing.T, pages [][]langfuse.DatasetItem) http.HandlerFunc {
-	t.Helper()
-	type meta struct {
-		Page       int `json:"page"`
-		Limit      int `json:"limit"`
-		TotalItems int `json:"totalItems"`
-		TotalPages int `json:"totalPages"`
-	}
-	type resp struct {
-		Data []langfuse.DatasetItem `json:"data"`
-		Meta meta                   `json:"meta"`
-	}
-	totalItems := 0
-	for _, pageItems := range pages {
-		totalItems += len(pageItems)
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		page := 1
-		if raw := r.URL.Query().Get("page"); raw != "" {
-			if parsed, err := strconv.Atoi(raw); err == nil {
-				page = parsed
-			}
-		}
-		if got := r.URL.Query().Get("limit"); got != "100" {
-			t.Errorf("limit = %q, want 100", got)
-		}
-		var data []langfuse.DatasetItem
-		if page > 0 && page <= len(pages) {
-			data = pages[page-1]
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp{
-			Data: data,
-			Meta: meta{Page: page, Limit: 100, TotalItems: totalItems, TotalPages: len(pages)},
-		})
-	}
-}
-
 func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int, wantLimit, wantPage, wantToTimestamp string) http.HandlerFunc {
 	t.Helper()
 	type meta struct {
@@ -431,14 +393,13 @@ func langfuseJudgeHandlerExpectDeleteStatus(t *testing.T, itemID string, status 
 }
 
 type langfuseJudgeOptions struct {
-	traceID             string
-	tags                []string
-	expectDatasetItem   bool
-	datasetItemStatus   int
-	wantMetadataVerdict float64
-	wantEmptyCriteria   bool
-	wantCriteria        []judgmentCriterion
-	datasetItemCalled   *atomic.Bool
+	traceID           string
+	tags              []string
+	expectDatasetItem bool
+	datasetItemStatus int
+	wantEmptyCriteria bool
+	wantCriteria      []judgmentCriterion
+	datasetItemCalled *atomic.Bool
 }
 
 func langfuseJudgeHandlerWithOptions(t *testing.T, opts langfuseJudgeOptions) http.HandlerFunc {
@@ -490,9 +451,6 @@ func langfuseJudgeHandlerWithOptions(t *testing.T, opts langfuseJudgeOptions) ht
 			}
 			if body.DatasetName != "eval-dep-1" {
 				t.Errorf("datasetName = %q, want eval-dep-1", body.DatasetName)
-			}
-			if got, ok := body.Metadata["verdict"].(float64); !ok || got != opts.wantMetadataVerdict {
-				t.Errorf("metadata verdict = %v, want %v", body.Metadata["verdict"], opts.wantMetadataVerdict)
 			}
 			if opts.wantEmptyCriteria {
 				if crit, ok := body.Metadata["judgment_criteria"].([]any); !ok {
@@ -836,7 +794,6 @@ func TestGetEvalDatasetItems_OK(t *testing.T) {
 			ID:             "di-1",
 			Input:          map[string]any{"prompt": "hello"},
 			ExpectedOutput: map[string]any{"answer": "world"},
-			Metadata:       map[string]any{"verdict": 1},
 			SourceTraceID:  "trace-1",
 			CreatedAt:      "2026-06-01T12:00:00Z",
 		},
@@ -872,394 +829,6 @@ func TestGetEvalDatasetItems_OK(t *testing.T) {
 	}
 	if resp.TotalItems != 1 {
 		t.Fatalf("total_items = %d, want 1", resp.TotalItems)
-	}
-}
-
-func TestGetEvalDatasetItems_FilterByVerdictScansLangfusePages(t *testing.T) {
-	upstream := langfuseDatasetItemsPagesHandler(t, [][]langfuse.DatasetItem{
-		{
-			{
-				ID:             "good-1",
-				Input:          "good input",
-				ExpectedOutput: "good output",
-				Metadata:       map[string]any{"verdict": 1},
-				SourceTraceID:  "trace-good",
-				CreatedAt:      "2026-06-01T12:00:00Z",
-			},
-		},
-		{
-			{
-				ID:             "bad-1",
-				Input:          "bad input 1",
-				ExpectedOutput: "bad output 1",
-				Metadata:       map[string]any{"verdict": -1},
-				SourceTraceID:  "trace-bad-1",
-				CreatedAt:      "2026-06-01T12:01:00Z",
-			},
-			{
-				ID:             "bad-2",
-				Input:          "bad input 2",
-				ExpectedOutput: "bad output 2",
-				Metadata:       map[string]any{"verdict": -1},
-				SourceTraceID:  "trace-bad-2",
-				CreatedAt:      "2026-06-01T12:02:00Z",
-			},
-		},
-	})
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 3, 1, 2)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?limit=1&verdict=bad", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Items []struct {
-			ID            string `json:"id"`
-			SourceTraceID string `json:"source_trace_id"`
-		} `json:"items"`
-		Page       int    `json:"page"`
-		Limit      int    `json:"limit"`
-		TotalItems int    `json:"total_items"`
-		TotalPages int    `json:"total_pages"`
-		NextCursor string `json:"next_cursor"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(resp.Items) != 1 || resp.Items[0].ID != "bad-1" || resp.Items[0].SourceTraceID != "trace-bad-1" {
-		t.Fatalf("items = %+v, want first bad row", resp.Items)
-	}
-	if resp.Page != 1 || resp.Limit != 1 || resp.TotalItems != 2 || resp.TotalPages != 2 || resp.NextCursor == "" {
-		t.Fatalf("pagination = page %d limit %d total_items %d total_pages %d next_cursor %q, want 1/1/2/2 with cursor",
-			resp.Page, resp.Limit, resp.TotalItems, resp.TotalPages, resp.NextCursor)
-	}
-
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 3, 1, 2)
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?limit=1&verdict=bad&cursor="+url.QueryEscape(resp.NextCursor), nil)
-	rec = httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	resp = struct {
-		Items []struct {
-			ID            string `json:"id"`
-			SourceTraceID string `json:"source_trace_id"`
-		} `json:"items"`
-		Page       int    `json:"page"`
-		Limit      int    `json:"limit"`
-		TotalItems int    `json:"total_items"`
-		TotalPages int    `json:"total_pages"`
-		NextCursor string `json:"next_cursor"`
-	}{}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal cursor page: %v", err)
-	}
-	if len(resp.Items) != 1 || resp.Items[0].ID != "bad-2" || resp.Items[0].SourceTraceID != "trace-bad-2" {
-		t.Fatalf("cursor items = %+v, want second bad row", resp.Items)
-	}
-	if resp.Page != 2 || resp.NextCursor != "" {
-		t.Fatalf("cursor page = %d next_cursor = %q, want page 2 with no cursor", resp.Page, resp.NextCursor)
-	}
-}
-
-func TestGetEvalDatasetItems_FilterByVerdictStopsAtScanLimit(t *testing.T) {
-	var calls atomic.Int32
-	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		page := 1
-		if raw := r.URL.Query().Get("page"); raw != "" {
-			if parsed, err := strconv.Atoi(raw); err == nil {
-				page = parsed
-			}
-		}
-		type meta struct {
-			Page       int `json:"page"`
-			Limit      int `json:"limit"`
-			TotalItems int `json:"totalItems"`
-			TotalPages int `json:"totalPages"`
-		}
-		type resp struct {
-			Data []langfuse.DatasetItem `json:"data"`
-			Meta meta                   `json:"meta"`
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp{
-			Data: []langfuse.DatasetItem{
-				{
-					ID:             "good-only",
-					Input:          "good input",
-					ExpectedOutput: "good output",
-					Metadata:       map[string]any{"verdict": 1},
-					SourceTraceID:  "trace-good",
-					CreatedAt:      "2026-06-01T12:00:00Z",
-				},
-			},
-			Meta: meta{Page: page, Limit: 100, TotalItems: 1, TotalPages: 0},
-		})
-	})
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 0, 2)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?limit=1&verdict=bad", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Items      []map[string]any `json:"items"`
-		NextCursor string           `json:"next_cursor"`
-		TotalItems int              `json:"total_items"`
-		TotalPages int              `json:"total_pages"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(resp.Items) != 0 || resp.NextCursor != "" {
-		t.Fatalf("response = %+v, want empty partial response with no cursor", resp)
-	}
-	if resp.TotalItems != 0 || resp.TotalPages != 0 {
-		t.Fatalf("pagination = total_items %d total_pages %d, want clamped 0/0", resp.TotalItems, resp.TotalPages)
-	}
-	if got, want := calls.Load(), int32(3); got != want {
-		t.Fatalf("upstream calls = %d, want safety limit %d", got, want)
-	}
-}
-
-func TestGetEvalDatasetItems_CursorWithoutVerdictRejects(t *testing.T) {
-	upstream := func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("Langfuse upstream should not be called")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?cursor=abc", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "cursor requires verdict") {
-		t.Errorf("body = %q, want cursor requires verdict", rec.Body.String())
-	}
-}
-
-func TestGetEvalDatasetItems_VerdictCursorAndPageRejects(t *testing.T) {
-	upstream := func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("Langfuse upstream should not be called")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?verdict=good&cursor=abc&page=2", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "page cannot be used with cursor") {
-		t.Errorf("body = %q, want page cannot be used with cursor", rec.Body.String())
-	}
-}
-
-func TestGetEvalDatasetItems_VerdictPageWithoutCursorRejects(t *testing.T) {
-	upstream := func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("Langfuse upstream should not be called")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?verdict=good&page=2", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "filtered dataset items use cursor pagination") {
-		t.Errorf("body = %q, want cursor pagination required", rec.Body.String())
-	}
-}
-
-func TestGetEvalDatasetItems_UnknownVerdictRejects(t *testing.T) {
-	upstream := func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("Langfuse upstream should not be called")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?verdict=maybe", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "verdict must be good or bad") {
-		t.Errorf("body = %q, want verdict must be good or bad", rec.Body.String())
-	}
-}
-
-func TestGetEvalDatasetItems_MalformedCursorRejects(t *testing.T) {
-	upstream := func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("Langfuse upstream should not be called")
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-	// "YWJjZA" decodes to "abcd" — valid base64 but not valid cursor JSON.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?verdict=good&cursor=YWJjZA", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "invalid cursor") {
-		t.Errorf("body = %q, want invalid cursor", rec.Body.String())
-	}
-}
-
-func TestGetEvalDatasetItems_MismatchedCursorRejects(t *testing.T) {
-	baseCursor := evalDatasetItemsCursor{
-		Version:     evalDatasetItemsCursorVersion,
-		DatasetName: "eval-dep-1",
-		Verdict:     "good",
-		Limit:       50,
-		RawPage:     1,
-		RawIndex:    0,
-		Matched:     0,
-	}
-
-	mutators := []struct {
-		name   string
-		mutate func(*evalDatasetItemsCursor)
-	}{
-		{"wrong dataset", func(c *evalDatasetItemsCursor) { c.DatasetName = "eval-other" }},
-		{"wrong verdict", func(c *evalDatasetItemsCursor) { c.Verdict = "bad" }},
-		{"wrong limit", func(c *evalDatasetItemsCursor) { c.Limit = 25 }},
-	}
-
-	for _, m := range mutators {
-		t.Run(m.name, func(t *testing.T) {
-			cursor := baseCursor
-			m.mutate(&cursor)
-			encoded, err := encodeEvalDatasetItemsCursor(cursor)
-			if err != nil {
-				t.Fatalf("encode cursor: %v", err)
-			}
-
-			upstream := func(w http.ResponseWriter, _ *http.Request) {
-				t.Error("Langfuse upstream should not be called")
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			f := setupDatasetRouter(t, true, upstream)
-			expectAuthorizedDeployment(f.traceDetailFixture)
-			expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-
-			req := httptest.NewRequest(http.MethodGet,
-				"/api/v1/deployments/dep-1/dataset/items?verdict=good&cursor="+url.QueryEscape(encoded), nil)
-			rec := httptest.NewRecorder()
-			f.router.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-			}
-			if !strings.Contains(rec.Body.String(), "invalid cursor") {
-				t.Errorf("body = %q, want invalid cursor", rec.Body.String())
-			}
-		})
-	}
-}
-
-func TestGetEvalDatasetItems_FilterByVerdictGoodHappyPath(t *testing.T) {
-	upstream := langfuseDatasetItemsPagesHandler(t, [][]langfuse.DatasetItem{
-		{
-			{
-				ID:             "good-1",
-				Input:          "good input 1",
-				ExpectedOutput: "good output 1",
-				Metadata:       map[string]any{"verdict": 1},
-				SourceTraceID:  "trace-good-1",
-				CreatedAt:      "2026-06-01T12:00:00Z",
-			},
-			{
-				ID:             "bad-1",
-				Input:          "bad",
-				ExpectedOutput: "bad",
-				Metadata:       map[string]any{"verdict": -1},
-				SourceTraceID:  "trace-bad",
-				CreatedAt:      "2026-06-01T12:01:00Z",
-			},
-			{
-				ID:             "good-2",
-				Input:          "good input 2",
-				ExpectedOutput: "good output 2",
-				Metadata:       map[string]any{"verdict": 1},
-				SourceTraceID:  "trace-good-2",
-				CreatedAt:      "2026-06-01T12:02:00Z",
-			},
-		},
-	})
-	f := setupDatasetRouter(t, true, upstream)
-	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 3, 2, 1)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/items?verdict=good", nil)
-	rec := httptest.NewRecorder()
-	f.router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp struct {
-		Items []struct {
-			ID            string `json:"id"`
-			SourceTraceID string `json:"source_trace_id"`
-		} `json:"items"`
-		Page       int    `json:"page"`
-		Limit      int    `json:"limit"`
-		TotalItems int    `json:"total_items"`
-		TotalPages int    `json:"total_pages"`
-		NextCursor string `json:"next_cursor"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(resp.Items) != 2 {
-		t.Fatalf("items = %+v, want two good rows", resp.Items)
-	}
-	if resp.Items[0].ID != "good-1" || resp.Items[0].SourceTraceID != "trace-good-1" {
-		t.Errorf("first item = %+v, want good-1/trace-good-1", resp.Items[0])
-	}
-	if resp.Items[1].ID != "good-2" || resp.Items[1].SourceTraceID != "trace-good-2" {
-		t.Errorf("second item = %+v, want good-2/trace-good-2", resp.Items[1])
-	}
-	if resp.Page != 1 || resp.TotalItems != 2 || resp.TotalPages != 1 || resp.NextCursor != "" {
-		t.Errorf("pagination = page %d total_items %d total_pages %d next_cursor %q, want 1/2/1/empty",
-			resp.Page, resp.TotalItems, resp.TotalPages, resp.NextCursor)
 	}
 }
 
@@ -1789,8 +1358,7 @@ func TestPostDatasetJudgment_GoodWritesDatasetItemAndReturnsJudgment(t *testing.
 
 func TestPostDatasetJudgment_BadWritesDatasetItemAndBumpsBadCount(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		expectDatasetItem:   true,
-		wantMetadataVerdict: -1,
+		expectDatasetItem: true,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -1937,10 +1505,9 @@ func TestPostDatasetJudgment_MissingTraceReturnsNotFound(t *testing.T) {
 func TestPostDatasetJudgment_UpsertFailureRollsBackJudgment(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		expectDatasetItem:   true,
-		datasetItemStatus:   http.StatusInternalServerError,
-		wantMetadataVerdict: 1,
-		datasetItemCalled:   &datasetItemCalled,
+		expectDatasetItem: true,
+		datasetItemStatus: http.StatusInternalServerError,
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
@@ -2016,11 +1583,10 @@ func TestPostDatasetJudgment_DeletesDatasetItemWhenCountBumpFails(t *testing.T) 
 func TestPatchDatasetJudgment_GoodToBadUpdatesItemAndCounts(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		wantMetadataVerdict: -1,
-		wantEmptyCriteria:   true,
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		wantEmptyCriteria: true,
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -2062,12 +1628,11 @@ func TestPatchDatasetJudgment_GoodToBadUpdatesItemAndCounts(t *testing.T) {
 func TestPatchDatasetJudgment_RestoresJudgmentWhenDatasetItemUpsertFails(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		datasetItemStatus:   http.StatusInternalServerError,
-		wantMetadataVerdict: -1,
-		wantEmptyCriteria:   true,
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		datasetItemStatus: http.StatusInternalServerError,
+		wantEmptyCriteria: true,
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -2100,12 +1665,11 @@ func TestPatchDatasetJudgment_RestoresJudgmentWhenDatasetItemUpsertFails(t *test
 func TestPatchDatasetJudgment_RestoresReasonsWhenDatasetItemUpsertFails(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		datasetItemStatus:   http.StatusInternalServerError,
-		wantMetadataVerdict: -1,
-		wantEmptyCriteria:   true,
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		datasetItemStatus: http.StatusInternalServerError,
+		wantEmptyCriteria: true,
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -2298,11 +1862,10 @@ func TestPatchDatasetJudgment_CountFailureRestoresCriteriaToLangfuse(t *testing.
 func TestPutDatasetJudgmentCriteria_ReplacesCriteria(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		wantMetadataVerdict: -1,
-		wantCriteria:        []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		wantCriteria:      []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -2339,11 +1902,10 @@ func TestPutDatasetJudgmentCriteria_ReplacesCriteria(t *testing.T) {
 func TestPutDatasetJudgmentCriteria_EmptyClears(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		wantMetadataVerdict: -1,
-		wantEmptyCriteria:   true,
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		wantEmptyCriteria: true,
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)
@@ -2481,12 +2043,11 @@ func TestPutDatasetJudgmentCriteria_MissingReturns404(t *testing.T) {
 func TestPutDatasetJudgmentCriteria_RestoresReasonsWhenUpsertFails(t *testing.T) {
 	var datasetItemCalled atomic.Bool
 	f := setupDatasetRouter(t, true, langfuseJudgeHandlerWithOptions(t, langfuseJudgeOptions{
-		traceID:             "trace-1",
-		expectDatasetItem:   true,
-		datasetItemStatus:   http.StatusInternalServerError,
-		wantMetadataVerdict: -1,
-		wantCriteria:        []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
-		datasetItemCalled:   &datasetItemCalled,
+		traceID:           "trace-1",
+		expectDatasetItem: true,
+		datasetItemStatus: http.StatusInternalServerError,
+		wantCriteria:      []judgmentCriterion{{DimensionKey: "tone", Value: -1}},
+		datasetItemCalled: &datasetItemCalled,
 	}))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 2, 1, 1)

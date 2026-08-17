@@ -181,7 +181,7 @@ function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
     id: "item-1",
     input: "input",
     expected_output: "output",
-    metadata: { verdict: 1 },
+    metadata: {},
     source_trace_id: "trace-1",
     created_at: "2026-06-01T12:00:00Z",
     ...overrides,
@@ -2359,7 +2359,7 @@ describe("dataset view", () => {
       input: "Undo prompt",
       expected_output: "Undo response",
       source_trace_id: "trace-undo",
-      metadata: { verdict: 1 },
+      metadata: {},
     });
     let items = [item];
     let deletedTraceId = "";
@@ -2455,7 +2455,7 @@ describe("dataset view", () => {
       input: "Change prompt",
       expected_output: "Change response",
       source_trace_id: "trace-change",
-      metadata: { verdict: 1, judgment_criteria: [] },
+      metadata: { judgment_criteria: [] },
     });
     let items = [item];
     let updated:
@@ -2531,7 +2531,7 @@ describe("dataset view", () => {
       input: "Neutral prompt",
       expected_output: "Neutral response",
       source_trace_id: "trace-neutral",
-      metadata: { verdict: 1 },
+      metadata: {},
     });
     let items = [item];
     let deletedTraceId: string | null = null;

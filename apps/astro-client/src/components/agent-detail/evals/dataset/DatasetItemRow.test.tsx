@@ -18,7 +18,6 @@ function makeItem(overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem {
     input: "What is the capital of France?",
     expected_output: "Paris.",
     metadata: {
-      verdict: 1,
       judged_by_user_id: "user_1",
       judged_at: new Date(Date.now() - 60_000).toISOString(),
     },
@@ -97,7 +96,6 @@ describe("DatasetItemRow collapsed", () => {
     const { onToggle } = renderRow({
       item: makeItem({
         metadata: {
-          verdict: 1,
           judgment_criteria: [
             { dimension_key: "accuracy", value: 1 },
             { dimension_key: "completeness", value: 1 },
@@ -116,7 +114,6 @@ describe("DatasetItemRow collapsed", () => {
     renderRow({
       item: makeItem({
         metadata: {
-          verdict: 1,
           judgment_criteria: [
             { dimension_key: "accuracy", value: 1 },
             { dimension_key: "completeness", value: -1 },
@@ -141,7 +138,6 @@ describe("DatasetItemRow collapsed", () => {
       reviewer: null,
       item: makeItem({
         metadata: {
-          verdict: 1,
           judgment_criteria: [{ dimension_key: "accuracy", value: 1 }],
         },
       }),

@@ -1174,12 +1174,7 @@ export interface EvalDatasetResponse {
   criteria_counts: EvalDatasetCriteriaCount[];
 }
 
-/** Per-item metadata persisted on Langfuse dataset items. `verdict` is a
- *  numeric score: 1 = good, -1 = bad. Skip/unknown verdicts never produce an
- *  item, so good/bad are the only values that surface here. */
 export interface EvalDatasetItemMetadata {
-  verdict?: number;
-  confidence?: number;
   judged_by_user_id?: string;
   judged_at?: string;
   judgment_criteria?: JudgmentCriterion[];
@@ -1200,7 +1195,6 @@ export interface EvalDatasetItemsResponse {
   limit: number;
   total_items: number;
   total_pages: number;
-  next_cursor?: string;
 }
 
 export interface EvalDatasetItemsParams {
