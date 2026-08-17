@@ -2285,6 +2285,11 @@ export interface BillingSpend {
   current_spend: number;
   has_current_spend: boolean;
   current_period_end?: string;
+  /** Usage before credit drawdown. This is what the thresholds measure, so it is
+   *  the number to show beside them: an account on credit reads 0 for
+   *  current_spend while this one climbs toward its own warning. */
+  usage_spend: number;
+  has_usage_spend: boolean;
   credit_remaining: number;
   has_credit: boolean;
   warning?: SpendThreshold;

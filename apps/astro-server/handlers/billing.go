@@ -277,6 +277,13 @@ type BillingSpendResponse struct {
 	HasCurrentSpend  bool      `json:"has_current_spend"`
 	CurrentPeriodEnd time.Time `json:"current_period_end,omitempty"`
 
+	// UsageSpend is what the thresholds below are measured against: the period's
+	// usage before credit drawdown. It differs from CurrentSpend whenever credit
+	// covers part of the bill, and an account on signup credit reads zero for
+	// CurrentSpend while UsageSpend climbs toward its own warning.
+	UsageSpend    float64 `json:"usage_spend"`
+	HasUsageSpend bool    `json:"has_usage_spend"`
+
 	CreditRemaining float64 `json:"credit_remaining"`
 	HasCredit       bool    `json:"has_credit"`
 
@@ -311,6 +318,8 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 				CurrentSpend:     spend.CurrentSpend,
 				HasCurrentSpend:  spend.HasCurrentSpend,
 				CurrentPeriodEnd: spend.CurrentPeriodEnd,
+				UsageSpend:       spend.UsageSpend,
+				HasUsageSpend:    spend.HasUsageSpend,
 				CreditRemaining:  spend.CreditRemaining,
 				HasCredit:        spend.HasCredit,
 			}

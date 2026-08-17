@@ -92,10 +92,18 @@ type Spend struct {
 	CreditRemaining float64
 	HasCredit       bool
 
-	// CurrentSpend is the open billing period's draft invoice total.
+	// CurrentSpend is the open billing period's draft invoice total, which is
+	// net of credit drawdown. It is what the account will be charged.
 	CurrentSpend     float64
 	CurrentPeriodEnd time.Time
 	HasCurrentSpend  bool
+
+	// UsageSpend is the same period's usage-based spend before credit drawdown.
+	// The provider's spend threshold notification measures this, not the total,
+	// so an account on credit crosses its own warning while CurrentSpend still
+	// reads zero. A surface that shows a threshold has to show this number.
+	UsageSpend    float64
+	HasUsageSpend bool
 
 	// LastInvoice is the most recent finalized invoice.
 	LastInvoiceTotal float64

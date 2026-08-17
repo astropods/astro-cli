@@ -15,9 +15,12 @@ import { InlineBadge } from "@/components/InlineBadge";
 import { useBillingSpend, useSetBillingSpendThresholds } from "@/api/queries/billing";
 import { getApiErrorMessage } from "@/lib/api";
 
-/** Amounts arrive in the provider's unit, which is USD cents. */
-function formatMoney(cents: number, currency?: string): string {
-  const value = (cents / 100).toLocaleString(undefined, {
+/** Spend arrives already converted to the currency named alongside it. The
+ *  thresholds on the same response do not: they are the provider's raw cents,
+ *  because that is the unit the write path sends and the provider stores. The
+ *  two units share one response, so each has its own helper. */
+function formatMoney(amount: number, currency?: string): string {
+  const value = amount.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -84,10 +87,16 @@ function SpendControlsForm({ account }: { account: string }) {
     <Card className="mb-6 flex flex-col gap-4 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-heading-4 text-foreground">Spend controls</h3>
-        {spend.has_current_spend && (
+        {spend.has_usage_spend ? (
           <span className="text-body-sm text-muted-foreground">
-            {formatMoney(spend.current_spend, spend.currency)} this period
+            {formatMoney(spend.usage_spend, spend.currency)} used this period
           </span>
+        ) : (
+          spend.has_current_spend && (
+            <span className="text-body-sm text-muted-foreground">
+              {formatMoney(spend.current_spend, spend.currency)} this period
+            </span>
+          )
         )}
       </div>
 
@@ -129,7 +138,8 @@ function SpendControlsForm({ account }: { account: string }) {
 
       <p className="text-body-sm text-muted-foreground">
         A warning tells you and changes nothing. A limit stops every agent in this account until the
-        next billing period, or until you raise it. Both apply to this account only.
+        next billing period, or until you raise it. Both apply to this account only, and both measure
+        usage before any credit is applied, so they can trigger while your bill is still zero.
       </p>
     </Card>
   );

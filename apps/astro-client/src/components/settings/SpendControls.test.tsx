@@ -25,8 +25,11 @@ beforeEach(() => {
 function spend(partial: Partial<BillingSpend> = {}): BillingSpend {
   return {
     currency: "USD (cents)",
-    current_spend: 1234,
+    // Spend arrives converted; thresholds arrive as the provider's cents.
+    current_spend: 12.34,
     has_current_spend: true,
+    usage_spend: 12.34,
+    has_usage_spend: true,
     credit_remaining: 0,
     has_credit: false,
     ...partial,
@@ -44,7 +47,7 @@ describe("SpendControls", () => {
   it("shows the provider's cents as dollars", () => {
     renderControls(spend({ limit: { amount: 5000, in_alarm: false } }));
     expect(screen.getByLabelText("Stop agents at")).toHaveValue("50");
-    expect(screen.getByText(/\$12\.34 this period/)).toBeInTheDocument();
+    expect(screen.getByText(/\$12\.34 used this period/)).toBeInTheDocument();
   });
 
   it("sends dollars back as cents", async () => {
@@ -167,5 +170,25 @@ describe("SpendControls across an account switch", () => {
     rerender(<SpendControls account="other-org" />);
 
     expect(screen.getByLabelText("Stop agents at")).toHaveValue("20");
+  });
+
+  // The provider measures a threshold against usage before credit drawdown, so
+  // showing the invoice total prints $0.00 for any account on signup credit,
+  // right up until its own warning fires.
+  it("shows usage before credit, not the credit-offset bill", () => {
+    renderControls(
+      spend({ current_spend: 0, has_current_spend: true, usage_spend: 2.76, has_usage_spend: true }),
+    );
+    expect(screen.getByText(/\$2\.76 used this period/)).toBeInTheDocument();
+  });
+
+  // Spend and thresholds share one response in different units. Dividing spend
+  // by 100 alongside the thresholds renders a real bill as a hundredth of itself.
+  it("renders spend and a threshold at the same scale", () => {
+    renderControls(
+      spend({ usage_spend: 50, has_usage_spend: true, limit: { amount: 5000, in_alarm: false } }),
+    );
+    expect(screen.getByText(/\$50\.00 used this period/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Stop agents at")).toHaveValue("50");
   });
 });

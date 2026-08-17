@@ -177,3 +177,39 @@ func TestProvisionCustomer_SkipsWhenCovered(t *testing.T) {
 		t.Errorf("calls = %v, want only the contract list", paths)
 	}
 }
+
+// The provider's spend threshold notification measures usage before credit
+// drawdown. Reporting the invoice total instead reads zero for any account whose
+// credit still covers it, and that account can still cross its own warning: the
+// number a customer sets a threshold against would not be the number shown.
+func TestUsageSpendExcludesCreditDrawdown(t *testing.T) {
+	usd := shared.CreditTypeData{ID: usdCentsCreditTypeID, Name: "USD (cents)"}
+	inv := &metronome.Invoice{
+		Total: 0,
+		LineItems: []metronome.InvoiceLineItem{
+			{Name: "Compute Units", Type: "usage", Total: 262.32, CreditType: usd},
+			{Name: "Signup credit applied", Type: "applied_commit_or_credit", Total: -262.32, CreditType: usd},
+			{Name: "AI Gateway", Type: "usage", Total: 13.56, CreditType: usd},
+			{Name: "Signup credit applied", Type: "applied_commit_or_credit", Total: -13.56, CreditType: usd},
+		},
+	}
+
+	got, ok := usageSpend(inv)
+	if !ok {
+		t.Fatal("an invoice with usage lines reported none")
+	}
+	if want := 2.7588; got < want-0.0001 || got > want+0.0001 {
+		t.Errorf("usageSpend = %v, want %v: the credit lines were counted", got, want)
+	}
+}
+
+// An invoice carrying only credit or scheduled lines has no usage to report, and
+// reporting zero as a fact would claim the account spent nothing.
+func TestUsageSpendReportsAbsence(t *testing.T) {
+	inv := &metronome.Invoice{LineItems: []metronome.InvoiceLineItem{
+		{Name: "Test charge", Type: "scheduled", Total: 100},
+	}}
+	if got, ok := usageSpend(inv); ok {
+		t.Errorf("usageSpend = %v, ok = true; want no usage reported", got)
+	}
+}

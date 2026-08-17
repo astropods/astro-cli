@@ -55,6 +55,7 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 		out.CurrentSpend = amount
 		out.CurrentPeriodEnd = draft.EndTimestamp
 		out.HasCurrentSpend = true
+		out.UsageSpend, out.HasUsageSpend = usageSpend(draft)
 		if out.Currency == "" {
 			out.Currency = unit
 		}
@@ -75,6 +76,28 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	}
 
 	return out, errors.Join(errs...)
+}
+
+// usageLineItemType marks a line item as a usage charge. Credit drawdown arrives
+// as its own negative line, typed applied_commit_or_credit.
+const usageLineItemType = "usage"
+
+// usageSpend totals the invoice's usage charges before credit drawdown, which is
+// what the provider's spend threshold notification measures. Summing the invoice
+// total instead would report zero for any account whose credit still covers it,
+// and that account can still cross its own spend warning.
+func usageSpend(inv *metronome.Invoice) (float64, bool) {
+	var total float64
+	var found bool
+	for _, li := range inv.LineItems {
+		if li.Type != usageLineItemType {
+			continue
+		}
+		amount, _ := scaleAmount(li.Total, li.CreditType)
+		total += amount
+		found = true
+	}
+	return total, found
 }
 
 // usdCentsCreditTypeID is Metronome's built-in fiat unit, in hundredths. The id
