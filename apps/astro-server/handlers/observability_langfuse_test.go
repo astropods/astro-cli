@@ -127,6 +127,7 @@ func TestLangfuseSummary_TokensFromDailyMetrics(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
+	pinV3Langfuse(t)
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
 	dailyMetrics, err := client.GetDailyMetrics(context.Background(), "dep-a", "2026-03-19T00:00:00Z", "2026-03-21T00:00:00Z")
@@ -1298,6 +1299,7 @@ func TestAccountDailyMetrics_MergesPerDateAndTracksActiveDeps(t *testing.T) {
 	}
 	srv := httptest.NewServer(batchedMetricsHandler(t, tracesRows, obsRows))
 	defer srv.Close()
+	pinV3Langfuse(t)
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
 	out, activeDeps, err := accountDailyMetrics(context.Background(), client,
@@ -1332,6 +1334,7 @@ func TestAccountDailyMetrics_TracesQueryFailFailsAll(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
+	pinV3Langfuse(t)
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
 	_, _, err := accountDailyMetrics(context.Background(), client,
@@ -1348,6 +1351,7 @@ func TestAccountDailyMetrics_NoTagsReturnsEmpty(t *testing.T) {
 		t.Fatal("expected zero HTTP calls when tag list is empty")
 	}))
 	defer srv.Close()
+	pinV3Langfuse(t)
 	client := langfuse.NewClient(srv.URL, "pk", "sk")
 
 	out, active, err := accountDailyMetrics(context.Background(), client, nil, "", "", true)

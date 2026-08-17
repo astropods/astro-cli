@@ -25,6 +25,7 @@ func metricRow(date, email string, tags []any, cost float64, tokens, count int) 
 
 func stubLangfuseMetrics(t *testing.T, rows []map[string]any) *langfuse.Client {
 	t.Helper()
+	pinV3Langfuse(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(langfuse.MetricsResponse{Data: rows})

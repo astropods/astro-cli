@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -94,7 +96,7 @@ func TestGetTraces_QueryParams(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := NewClient(srv.URL, "pk", "sk")
+			c := newV3Client(srv.URL)
 			_, err := c.GetTraces(context.Background(), tt.deploymentID, tt.startTime, tt.endTime, tt.limit, tt.offset)
 			if err != nil {
 				t.Fatalf("GetTraces returned error: %v", err)
@@ -121,7 +123,7 @@ func TestGetSessionTraces_QueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetSessionTraces(
 		context.Background(),
 		"dep-1",
@@ -154,7 +156,7 @@ func TestGetNextSessionTrace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := NewClient(srv.URL, "pk", "sk").GetNextSessionTrace(
+	got, err := newV3Client(srv.URL).GetNextSessionTrace(
 		context.Background(), "dep-1", "user-1", "session-1", "target", "2026-07-27T12:00:00Z",
 	)
 	if err != nil {
@@ -186,7 +188,7 @@ func TestGetPreviousSessionTraces(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := NewClient(srv.URL, "pk", "sk").GetPreviousSessionTraces(
+	got, err := newV3Client(srv.URL).GetPreviousSessionTraces(
 		context.Background(), "dep-1", "user-1", "session-1", "target", "2026-07-27T12:00:03Z", 2,
 	)
 	if err != nil {
@@ -207,7 +209,7 @@ func TestGetPreviousSessionTraces(t *testing.T) {
 }
 
 func TestGetNextSessionTraceOmitsIncompleteContext(t *testing.T) {
-	client := NewClient("http://unused", "pk", "sk")
+	client := newV3Client("http://unused")
 	got, err := client.GetNextSessionTrace(context.Background(), "dep-1", "", "session-1", "target", "2026-07-27T12:00:00Z")
 	if err != nil || got != nil {
 		t.Fatalf("GetNextSessionTrace = %+v, %v", got, err)
@@ -224,7 +226,7 @@ func TestGetUserTracesOrdered_QueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetUserTracesOrdered(
 		context.Background(),
 		"dep-1",
@@ -259,7 +261,7 @@ func TestGetTracesFilteredOrdered_QueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetTracesFilteredOrdered(
 		context.Background(),
 		"dep-1",
@@ -294,7 +296,7 @@ func TestGetTracesFilteredOrdered_CustomFields(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL, "pk", "sk").GetTracesFilteredOrdered(
+	_, err := newV3Client(srv.URL).GetTracesFilteredOrdered(
 		context.Background(),
 		"dep-1",
 		"",
@@ -330,7 +332,7 @@ func TestGetQueueTraces_QueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetQueueTraces(
 		context.Background(),
 		"dep-1",
@@ -391,7 +393,7 @@ func TestGetDailyMetrics_QueryParams(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := NewClient(srv.URL, "pk", "sk")
+			c := newV3Client(srv.URL)
 			_, err := c.GetDailyMetrics(context.Background(), tt.deploymentID, tt.startTime, tt.endTime)
 			if err != nil {
 				t.Fatalf("GetDailyMetrics returned error: %v", err)
@@ -417,6 +419,7 @@ func TestDoGet_BasicAuth(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, pk, sk)
+	c.reader = &v3Reader{transport: c.transport}
 	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -433,7 +436,7 @@ func TestDoGet_Non200Status(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err == nil {
 		t.Fatal("expected error for 403, got nil")
@@ -513,7 +516,7 @@ func TestDoGet_MalformedJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetTraces(context.Background(), "dep", "", "", 50, 0)
 	if err == nil {
 		t.Fatal("expected decode error, got nil")
@@ -589,7 +592,7 @@ func TestGetDailyMetrics_Pagination(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	metrics, err := c.GetDailyMetrics(context.Background(), "", "", "")
 	if err != nil {
 		t.Fatalf("GetDailyMetrics returned error: %v", err)
@@ -624,7 +627,7 @@ func TestGetDailyMetrics_SinglePage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	metrics, err := c.GetDailyMetrics(context.Background(), "dep-1", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -664,7 +667,7 @@ func TestGetTrace_TwoParallelRequests(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	got, err := c.GetTrace(context.Background(), "trace-abc")
 	if err != nil {
 		t.Fatalf("GetTrace returned error: %v", err)
@@ -711,7 +714,7 @@ func TestGetTrace_ErrNotFoundPreferredOverContextCanceled(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetTrace(context.Background(), "trace-abc")
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
@@ -729,7 +732,7 @@ func TestGetTraceCore_SendsFieldsCore(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	got, err := c.GetTraceCore(context.Background(), "trace-abc")
 	if err != nil {
 		t.Fatalf("GetTraceCore returned error: %v", err)
@@ -760,7 +763,7 @@ func TestGetObservation_PathAndResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	got, err := c.GetObservation(context.Background(), "obs-1")
 	if err != nil {
 		t.Fatalf("GetObservation returned error: %v", err)
@@ -783,7 +786,7 @@ func TestGetObservation_404IsErrNotFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL, "pk", "sk")
+	c := newV3Client(srv.URL)
 	_, err := c.GetObservation(context.Background(), "missing")
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
@@ -791,6 +794,533 @@ func TestGetObservation_404IsErrNotFound(t *testing.T) {
 	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("error %q should mention not found", err)
 	}
+}
+
+// ============================================================================
+// v4Reader — the v4 read path speaks a different wire contract to v3, so it
+// gets its own assertions rather than sharing the v3 cases above.
+// ============================================================================
+
+// decodeFilters unpacks the JSON filter= array the v4 endpoints take in place
+// of v3's dedicated query params.
+func decodeFilters(t *testing.T, query url.Values) []TraceFilter {
+	t.Helper()
+	raw := query.Get("filter")
+	if raw == "" {
+		t.Fatal("filter param not set")
+	}
+	var got []TraceFilter
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal filter %q: %v", raw, err)
+	}
+	return got
+}
+
+func findFilter(filters []TraceFilter, column string) *TraceFilter {
+	for i, f := range filters {
+		if f.Column == column {
+			return &filters[i]
+		}
+	}
+	return nil
+}
+
+func assertFilter(t *testing.T, filters []TraceFilter, column string, want []string) {
+	t.Helper()
+	f := findFilter(filters, column)
+	if f == nil {
+		t.Errorf("filter on %q not set, want %v", column, want)
+		return
+	}
+	vals, ok := f.Value.([]any)
+	if !ok {
+		t.Errorf("filter %q value = %#v, want a list", column, f.Value)
+		return
+	}
+	if len(vals) != len(want) {
+		t.Errorf("filter %q = %v, want %v", column, vals, want)
+		return
+	}
+	for i, v := range vals {
+		if v != want[i] {
+			t.Errorf("filter %q[%d] = %v, want %v", column, i, v, want[i])
+		}
+	}
+}
+
+func TestV4GetTraces_UsesFilterArrayNotV3Params(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.Query()
+		_ = json.NewEncoder(w).Encode(observationsV2Response{})
+	}))
+	defer srv.Close()
+
+	_, err := newV4Client(srv.URL).GetUserTracesOrdered(
+		context.Background(), "dep-1", "user-1",
+		"2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", 25, 0, "",
+	)
+	if err != nil {
+		t.Fatalf("GetUserTracesOrdered: %v", err)
+	}
+
+	if gotPath != "/api/public/v2/observations" {
+		t.Errorf("path = %q, want /api/public/v2/observations", gotPath)
+	}
+	filters := decodeFilters(t, gotQuery)
+	assertFilter(t, filters, "tags", []string{"deployment:dep-1"})
+	assertFilter(t, filters, "userId", []string{"user-1"})
+
+	assertParam(t, gotQuery, "isRootObservation", "true")
+	assertParam(t, gotQuery, "fromStartTime", "2026-01-01T00:00:00Z")
+	assertParam(t, gotQuery, "toStartTime", "2026-01-02T00:00:00Z")
+	assertParam(t, gotQuery, "limit", "25")
+
+	// v2/observations silently ignores these rather than erroring, so sending
+	// them instead of the filter array would leak other deployments' traces.
+	for _, stale := range []string{"tags", "userId", "fromTimestamp", "toTimestamp", "page"} {
+		assertParam(t, gotQuery, stale, "")
+	}
+}
+
+func TestV4GetTraces_FieldsRequestIOOnlyWhenAsked(t *testing.T) {
+	tests := []struct {
+		name      string
+		v3Fields  string
+		wantField string
+	}{
+		{"metrics only omits io", "core,metrics", "basic"},
+		{"io requested adds io", "core,io", "basic,io"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotQuery url.Values
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.Query()
+				_ = json.NewEncoder(w).Encode(observationsV2Response{})
+			}))
+			defer srv.Close()
+
+			_, err := newV4Client(srv.URL).GetTracesFilteredOrdered(
+				context.Background(), "dep-1", "", "", nil, tt.v3Fields, 10, 0, "",
+			)
+			if err != nil {
+				t.Fatalf("GetTracesFilteredOrdered: %v", err)
+			}
+			assertParam(t, gotQuery, "fields", tt.wantField)
+		})
+	}
+}
+
+func TestV4GetTraces_SortsClientSide(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "middle", StartTime: "2026-07-27T12:00:01Z"},
+			{ID: "oldest", StartTime: "2026-07-27T12:00:00Z"},
+			{ID: "newest", StartTime: "2026-07-27T12:00:02Z"},
+		}})
+	}))
+	defer srv.Close()
+
+	// v2/observations accepts orderBy and ignores it, so the reader has to
+	// impose the caller's order itself.
+	for _, tt := range []struct {
+		orderBy string
+		want    []string
+	}{
+		{"timestamp.desc", []string{"newest", "middle", "oldest"}},
+		{"timestamp.asc", []string{"oldest", "middle", "newest"}},
+	} {
+		t.Run(tt.orderBy, func(t *testing.T) {
+			got, err := newV4Client(srv.URL).GetTracesOrdered(
+				context.Background(), "dep-1", "", "", 10, 0, tt.orderBy,
+			)
+			if err != nil {
+				t.Fatalf("GetTracesOrdered: %v", err)
+			}
+			if len(got.Data) != len(tt.want) {
+				t.Fatalf("got %d traces, want %d", len(got.Data), len(tt.want))
+			}
+			for i, id := range tt.want {
+				if got.Data[i].ID != id {
+					t.Errorf("Data[%d].ID = %q, want %q", i, got.Data[i].ID, id)
+				}
+			}
+		})
+	}
+}
+
+func TestV4GetTraces_WalksCursorForOffset(t *testing.T) {
+	var cursors []string
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		cursors = append(cursors, r.URL.Query().Get("cursor"))
+		_ = json.NewEncoder(w).Encode(observationsV2Response{
+			Data: []ObservationV2{{ID: fmt.Sprintf("obs-%d", calls)}},
+			Meta: struct {
+				Cursor string `json:"cursor"`
+			}{Cursor: fmt.Sprintf("cursor-%d", calls)},
+		})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTraces(context.Background(), "dep-1", "", "", 10, 20)
+	if err != nil {
+		t.Fatalf("GetTraces: %v", err)
+	}
+	// offset 20 / limit 10 = two walk requests, then the real page.
+	if calls != 3 {
+		t.Errorf("HTTP calls = %d, want 3", calls)
+	}
+	if want := []string{"", "cursor-1", "cursor-2"}; !equalStrings(cursors, want) {
+		t.Errorf("cursors = %v, want %v", cursors, want)
+	}
+	if len(got.Data) != 1 || got.Data[0].ID != "obs-3" {
+		t.Errorf("Data = %+v, want the third page", got.Data)
+	}
+}
+
+func TestV4GetTraces_OffsetPastEndReturnsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{ID: "obs-1"}}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTraces(context.Background(), "dep-1", "", "", 10, 100)
+	if err != nil {
+		t.Fatalf("GetTraces: %v", err)
+	}
+	if len(got.Data) != 0 {
+		t.Errorf("Data = %+v, want empty", got.Data)
+	}
+}
+
+func TestV4GetObservation_FiltersByIDAndRequestsIO(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.Query()
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{
+			ID: "obs-1", TraceID: "trace-1", Type: "GENERATION", Name: "llm-call",
+			Latency: 1.5, Input: "hello", Output: "world",
+		}}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetObservation(context.Background(), "obs-1")
+	if err != nil {
+		t.Fatalf("GetObservation: %v", err)
+	}
+
+	if gotPath != "/api/public/v2/observations" {
+		t.Errorf("path = %q, want /api/public/v2/observations", gotPath)
+	}
+	assertFilter(t, decodeFilters(t, gotQuery), "id", []string{"obs-1"})
+	assertParam(t, gotQuery, "fields", "basic,io")
+	if got.ID != "obs-1" || got.TraceID != "trace-1" || got.Output != "world" {
+		t.Errorf("Observation = %+v", got)
+	}
+}
+
+func TestV4EmptyDataIsErrNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(observationsV2Response{})
+	}))
+	defer srv.Close()
+
+	c := newV4Client(srv.URL)
+	// v2/observations answers a miss with 200 and an empty list, not 404, so
+	// each read has to map that to ErrNotFound itself.
+	tests := map[string]func() error{
+		"GetObservation": func() error { _, err := c.GetObservation(context.Background(), "missing"); return err },
+		"GetTraceCore":   func() error { _, err := c.GetTraceCore(context.Background(), "missing"); return err },
+		"GetTrace":       func() error { _, err := c.GetTrace(context.Background(), "missing"); return err },
+	}
+	for name, call := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := call(); !errors.Is(err, ErrNotFound) {
+				t.Errorf("err = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
+func TestV4GetTrace_MergesSpansAndScores(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/public/v3/scores" {
+			if got := r.URL.Query().Get("traceId"); got != "trace-1" {
+				t.Errorf("scores traceId = %q, want trace-1", got)
+			}
+			_ = json.NewEncoder(w).Encode(v3ScoresResponse{Data: []Score{{ID: "score-1", Name: "quality", Value: 0.9}}})
+			return
+		}
+		filters := decodeFilters(t, r.URL.Query())
+		if findFilter(filters, "traceId") != nil {
+			_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+				{ID: "root", TraceID: "trace-1", Name: "agent-run"},
+				{ID: "child", TraceID: "trace-1", ParentObsID: "root", Type: "GENERATION", Name: "llm-call"},
+			}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "root", TraceID: "trace-1", Name: "agent-run", UserID: "user-1", Input: "hi", Output: "there"},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTrace(context.Background(), "root")
+	if err != nil {
+		t.Fatalf("GetTrace: %v", err)
+	}
+	if got.ID != "root" || got.UserID != "user-1" || got.Output != "there" {
+		t.Errorf("trace = %+v", got.Trace)
+	}
+	// The root is the trace itself, so it must not also appear as its own span.
+	if len(got.Observations) != 1 || got.Observations[0].ID != "child" {
+		t.Errorf("Observations = %+v, want only the child span", got.Observations)
+	}
+	if len(got.Scores) != 1 || got.Scores[0].Name != "quality" {
+		t.Errorf("Scores = %+v", got.Scores)
+	}
+}
+
+func TestV4GetMetrics_RewritesTracesView(t *testing.T) {
+	tests := []struct {
+		name         string
+		metrics      []MetricsQueryField
+		wantRootOnly bool
+	}{
+		{
+			name:         "count-family measures scope to root observations",
+			metrics:      []MetricsQueryField{{Measure: "count", Aggregation: "count"}},
+			wantRootOnly: true,
+		},
+		{
+			// Root-scoping zeroes these out: usage lives on child spans.
+			name:         "cost measures stay unfiltered",
+			metrics:      []MetricsQueryField{{Measure: "totalCost", Aggregation: "sum"}},
+			wantRootOnly: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath string
+			var gotQuery url.Values
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotQuery = r.URL.Path, r.URL.Query()
+				_ = json.NewEncoder(w).Encode(MetricsResponse{})
+			}))
+			defer srv.Close()
+
+			_, err := newV4Client(srv.URL).GetMetrics(context.Background(), MetricsQuery{
+				View: "traces", Metrics: tt.metrics,
+			})
+			if err != nil {
+				t.Fatalf("GetMetrics: %v", err)
+			}
+
+			if gotPath != "/api/public/v2/metrics" {
+				t.Errorf("path = %q, want /api/public/v2/metrics", gotPath)
+			}
+			var sent MetricsQuery
+			if err := json.Unmarshal([]byte(gotQuery.Get("query")), &sent); err != nil {
+				t.Fatalf("unmarshal query: %v", err)
+			}
+			// v4 removed view:"traces" entirely.
+			if sent.View != "observations" {
+				t.Errorf("view = %q, want observations", sent.View)
+			}
+			var hasRootFilter bool
+			for _, f := range sent.Filters {
+				if f.Column == "isRootObservation" {
+					hasRootFilter = true
+				}
+			}
+			if hasRootFilter != tt.wantRootOnly {
+				t.Errorf("isRootObservation filter present = %v, want %v", hasRootFilter, tt.wantRootOnly)
+			}
+		})
+	}
+}
+
+func TestV4GetMetrics_AutoFillsHighCardinalityGrouping(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(MetricsResponse{})
+	}))
+	defer srv.Close()
+
+	_, err := newV4Client(srv.URL).GetMetrics(context.Background(), MetricsQuery{
+		View:       "observations",
+		Metrics:    []MetricsQueryField{{Measure: "totalCost", Aggregation: "sum"}},
+		Dimensions: []MetricsDimension{{Field: "userId"}},
+	})
+	if err != nil {
+		t.Fatalf("GetMetrics: %v", err)
+	}
+
+	var sent MetricsQuery
+	if err := json.Unmarshal([]byte(gotQuery.Get("query")), &sent); err != nil {
+		t.Fatalf("unmarshal query: %v", err)
+	}
+	// v4 rejects a userId grouping unless both are supplied.
+	if len(sent.OrderBy) != 1 || sent.OrderBy[0].Field != "sum_totalCost" || sent.OrderBy[0].Direction != "desc" {
+		t.Errorf("OrderBy = %+v, want sum_totalCost desc", sent.OrderBy)
+	}
+	if sent.Config == nil || sent.Config.RowLimit != defaultHighCardinalityRowLimit {
+		t.Errorf("Config = %+v, want row_limit %d", sent.Config, defaultHighCardinalityRowLimit)
+	}
+}
+
+func TestV4GetMetrics_KeepsCallerOrderAndLimit(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(MetricsResponse{})
+	}))
+	defer srv.Close()
+
+	_, err := newV4Client(srv.URL).GetMetrics(context.Background(), MetricsQuery{
+		View:       "observations",
+		Metrics:    []MetricsQueryField{{Measure: "totalCost", Aggregation: "sum"}},
+		Dimensions: []MetricsDimension{{Field: "userId"}},
+		OrderBy:    []MetricsOrderBy{{Field: "sum_totalCost", Direction: "asc"}},
+		Config:     &MetricsConfig{RowLimit: 10},
+	})
+	if err != nil {
+		t.Fatalf("GetMetrics: %v", err)
+	}
+
+	var sent MetricsQuery
+	if err := json.Unmarshal([]byte(gotQuery.Get("query")), &sent); err != nil {
+		t.Fatalf("unmarshal query: %v", err)
+	}
+	if sent.OrderBy[0].Direction != "asc" || sent.Config.RowLimit != 10 {
+		t.Errorf("caller order/limit overridden: OrderBy = %+v, Config = %+v", sent.OrderBy, sent.Config)
+	}
+}
+
+func TestV4GetDailyMetrics_MergesCountAndUsageByDate(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+
+		var sent MetricsQuery
+		if err := json.Unmarshal([]byte(r.URL.Query().Get("query")), &sent); err != nil {
+			t.Errorf("unmarshal query: %v", err)
+			return
+		}
+		if len(sent.Dimensions) == 0 {
+			_ = json.NewEncoder(w).Encode(MetricsResponse{Data: []map[string]any{
+				{"time_dimension": "2026-03-02", "count_count": float64(5)},
+				{"time_dimension": "2026-03-01", "count_count": float64(2)},
+			}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(MetricsResponse{Data: []map[string]any{
+			{"time_dimension": "2026-03-01", "providedModelName": "gpt-4o-mini",
+				"sum_inputTokens": float64(100), "sum_outputTokens": float64(50),
+				"sum_totalTokens": float64(150), "sum_totalCost": 0.25},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetDailyMetrics(context.Background(), "dep-1", "2026-03-01T00:00:00Z", "2026-03-03T00:00:00Z")
+	if err != nil {
+		t.Fatalf("GetDailyMetrics: %v", err)
+	}
+
+	if len(paths) != 2 {
+		t.Errorf("HTTP calls = %d, want 2", len(paths))
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d days, want 2: %+v", len(got), got)
+	}
+	if got[0].Date != "2026-03-01" || got[1].Date != "2026-03-02" {
+		t.Errorf("dates = %q, %q, want ascending", got[0].Date, got[1].Date)
+	}
+	if got[0].CountTraces != 2 || got[0].TotalCost != 0.25 {
+		t.Errorf("day one = %+v", got[0])
+	}
+	if got[0].InputTokens() != 100 || got[0].OutputTokens() != 50 {
+		t.Errorf("day one tokens = %d in, %d out", got[0].InputTokens(), got[0].OutputTokens())
+	}
+	if got[1].CountTraces != 5 || len(got[1].Usage) != 0 {
+		t.Errorf("day two = %+v, want count only", got[1])
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// newV3Client and newV4Client pin the read path under test. NewClient selects
+// its reader from LANGFUSE_USE_V4_API, and the two readers speak deliberately
+// different wire contracts, so a query-shape assertion reached through
+// NewClient would assert one version's shape against whichever reader the
+// ambient environment happened to select.
+func newV3Client(baseURL string) *Client {
+	c := NewClient(baseURL, "pk", "sk")
+	c.reader = &v3Reader{transport: c.transport}
+	return c
+}
+
+func newV4Client(baseURL string) *Client {
+	c := NewClient(baseURL, "pk", "sk")
+	c.reader = &v4Reader{transport: c.transport}
+	return c
+}
+
+func TestNewClient_SelectsReaderFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want traceReader
+	}{
+		{"empty defaults to v4", "", &v4Reader{}},
+		{"true", "true", &v4Reader{}},
+		{"1", "1", &v4Reader{}},
+		{"false opts out", "false", &v3Reader{}},
+		{"0 opts out", "0", &v3Reader{}},
+		{"FALSE opts out", "FALSE", &v3Reader{}},
+		// A legacy-mode environment opts out explicitly, so an unparseable
+		// value must not be what silently decides the read path for it.
+		{"unparseable defaults to v4", "yes-please", &v4Reader{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("LANGFUSE_USE_V4_API", tt.env)
+			got := NewClient("http://unused", "pk", "sk").reader
+			if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", tt.want) {
+				t.Errorf("reader = %T, want %T", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("absent defaults to v4", func(t *testing.T) {
+		t.Setenv("LANGFUSE_USE_V4_API", "") // registers the cleanup that restores it
+		os.Unsetenv("LANGFUSE_USE_V4_API")
+		if got := NewClient("http://unused", "pk", "sk").reader; fmt.Sprintf("%T", got) != "*langfuse.v4Reader" {
+			t.Errorf("reader = %T, want *langfuse.v4Reader", got)
+		}
+	})
 }
 
 func assertParam(t *testing.T, query map[string][]string, key, want string) {

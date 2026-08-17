@@ -166,6 +166,15 @@ type traceDetailFixture struct {
 // newLangfuseFixture wires up the shared infrastructure for observability handler
 // tests: upstream Langfuse stub, three sqlmock DBs, stores, logger, and config.
 // Callers register their specific route on f.router before making requests.
+// pinV3Langfuse points the handler under test at Langfuse's v3 read path. The
+// httptest upstreams in this package answer v3's wire contract (page numbers,
+// tags=/fromTimestamp= params, traces with embedded observations), while
+// langfuse.NewClient reads v4 by default.
+func pinV3Langfuse(t *testing.T) {
+	t.Helper()
+	t.Setenv("LANGFUSE_USE_V4_API", "false")
+}
+
 func newLangfuseFixture(t *testing.T, withUser bool, upstreamHandler http.HandlerFunc) (
 	f *traceDetailFixture,
 	log *logger.Logger,
@@ -175,6 +184,7 @@ func newLangfuseFixture(t *testing.T, withUser bool, upstreamHandler http.Handle
 	langfuseStore *langfuse.Store,
 ) {
 	t.Helper()
+	pinV3Langfuse(t)
 	gin.SetMode(gin.TestMode)
 
 	upstream := httptest.NewServer(upstreamHandler)

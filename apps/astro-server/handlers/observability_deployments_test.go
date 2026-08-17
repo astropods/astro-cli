@@ -547,6 +547,7 @@ func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 
 func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	pinV3Langfuse(t)
 
 	langfuseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
