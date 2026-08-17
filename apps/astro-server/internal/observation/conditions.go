@@ -93,6 +93,24 @@ type Condition struct {
 	// return is treated the same. value is the query result for the worst pod of
 	// the workload.
 	DetailsFor func(value float64) string
+	// Disabled keeps a rule in the catalog but out of ActiveConditions, so it is
+	// neither evaluated nor listed for users. Use it to retire a rule whose query
+	// and copy are worth keeping for a later revision, rather than deleting them.
+	Disabled bool
+}
+
+// ActiveConditions is the subset of Conditions the evaluator runs and the UI
+// lists. Read this, not Conditions, anywhere a rule's behavior or visibility is
+// at stake; read Conditions only to resolve a stored condition name to its title
+// and severity, which must still work for a disabled rule's leftover rows.
+func ActiveConditions() []Condition {
+	active := make([]Condition, 0, len(Conditions))
+	for _, c := range Conditions {
+		if !c.Disabled {
+			active = append(active, c)
+		}
+	}
+	return active
 }
 
 // overProvisionedDetail builds the detail formatter for an over-provisioned
@@ -139,11 +157,12 @@ func computeThrottleDetail(ratio float64) string {
 	return fmt.Sprintf("It spent %d%% of the time waiting for CPU.", int(math.Round(ratio*100)))
 }
 
-// Conditions is the evaluated rule set. The PromQL below targets kube-state-
-// metrics + cAdvisor series, aggregated `by (namespace, pod)`; the evaluator
-// maps each breaching pod to its deployment + workload in code, so the queries
-// carry no tenant-namespace assumptions. The exact metric/label names may need
-// tuning against the deployed exporters.
+// Conditions is the full rule catalog, including rules marked Disabled; see
+// ActiveConditions for the set that is evaluated. The PromQL below targets
+// kube-state-metrics + cAdvisor series, aggregated `by (namespace, pod)`; the
+// evaluator maps each breaching pod to its deployment + workload in code, so the
+// queries carry no tenant-namespace assumptions. The exact metric/label names may
+// need tuning against the deployed exporters.
 //
 // error_spike/latency (Langfuse-sourced) are intentionally absent — those
 // metrics are not in VictoriaMetrics yet.
@@ -234,6 +253,9 @@ var Conditions = []Condition{
 		// down. Using a P95 over 5m rate samples (not a 1h average) so bursty
 		// agents aren't flagged for headroom they actually need at peak. Only
 		// pods with a CPU request are evaluated (the join drops the rest).
+		// Disabled: a fixed utilization floor reads an idle agent as waste, so the
+		// rule fires on healthy deployments that have nothing to fix.
+		Disabled:    true,
 		Name:        "cpu_over_provisioned",
 		Title:       "Unused CPU",
 		Description: "The agent uses far less CPU than you reserved for it.",
@@ -247,6 +269,8 @@ var Conditions = []Condition{
 	{
 		// Memory over-provisioned: working set stays far below the request over a
 		// long window — the reservation is wasted, right-size it down.
+		// Disabled for the same reason as cpu_over_provisioned.
+		Disabled:    true,
 		Name:        "memory_over_provisioned",
 		Title:       "Unused memory",
 		Description: "The agent uses far less memory than you reserved for it.",

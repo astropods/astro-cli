@@ -293,8 +293,39 @@ func TestEvaluateMuteSuppressesThenFiresAfterExpiry(t *testing.T) {
 	}
 }
 
+// A disabled condition stays in the catalog (so stored rows still resolve a
+// title) but is never evaluated or listed.
+func TestActiveConditionsExcludesDisabled(t *testing.T) {
+	active := ActiveConditions()
+	if len(active) >= len(Conditions) {
+		t.Fatalf("want fewer active than catalog conditions, got %d of %d", len(active), len(Conditions))
+	}
+	for _, c := range active {
+		if c.Disabled {
+			t.Fatalf("condition %q is disabled but active", c.Name)
+		}
+	}
+	for _, name := range []string{"cpu_over_provisioned", "memory_over_provisioned"} {
+		if !catalogHas(Conditions, name) {
+			t.Fatalf("condition %q should remain in the catalog", name)
+		}
+		if catalogHas(active, name) {
+			t.Fatalf("condition %q should not be active", name)
+		}
+	}
+}
+
+func catalogHas(conds []Condition, name string) bool {
+	for _, c := range conds {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Sweep routes each condition to its engine's querier and skips conditions whose
-// engine is not wired. All shipped Conditions are PromQL, so wiring only a
+// engine is not wired. All active Conditions are PromQL, so wiring only a
 // Langfuse engine must emit nothing.
 func TestSweepSkipsConditionsWithUnwiredEngine(t *testing.T) {
 	var emitted []notify.Event

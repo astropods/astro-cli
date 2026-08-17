@@ -76,8 +76,8 @@ func NewEvaluator(engines map[Engine]Querier, deploys deployments, state stateSt
 // entKey is the per-(deployment, workload) tracking key.
 func entKey(deploymentID, workload string) string { return deploymentID + "\x00" + workload }
 
-// Sweep evaluates every condition once, routing each to the querier for its
-// engine. A condition whose engine is not wired (e.g. Langfuse before it is
+// Sweep evaluates every active condition once, routing each to the querier for
+// its engine. A condition whose engine is not wired (e.g. Langfuse before it is
 // configured) is skipped. A per-condition failure is logged and the sweep
 // continues; it returns nil so one flaky query doesn't fail the job.
 func (e *Evaluator) Sweep(ctx context.Context) error {
@@ -85,7 +85,7 @@ func (e *Evaluator) Sweep(ctx context.Context) error {
 		return nil
 	}
 	now := time.Now()
-	for _, c := range Conditions {
+	for _, c := range ActiveConditions() {
 		q, ok := e.engines[c.Engine]
 		if !ok {
 			continue

@@ -35,7 +35,7 @@ The **Example message** column is a representative rendering composed from the p
 | `security.key_changed` (`revoked`) † | OTel ingest token revoked (`handlers/otel_ingest_tokens.go`) | managers | `{"keyKind": "ingestion", "keyName": "prod-collector", "action": "revoked", "ctaUrl": "/settings/api-keys"}` | **{keyKind} key revoked** — The {keyKind} key "**{keyName}**" was revoked. → Manage API keys |
 | `observation.critical` | Failing-agent condition fires — crash loop, OOM, unschedulable (`observation/evaluator.go`) | members | `{"agent": "chatbot", "reason": "Out of memory", "details": "The agent used more memory than its limit allows, so it stopped. Raise the memory limit to keep it running.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is failing** — {reason}. {details} → View deployments |
 | `observation.warning` | Degraded-agent condition fires — frequent restarts, near memory limit, slowed by CPU limit, error/latency spike | members | `{"agent": "chatbot", "reason": "Frequent restarts (model-x)", "details": "The agent keeps restarting, which interrupts any request it is handling. It restarted 7 times in the last 5 minutes. Check the agent's logs for the cause.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is degraded** — {reason}. {details} → View deployments |
-| `observation.info` | Over-provisioning condition fires — `cpu_over_provisioned`, `memory_over_provisioned` (usage far below the reservation) | members | `{"agent": "chatbot", "reason": "Unused CPU", "details": "The agent uses far less CPU than you reserved for it. At its busiest it used 18% of the reserved CPU. You can lower the reserved CPU to cut cost.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is over-provisioned** — {reason}. {details} → View deployments |
+| `observation.info` | Over-provisioning condition fires — `cpu_over_provisioned`, `memory_over_provisioned` (usage far below the reservation). Both conditions are disabled, so nothing emits this today | members | `{"agent": "chatbot", "reason": "Unused CPU", "details": "The agent uses far less CPU than you reserved for it. At its busiest it used 18% of the reserved CPU. You can lower the reserved CPU to cut cost.", "ctaUrl": "/acme/agents/dep_123/deployments"}` | **{agent} is over-provisioned** — {reason}. {details} → View deployments |
 
 **The two spend controls are separate workflows on purpose.** They fire on the
 same provider alert type at different amounts, told apart by the alert name. The
@@ -102,8 +102,8 @@ Copy follows the house rule of no em dashes, so neither field contains one. All 
 | Frequent restarts | The agent keeps restarting, which interrupts any request it is handling. Check the agent's logs for the cause. | `restart_storm` | `observation.warning` | >5 restarts in a 5m window | on detect |
 | Near memory limit | The agent is close to its memory limit, which will stop it if it goes over. Raise the memory limit to give it room. | `memory_over_budget` | `observation.warning` | Working set >90% of the memory limit | 10m |
 | Slowed by CPU limit | The agent keeps hitting its CPU limit, which slows it down. Raise the CPU limit to speed it up. | `compute_over_budget` | `observation.warning` | CPU CFS-throttled >50% of periods | 10m |
-| Unused CPU | The agent uses far less CPU than you reserved for it. | `cpu_over_provisioned` | `observation.info` | P95 peak CPU <40% of the reservation | 6h |
-| Unused memory | The agent uses far less memory than you reserved for it. | `memory_over_provisioned` | `observation.info` | Working set <50% of the reservation | 6h |
+| Unused CPU *(disabled)* | The agent uses far less CPU than you reserved for it. | `cpu_over_provisioned` | `observation.info` | P95 peak CPU <40% of the reservation | 6h |
+| Unused memory *(disabled)* | The agent uses far less memory than you reserved for it. | `memory_over_provisioned` | `observation.info` | Working set <50% of the reservation | 6h |
 
 The five conditions with a `DetailsFor` formatter insert one more sentence between the description and the guidance:
 
@@ -116,6 +116,8 @@ The five conditions with a `DetailsFor` formatter insert one more sentence betwe
 | `memory_over_provisioned` | At its busiest it used 43% of the reserved memory. |
 
 The over-provisioned pair quotes the peak as a share of the reservation and stops there. It does not name a smaller reservation: the alert knows the ratio, not the configured value, so any target it named would leave the reader to multiply. Sizing belongs on the deployment page, which the CTA opens.
+
+**Disabled** — `cpu_over_provisioned` and `memory_over_provisioned` stay in the condition catalog but are marked `Disabled`, so nothing emits `observation.info` today. A fixed utilization floor reads an idle agent as waste, so both fired on healthy deployments with nothing to fix.
 
 **Planned (not yet emitted)** — awaiting their query engine/source, so no `reason` ships for them today: `error_spike` and `latency_high` (Langfuse engine, unwired) and `storage_near_full` (messaging sidecar). All three are `warning` → `observation.warning` per the spec.
 

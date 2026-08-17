@@ -24,13 +24,13 @@ type DeploymentAlertItem struct {
 	ActiveSince *string `json:"activeSince"` // RFC3339; set while pending/firing
 }
 
-// DeploymentAlertsResponse is the full observation alert catalog plus each
+// DeploymentAlertsResponse is the active observation alert catalog plus each
 // alert's current state for one deployment.
 type DeploymentAlertsResponse struct {
 	Alerts []DeploymentAlertItem `json:"alerts"`
 }
 
-// GetDeploymentAlerts lists every configured observation condition and its
+// GetDeploymentAlerts lists every active observation condition and its
 // current state for a deployment: "ok" (not breaching), "pending" (breaching
 // but the sustained `for` window hasn't elapsed, so no alert sent), or "firing"
 // (alert emitted). The evaluator keys firing state by the latest deployment id
@@ -70,8 +70,9 @@ func GetDeploymentAlerts(log *logger.Logger, accountStore *account.AccountStore,
 			}
 		}
 
-		resp := DeploymentAlertsResponse{Alerts: make([]DeploymentAlertItem, 0, len(observation.Conditions))}
-		for _, cond := range observation.Conditions {
+		active := observation.ActiveConditions()
+		resp := DeploymentAlertsResponse{Alerts: make([]DeploymentAlertItem, 0, len(active))}
+		for _, cond := range active {
 			item := DeploymentAlertItem{
 				Name:        cond.Name,
 				Title:       cond.Title,

@@ -15,6 +15,9 @@ type condMeta struct {
 	severity string
 }
 
+// catalogByName spans the full catalog, disabled rules included, so a leftover
+// state or mute row for a disabled rule still resolves to a title and severity
+// instead of rendering blank.
 func catalogByName() map[string]condMeta {
 	m := make(map[string]condMeta, len(observation.Conditions))
 	for _, c := range observation.Conditions {
@@ -23,15 +26,16 @@ func catalogByName() map[string]condMeta {
 	return m
 }
 
-// ListAlerts returns the fixed observation-alert catalog plus every currently
+// ListAlerts returns the active observation-alert catalog plus every currently
 // tracked breach across all deployments, enriched with deployment/account
 // identity and mute state. Mutes with no active breach are surfaced too (state
 // "ok", muted=true) so an admin can still see and lift them.
 func (s *Server) ListAlerts(ctx context.Context, _ *adminv1.ListAlertsRequest) (*adminv1.ListAlertsResponse, error) {
 	now := time.Now()
 
-	catalog := make([]*adminv1.AlertCondition, 0, len(observation.Conditions))
-	for _, c := range observation.Conditions {
+	activeConds := observation.ActiveConditions()
+	catalog := make([]*adminv1.AlertCondition, 0, len(activeConds))
+	for _, c := range activeConds {
 		catalog = append(catalog, &adminv1.AlertCondition{
 			Name:        c.Name,
 			Title:       c.Title,
