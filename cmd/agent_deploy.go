@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -364,6 +365,12 @@ func apiErrorCodeAndBody(err error) (code, body string) {
 	if err == nil {
 		return "", ""
 	}
+	// A typed error carries the body already parsed, so the text split below is
+	// only for an error that did not come from the API helpers.
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		return errorCodeFromBody(apiErr.Body), apiErr.Body
+	}
 	msg := err.Error()
 	idx := strings.Index(msg, ": ")
 	if idx == -1 {
@@ -371,13 +378,19 @@ func apiErrorCodeAndBody(err error) (code, body string) {
 	} else {
 		body = msg[idx+2:]
 	}
+	return errorCodeFromBody(body), body
+}
+
+// errorCodeFromBody reads the typed error_code the deployment-template endpoint
+// tags its 404s with. An empty result means the server is too old to send one.
+func errorCodeFromBody(body string) string {
 	var parsed struct {
 		ErrorCode string `json:"error_code"`
 	}
-	if jerr := json.Unmarshal([]byte(body), &parsed); jerr == nil {
-		code = parsed.ErrorCode
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return ""
 	}
-	return code, body
+	return parsed.ErrorCode
 }
 
 // patchTemplateDisplayName sets target.display_name in the deployment template JSON.
