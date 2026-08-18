@@ -615,6 +615,24 @@ describe("startup failure diagnostics", () => {
     expect(screen.queryByText("No logs in this time window")).not.toBeInTheDocument();
   });
 
+  it("names the failing container in the banner header, without the Action required prefix (#1675, #1952)", async () => {
+    server.use(
+      http.get("/api/v1/deployments/:id/status", () =>
+        HttpResponse.json({
+          value: "error",
+          reason: "failed",
+          details: "Deployment failed",
+          failed_on: [
+            { workload: "agent-abc", component: "agent", phase: "failed", title: "Action required: Image pull failed", guidance: "Push a new build." },
+          ],
+        }),
+      ),
+    );
+    renderDeployments();
+    expect(await screen.findByText("Image pull failed for the agent container")).toBeInTheDocument();
+    expect(screen.queryByText(/Action required/)).not.toBeInTheDocument();
+  });
+
   it("does not open a pod panel when no workloads are errored", async () => {
     server.use(
       http.get("/api/v1/deployments/:id/status", () =>

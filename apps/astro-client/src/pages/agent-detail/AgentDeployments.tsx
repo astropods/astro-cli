@@ -75,6 +75,12 @@ export default function AgentDeployments() {
   const suspended = isBillingSuspendedStatus(statusData);
   const hasFailed = statusData?.value === "error";
   const failure = hasFailed ? statusData?.failed_on?.[0] ?? null : null;
+  // Fold the failing workload into the header and drop the "Action required"
+  // prefix (the yellow banner already implies urgency), so the banner points at
+  // the component to fix in one line rather than a separate row (#1952).
+  const failingComponent = failure?.component || failure?.workload;
+  const bannerTitle = ((failure?.title ?? "Deployment failed").replace(/^action required:\s*/i, "")) +
+    (failingComponent ? ` for the ${failingComponent} container` : "");
   // While a deploy is in flight (or its status hasn't resolved yet) the record's
   // workloads can be empty; show a deploying state rather than "No active pods"
   // so the page never looks blank mid-deploy (#1876).
@@ -248,7 +254,7 @@ export default function AgentDeployments() {
         <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-24">
           <ActionPanel
             tone="warning"
-            title={failure?.title ?? "Deployment failed"}
+            title={bannerTitle}
             primaryLabel={lastGood ? "Rollback" : "Pause"}
             onPrimary={lastGood ? rollBack : pauseDeploy}
             secondaryLabel={failure ? "Copy fix prompt" : undefined}

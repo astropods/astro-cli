@@ -77,7 +77,7 @@ test("a failed deploy names the specific cause from its failure reason", async (
   await routeJson(page, STATUS_ROUTE, failedStatus());
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
+  await expect(page.getByText("Deployment stuck for the agent container")).toBeVisible();
   await expect(page.getByText(/requests more CPU\/memory than any node/)).toBeVisible();
 
   // The specific-cause variant offers a Copy fix prompt that seeds Claude Code.
@@ -90,7 +90,7 @@ test("a failed deploy with no earlier good version offers Pause as the primary a
   await routeJson(page, STATUS_ROUTE, failedStatus());
   await page.goto(DEPLOYMENTS, { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByText("Action required: Deployment stuck")).toBeVisible();
+  await expect(page.getByText("Deployment stuck for the agent container")).toBeVisible();
   await expect(page.getByRole("link", { name: "docs", exact: true })).toBeVisible();
 
   // With no earlier good version (the default fixture has one revision), the
