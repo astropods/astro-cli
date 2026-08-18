@@ -19,6 +19,16 @@ type stripeEventObject struct {
 	HostedInvoiceURL string `json:"hosted_invoice_url"`
 }
 
+// previousCustomer reads the customer the object was attached to before the
+// event. A detach clears the field on the object, so the id survives only here,
+// and it is the only thing that maps the event to an account. Without it a
+// removed card is never recorded and the account keeps the exemption a card
+// grants it.
+func previousCustomer(previous map[string]any) string {
+	id, _ := previous["customer"].(string)
+	return id
+}
+
 // StripeWebhook handles POST /webhooks/stripe. It is the only source of
 // payment-collection state (Metronome does not relay Stripe payment failures).
 // The signature is verified with the stripe-go SDK against the Stripe-Signature
@@ -61,8 +71,13 @@ func StripeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin.Ha
 			}
 		}
 
+		customer := obj.Customer
+		if customer == "" && event.Data != nil {
+			customer = previousCustomer(event.Data.PreviousAttributes)
+		}
+
 		if queue != nil {
-			if err := queue.InsertStripeWebhook(c.Request.Context(), event.ID, string(event.Type), obj.Customer, obj.HostedInvoiceURL); err != nil {
+			if err := queue.InsertStripeWebhook(c.Request.Context(), event.ID, string(event.Type), customer, obj.HostedInvoiceURL); err != nil {
 				// Return 500 so Stripe redelivers — the event is not yet tracked.
 				log.Error("Stripe webhook: enqueue failed", "type", string(event.Type), "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})

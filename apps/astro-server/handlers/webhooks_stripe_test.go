@@ -112,3 +112,79 @@ func TestStripeWebhook_Disabled(t *testing.T) {
 		t.Fatalf("expected 404 when disabled, got %d", rec.Code)
 	}
 }
+
+// stripeEventBody wraps an event body with the fields ConstructEvent validates,
+// so a test asserts the handler's behaviour rather than its signature check.
+func stripeEventBody(id, eventType, object, previous string) string {
+	prev := ""
+	if previous != "" {
+		prev = fmt.Sprintf(`,"previous_attributes":%s`, previous)
+	}
+	return fmt.Sprintf(
+		`{"id":%q,"object":"event","api_version":%q,"type":%q,"data":{"object":%s%s}}`,
+		id, stripe.APIVersion, eventType, object, prev)
+}
+
+func postStripeEvent(t *testing.T, secret, body string, q WebhookQueue) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/stripe", strings.NewReader(body))
+	req.Header.Set("Stripe-Signature", signedStripeBody(secret, body))
+	rec := httptest.NewRecorder()
+	stripeWebhookRouter(secret, q).ServeHTTP(rec, req)
+	return rec
+}
+
+// A detach clears `customer` on the object, so the id survives only in
+// previous_attributes. Enqueueing an empty customer leaves the event mapped to no
+// account, and a card removed outside the app is then never recorded: the account
+// keeps the exemption a card grants it while holding none.
+func TestStripeWebhook_DetachFallsBackToThePreviousCustomer(t *testing.T) {
+	const secret = "whsec-detach"
+	q := &fakeWebhookQueue{}
+	body := stripeEventBody("evt_detach_1", "payment_method.detached",
+		`{"id":"pm_1","object":"payment_method","customer":null}`, `{"customer":"cus_prev_1"}`)
+
+	if rec := postStripeEvent(t, secret, body, q); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if q.lastCustomer != "cus_prev_1" {
+		t.Errorf("customer = %q, want cus_prev_1: the detach names no account without it", q.lastCustomer)
+	}
+}
+
+// An attach carries the customer on the object, and previous_attributes must not
+// override it. A replacement would otherwise be attributed to whatever the field
+// held before.
+func TestStripeWebhook_ObjectCustomerWinsOverPrevious(t *testing.T) {
+	const secret = "whsec-attach"
+	q := &fakeWebhookQueue{}
+	body := stripeEventBody("evt_attach_1", "payment_method.attached",
+		`{"id":"pm_2","object":"payment_method","customer":"cus_now"}`, `{"customer":"cus_before"}`)
+
+	if rec := postStripeEvent(t, secret, body, q); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if q.lastCustomer != "cus_now" {
+		t.Errorf("customer = %q, want cus_now", q.lastCustomer)
+	}
+}
+
+// Some events carry no id in either place. Enqueueing the empty customer is still
+// right: the worker acks it, and refusing at the edge would make Stripe redeliver
+// an event nothing can ever resolve.
+func TestStripeWebhook_NoCustomerAnywhereStillEnqueues(t *testing.T) {
+	const secret = "whsec-none"
+	q := &fakeWebhookQueue{}
+	body := stripeEventBody("evt_none_1", "payment_method.detached",
+		`{"id":"pm_3","object":"payment_method"}`, "")
+
+	if rec := postStripeEvent(t, secret, body, q); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if q.stripeCalls != 1 {
+		t.Fatalf("enqueued %d events, want 1", q.stripeCalls)
+	}
+	if q.lastCustomer != "" {
+		t.Errorf("customer = %q, want empty", q.lastCustomer)
+	}
+}

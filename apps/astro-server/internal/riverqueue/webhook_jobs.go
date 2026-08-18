@@ -499,6 +499,13 @@ func (w *StripeWebhookWorker) Work(ctx context.Context, job *river.Job[StripeWeb
 			w.log.Info("stripe webhook: card event ignored, payments not configured", "type", job.Args.EventType)
 			return nil
 		}
+		// A card event with no customer names no account, and asking Stripe about
+		// an empty customer is an error every attempt answers the same way. Ack
+		// instead: retrying spans weeks and still resolves nothing.
+		if job.Args.CustomerID == "" {
+			w.log.Warn("stripe webhook: card event carries no customer", "type", job.Args.EventType, "event_id", job.Args.EventID)
+			return nil
+		}
 		resolved, err := resolveCardSignal(ctx, w.cards, job.Args.CustomerID)
 		if err != nil {
 			return err
