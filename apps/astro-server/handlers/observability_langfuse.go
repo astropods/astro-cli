@@ -47,27 +47,12 @@ func resolveLangfuseContext(
 	deploymentStore *deploymentstore.Store,
 	langfuseStore *langfuse.Store,
 ) (*langfuseContext, bool) {
-	user, exists := middleware.GetUser(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+	dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
+	if !ok {
 		return nil, false
 	}
 
-	deploymentID := c.Param("id")
-
-	dep, err := deploymentStore.GetDeploymentByID(deploymentID)
-	if err != nil || dep == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-		return nil, false
-	}
-
-	isMember, err := accountStore.IsMember(dep.AccountID, user.ID)
-	if err != nil || !isMember {
-		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-		return nil, false
-	}
-
-	creds, err := langfuseStore.Get(dep.AccountID)
+	creds, err := langfuseStore.Get(dctx.Deployment.AccountID)
 	if err != nil || creds == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "langfuse not configured for this account"})
 		return nil, false
@@ -76,13 +61,13 @@ func resolveLangfuseContext(
 	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
 	log.Debug("Resolving Langfuse observability context",
-		"deployment_id", dep.ID, "user_id", user.ID,
+		"deployment_id", dctx.DeploymentID, "user_id", dctx.UserID,
 	)
 
 	return &langfuseContext{
 		Client:       client,
-		DeploymentID: dep.ID,
-		UserID:       user.ID,
+		DeploymentID: dctx.DeploymentID,
+		UserID:       dctx.UserID,
 	}, true
 }
 

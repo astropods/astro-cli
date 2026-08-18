@@ -14,7 +14,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/peerdomain"
 	"github.com/astropods/astro/apps/astro-server/internal/promquery"
 	"github.com/gin-gonic/gin"
@@ -56,23 +55,11 @@ func resolveDeploymentContext(
 	k8sReg *k8s.Registry,
 	promClient *promquery.Client,
 ) (*deploymentContext, bool) {
-	user, exists := middleware.GetUser(c)
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+	access, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
+	if !ok {
 		return nil, false
 	}
-
-	dep, err := deploymentStore.GetDeploymentByID(c.Param("id"))
-	if err != nil || dep == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-		return nil, false
-	}
-
-	isMember, err := accountStore.IsMember(dep.AccountID, user.ID)
-	if err != nil || !isMember {
-		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-		return nil, false
-	}
+	dep := access.Deployment
 
 	resolvedProm := k8sReg.PrometheusClientFor(c.Request.Context(), dep.EffectiveClusterID(), promClient)
 	clusterFilter := ""

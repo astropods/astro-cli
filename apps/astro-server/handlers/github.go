@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	spec "github.com/astropods/astro-spec"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubbuild"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
@@ -31,7 +32,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
-	spec "github.com/astropods/astro-spec"
 )
 
 // githubBuildQueue is the subset of riverqueue.Queue used by GitHub handlers.

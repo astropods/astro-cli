@@ -491,3 +491,99 @@ func TestPostDatasetPredictionsBatchRequestFailureSkipsEnqueue(t *testing.T) {
 		)
 	}
 }
+
+func expectPredictionStatusCounts(
+	mock sqlmock.Sqlmock,
+	datasetID string,
+	queued, inProgress, completed, failed int,
+) {
+	mock.ExpectQuery("WITH prediction_states AS").
+		WithArgs(datasetID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"queued", "in_progress", "completed", "failed",
+		}).AddRow(queued, inProgress, completed, failed))
+}
+
+func datasetPredictionStatusRequest(router http.Handler) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/predictions/status",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestGetDatasetPredictionStatus(t *testing.T) {
+	f := setupDatasetRouter(t, true, http.NotFound)
+	expectDatasetAuthorization(f, true)
+	datasetstoretest.ExpectExists(f.datasetMock, "dep-1")
+	expectPredictionStatusCounts(f.judgmentMock, "dataset-dep-1", 2, 1, 3, 4)
+
+	rec := datasetPredictionStatusRequest(f.router)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+	}
+	var response DatasetPredictionStatusResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response != (DatasetPredictionStatusResponse{
+		Queued: 2, InProgress: 1, Completed: 3, Failed: 4,
+	}) {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestGetDatasetPredictionStatusFailures(t *testing.T) {
+	t.Run("authentication", func(t *testing.T) {
+		f := setupDatasetRouter(t, false, http.NotFound)
+		rec := datasetPredictionStatusRequest(f.router)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("deployment", func(t *testing.T) {
+		f := setupDatasetRouter(t, true, http.NotFound)
+		expectDeploymentNotFound(f.deployMock, "dep-1")
+		rec := datasetPredictionStatusRequest(f.router)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("membership", func(t *testing.T) {
+		f := setupDatasetRouter(t, true, http.NotFound)
+		expectDatasetAuthorization(f, false)
+		rec := datasetPredictionStatusRequest(f.router)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("dataset", func(t *testing.T) {
+		f := setupDatasetRouter(t, true, http.NotFound)
+		expectDatasetAuthorization(f, true)
+		datasetstoretest.ExpectMissing(f.datasetMock, "dep-1")
+		rec := datasetPredictionStatusRequest(f.router)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("status store", func(t *testing.T) {
+		f := setupDatasetRouter(t, true, http.NotFound)
+		expectDatasetAuthorization(f, true)
+		datasetstoretest.ExpectExists(f.datasetMock, "dep-1")
+		f.judgmentMock.ExpectQuery("WITH prediction_states AS").
+			WithArgs("dataset-dep-1").
+			WillReturnError(errors.New("read failed"))
+		rec := datasetPredictionStatusRequest(f.router)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+		}
+	})
+}

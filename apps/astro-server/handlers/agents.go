@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
@@ -30,7 +31,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/metricsstore"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/pipes"
-	spec "github.com/astropods/astro-spec"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 	"gopkg.in/yaml.v3"
@@ -829,7 +829,6 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 				"affected_accounts", len(affected),
 			)
 		}
-
 
 		// Set visibility if provided (only "public" or "private" are valid)
 		if req.Visibility == "public" || req.Visibility == "private" {

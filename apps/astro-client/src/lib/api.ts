@@ -1161,16 +1161,6 @@ export interface EvalDatasetCriteriaCount {
 export interface EvalDatasetResponse {
   dataset_name: string;
   item_count: number;
-  good_count: number;
-  bad_count: number;
-  /** Server-computed letter grade: A, B, C, D, F, or "—" when empty. */
-  grade: string;
-  /** Letter of the next grade level above the current one. Empty when already at A. */
-  next_grade: string;
-  /** Progress within the current grade band toward `next_grade`, 0..1. */
-  next_grade_progress: number;
-  /** Additional judged cases needed for `next_grade`; null when there is no next grade. */
-  cases_to_next_grade: number | null;
   criteria_counts: EvalDatasetCriteriaCount[];
 }
 

@@ -44,12 +44,6 @@ function makeDatasetResponse(
   return {
     dataset_name: "dep-test-deployment",
     item_count: 42,
-    good_count: 30,
-    bad_count: 12,
-    grade: "B",
-    next_grade: "A",
-    next_grade_progress: 0.6,
-    cases_to_next_grade: 100,
     criteria_counts: [],
     ...overrides,
   };
@@ -929,14 +923,7 @@ describe("review queue view", () => {
 
   it("switches from the default queue tab to the dataset tab", async () => {
     setupDataset(
-      makeDatasetResponse({
-        item_count: 0,
-        good_count: 0,
-        bad_count: 0,
-        grade: "—",
-        next_grade: "",
-        next_grade_progress: 0,
-      }),
+      makeDatasetResponse({ item_count: 0 }),
       emptyItems(),
       reviewQueueResponse([
         queueItem({
@@ -2326,11 +2313,7 @@ describe("dataset view", () => {
 
   it("formats large item counts with locale separators", async () => {
     setupDataset(
-      makeDatasetResponse({
-        item_count: 12345,
-        good_count: 12000,
-        bad_count: 345,
-      }),
+      makeDatasetResponse({ item_count: 12345 }),
     );
     renderDataset();
     await waitFor(() => {
@@ -2365,7 +2348,7 @@ describe("dataset view", () => {
     let deletedTraceId = "";
 
     setupDataset(
-      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      makeDatasetResponse({ item_count: 1 }),
       itemsResponse(items),
     );
     server.use(
@@ -2466,7 +2449,7 @@ describe("dataset view", () => {
       | null = null;
 
     setupDataset(
-      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      makeDatasetResponse({ item_count: 1 }),
       itemsResponse(items),
     );
     server.use(
@@ -2537,7 +2520,7 @@ describe("dataset view", () => {
     let deletedTraceId: string | null = null;
 
     setupDataset(
-      makeDatasetResponse({ item_count: 1, good_count: 1, bad_count: 0 }),
+      makeDatasetResponse({ item_count: 1 }),
       itemsResponse(items),
     );
     server.use(
@@ -2578,14 +2561,7 @@ describe("dataset view", () => {
 
   it("renders a neutral criteria state when the dataset is empty", async () => {
     setupDataset(
-      makeDatasetResponse({
-        item_count: 0,
-        good_count: 0,
-        bad_count: 0,
-        grade: "—",
-        next_grade: "",
-        next_grade_progress: 0,
-      }),
+      makeDatasetResponse({ item_count: 0 }),
     );
     renderDataset();
     expect(

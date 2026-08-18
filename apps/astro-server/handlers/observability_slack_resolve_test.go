@@ -129,9 +129,9 @@ func TestUserDetailsHydrator_StampsAllKinds(t *testing.T) {
 	)
 
 	cases := []struct {
-		uid    string
-		input  UserDetails
-		check  func(t *testing.T, got UserDetails)
+		uid   string
+		input UserDetails
+		check func(t *testing.T, got UserDetails)
 	}{
 		{
 			uid:   "user_01HXX_bob",
@@ -589,9 +589,9 @@ func TestUserDetailsHydrator_Stamp_BackfillsEmptyKindByUserIDShape(t *testing.T)
 	// Every row starts with Kind="" — what a legacy cache entry looks
 	// like after json.Unmarshal into the new struct.
 	cases := []struct {
-		uid       string
-		wantKind  UserDetailsKind
-		check     func(t *testing.T, got UserDetails)
+		uid      string
+		wantKind UserDetailsKind
+		check    func(t *testing.T, got UserDetails)
 	}{
 		{
 			uid:      "user_01HXX_bob",

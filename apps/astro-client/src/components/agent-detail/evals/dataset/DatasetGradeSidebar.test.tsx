@@ -12,12 +12,6 @@ function summary(
   return {
     dataset_name: "dep-test",
     item_count: 10,
-    good_count: 8,
-    bad_count: 2,
-    grade: "A",
-    next_grade: "",
-    next_grade_progress: 1,
-    cases_to_next_grade: null,
     criteria_counts,
   };
 }

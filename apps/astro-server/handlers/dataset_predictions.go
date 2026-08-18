@@ -15,7 +15,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
-	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 )
 
 const (
@@ -71,26 +70,12 @@ func GetDatasetPredictionStatus(
 	predictionStore datasetPredictionStatusStore,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
+		if !ok {
 			return
 		}
 
-		deploymentID := c.Param("id")
-		deployment, err := deploymentStore.GetDeploymentByID(deploymentID)
-		if err != nil || deployment == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-			return
-		}
-
-		isMember, err := accountStore.IsMember(deployment.AccountID, user.ID)
-		if err != nil || !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
-
-		dataset, ok := loadDataset(c, log, datasetStore, deploymentID)
+		dataset, ok := loadDataset(c, log, datasetStore, dctx.DeploymentID)
 		if !ok {
 			return
 		}
@@ -100,7 +85,7 @@ func GetDatasetPredictionStatus(
 			dataset.ID,
 		)
 		if err != nil {
-			log.Error("Failed to load dataset prediction status", "error", err, "deployment_id", deploymentID)
+			log.Error("Failed to load dataset prediction status", "error", err, "deployment_id", dctx.DeploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dataset prediction status"})
 			return
 		}
@@ -128,24 +113,11 @@ func PostDatasetPredictions(
 	queue datasetPredictionQueue,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := middleware.GetUser(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
+		if !ok {
 			return
 		}
-
-		deploymentID := c.Param("id")
-		deployment, err := deploymentStore.GetDeploymentByID(deploymentID)
-		if err != nil || deployment == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
-			return
-		}
-
-		isMember, err := accountStore.IsMember(deployment.AccountID, user.ID)
-		if err != nil || !isMember {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
-			return
-		}
+		deploymentID := dctx.DeploymentID
 
 		if cfg == nil ||
 			cfg.Deployment.LangfuseBaseURL == "" ||
@@ -166,7 +138,7 @@ func PostDatasetPredictions(
 			FailedTraceIDs:   make([]string, 0),
 		}
 
-		credentials, err := langfuseStore.GetDecrypted(c.Request.Context(), kmsClient, deployment.AccountID)
+		credentials, err := langfuseStore.GetDecrypted(c.Request.Context(), kmsClient, dctx.Deployment.AccountID)
 		if err != nil || credentials == nil {
 			log.Error("Failed to load Langfuse credentials for predictions", "error", err, "deployment_id", deploymentID)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset prediction generation is not configured"})

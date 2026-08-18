@@ -1028,4 +1028,3 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 		t.Errorf("account mock: %v", err)
 	}
 }
-
