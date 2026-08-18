@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check } from "lucide-react";
+import { ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check, TriangleAlert, CircleAlert, Info } from "lucide-react";
 import { ErrorPanel } from "@/components/ui/status-panel";
 import { SidePanel } from "@/components/ui/side-panel";
 import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
@@ -472,13 +472,22 @@ function AlertRow({ alert }: { alert: DeploymentAlert }) {
   );
 }
 
+const STUCK_SEVERITY = "stuck";
+const WARNING_TYPE = "Warning";
+
 // Left-bar color has three levels: red for stuck states that need action
 // (e.g. ImagePullBackOff), amber for other Warnings, and muted for Normal events
 // (including back-offs, which aren't errors on their own).
-function eventBarColor(event: K8sEvent): string {
-  if (event.severity === "stuck") return "bg-red-400 dark:bg-red-400";
-  if (event.type === "Warning") return "bg-amber-400 dark:bg-amber-400";
-  return "bg-muted-foreground/40";
+// A severity icon so the event's severity reads from shape + label, not color
+// alone (accessibility). aria-label lets screen readers announce it.
+function EventSeverityIcon({ event }: { event: K8sEvent }) {
+  if (event.severity === STUCK_SEVERITY) {
+    return <CircleAlert aria-label="Needs attention" className="size-4 shrink-0 text-red-500 dark:text-red-400" />;
+  }
+  if (event.type === WARNING_TYPE) {
+    return <TriangleAlert aria-label="Warning" className="size-4 shrink-0 text-amber-500 dark:text-amber-400" />;
+  }
+  return <Info aria-label="Info" className="size-4 shrink-0 text-muted-foreground" />;
 }
 
 // compactAge renders a K8s-style short duration since an RFC3339 timestamp, e.g.
@@ -509,8 +518,16 @@ function EventRow({ event, expanded, onToggle }: { event: K8sEvent; expanded: bo
         aria-expanded={expanded}
         className="flex w-full items-center gap-3 px-2 py-2.5 text-left transition-colors hover:bg-muted/40"
       >
-        <span className={cn("h-6 w-1 shrink-0 rounded-full", eventBarColor(event))} />
-        <span className="min-w-0 flex-1 truncate text-body-sm text-foreground" title={summary}>{summary}</span>
+        <EventSeverityIcon event={event} />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-body-sm text-foreground",
+            (event.severity === STUCK_SEVERITY || event.type === WARNING_TYPE) && "font-medium",
+          )}
+          title={summary}
+        >
+          {summary}
+        </span>
         <span className="w-14 shrink-0 text-right text-mono-sm text-muted-foreground">{event.count > 0 ? event.count : ""}</span>
         <span className="w-12 shrink-0 text-right text-mono-sm text-muted-foreground">{compactAge(event.last_timestamp)}</span>
         <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />

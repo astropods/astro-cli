@@ -72,6 +72,30 @@ describe("PodDetailPanel — Events tab", () => {
     expect(screen.getByText(/FailedScheduling/)).toBeInTheDocument();
   });
 
+  it("marks each event with a labelled severity icon (not color alone)", async () => {
+    mockEvents([
+      {
+        type: "Warning", reason: "BackOff", message: "Back-off restarting failed container",
+        object_kind: "Pod", object_name: "x", count: 3,
+        first_timestamp: "2026-06-29T00:00:00Z", last_timestamp: "2026-06-29T00:05:00Z",
+        title: "Action required: Container crash looping", guidance: "Check the logs.", severity: "stuck",
+      },
+      {
+        type: "Normal", reason: "Pulled", message: "pulled image",
+        object_kind: "Pod", object_name: "x", count: 1,
+        first_timestamp: "2026-06-29T00:00:00Z", last_timestamp: "2026-06-29T00:00:10Z",
+      },
+    ]);
+
+    renderWithProviders(
+      <PodDetailPanel workload={workload} deploymentId="dep-1" onClose={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Events" }));
+
+    expect(await screen.findByLabelText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByLabelText("Info")).toBeInTheDocument();
+  });
+
   it("shows per-container status, failure message, and env together on the General tab", () => {
     const withContainers: WorkloadDetail = {
       ...workload,
