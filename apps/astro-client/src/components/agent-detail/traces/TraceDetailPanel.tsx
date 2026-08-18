@@ -67,10 +67,10 @@ export function TraceDetailPanel({
     [observations, selectedObsId],
   );
 
-  // Header / metadata tiles use the list entry as the canonical source — it
-  // always has the right values and lets the panel render instantly without
-  // waiting for the detail fetch. The detail endpoint enriches with body
-  // content, tags, session, and the rest.
+  // Header / metadata tiles prefer the list entry so the panel renders
+  // instantly without waiting for the detail fetch. The detail endpoint
+  // enriches with body content, tags, session, and the rest. Cost is the one
+  // field the list cannot supply; see below.
   const traceForDisplay = useMemo(() => {
     const base = data?.trace;
     return {
@@ -78,7 +78,11 @@ export function TraceDetailPanel({
       name: trace.name,
       timestamp: trace.timestamp,
       latency_ms: trace.latency_ms,
-      total_cost: trace.total_cost ?? base?.total_cost ?? 0,
+      // Cost is the exception to preferring the list entry: the list reports a
+      // trace's root span, which never carries cost, so it reads 0. The detail
+      // response totals the spans. Fall back to the list value only until the
+      // detail arrives, and treat its 0 as absent rather than as a real total.
+      total_cost: base?.total_cost ?? trace.total_cost ?? 0,
       input: base?.input,
       output: base?.output,
       session_id: base?.session_id,

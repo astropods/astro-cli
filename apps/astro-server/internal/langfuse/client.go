@@ -1036,6 +1036,13 @@ func v4ObservationFromV2(o ObservationV2) Observation {
 
 // v4SumCost totals a trace's cost across its spans. The root carries none of
 // its children's cost, so summing is the only way to report a trace total.
+//
+// Every span counts, including the root. Langfuse's own events_traces view
+// sums with parent_span_id != ” instead, which drops the root's own cost and
+// so reports nothing for a single-span trace whose only span is a generation.
+// Including the root costs nothing when it is a plain span, because its cost is
+// then zero anyway. fillTraceCost aggregates the same way, so a trace's cost
+// matches between the listing and its detail.
 func v4SumCost(spans []ObservationV2) float64 {
 	var total float64
 	for _, o := range spans {
@@ -1141,6 +1148,10 @@ func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesRespons
 		out.Data = append(out.Data, v4TraceFromRoot(o))
 	}
 
+	if err := r.fillTraceCost(ctx, f, out.Data); err != nil {
+		return nil, err
+	}
+
 	// orderBy is accepted but silently ignored by v2/observations (confirmed
 	// live in both v3's flat format and a JSON-array format) — sort
 	// client-side instead so a caller-requested order is actually honored.
@@ -1155,6 +1166,64 @@ func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesRespons
 	}
 
 	return out, nil
+}
+
+// fillTraceCost totals each listed trace's cost with one /v2/metrics call.
+//
+// A listing returns root spans, and cost sits on the child GENERATION spans,
+// so a root's own totalCost is 0 and reporting it would price every trace at
+// nothing. Langfuse aggregates the same way internally: its events_traces view
+// groups the events table by trace_id and sums the spans' cost. That view is
+// declared for the v2 API but deliberately withheld from the public one
+// ("Public v2 API views - excludes traces"), so the aggregate has to be asked
+// for through view:"observations" grouped by traceId instead.
+//
+// The error is returned rather than swallowed. A zero cost is indistinguishable
+// from a free trace on the page, which is the failure this method exists to fix.
+func (r *v4Reader) fillTraceCost(ctx context.Context, f traceFilter, traces []Trace) error {
+	if len(traces) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(traces))
+	for _, t := range traces {
+		ids = append(ids, t.ID)
+	}
+
+	// traceId is a high-cardinality dimension, so v4 requires orderBy and
+	// row_limit. One page never exceeds the server's 1000 ceiling.
+	resp, err := r.getMetrics(ctx, MetricsQuery{
+		View: "observations",
+		Metrics: []MetricsQueryField{
+			{Measure: "totalCost", Aggregation: "sum"},
+		},
+		Dimensions: []MetricsDimension{{Field: "traceId"}},
+		Filters: []MetricsFilter{
+			{Type: "stringOptions", Column: "traceId", Operator: "any of", Value: ids},
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + f.deploymentID}},
+		},
+		FromTimestamp: f.startTime,
+		ToTimestamp:   f.endTime,
+		OrderBy:       []MetricsOrderBy{{Field: "sum_totalCost", Direction: "desc"}},
+		Config:        &MetricsConfig{RowLimit: min(len(ids), defaultHighCardinalityRowLimit)},
+	})
+	if err != nil {
+		return fmt.Errorf("langfuse: total v4 trace cost: %w", err)
+	}
+
+	costByTrace := make(map[string]float64, len(resp.Data))
+	for _, row := range resp.Data {
+		id, _ := row["traceId"].(string)
+		if id == "" {
+			continue
+		}
+		cost, _ := row["sum_totalCost"].(float64)
+		costByTrace[id] = cost
+	}
+	for i := range traces {
+		traces[i].TotalCost = costByTrace[traces[i].ID]
+	}
+	return nil
 }
 
 // getTraceDetail resolves a trace by trace ID, the identifier getTraces

@@ -777,6 +777,38 @@ describe("user inspects trace details", () => {
     });
   });
 
+  it("shows the cost the detail response totals, not the list's zero", async () => {
+    // Under Langfuse v4 the list reports a trace's root span, which carries no
+    // cost, so it sends 0. Only the detail response totals the child spans.
+    setupHandlers(emptyMetrics, {
+      traces: [makeTrace({ trace_id: "t-1", latency_ms: 245, total_cost: 0 })],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    server.use(
+      http.get("/api/v1/deployments/:id/observability/traces/:traceId", () =>
+        HttpResponse.json<TraceDetailResponse>({
+          trace: {
+            trace_id: "t-1",
+            name: "invoke_agent",
+            timestamp: "2026-08-17T22:21:40.631Z",
+            latency_ms: 245,
+            total_cost: 0.012882,
+          },
+          observations: [],
+          scores: [],
+        }),
+      ),
+    );
+
+    const { user } = renderTraces();
+    await user.click((await screen.findByText("t-1")).closest("tr")!);
+
+    const panel = await screen.findByRole("dialog", { name: /trace details/i });
+    expect(await within(panel).findByText("$0.01")).toBeInTheDocument();
+  });
+
   it("opens the detail panel from the trace query parameter", async () => {
     setupDetailTraces();
     renderTraces(undefined, "/testuser/agents/dep-1/traces?trace=t-2");

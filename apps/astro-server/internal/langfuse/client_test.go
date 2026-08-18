@@ -963,6 +963,12 @@ func TestV4GetTraces_WalksCursorForOffset(t *testing.T) {
 	var cursors []string
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The listing also totals cost through /v2/metrics; only the
+		// observation requests are the cursor walk under test here.
+		if strings.Contains(r.URL.Path, "/metrics") {
+			_ = json.NewEncoder(w).Encode(MetricsResponse{})
+			return
+		}
 		calls++
 		cursors = append(cursors, r.URL.Query().Get("cursor"))
 		_ = json.NewEncoder(w).Encode(observationsV2Response{
@@ -1149,6 +1155,122 @@ func TestV4GetTrace_SumsCostAcrossSpans(t *testing.T) {
 	// Reading cost off the root alone would report 0.
 	if got.TotalCost != 0.25 {
 		t.Errorf("TotalCost = %v, want 0.25", got.TotalCost)
+	}
+}
+
+func TestV4GetTrace_CountsCostOnASingleSpanTrace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/public/v3/scores" {
+			_ = json.NewEncoder(w).Encode(v3ScoresResponse{})
+			return
+		}
+		// One span, no children, and it is the generation that cost money.
+		// Excluding the root the way Langfuse's own trace view does would
+		// report this trace as free.
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "only", TraceID: "trace-1", Type: "GENERATION", TotalCost: 0.004},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTrace(context.Background(), "trace-1")
+	if err != nil {
+		t.Fatalf("GetTrace: %v", err)
+	}
+	if got.TotalCost != 0.004 {
+		t.Errorf("TotalCost = %v, want 0.004", got.TotalCost)
+	}
+}
+
+func TestV4GetTraces_TotalsCostPerTrace(t *testing.T) {
+	var gotQuery MetricsQuery
+	var metricsCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/metrics") {
+			metricsCalls++
+			if err := json.Unmarshal([]byte(r.URL.Query().Get("query")), &gotQuery); err != nil {
+				t.Errorf("unmarshal metrics query: %v", err)
+			}
+			_ = json.NewEncoder(w).Encode(MetricsResponse{Data: []map[string]any{
+				{"traceId": "trace-1", "sum_totalCost": 0.012882},
+				{"traceId": "trace-2", "sum_totalCost": 0.05},
+			}})
+			return
+		}
+		// Root spans carry no cost of their own.
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "root-1", TraceID: "trace-1", StartTime: "2026-07-27T12:00:00Z"},
+			{ID: "root-2", TraceID: "trace-2", StartTime: "2026-07-27T12:00:01Z"},
+			{ID: "root-3", TraceID: "trace-3", StartTime: "2026-07-27T12:00:02Z"},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTraces(
+		context.Background(), "dep-1", "2026-07-27T00:00:00Z", "2026-07-28T00:00:00Z", 10, 0,
+	)
+	if err != nil {
+		t.Fatalf("GetTraces: %v", err)
+	}
+
+	// One aggregate call for the whole page, not one per trace.
+	if metricsCalls != 1 {
+		t.Errorf("metrics calls = %d, want 1", metricsCalls)
+	}
+	if gotQuery.View != "observations" {
+		t.Errorf("view = %q, want observations", gotQuery.View)
+	}
+	if len(gotQuery.Dimensions) != 1 || gotQuery.Dimensions[0].Field != "traceId" {
+		t.Errorf("dimensions = %+v, want traceId", gotQuery.Dimensions)
+	}
+	// traceId is high cardinality, so v4 rejects the query without both.
+	if len(gotQuery.OrderBy) != 1 || gotQuery.Config == nil || gotQuery.Config.RowLimit != 3 {
+		t.Errorf("orderBy = %+v, config = %+v", gotQuery.OrderBy, gotQuery.Config)
+	}
+	// The aggregate must stay scoped to the deployment and to this page.
+	var hasTag, hasTraceIDs bool
+	for _, fl := range gotQuery.Filters {
+		if fl.Column == "tags" {
+			hasTag = true
+		}
+		if fl.Column == "traceId" {
+			hasTraceIDs = true
+		}
+	}
+	if !hasTag || !hasTraceIDs {
+		t.Errorf("filters = %+v, want tags and traceId", gotQuery.Filters)
+	}
+
+	costs := map[string]float64{}
+	for _, tr := range got.Data {
+		costs[tr.ID] = tr.TotalCost
+	}
+	if costs["trace-1"] != 0.012882 || costs["trace-2"] != 0.05 {
+		t.Errorf("costs = %v, want the summed totals", costs)
+	}
+	// A trace the aggregate did not report stays at zero rather than borrowing
+	// another trace's number.
+	if costs["trace-3"] != 0 {
+		t.Errorf("trace-3 cost = %v, want 0", costs["trace-3"])
+	}
+}
+
+func TestV4GetTraces_CostFailureSurfaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/metrics") {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "root-1", TraceID: "trace-1"},
+		}})
+	}))
+	defer srv.Close()
+
+	// Reporting 0 would read as a free trace, so the failure has to surface.
+	_, err := newV4Client(srv.URL).GetTraces(context.Background(), "dep-1", "", "", 10, 0)
+	if err == nil {
+		t.Fatal("expected an error when the cost aggregate fails")
 	}
 }
 
