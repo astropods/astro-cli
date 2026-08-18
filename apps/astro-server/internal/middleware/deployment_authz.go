@@ -95,8 +95,8 @@ func AuthorizeDeploymentAction(c *gin.Context, action authz.Action, deploymentID
 	return enforcer.authorize(c, action, authz.DeploymentResource(deploymentID))
 }
 
-// EnforceDeploymentAuthorization blocks reviewed deployment mutations for
-// FGA-ready resources. Reads remain shadow-only in this milestone.
+// EnforceDeploymentAuthorization blocks reviewed deployment control-plane
+// routes. Model-owned and data-plane routes retain their separate policies.
 func EnforceDeploymentAuthorization(log authorizationShadowLogger, checker authz.Checker, catalog *DeploymentRouteCatalog) gin.HandlerFunc {
 	enforcer := deploymentAuthorizationEnforcer{log: log, checker: checker}
 	return func(c *gin.Context) {
@@ -105,7 +105,7 @@ func EnforceDeploymentAuthorization(log authorizationShadowLogger, checker authz
 		c.Set(deploymentAuthorizationEnforcerKey, enforcer)
 
 		policy, ok := catalog.policy(c.Request.Method, c.FullPath())
-		if !ok || policy.kind != deploymentRouteObserved || c.Request.Method == http.MethodGet || c.Param("id") == "" {
+		if !ok || !policy.enforced() || c.Param("id") == "" {
 			c.Next()
 			return
 		}
@@ -114,6 +114,10 @@ func EnforceDeploymentAuthorization(log authorizationShadowLogger, checker authz
 		}
 		c.Next()
 	}
+}
+
+func (p deploymentRoutePolicy) enforced() bool {
+	return p.kind == deploymentRouteObserved || p.kind == deploymentRouteDeferred
 }
 
 func (e deploymentAuthorizationEnforcer) authorize(c *gin.Context, action authz.Action, resource authz.ResourceRef) bool {

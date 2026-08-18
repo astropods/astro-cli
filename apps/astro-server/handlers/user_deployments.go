@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,17 +13,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/listcache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	userDeploymentCachePrefix  = "usr:list:deployments:v2:"
+	userDeploymentCachePrefix  = "usr:list:deployments:v3:"
 	userDeploymentDefaultLimit = 50
 	userDeploymentMaxLimit     = 100
 )
@@ -42,10 +45,11 @@ type userDeploymentCursor struct {
 }
 
 type userDeploymentRequest struct {
-	limit  int
-	query  string
-	cursor *deploymentstore.UserDeploymentCursor
-	scope  userResourceScopeRequest
+	limit      int
+	query      string
+	cursor     *deploymentstore.UserDeploymentCursor
+	scope      userResourceScopeRequest
+	visibility authz.DeploymentVisibility
 }
 
 func parseUserDeploymentRequest(
@@ -118,13 +122,15 @@ func userDeploymentCacheIdentity(request userDeploymentRequest) any {
 		cursor = request.cursor.DeployedAt.Format(time.RFC3339Nano) + "/" + request.cursor.ID
 	}
 	return struct {
-		Limit  int    `json:"limit"`
-		Query  string `json:"query"`
-		Cursor string `json:"cursor"`
+		Limit      int                        `json:"limit"`
+		Query      string                     `json:"query"`
+		Cursor     string                     `json:"cursor"`
+		Visibility authz.DeploymentVisibility `json:"visibility"`
 	}{
-		Limit:  request.limit,
-		Query:  request.query,
-		Cursor: cursor,
+		Limit:      request.limit,
+		Query:      request.query,
+		Cursor:     cursor,
+		Visibility: request.visibility,
 	}
 }
 
@@ -145,6 +151,7 @@ func ListUserDeployments(
 	agentIndex *agentindex.Index,
 	auditStore *auditlog.Store,
 	cache k8scache.Cache,
+	discovery deploymentVisibilityResolver,
 ) gin.HandlerFunc {
 	dependencies := userDeploymentListDependencies{
 		log:         log,
@@ -153,13 +160,27 @@ func ListUserDeployments(
 		audit:       auditStore,
 	}
 	return serveUserResourceList(userResourceListConfig[userDeploymentRequest]{
-		log:           log,
-		accounts:      accountStore,
-		cache:         cache,
-		resource:      "deployments",
-		timingName:    "user-deployments",
-		cachePrefix:   userDeploymentCachePrefix,
-		parse:         parseUserDeploymentRequest,
+		log:         log,
+		accounts:    accountStore,
+		cache:       cache,
+		resource:    "deployments",
+		timingName:  "user-deployments",
+		cachePrefix: userDeploymentCachePrefix,
+		parse: func(c *gin.Context, memberships []account.AccountWithRole) (userDeploymentRequest, error) {
+			request, err := parseUserDeploymentRequest(c, memberships)
+			if err != nil {
+				return userDeploymentRequest{}, err
+			}
+			user, ok := middleware.GetUser(c)
+			if !ok {
+				return userDeploymentRequest{}, errors.New("authenticated user is unavailable")
+			}
+			request.visibility, err = resolveDeploymentVisibility(c.Request.Context(), discovery, user.ID, request.scope.selected)
+			if err != nil {
+				return userDeploymentRequest{}, err
+			}
+			return request, nil
+		},
 		scope:         func(request userDeploymentRequest) userResourceScopeRequest { return request.scope },
 		cacheIdentity: userDeploymentCacheIdentity,
 		cursorPresent: func(request userDeploymentRequest) bool { return request.cursor != nil },
@@ -176,6 +197,8 @@ func ListUserDeployments(
 				request.query,
 				request.limit+1,
 				request.cursor,
+				request.visibility.FGAAccountIDs,
+				request.visibility.ReadableDeploymentIDs,
 			)
 			if err != nil {
 				return listcache.LoadResult{}, err

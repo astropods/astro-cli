@@ -524,7 +524,7 @@ func TestObserveDeploymentAuthorizationDropsCheckAtConcurrencyLimit(t *testing.T
 	}
 }
 
-func TestEnforceDeploymentAuthorizationStagesMutationsOnly(t *testing.T) {
+func TestEnforceDeploymentAuthorizationProtectsControlPlaneRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -564,10 +564,10 @@ func TestEnforceDeploymentAuthorizationStagesMutationsOnly(t *testing.T) {
 			err:    errors.New("workos unavailable"), wantStatus: http.StatusServiceUnavailable, wantCalls: 1,
 		},
 		{
-			name: "read remains unenforced", method: http.MethodGet,
+			name: "denied read is concealed", method: http.MethodGet,
 			route: "/api/v1/deployments/:id", request: "/api/v1/deployments/dep_123",
 			action:     authz.ActionDeploymentRead,
-			wantStatus: http.StatusNoContent, wantHandler: true,
+			wantStatus: http.StatusNotFound, wantCalls: 1,
 		},
 		{
 			name: "watch subscription uses read visibility", method: http.MethodPost,
@@ -718,6 +718,33 @@ func TestEnforceDeploymentAuthorizationLeavesModelDeferredRoutesOnLegacyPolicy(t
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/deployments/dep_123/dataset/judgments", nil))
 	if response.Code != http.StatusNoContent || checker.calls.Load() != 0 {
 		t.Fatalf("status=%d calls=%d, want legacy handler with no deployment FGA check", response.Code, checker.calls.Load())
+	}
+}
+
+func TestEnforceDeploymentAuthorizationProtectsDeferredReads(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	checker := newRecordingChecker(nil, nil)
+	checker.allowed = false
+	router := gin.New()
+	catalog := middleware.NewDeploymentRouteCatalog()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{UserID: "user_123", WorkOSMembershipID: "om_123"})
+		c.Next()
+	})
+	router.Use(middleware.EnforceDeploymentAuthorization(newRecordingShadowLog(), checker, catalog))
+	deploymentTestRoutes(router, catalog).DeferredGET(
+		authz.ActionDeploymentRead,
+		"/deployments/:id/logs",
+		"test",
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep_123/logs", nil))
+	if response.Code != http.StatusNotFound || checker.calls.Load() != 1 || checker.action != authz.ActionDeploymentRead {
+		t.Fatalf("status=%d calls=%d action=%q", response.Code, checker.calls.Load(), checker.action)
 	}
 }
 

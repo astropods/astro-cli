@@ -24,7 +24,19 @@ type UserDeployment struct {
 }
 
 const userDeploymentColumns = `d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id,
-       d.namespace, d.display_name, d.status, d.error_message, d.deployed_at, d.avatar_colors`
+        d.namespace, d.display_name, d.status, d.error_message, d.deployed_at, d.avatar_colors`
+
+const fgaReadPredicate = `
+		  AND (
+		    $3::uuid[] IS NULL
+		    OR NOT (d.account_id = ANY($3::uuid[]))
+		    OR NOT EXISTS (
+		      SELECT 1 FROM deployment_fga_sync s
+		      WHERE s.deployment_id = d.id
+		        AND s.desired_state = 'registered'
+		    )
+		    OR d.id = ANY($4::varchar[])
+		  )`
 
 // ListVisibleDeploymentsForUserPage returns one globally ordered page across
 // the selected accounts. The account_members join is deliberately retained
@@ -37,6 +49,8 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 	search string,
 	limit int,
 	cursor *UserDeploymentCursor,
+	fgaAccountIDs []string,
+	readableDeploymentIDs []string,
 ) ([]UserDeployment, error) {
 	if userID == "" || len(accountIDs) == 0 || limit <= 0 {
 		return []UserDeployment{}, nil
@@ -61,18 +75,20 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 		JOIN accounts a ON a.id = d.account_id AND a.deleted_at IS NULL
 		WHERE d.account_id = ANY($2::uuid[])
 		  AND d.status <> 'undeployed'
+	`+fgaReadPredicate+`
 		  AND (
-		    $3::timestamptz IS NULL
-		    OR (d.deployed_at, d.id) < (($3::timestamptz AT TIME ZONE 'UTC'), $4)
+		    $5::timestamptz IS NULL
+		    OR (d.deployed_at, d.id) < (($5::timestamptz AT TIME ZONE 'UTC'), $6)
 		  )
 		  AND (
-		    $5::text = ''
-		    OR strpos(lower(d.agent_name), lower($5)) > 0
-		    OR strpos(lower(COALESCE(d.display_name, '')), lower($5)) > 0
+		    $7::text = ''
+		    OR strpos(lower(d.agent_name), lower($7)) > 0
+		    OR strpos(lower(COALESCE(d.display_name, '')), lower($7)) > 0
 		  )
 		ORDER BY d.deployed_at DESC, d.id DESC
-		LIMIT $6
-	`, userID, pq.Array(accountIDs), cursorTime, cursorID, search, limit)
+		LIMIT $8
+	`, userID, pq.Array(accountIDs), pq.Array(fgaAccountIDs), pq.Array(readableDeploymentIDs),
+		cursorTime, cursorID, search, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list visible deployments for user: %w", err)
 	}
@@ -117,6 +133,45 @@ func (s *Store) ListVisibleDeploymentIDsForUser(
 	userID string,
 	deploymentIDs []string,
 ) ([]string, error) {
+	return s.ListReadableDeploymentIDsForUser(ctx, userID, deploymentIDs, nil, nil)
+}
+
+// ListReadableDeploymentIDsForUser applies membership visibility plus FGA to
+// deployment IDs that have entered the lifecycle ledger.
+func (s *Store) ListReadableDeploymentIDsForUser(
+	ctx context.Context,
+	userID string,
+	deploymentIDs []string,
+	fgaAccountIDs []string,
+	readableDeploymentIDs []string,
+) ([]string, error) {
+	return s.listReadableDeploymentIDsForUser(
+		ctx, userID, deploymentIDs, fgaAccountIDs, readableDeploymentIDs, false,
+	)
+}
+
+// ListReadableDeploymentHistoryIDsForUser also authorizes undeployed instances
+// so readable revisions are retained in deployment history.
+func (s *Store) ListReadableDeploymentHistoryIDsForUser(
+	ctx context.Context,
+	userID string,
+	deploymentIDs []string,
+	fgaAccountIDs []string,
+	readableDeploymentIDs []string,
+) ([]string, error) {
+	return s.listReadableDeploymentIDsForUser(
+		ctx, userID, deploymentIDs, fgaAccountIDs, readableDeploymentIDs, true,
+	)
+}
+
+func (s *Store) listReadableDeploymentIDsForUser(
+	ctx context.Context,
+	userID string,
+	deploymentIDs []string,
+	fgaAccountIDs []string,
+	readableDeploymentIDs []string,
+	includeUndeployed bool,
+) ([]string, error) {
 	if userID == "" || len(deploymentIDs) == 0 {
 		return []string{}, nil
 	}
@@ -128,8 +183,9 @@ func (s *Store) ListVisibleDeploymentIDsForUser(
 		 AND am.user_id = $1
 		JOIN accounts a ON a.id = d.account_id AND a.deleted_at IS NULL
 		WHERE d.id = ANY($2::varchar[])
-		  AND d.status <> 'undeployed'
-	`, userID, pq.Array(deploymentIDs))
+		  AND ($5::boolean OR d.status <> 'undeployed')
+	`+fgaReadPredicate+`
+	`, userID, pq.Array(deploymentIDs), pq.Array(fgaAccountIDs), pq.Array(readableDeploymentIDs), includeUndeployed)
 	if err != nil {
 		return nil, fmt.Errorf("list visible deployment ids for user: %w", err)
 	}
@@ -147,4 +203,66 @@ func (s *Store) ListVisibleDeploymentIDsForUser(
 		return nil, fmt.Errorf("iterate visible deployment ids for user: %w", err)
 	}
 	return visible, nil
+}
+
+// AccountsWithManagedDeployments returns selected accounts containing at
+// least one active deployment that has entered the WorkOS lifecycle.
+func (s *Store) AccountsWithManagedDeployments(ctx context.Context, accountIDs []string) ([]string, error) {
+	if len(accountIDs) == 0 {
+		return []string{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT d.account_id
+		FROM deployments d
+		JOIN deployment_fga_sync s ON s.deployment_id = d.id
+		WHERE d.account_id = ANY($1::uuid[])
+		  AND d.status <> 'undeployed'
+		  AND s.desired_state = 'registered'
+	`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("list FGA-managed deployment accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	result := make([]string, 0, len(accountIDs))
+	for rows.Next() {
+		var accountID string
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, fmt.Errorf("scan FGA-managed deployment account: %w", err)
+		}
+		result = append(result, accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate FGA-managed deployment accounts: %w", err)
+	}
+	return result, nil
+}
+
+// CountReadableDeploymentsForUser counts active deployments after applying
+// the same rollout-aware visibility rule used by the list endpoints.
+func (s *Store) CountReadableDeploymentsForUser(
+	ctx context.Context,
+	userID string,
+	accountID string,
+	fgaAccountIDs []string,
+	readableDeploymentIDs []string,
+) (int, error) {
+	if userID == "" || accountID == "" {
+		return 0, nil
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM deployments d
+		JOIN account_members am
+		  ON am.account_id = d.account_id
+		 AND am.user_id = $1
+		WHERE d.account_id = $2
+		  AND d.status <> 'undeployed'
+	`+fgaReadPredicate+`
+	`, userID, accountID, pq.Array(fgaAccountIDs), pq.Array(readableDeploymentIDs)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count readable deployments for user: %w", err)
+	}
+	return count, nil
 }

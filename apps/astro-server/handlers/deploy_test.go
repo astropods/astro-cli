@@ -563,7 +563,7 @@ func setupListDeploymentsTest(t *testing.T, k8sHandler http.Handler) (*gin.Engin
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, deployStore, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, deployStore, nil, nil, nil, k8scache.NoopCache{}, nil))
 
 	return router, deployMock, accountMock
 }
@@ -1661,7 +1661,7 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, nil, nil, nil, nil, k8scache.NoopCache{}))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, nil, nil, nil, nil, k8scache.NoopCache{}, nil))
 
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).

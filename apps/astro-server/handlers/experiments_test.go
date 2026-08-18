@@ -37,6 +37,14 @@ func (o auditEventObserver) OnAudit(_ context.Context, event auditlog.Event) {
 	o <- event
 }
 
+type recordingExperimentCache struct {
+	accountID string
+}
+
+func (c *recordingExperimentCache) InvalidateAccount(accountID string) {
+	c.accountID = accountID
+}
+
 func TestFineGrainedAccessExperimentHandlers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -56,6 +64,7 @@ func TestFineGrainedAccessExperimentHandlers(t *testing.T) {
 	auditStore := auditlog.NewStore(auditDB).Observe(auditEvents)
 
 	store := &fakeExperimentStore{enabled: true}
+	cache := &recordingExperimentCache{}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct_123", Type: "organization"})
@@ -63,7 +72,7 @@ func TestFineGrainedAccessExperimentHandlers(t *testing.T) {
 		c.Next()
 	})
 	router.GET("/experiment", GetFineGrainedAccessExperiment(logger.New("error", "json"), store))
-	router.PUT("/experiment", UpdateFineGrainedAccessExperiment(logger.New("error", "json"), store, auditStore))
+	router.PUT("/experiment", UpdateFineGrainedAccessExperiment(logger.New("error", "json"), store, auditStore, cache))
 
 	getResponse := httptest.NewRecorder()
 	router.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/experiment", nil))
@@ -77,6 +86,9 @@ func TestFineGrainedAccessExperimentHandlers(t *testing.T) {
 	router.ServeHTTP(putResponse, request)
 	if putResponse.Code != http.StatusOK || store.set == nil || *store.set {
 		t.Fatalf("PUT status=%d set=%v body=%s", putResponse.Code, store.set, putResponse.Body.String())
+	}
+	if cache.accountID != "acct_123" {
+		t.Fatalf("invalidated account = %q, want acct_123", cache.accountID)
 	}
 
 	select {

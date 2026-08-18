@@ -91,8 +91,8 @@ func TestUserDeploymentsSearchesTheSelectedScope(t *testing.T) {
 	cache := &recordingCache{entries: map[string][]byte{}}
 	router, mock := setupCrossAccountDeploymentRouter(t, cache)
 	expectCrossAccountMemberships(mock)
-	mock.ExpectQuery(`(?s)FROM deployments d.*strpos\(lower\(d.agent_name\), lower\(\$5\)\).*ORDER BY d.deployed_at DESC, d.id DESC.*LIMIT \$6`).
-		WithArgs("user-1", pq.Array([]string{"acct-1", "acct-2"}), nil, nil, "support", userDeploymentDefaultLimit+1).
+	mock.ExpectQuery(`(?s)FROM deployments d.*strpos\(lower\(d.agent_name\), lower\(\$7\)\).*ORDER BY d.deployed_at DESC, d.id DESC.*LIMIT \$8`).
+		WithArgs("user-1", pq.Array([]string{"acct-1", "acct-2"}), pq.Array([]string(nil)), pq.Array([]string(nil)), nil, nil, "support", userDeploymentDefaultLimit+1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	req := httptest.NewRequest(
@@ -154,7 +154,7 @@ func TestUserDeploymentsReturnsOneGlobalMembershipGuardedPage(t *testing.T) {
 	router, mock := setupCrossAccountDeploymentRouter(t, cache)
 	expectCrossAccountMemberships(mock)
 	mock.ExpectQuery(`(?s)FROM deployments d.*JOIN account_members am.*ORDER BY d.deployed_at DESC, d.id DESC`).
-		WithArgs("user-1", pq.Array([]string{"acct-1", "acct-2"}), nil, nil, "", 2).
+		WithArgs("user-1", pq.Array([]string{"acct-1", "acct-2"}), pq.Array([]string(nil)), pq.Array([]string(nil)), nil, nil, "", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	req := httptest.NewRequest(
@@ -191,7 +191,7 @@ func TestUserDeploymentsReportsRejectedAccountsWithoutExpandingScope(t *testing.
 	router, mock := setupCrossAccountDeploymentRouter(t, cache)
 	expectCrossAccountMemberships(mock)
 	mock.ExpectQuery(`(?s)FROM deployments d.*JOIN account_members am`).
-		WithArgs("user-1", pq.Array([]string{"acct-1"}), nil, nil, "", userDeploymentDefaultLimit+1).
+		WithArgs("user-1", pq.Array([]string{"acct-1"}), pq.Array([]string(nil)), pq.Array([]string(nil)), nil, nil, "", userDeploymentDefaultLimit+1).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 	req := httptest.NewRequest(

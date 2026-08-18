@@ -101,7 +101,7 @@ func TestUserDeploymentKeysetPaginationIsTimeZoneNeutral(t *testing.T) {
 			}
 
 			firstPage, err := store.ListVisibleDeploymentsForUserPage(
-				ctx, userID, []string{accountID}, "", 2, nil,
+				ctx, userID, []string{accountID}, "", 2, nil, nil, nil,
 			)
 			if err != nil {
 				t.Fatalf("first page: %v", err)
@@ -118,6 +118,8 @@ func TestUserDeploymentKeysetPaginationIsTimeZoneNeutral(t *testing.T) {
 				"",
 				2,
 				&ds.UserDeploymentCursor{DeployedAt: boundaryRow.DeployedAt, ID: boundaryRow.ID},
+				nil,
+				nil,
 			)
 			if err != nil {
 				t.Fatalf("second page: %v", err)

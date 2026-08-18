@@ -7,14 +7,14 @@ import (
 )
 
 type resourceAccount struct {
-	accountID        string
-	workOSOrgID      string
-	personal         bool
-	fgaResourceReady bool
+	accountID          string
+	workOSOrgID        string
+	personal           bool
+	fgaResourceManaged bool
 }
 
 // DeploymentAccountResolver maps a deployment to its account and reports
-// whether PR4 finished registering its WorkOS resource.
+// whether PR4 has taken responsibility for its WorkOS resource.
 type DeploymentAccountResolver struct {
 	db *sql.DB
 }
@@ -33,14 +33,15 @@ func (r *DeploymentAccountResolver) OrganizationForResource(ctx context.Context,
 	return account.workOSOrgID, account.personal, err
 }
 
-// Enabled reports whether shadow checks may run for this deployment. Requiring
-// a converged PR4 ledger row excludes personal and historical deployments.
+// Enabled reports whether FGA owns this deployment. Historical deployments
+// without a PR4 ledger row stay on legacy behavior until backfill. Pending
+// resources fail closed instead of becoming temporarily organization-visible.
 func (r *DeploymentAccountResolver) Enabled(ctx context.Context, resource ResourceRef) (bool, error) {
 	account, err := r.resolve(ctx, resource)
 	if err != nil {
 		return false, err
 	}
-	return !account.personal && account.fgaResourceReady, nil
+	return !account.personal && account.fgaResourceManaged, nil
 }
 
 func (r *DeploymentAccountResolver) resolve(ctx context.Context, resource ResourceRef) (resourceAccount, error) {
@@ -58,12 +59,7 @@ func (r *DeploymentAccountResolver) resolve(ctx context.Context, resource Resour
 			SELECT d.account_id,
 			       a.type,
 			       COALESCE(ao.workos_org_id, ''),
-			       COALESCE(
-			           s.desired_state = 'registered'
-			           AND s.synced_state = 'registered'
-			           AND s.synced_version = s.desired_version,
-			           FALSE
-			       )
+			       COALESCE(s.desired_state = 'registered', FALSE)
 			FROM deployments d
 			JOIN accounts a ON a.id = d.account_id
 			LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -73,7 +69,7 @@ func (r *DeploymentAccountResolver) resolve(ctx context.Context, resource Resour
 			&account.accountID,
 			&accountType,
 			&account.workOSOrgID,
-			&account.fgaResourceReady,
+			&account.fgaResourceManaged,
 		)
 		if err != nil {
 			return resourceAccount{}, fmt.Errorf("resolve account for %s:%s: %w", resource.Type, resource.ExternalID, err)

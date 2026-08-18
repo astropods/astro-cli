@@ -896,6 +896,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
+	fgaExperiment := experiment.NewGate(experimentStore, experiment.FineGrainedAccess)
 	deploymentFGALiveRollout := authz.NewConditionalResourceGate(
 		deploymentFGA != nil && (cfg.FGAShadowEnabled || cfg.FGAEnforcementEnabled),
 		resourceAccounts,
@@ -907,7 +908,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	deploymentFGAOrganizationRollout := authz.NewAccountExperimentResourceGate(
 		deploymentFGALiveRollout,
 		resourceAccounts,
-		experiment.NewGate(experimentStore, experiment.FineGrainedAccess),
+		fgaExperiment,
+	)
+	deploymentResourceDiscovery, _ := deploymentFGA.(authz.ResourceDiscovery)
+	deploymentDiscovery := authz.NewDeploymentDiscovery(
+		deploymentFGA != nil && cfg.FGAEnforcementEnabled && deploymentResourceDiscovery != nil,
+		deploymentResourceDiscovery,
+		fgaExperiment,
+		deploymentStore,
+		accountStore,
 	)
 	membershipChecker := authz.NewMembershipChecker(accountStore, resourceAccounts)
 	deploymentFGALiveChecker := authz.NewFGAChecker(deploymentFGA, deploymentFGALiveRollout, resourceAccounts)
@@ -1186,7 +1195,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque keyset pagination cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.UserKnowledgeResponse{}),
 			)
-			api.GET(protected, "/me/deployments", "List deployments visible to the current user", handlers.ListUserDeployments(log, accountStore, deploymentStore, agentIndex, auditStore, k8sCache),
+			api.GET(protected, "/me/deployments", "List deployments visible to the current user", handlers.ListUserDeployments(log, accountStore, deploymentStore, agentIndex, auditStore, k8sCache, deploymentDiscovery),
 				oapispec.Tags("Accounts", "Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Repeated account name; required unless scope=all", false),
@@ -1196,7 +1205,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.UserDeploymentsResponse{}),
 			)
-			api.GET(protected, "/me/deployment-summaries", "Get cached summaries for visible deployments", handlers.ListUserDeploymentSummaries(log, deploymentStore, k8sCache),
+			api.GET(protected, "/me/deployment-summaries", "Get cached summaries for visible deployments", handlers.ListUserDeploymentSummaries(log, accountStore, deploymentStore, k8sCache, deploymentDiscovery),
 				oapispec.Tags("Accounts", "Deployments", "Observability"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("deployment", "Repeated visible deployment ID (max 100)", true),
@@ -1286,7 +1295,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
 				)
-				api.PUT(accountAdmin, "/experiments/fine-grained-access", "Update fine-grained access experiment", handlers.UpdateFineGrainedAccessExperiment(log, experimentStore, auditStore),
+				api.PUT(accountAdmin, "/experiments/fine-grained-access", "Update fine-grained access experiment", handlers.UpdateFineGrainedAccessExperiment(log, experimentStore, auditStore, deploymentDiscovery),
 					oapispec.Tags("Accounts", "Experiments"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1959,25 +1968,25 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.ActiveDeploymentResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
 			)
-			api.GET(protected, "/agents/:account/:name/deployment/history", "Get deployment history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore),
+			api.GET(protected, "/agents/:account/:name/deployment/history", "Get deployment history", handlers.GetDeploymentHistory(log, accountStore, deploymentStore, deploymentDiscovery),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
 				oapispec.PathParam("name", "Agent name"),
 				oapispec.Response(200, &handlers.DeploymentHistoryResponse{}),
 			)
-			api.GET(protected, "/deployments/count", "Count deployments", handlers.CountDeployments(log, accountStore, deploymentStore),
+			api.GET(protected, "/deployments/count", "Count deployments", handlers.CountDeployments(log, accountStore, deploymentStore, deploymentDiscovery),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),
 				oapispec.Response(200, nil),
 			)
-			api.GET(protected, "/deployments/summary", "List deployment summaries", handlers.ListDeploymentsSummary(log, accountStore, deploymentStore, avatarStore),
+			api.GET(protected, "/deployments/summary", "List deployment summaries", handlers.ListDeploymentsSummary(log, accountStore, deploymentStore, avatarStore, deploymentDiscovery),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Response(200, &handlers.DeploymentsSummaryResponse{}),
 			)
-			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache),
+			api.GET(protected, "/deployments", "List deployments", handlers.ListDeployments(log, accountStore, deploymentStore, agentIndex, avatarStore, auditStore, k8sCache, deploymentDiscovery),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.QueryParam("account", "Account name", true),

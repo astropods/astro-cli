@@ -219,6 +219,7 @@ flowchart LR
 
 - Add `FGA_ENFORCEMENT_ENABLED` as the environment kill switch. A live enforcement path also requires a configured WorkOS client and a PR4-converged organization deployment.
 - Require the organization `fine_grained_access` experiment in addition to the environment switch. Turning the experiment off immediately restores legacy authorization while preserving WorkOS resources and shadow checks.
+- Synchronize current organization members into `account_member_workos` before enabling the organization experiment; missing WorkOS membership identity fails closed. The environment switch may be enabled earlier while the organization remains opted out.
 - Add deployment-action middleware that checks the PR6 route catalog's permission. Enforce edit, operate, and delete—including body-addressed redeploy and undeploy—plus read-gated alert subscriptions; personal, historical, and unconverged resources stay on legacy authorization.
 - Keep model-deferred evaluation routes on legacy membership authorization. They carry no deployment permission and are not included in deployment capabilities or enforcement.
 - Fail closed on WorkOS errors; distinguish denial from authorization-service failure internally without exposing resource existence.
@@ -258,9 +259,12 @@ flowchart TD
 ### PR8.2 — Read visibility and discovery
 
 - Use WorkOS resource discovery to return only deployments for which the current membership has `deployment:read`.
-- Enforce the same boundary on deployment detail reads so hidden deployments cannot be opened by URL.
+- Enforce the same boundary on every cataloged deployment control-plane read so hidden deployments cannot be opened by URL or recovered through status, files, logs, observability, configuration, network, or summary endpoints.
 - Avoid one WorkOS check per deployment; discover accessible resource IDs once and filter Astro's database result.
+- Run discovery before list-cache lookup and include the live authorization set in the cache identity so revocation cannot reuse another permission state's cached cards.
+- Keep model-owned evaluation routes and chat/messaging data-plane routes on their explicitly separate authorization paths; `deployment:read` is not silently made their final policy here.
 - Preserve current behavior for personal accounts, opted-out organizations, and the global kill switch.
+- Preserve legacy visibility for historical deployments without a lifecycle row until backfill. Once a deployment enters the lifecycle ledger, pending synchronization fails closed instead of briefly exposing it through organization membership.
 
 ### PR8.3 — Deployment access APIs
 

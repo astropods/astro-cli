@@ -16,6 +16,10 @@ type experimentStore interface {
 	SetEnabled(context.Context, string, experiment.Key, bool) error
 }
 
+type experimentCacheInvalidator interface {
+	InvalidateAccount(string)
+}
+
 type FineGrainedAccessExperimentResponse struct {
 	Experiment string `json:"experiment"`
 	Enabled    bool   `json:"enabled"`
@@ -50,7 +54,12 @@ func GetFineGrainedAccessExperiment(log *logger.Logger, store experimentStore) g
 	}
 }
 
-func UpdateFineGrainedAccessExperiment(log *logger.Logger, store experimentStore, auditStore *auditlog.Store) gin.HandlerFunc {
+func UpdateFineGrainedAccessExperiment(
+	log *logger.Logger,
+	store experimentStore,
+	auditStore *auditlog.Store,
+	cache experimentCacheInvalidator,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -71,6 +80,9 @@ func UpdateFineGrainedAccessExperiment(log *logger.Logger, store experimentStore
 			log.Error("Failed to update account experiment", "error", err, "account_id", acct.ID, "experiment", experiment.FineGrainedAccess)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update experiment"})
 			return
+		}
+		if cache != nil {
+			cache.InvalidateAccount(acct.ID)
 		}
 
 		event := auditlog.FromGinContext(c, acct.ID)

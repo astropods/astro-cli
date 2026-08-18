@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -215,6 +216,10 @@ func serveUserResourceList[Request any](config userResourceListConfig[Request]) 
 		}
 		request, err := config.parse(c, memberships)
 		if err != nil {
+			if errors.Is(err, errDeploymentVisibilityUnavailable) {
+				writeDeploymentVisibilityError(c, config.log, err)
+				return
+			}
 			writeListFilterError(c, err)
 			return
 		}

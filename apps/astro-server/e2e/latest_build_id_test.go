@@ -356,7 +356,7 @@ func newLatestBuildIDRouter(t *testing.T, userID string, accountStore *account.A
 		c.Next()
 	})
 	r.GET("/api/v1/deployments", handlers.ListDeployments(
-		log, accountStore, deployStore, index, nil, nil, k8scache.NoopCache{},
+		log, accountStore, deployStore, index, nil, nil, k8scache.NoopCache{}, nil,
 	))
 	return r
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -27,7 +28,7 @@ func TestListUserDeploymentSummariesReturnsOnlyAuthorizedCachedEntries(t *testin
 	visibleID := "abc-def-ghi"
 	hiddenID := "jkl-mno-pqr"
 	mock.ExpectQuery(`(?s)SELECT d.id.*JOIN account_members am.*JOIN accounts a.*d.id = ANY\(\$2::varchar\[\]\)`).
-		WithArgs("user-1", pq.Array([]string{visibleID, hiddenID})).
+		WithArgs("user-1", pq.Array([]string{visibleID, hiddenID}), pq.Array([]string(nil)), pq.Array([]string(nil)), false).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(visibleID))
 
 	cache := mapCache{}
@@ -41,8 +42,10 @@ func TestListUserDeploymentSummariesReturnsOnlyAuthorizedCachedEntries(t *testin
 	})
 	router.GET("/api/v1/me/deployment-summaries", ListUserDeploymentSummaries(
 		logger.New("error", "json"),
+		account.NewAccountStore(db),
 		deploymentstore.NewStore(db),
 		cache,
+		nil,
 	))
 
 	req := httptest.NewRequest(http.MethodGet,

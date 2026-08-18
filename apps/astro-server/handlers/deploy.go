@@ -1558,9 +1558,14 @@ type AgentDeploymentSummary struct {
 	DeployedBy             string                `json:"deployed_by,omitempty"`
 }
 
-// CountDeployments returns a handler that returns the number of visible deployments for an account.
-// This is a lightweight DB-only query with no K8s calls, suitable for skeleton rendering.
-func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+// CountDeployments returns the number of visible deployments for an account.
+// It never calls K8s, but FGA-enabled organizations resolve live WorkOS visibility before the DB count.
+func CountDeployments(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deployStore *deploymentstore.Store,
+	discovery deploymentVisibilityResolver,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -1586,7 +1591,22 @@ func CountDeployments(log *logger.Logger, accountStore *account.AccountStore, de
 			return
 		}
 
-		count, err := deployStore.CountVisibleDeploymentsByAccount(acct.ID)
+		visibility, err := resolveDeploymentVisibility(
+			c.Request.Context(), discovery, user.ID, singleAccountVisibilityScope(acct),
+		)
+		if err != nil {
+			writeDeploymentVisibilityError(c, log, err)
+			return
+		}
+		var count int
+		if visibility.EnforcesAccount(acct.ID) {
+			count, err = deployStore.CountReadableDeploymentsForUser(
+				c.Request.Context(), user.ID, acct.ID,
+				visibility.FGAAccountIDs, visibility.ReadableDeploymentIDs,
+			)
+		} else {
+			count, err = deployStore.CountVisibleDeploymentsByAccount(acct.ID)
+		}
 		if err != nil {
 			log.Error("Failed to count deployments", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count deployments"})
@@ -1623,7 +1643,13 @@ type DeploymentsSummaryResponse struct {
 
 // ListDeploymentsSummary returns lightweight deployment summaries across all
 // accounts the authenticated user belongs to. No K8s enrichment — DB only.
-func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, avatarStore *avatar.Store) gin.HandlerFunc {
+func ListDeploymentsSummary(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deployStore *deploymentstore.Store,
+	avatarStore *avatar.Store,
+	discovery deploymentVisibilityResolver,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
 		if !exists {
@@ -1637,6 +1663,11 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get accounts"})
 			return
 		}
+		visibility, err := resolveDeploymentVisibility(c.Request.Context(), discovery, user.ID, accounts)
+		if err != nil {
+			writeDeploymentVisibilityError(c, log, err)
+			return
+		}
 
 		accountIDs := make([]string, len(accounts))
 		accountMap := make(map[string]account.AccountWithRole, len(accounts))
@@ -1648,6 +1679,15 @@ func ListDeploymentsSummary(log *logger.Logger, accountStore *account.AccountSto
 		summaries, err := deployStore.GetSummariesForAccounts(accountIDs)
 		if err != nil {
 			log.Error("Failed to get deployment summaries", "error", err, "user_id", user.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment summaries"})
+			return
+		}
+		summaries, err = filterReadableDeployments(
+			c.Request.Context(), deployStore.ListReadableDeploymentIDsForUser, user.ID, summaries, visibility,
+			func(summary *deploymentstore.DeploymentSummary) string { return summary.ID },
+		)
+		if err != nil {
+			log.Error("Failed to filter deployment summaries", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment summaries"})
 			return
 		}
@@ -1897,7 +1937,16 @@ func parseBuildIDFilter(c *gin.Context) []string {
 // GetMessagingURLs — that table is the authoritative URL source for both
 // local-mode (NodePort, written post-apply) and remote (Ingress hostname,
 // written at normalization).
-func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
+func ListDeployments(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deployStore *deploymentstore.Store,
+	agentIdx *agentindex.Index,
+	avatarStore *avatar.Store,
+	auditStore *auditlog.Store,
+	cache k8scache.Cache,
+	discovery deploymentVisibilityResolver,
+) gin.HandlerFunc {
 	dependencies := deploymentListDependencies{
 		log:         log,
 		accounts:    accountStore,
@@ -1966,6 +2015,11 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load accounts"})
 				return
 			}
+			visibility, err := resolveDeploymentVisibility(c.Request.Context(), discovery, user.ID, accounts)
+			if err != nil {
+				writeDeploymentVisibilityError(c, log, err)
+				return
+			}
 
 			// Per-account enrichment is independent — run in parallel. A
 			// single account's failure is logged and skipped so the rest
@@ -2002,6 +2056,15 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			for _, s := range perAccount {
 				combined = append(combined, s...)
 			}
+			combined, err = filterReadableDeployments(
+				c.Request.Context(), deployStore.ListReadableDeploymentIDsForUser, user.ID, combined, visibility,
+				func(summary AgentDeploymentSummary) string { return summary.ID },
+			)
+			if err != nil {
+				log.Error("Failed to filter cross-account deployments", "error", err, "user_id", user.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{
 				"deployments": combined,
 				"count":       len(combined),
@@ -2021,6 +2084,13 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for this account"})
 			return
 		}
+		visibility, err := resolveDeploymentVisibility(
+			c.Request.Context(), discovery, user.ID, singleAccountVisibilityScope(acct),
+		)
+		if err != nil {
+			writeDeploymentVisibilityError(c, log, err)
+			return
+		}
 
 		log.Info("Listing deployments",
 			"account", accountName,
@@ -2028,7 +2098,7 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 		)
 
 		var response ListDeploymentsResponse
-		if len(buildIDs) == 0 {
+		if len(buildIDs) == 0 && !visibility.EnforcesAccount(acct.ID) {
 			if cached, ok := deploycache.Get(c.Request.Context(), cache, acct.ID); ok {
 				c.Data(http.StatusOK, "application/json", cached)
 				return
@@ -2066,7 +2136,17 @@ func ListDeployments(log *logger.Logger, accountStore *account.AccountStore, dep
 			})
 			return
 		}
-		if len(buildIDs) == 0 {
+		response.Deployments, err = filterReadableDeployments(
+			c.Request.Context(), deployStore.ListReadableDeploymentIDsForUser, user.ID, response.Deployments, visibility,
+			func(summary AgentDeploymentSummary) string { return summary.ID },
+		)
+		if err != nil {
+			log.Error("Failed to filter deployments", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
+			return
+		}
+		response.Count = len(response.Deployments)
+		if len(buildIDs) == 0 && !visibility.EnforcesAccount(acct.ID) {
 			body, marshalErr := json.Marshal(response)
 			if marshalErr != nil {
 				log.Error("Failed to encode deployment list", "account_id", acct.ID, "error", marshalErr)
@@ -4421,6 +4501,9 @@ func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountSt
 			c.JSON(http.StatusNotFound, gin.H{"error": "no active deployment found"})
 			return
 		}
+		if !middleware.AuthorizeDeploymentAction(c, authz.ActionDeploymentRead, d.ID) {
+			return
+		}
 
 		var specObj json.RawMessage
 		if err := json.Unmarshal([]byte(d.DeploymentSpecJSON), &specObj); err != nil {
@@ -4443,7 +4526,12 @@ func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountSt
 
 // GetDeploymentHistory returns all deployment records for an agent.
 // GET /api/v1/agents/:account/:name/deployment/history
-func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store) gin.HandlerFunc {
+func GetDeploymentHistory(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deployStore *deploymentstore.Store,
+	discovery deploymentVisibilityResolver,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -4470,6 +4558,24 @@ func GetDeploymentHistory(log *logger.Logger, accountStore *account.AccountStore
 			log.Error("Failed to get deployment history", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
 			return
+		}
+		if len(history) > 0 {
+			visibility, visibilityErr := resolveDeploymentVisibility(
+				c.Request.Context(), discovery, user.ID, singleAccountVisibilityScope(acct),
+			)
+			if visibilityErr != nil {
+				writeDeploymentVisibilityError(c, log, visibilityErr)
+				return
+			}
+			history, visibilityErr = filterReadableDeployments(
+				c.Request.Context(), deployStore.ListReadableDeploymentHistoryIDsForUser, user.ID, history, visibility,
+				func(record deploymentstore.RevisionHistoryRecord) string { return record.DeploymentID },
+			)
+			if visibilityErr != nil {
+				log.Error("Failed to filter deployment history", "error", visibilityErr, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
+				return
+			}
 		}
 
 		if deploymentID := c.Query("deployment_id"); deploymentID != "" {

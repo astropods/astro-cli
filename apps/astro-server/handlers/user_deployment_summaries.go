@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -13,13 +15,13 @@ import (
 
 const maxUserDeploymentSummaries = 100
 
-// ListUserDeploymentSummaries returns cached observability only for the
-// requested deployment cards that the current user can read. It performs one
-// membership-guarded SQL query and one Redis MGET; it never calls Langfuse.
+// ListUserDeploymentSummaries resolves live WorkOS visibility for FGA-enabled organizations before its membership-guarded SQL query and Redis MGET.
 func ListUserDeploymentSummaries(
 	log *logger.Logger,
+	accounts *account.AccountStore,
 	deployments *deploymentstore.Store,
 	cache k8scache.Cache,
+	discovery deploymentVisibilityResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, ok := middleware.GetUser(c)
@@ -53,7 +55,28 @@ func ListUserDeploymentSummaries(
 			ids = append(ids, id)
 		}
 
-		visible, err := deployments.ListVisibleDeploymentIDsForUser(c.Request.Context(), user.ID, ids)
+		visibility := authz.DeploymentVisibility{}
+		if discovery != nil && discovery.Active() {
+			memberships, membershipErr := accounts.GetAccountsForUserContext(c.Request.Context(), user.ID)
+			if membershipErr != nil {
+				log.Error("Failed to load memberships for deployment summaries", "error", membershipErr, "user_id", user.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load deployment summaries"})
+				return
+			}
+			var visibilityErr error
+			visibility, visibilityErr = resolveDeploymentVisibility(c.Request.Context(), discovery, user.ID, memberships)
+			if visibilityErr != nil {
+				writeDeploymentVisibilityError(c, log, visibilityErr)
+				return
+			}
+		}
+		visible, err := deployments.ListReadableDeploymentIDsForUser(
+			c.Request.Context(),
+			user.ID,
+			ids,
+			visibility.FGAAccountIDs,
+			visibility.ReadableDeploymentIDs,
+		)
 		if err != nil {
 			log.Error("Failed to authorize visible deployment summaries", "error", err, "requested_count", len(ids))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load deployment summaries"})

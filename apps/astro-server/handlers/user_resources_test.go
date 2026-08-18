@@ -14,10 +14,12 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 func TestSelectCrossAccountMemberships(t *testing.T) {
@@ -152,6 +154,14 @@ func (c *recordingCache) Invalidate(_ context.Context, key string) error {
 }
 
 func setupCrossAccountDeploymentRouter(t *testing.T, cache *recordingCache) (*gin.Engine, sqlmock.Sqlmock) {
+	return setupCrossAccountDeploymentRouterWithDiscovery(t, cache, nil)
+}
+
+func setupCrossAccountDeploymentRouterWithDiscovery(
+	t *testing.T,
+	cache *recordingCache,
+	discovery deploymentVisibilityResolver,
+) (*gin.Engine, sqlmock.Sqlmock) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db, mock, err := sqlmock.New()
@@ -175,9 +185,53 @@ func setupCrossAccountDeploymentRouter(t *testing.T, cache *recordingCache) (*gi
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/me/deployments", ListUserDeployments(log, accountStore, deployStore, agentIndex, nil, cache))
-	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, deployStore, agentIndex, nil, nil, cache))
+	router.GET("/api/v1/me/deployments", ListUserDeployments(log, accountStore, deployStore, agentIndex, nil, cache, discovery))
+	router.GET("/api/v1/deployments", ListDeployments(log, accountStore, deployStore, agentIndex, nil, nil, cache, nil))
 	return router, mock
+}
+
+type staticDeploymentVisibility struct {
+	visibility authz.DeploymentVisibility
+	err        error
+	accounts   []account.AccountWithRole
+}
+
+func (*staticDeploymentVisibility) Active() bool { return true }
+
+func (s *staticDeploymentVisibility) Visible(
+	_ context.Context,
+	_ string,
+	accounts []account.AccountWithRole,
+) (authz.DeploymentVisibility, error) {
+	s.accounts = append([]account.AccountWithRole(nil), accounts...)
+	return s.visibility, s.err
+}
+
+func TestUserDeploymentCacheChangesWithLiveVisibility(t *testing.T) {
+	cache := &recordingCache{entries: map[string][]byte{}}
+	discovery := &staticDeploymentVisibility{visibility: authz.DeploymentVisibility{
+		FGAAccountIDs: []string{"acct-1"}, ReadableDeploymentIDs: []string{"dep-1"},
+	}}
+	router, mock := setupCrossAccountDeploymentRouterWithDiscovery(t, cache, discovery)
+
+	for _, readable := range []string{"dep-1", "dep-2"} {
+		expectCrossAccountMemberships(mock)
+		mock.ExpectQuery(`(?s)FROM deployments d.*deployment_fga_sync.*d.id = ANY\(\$4::varchar\[\]\)`).
+			WithArgs(
+				"user-1", pq.Array([]string{"acct-1", "acct-2"}),
+				pq.Array([]string{"acct-1"}), pq.Array([]string{readable}),
+				nil, nil, "", userDeploymentDefaultLimit+1,
+			).
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/me/deployments?scope=all", nil))
+		if recorder.Code != http.StatusOK || recorder.Header().Get("X-Astro-Cache") != "miss" {
+			t.Fatalf("readable=%s status=%d cache=%q body=%s", readable, recorder.Code, recorder.Header().Get("X-Astro-Cache"), recorder.Body.String())
+		}
+
+		discovery.visibility.ReadableDeploymentIDs = []string{"dep-2"}
+	}
 }
 
 func TestUserResourceListRejectsTooManyAccountParameters(t *testing.T) {

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -204,4 +205,74 @@ func TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim(t *testi
 			}
 		})
 	}
+}
+
+func TestReadableDeploymentQueriesTreatNilFGAScopeAsLegacy(t *testing.T) {
+	db := testDB(t)
+	store := ds.NewStore(db)
+	ctx := context.Background()
+
+	accountName := "fga-null-scope-" + deployid.New()
+	var accountID string
+	if err := db.QueryRowContext(ctx, `
+		INSERT INTO accounts (name, type)
+		VALUES ($1, 'organization')
+		RETURNING id
+	`, accountName).Scan(&accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM accounts WHERE id = $1", accountID)
+	})
+
+	userID := "fga-null-scope-user-" + deployid.New()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO account_members (account_id, user_id)
+		VALUES ($1, $2)
+	`, accountID, userID); err != nil {
+		t.Fatalf("insert account membership: %v", err)
+	}
+
+	deployment := createDeploymentInStatus(t, store, accountID, "fga-null-scope", ds.StatusActive)
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO deployment_fga_sync (
+			deployment_id, desired_state, desired_version, next_attempt_at, updated_at
+		)
+		VALUES ($1, 'registered', 1, NOW(), NOW())
+	`, deployment.ID); err != nil {
+		t.Fatalf("insert deployment FGA sync row: %v", err)
+	}
+
+	assertVisible := func(t *testing.T, fgaAccountIDs, readableDeploymentIDs []string, want bool) {
+		t.Helper()
+		ids, err := store.ListReadableDeploymentIDsForUser(
+			ctx, userID, []string{deployment.ID}, fgaAccountIDs, readableDeploymentIDs,
+		)
+		if err != nil {
+			t.Fatalf("list readable deployment IDs: %v", err)
+		}
+		if got := len(ids) == 1 && ids[0] == deployment.ID; got != want {
+			t.Fatalf("readable deployment IDs = %v, want visible=%v", ids, want)
+		}
+
+		rows, err := store.ListVisibleDeploymentsForUserPage(
+			ctx, userID, []string{accountID}, "", 10, nil, fgaAccountIDs, readableDeploymentIDs,
+		)
+		if err != nil {
+			t.Fatalf("list visible deployments: %v", err)
+		}
+		if got := len(rows) == 1 && rows[0].Deployment.ID == deployment.ID; got != want {
+			t.Fatalf("visible deployments = %v, want visible=%v", rows, want)
+		}
+	}
+
+	t.Run("legacy nil scope remains visible", func(t *testing.T) {
+		assertVisible(t, nil, nil, true)
+	})
+	t.Run("enforced unreadable deployment is hidden", func(t *testing.T) {
+		assertVisible(t, []string{accountID}, nil, false)
+	})
+	t.Run("enforced readable deployment remains visible", func(t *testing.T) {
+		assertVisible(t, []string{accountID}, []string{deployment.ID}, true)
+	})
 }
