@@ -891,19 +891,36 @@ type v4Reader struct {
 // was a mutually-exclusive view selector; see the migration doc for that
 // correction.
 type ObservationV2 struct {
-	ID                string  `json:"id"`
-	TraceID           string  `json:"traceId"`
-	StartTime         string  `json:"startTime"`
-	EndTime           string  `json:"endTime"`
-	ParentObsID       string  `json:"parentObservationId"`
-	Type              string  `json:"type"`
-	Name              string  `json:"name"`
-	UserID            string  `json:"userId"`
-	SessionID         string  `json:"sessionId"`
-	IsRootObservation bool    `json:"isRootObservation"`
-	Latency           float64 `json:"latency"`
-	Input             any     `json:"input"`
-	Output            any     `json:"output"`
+	ID                string   `json:"id"`
+	TraceID           string   `json:"traceId"`
+	StartTime         string   `json:"startTime"`
+	EndTime           string   `json:"endTime"`
+	ParentObsID       string   `json:"parentObservationId"`
+	Type              string   `json:"type"`
+	Name              string   `json:"name"`
+	UserID            string   `json:"userId"`
+	SessionID         string   `json:"sessionId"`
+	IsRootObservation bool     `json:"isRootObservation"`
+	Latency           float64  `json:"latency"`
+	Input             any      `json:"input"`
+	Output            any      `json:"output"`
+	Level             string   `json:"level"`
+	StatusMessage     string   `json:"statusMessage"`
+	Tags              []string `json:"tags"`
+	TraceName         string   `json:"traceName"`
+	Release           string   `json:"release"`
+	Environment       string   `json:"environment"`
+	Version           string   `json:"version"`
+
+	Metadata        map[string]any `json:"metadata"`
+	Model           string         `json:"model"`
+	ModelParameters map[string]any `json:"modelParameters"`
+	// Nullable upstream. A JSON null decodes to the zero value rather than
+	// failing, which is the wanted behavior: a span with no cost reads as 0.
+	TotalCost   float64 `json:"totalCost"`
+	InputUsage  int     `json:"inputUsage"`
+	OutputUsage int     `json:"outputUsage"`
+	TotalUsage  int     `json:"totalUsage"`
 }
 
 // observationsV2Response is the response from GET /api/public/v2/observations.
@@ -927,9 +944,8 @@ type v3ScoresResponse struct {
 }
 
 // countFamilyMeasures are measures that double-count spans within a trace
-// unless scoped to root observations only — confirmed live that filtering
-// isRootObservation=true on view:"observations" correctly counts 1 root span
-// rather than also counting its child.
+// unless the query is scoped to one span per trace, which the
+// isRootObservation filter does.
 var countFamilyMeasures = map[string]bool{
 	"count": true, "uniqueUserIds": true, "uniqueSessionIds": true, "traceId": true,
 }
@@ -947,6 +963,103 @@ const defaultHighCardinalityRowLimit = 1000
 // tags=, fromTimestamp=, and toTimestamp= are silently ignored by this
 // endpoint (no-op instead of erroring), which would otherwise leak other
 // deployments' traces into the result set.
+// v4RootFilter selects the one observation per trace that starts it.
+//
+// It must travel in the filter= array. As a dedicated query param,
+// isRootObservation is silently ignored, which is what made the listing return
+// every child span as though each were its own trace.
+//
+// Prefer this over a null filter on parentObservationId. Langfuse resolves the
+// column to (parent_span_id = ” OR is_app_root), so it also matches a trace
+// whose root carries a parent that was never ingested, the case where the root
+// span lives in another service. A parentless-only filter misses those.
+var v4RootFilter = TraceFilter{Type: "boolean", Column: "isRootObservation", Operator: "=", Value: true}
+
+// v4TraceFromRoot converts a trace's root observation into a Trace.
+//
+// The ID is the trace ID, not the root span's own ID. Callers round-trip it
+// back through getTraceDetail and getTraceCore, and traceId is the identifier
+// the v4 filter contract can look a trace up by.
+//
+// CreatedAt is set as well as Timestamp because callers render CreatedAt as
+// the trace timestamp; leaving it empty renders an invalid date.
+func v4TraceFromRoot(o ObservationV2) Trace {
+	name := o.TraceName
+	if name == "" {
+		name = o.Name
+	}
+	return Trace{
+		ID:        o.TraceID,
+		Name:      name,
+		Timestamp: o.StartTime,
+		CreatedAt: o.StartTime,
+		UpdatedAt: o.EndTime,
+		Input:     o.Input,
+		Output:    o.Output,
+		SessionID: o.SessionID,
+		UserID:    o.UserID,
+		Latency:   o.Latency,
+		Tags:      o.Tags,
+		Metadata:  o.Metadata,
+		// TotalCost stays unset here. Cost sits on the child GENERATION spans
+		// and does not roll up onto the root, so only a caller holding the
+		// whole tree can total it (see v4SumCost).
+	}
+}
+
+// v4ObservationFromV2 converts a span to the version-independent shape.
+func v4ObservationFromV2(o ObservationV2) Observation {
+	return Observation{
+		ID:                  o.ID,
+		TraceID:             o.TraceID,
+		ParentObservationID: o.ParentObsID,
+		Type:                o.Type,
+		Name:                o.Name,
+		StartTime:           o.StartTime,
+		EndTime:             o.EndTime,
+		Latency:             o.Latency,
+		Level:               o.Level,
+		StatusMessage:       o.StatusMessage,
+		Model:               o.Model,
+		ModelParameters:     o.ModelParameters,
+		Metadata:            o.Metadata,
+		Input:               o.Input,
+		Output:              o.Output,
+		CalculatedTotalCost: o.TotalCost,
+		Usage: &Usage{
+			Input:  o.InputUsage,
+			Output: o.OutputUsage,
+			Total:  o.TotalUsage,
+		},
+	}
+}
+
+// v4SumCost totals a trace's cost across its spans. The root carries none of
+// its children's cost, so summing is the only way to report a trace total.
+func v4SumCost(spans []ObservationV2) float64 {
+	var total float64
+	for _, o := range spans {
+		total += o.TotalCost
+	}
+	return total
+}
+
+// v4ObservationFields is the field-group set every read requests. The groups
+// map to response fields as follows, taken from Langfuse's own group table
+// rather than inferred:
+//
+//	basic         name, level, statusMessage, environment, version
+//	metrics       latency, timeToFirstToken
+//	trace_context tags, release, traceName
+//	metadata      the metadata map
+//	model         model, modelParameters, internalModelId
+//	usage         totalCost, inputUsage, outputUsage, totalUsage, costDetails
+//
+// trace_context matters most: it carries the tags callers use to confirm a
+// trace belongs to the deployment they asked about. Without it that check sees
+// no tags and rejects every trace.
+const v4ObservationFields = "basic,metrics,trace_context,metadata,model,usage"
+
 func v4ObservationFilters(f traceFilter) []TraceFilter {
 	filters := append([]TraceFilter{}, f.filters...)
 	filters = append(filters, TraceFilter{Type: "stringOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + f.deploymentID}})
@@ -962,13 +1075,12 @@ func v4ObservationFilters(f traceFilter) []TraceFilter {
 // getTraces is the v4 equivalent of v3Reader.getTraces, built on
 // /api/public/v2/observations.
 func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesResponse, error) {
-	encoded, err := json.Marshal(v4ObservationFilters(f))
+	encoded, err := json.Marshal(append(v4ObservationFilters(f), v4RootFilter))
 	if err != nil {
 		return nil, fmt.Errorf("langfuse: marshal v4 observation filters: %w", err)
 	}
 
 	params := url.Values{}
-	params.Set("isRootObservation", "true")
 	params.Set("filter", string(encoded))
 	if f.startTime != "" {
 		params.Set("fromStartTime", f.startTime)
@@ -976,10 +1088,9 @@ func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesRespons
 	if f.endTime != "" {
 		params.Set("toStartTime", f.endTime)
 	}
-	// "basic" carries the fields Trace needs (name/userId/sessionId); "io" is
-	// added only when the caller's v3-style fields value asked for it, to
-	// avoid always paying for input/output payload on calls that don't need it.
-	v4Fields := "basic"
+	// "io" is added only when the caller's v3-style fields value asked for it,
+	// to avoid always paying for input/output payload on calls that don't need it.
+	v4Fields := v4ObservationFields
 	if strings.Contains(f.fields, "io") {
 		v4Fields += ",io"
 	}
@@ -1027,16 +1138,7 @@ func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesRespons
 
 	out := &TracesResponse{Data: make([]Trace, 0, len(result.Data))}
 	for _, o := range result.Data {
-		out.Data = append(out.Data, Trace{
-			ID:        o.ID,
-			Name:      o.Name,
-			Timestamp: o.StartTime,
-			Input:     o.Input,
-			Output:    o.Output,
-			SessionID: o.SessionID,
-			UserID:    o.UserID,
-			Latency:   o.Latency,
-		})
+		out.Data = append(out.Data, v4TraceFromRoot(o))
 	}
 
 	// orderBy is accepted but silently ignored by v2/observations (confirmed
@@ -1055,31 +1157,12 @@ func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesRespons
 	return out, nil
 }
 
-// getTraceDetail resolves a trace (identified by its root observation ID,
-// matching what getTraces returns as Trace.ID) via /v2/observations, merging
-// core fields and input/output (fields=basic,io in one call), the full span
-// tree, and scores from the non-deprecated /v3/scores.
+// getTraceDetail resolves a trace by trace ID, the identifier getTraces
+// returns as Trace.ID. One /v2/observations call fetches the whole span tree,
+// and the root span (the one with no parent) supplies the trace-level fields.
+// Scores come from the non-deprecated /v3/scores.
 func (r *v4Reader) getTraceDetail(ctx context.Context, id string) (*TraceDetail, error) {
-	rootFilter, err := json.Marshal([]TraceFilter{{Type: "stringOptions", Column: "id", Operator: "any of", Value: []string{id}}})
-	if err != nil {
-		return nil, fmt.Errorf("langfuse: marshal v4 root filter: %w", err)
-	}
-
-	var root observationsV2Response
-	{
-		p := url.Values{}
-		p.Set("filter", string(rootFilter))
-		p.Set("fields", "basic,io")
-		if err := r.doGet(ctx, "/api/public/v2/observations", p, &root); err != nil {
-			return nil, err
-		}
-	}
-	if len(root.Data) == 0 {
-		return nil, ErrNotFound
-	}
-	rootObs := root.Data[0]
-
-	traceFilterJSON, err := json.Marshal([]TraceFilter{{Type: "stringOptions", Column: "traceId", Operator: "any of", Value: []string{rootObs.TraceID}}})
+	traceFilterJSON, err := json.Marshal([]TraceFilter{{Type: "stringOptions", Column: "traceId", Operator: "any of", Value: []string{id}}})
 	if err != nil {
 		return nil, fmt.Errorf("langfuse: marshal v4 trace filter: %w", err)
 	}
@@ -1091,65 +1174,70 @@ func (r *v4Reader) getTraceDetail(ctx context.Context, id string) (*TraceDetail,
 		g.Go(func() error {
 			p := url.Values{}
 			p.Set("filter", string(traceFilterJSON))
-			p.Set("fields", "basic,io")
+			p.Set("fields", v4ObservationFields+",io")
 			p.Set("limit", "100")
 			return r.doGet(gctx, "/api/public/v2/observations", p, &spans)
 		})
 		g.Go(func() error {
 			p := url.Values{}
-			p.Set("traceId", rootObs.TraceID)
+			p.Set("traceId", id)
 			return r.doGet(gctx, "/api/public/v3/scores", p, &scores)
 		})
 		if err := g.Wait(); err != nil {
 			return nil, err
 		}
 	}
+	if len(spans.Data) == 0 {
+		return nil, ErrNotFound
+	}
 
+	rootObs := v4RootOf(spans.Data)
 	children := make([]Observation, 0, len(spans.Data))
 	for _, o := range spans.Data {
 		if o.ID == rootObs.ID {
 			continue
 		}
-		children = append(children, Observation{
-			ID:                  o.ID,
-			TraceID:             o.TraceID,
-			ParentObservationID: o.ParentObsID,
-			Type:                o.Type,
-			Name:                o.Name,
-			StartTime:           o.StartTime,
-			EndTime:             o.EndTime,
-			Latency:             o.Latency,
-			Input:               o.Input,
-			Output:              o.Output,
-		})
+		children = append(children, v4ObservationFromV2(o))
 	}
 
+	trace := v4TraceFromRoot(rootObs)
+	trace.TotalCost = v4SumCost(spans.Data)
+
 	return &TraceDetail{
-		Trace: Trace{
-			ID:        rootObs.ID,
-			Name:      rootObs.Name,
-			Timestamp: rootObs.StartTime,
-			Input:     rootObs.Input,
-			Output:    rootObs.Output,
-			SessionID: rootObs.SessionID,
-			UserID:    rootObs.UserID,
-			Latency:   rootObs.Latency,
-		},
+		Trace:        trace,
 		Observations: children,
 		Scores:       scores.Data,
 		UserID:       rootObs.UserID,
+		Release:      rootObs.Release,
+		Version:      rootObs.Version,
+		Environment:  rootObs.Environment,
 	}, nil
+}
+
+// v4RootOf returns the span with no parent, falling back to the first row so a
+// trace whose root is outside the page still resolves rather than 404s.
+func v4RootOf(spans []ObservationV2) ObservationV2 {
+	for _, o := range spans {
+		if o.ParentObsID == "" {
+			return o
+		}
+	}
+	return spans[0]
 }
 
 // getTraceCore is the lightweight, no-I/O variant of getTraceDetail — a
 // single request, used for ownership checks that only need tags/name/times.
 func (r *v4Reader) getTraceCore(ctx context.Context, id string) (*TraceDetail, error) {
-	filter, err := json.Marshal([]TraceFilter{{Type: "stringOptions", Column: "id", Operator: "any of", Value: []string{id}}})
+	filter, err := json.Marshal([]TraceFilter{
+		{Type: "stringOptions", Column: "traceId", Operator: "any of", Value: []string{id}},
+		v4RootFilter,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("langfuse: marshal v4 root filter: %w", err)
 	}
 	params := url.Values{}
 	params.Set("filter", string(filter))
+	params.Set("fields", v4ObservationFields)
 
 	var result observationsV2Response
 	if err := r.doGet(ctx, "/api/public/v2/observations", params, &result); err != nil {
@@ -1160,15 +1248,10 @@ func (r *v4Reader) getTraceCore(ctx context.Context, id string) (*TraceDetail, e
 	}
 	root := result.Data[0]
 	return &TraceDetail{
-		Trace: Trace{
-			ID:        root.ID,
-			Name:      root.Name,
-			Timestamp: root.StartTime,
-			SessionID: root.SessionID,
-			UserID:    root.UserID,
-			Latency:   root.Latency,
-		},
-		UserID: root.UserID,
+		Trace:       v4TraceFromRoot(root),
+		UserID:      root.UserID,
+		Release:     root.Release,
+		Environment: root.Environment,
 	}, nil
 }
 
@@ -1183,26 +1266,15 @@ func (r *v4Reader) getObservation(ctx context.Context, observationID string) (*O
 	var result observationsV2Response
 	p := url.Values{}
 	p.Set("filter", string(filter))
-	p.Set("fields", "basic,io")
+	p.Set("fields", v4ObservationFields+",io")
 	if err := r.doGet(ctx, "/api/public/v2/observations", p, &result); err != nil {
 		return nil, err
 	}
 	if len(result.Data) == 0 {
 		return nil, ErrNotFound
 	}
-	o := result.Data[0]
-	return &Observation{
-		ID:                  o.ID,
-		TraceID:             o.TraceID,
-		ParentObservationID: o.ParentObsID,
-		Type:                o.Type,
-		Name:                o.Name,
-		StartTime:           o.StartTime,
-		EndTime:             o.EndTime,
-		Latency:             o.Latency,
-		Input:               o.Input,
-		Output:              o.Output,
-	}, nil
+	o := v4ObservationFromV2(result.Data[0])
+	return &o, nil
 }
 
 // getMetrics is the v4 equivalent of v3Reader.getMetrics, targeting
@@ -1210,13 +1282,12 @@ func (r *v4Reader) getObservation(ctx context.Context, observationID string) (*O
 // "must be one of observations, scores-numeric, scores-categorical"; also
 // confirmed via Langfuse's 2025-12-17 changelog, which states the traces view
 // was removed entirely), so view:"traces" queries are rewritten to
-// view:"observations". The isRootObservation filter that replicates v3's
-// per-trace dedup is added ONLY when every requested measure is a
-// count-family one (see countFamilyMeasures): confirmed live, with a real
-// child GENERATION span carrying real usage (100/50/150 tokens, cost
-// 0.000045), that isRootObservation=true does NOT roll those numbers up onto
-// the root — sum(inputTokens)/sum(totalCost) came back zero despite the data
-// being present in ClickHouse. Cost/token measures are therefore left
+// view:"observations". The root filter that replicates v3's per-trace dedup is
+// added ONLY when every requested measure is a count-family one (see
+// countFamilyMeasures): a real child GENERATION span carrying real usage
+// (100/50/150 tokens, cost 0.000045) does NOT roll those numbers up onto the
+// root, so a root-scoped sum(inputTokens)/sum(totalCost) comes back zero
+// despite the data being present in ClickHouse. Cost/token measures are left
 // unfiltered: summing across all spans is already correct there, since
 // non-generation spans contribute zero. A query mixing both measure families
 // in one call can't be correctly satisfied by a single filter choice — that's

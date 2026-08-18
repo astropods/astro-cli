@@ -872,7 +872,14 @@ func TestV4GetTraces_UsesFilterArrayNotV3Params(t *testing.T) {
 	assertFilter(t, filters, "tags", []string{"deployment:dep-1"})
 	assertFilter(t, filters, "userId", []string{"user-1"})
 
-	assertParam(t, gotQuery, "isRootObservation", "true")
+	// The root filter has to ride in filter=. As a dedicated query param
+	// isRootObservation is silently ignored, which lists every child span.
+	assertParam(t, gotQuery, "isRootObservation", "")
+	if root := findFilter(filters, "isRootObservation"); root == nil {
+		t.Error("root filter not set, so every child span is listed as a trace")
+	} else if root.Type != "boolean" || root.Operator != "=" || root.Value != true {
+		t.Errorf("root filter = %+v, want boolean isRootObservation = true", *root)
+	}
 	assertParam(t, gotQuery, "fromStartTime", "2026-01-01T00:00:00Z")
 	assertParam(t, gotQuery, "toStartTime", "2026-01-02T00:00:00Z")
 	assertParam(t, gotQuery, "limit", "25")
@@ -890,8 +897,8 @@ func TestV4GetTraces_FieldsRequestIOOnlyWhenAsked(t *testing.T) {
 		v3Fields  string
 		wantField string
 	}{
-		{"metrics only omits io", "core,metrics", "basic"},
-		{"io requested adds io", "core,io", "basic,io"},
+		{"metrics only omits io", "core,metrics", v4ObservationFields},
+		{"io requested adds io", "core,io", v4ObservationFields + ",io"},
 	}
 
 	for _, tt := range tests {
@@ -917,9 +924,9 @@ func TestV4GetTraces_FieldsRequestIOOnlyWhenAsked(t *testing.T) {
 func TestV4GetTraces_SortsClientSide(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
-			{ID: "middle", StartTime: "2026-07-27T12:00:01Z"},
-			{ID: "oldest", StartTime: "2026-07-27T12:00:00Z"},
-			{ID: "newest", StartTime: "2026-07-27T12:00:02Z"},
+			{ID: "span-middle", TraceID: "middle", StartTime: "2026-07-27T12:00:01Z"},
+			{ID: "span-oldest", TraceID: "oldest", StartTime: "2026-07-27T12:00:00Z"},
+			{ID: "span-newest", TraceID: "newest", StartTime: "2026-07-27T12:00:02Z"},
 		}})
 	}))
 	defer srv.Close()
@@ -959,7 +966,7 @@ func TestV4GetTraces_WalksCursorForOffset(t *testing.T) {
 		calls++
 		cursors = append(cursors, r.URL.Query().Get("cursor"))
 		_ = json.NewEncoder(w).Encode(observationsV2Response{
-			Data: []ObservationV2{{ID: fmt.Sprintf("obs-%d", calls)}},
+			Data: []ObservationV2{{ID: fmt.Sprintf("span-%d", calls), TraceID: fmt.Sprintf("obs-%d", calls)}},
 			Meta: struct {
 				Cursor string `json:"cursor"`
 			}{Cursor: fmt.Sprintf("cursor-%d", calls)},
@@ -985,7 +992,7 @@ func TestV4GetTraces_WalksCursorForOffset(t *testing.T) {
 
 func TestV4GetTraces_OffsetPastEndReturnsEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{ID: "obs-1"}}})
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{ID: "span-1", TraceID: "obs-1"}}})
 	}))
 	defer srv.Close()
 
@@ -1019,7 +1026,7 @@ func TestV4GetObservation_FiltersByIDAndRequestsIO(t *testing.T) {
 		t.Errorf("path = %q, want /api/public/v2/observations", gotPath)
 	}
 	assertFilter(t, decodeFilters(t, gotQuery), "id", []string{"obs-1"})
-	assertParam(t, gotQuery, "fields", "basic,io")
+	assertParam(t, gotQuery, "fields", v4ObservationFields+",io")
 	if got.ID != "obs-1" || got.TraceID != "trace-1" || got.Output != "world" {
 		t.Errorf("Observation = %+v", got)
 	}
@@ -1048,7 +1055,132 @@ func TestV4EmptyDataIsErrNotFound(t *testing.T) {
 	}
 }
 
+func TestV4GetTraces_KeyedByTraceIDWithTags(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{
+			ID: "root-span-id", TraceID: "trace-1", Name: "root-span", TraceName: "agent-run",
+			StartTime: "2026-07-27T12:00:00Z", Tags: []string{"deployment:dep-1"},
+		}}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTraces(context.Background(), "dep-1", "", "", 10, 0)
+	if err != nil {
+		t.Fatalf("GetTraces: %v", err)
+	}
+	if len(got.Data) != 1 {
+		t.Fatalf("got %d traces, want 1", len(got.Data))
+	}
+	// The ID has to be the trace ID: callers round-trip it into GetTrace, and
+	// traceId is what the v4 filter contract can look a trace up by.
+	if got.Data[0].ID != "trace-1" {
+		t.Errorf("ID = %q, want trace-1", got.Data[0].ID)
+	}
+	if got.Data[0].CreatedAt != "2026-07-27T12:00:00Z" {
+		t.Errorf("CreatedAt = %q, want the start time", got.Data[0].CreatedAt)
+	}
+	if !HasDeploymentTag(got.Data[0].Tags, "dep-1") {
+		t.Errorf("Tags = %v, want the deployment tag", got.Data[0].Tags)
+	}
+}
+
+// TestV4Decode_UsesRealResponseKeys pins the field names to Langfuse's
+// ObservationSchema. A wrong key decodes silently to a zero value, which
+// reaches the UI as a blank cost or an absent model rather than as an error.
+func TestV4Decode_UsesRealResponseKeys(t *testing.T) {
+	body := `{"data":[{
+		"id":"span-1","traceId":"trace-1","type":"GENERATION","name":"llm-call",
+		"startTime":"2026-07-27T12:00:00Z","endTime":"2026-07-27T12:00:02Z",
+		"level":"DEFAULT","statusMessage":"ok","version":"v9",
+		"model":"claude-sonnet","modelParameters":{"temperature":0.2},
+		"metadata":{"k":"v"},"tags":["deployment:dep-1"],"traceName":"agent-run","release":"r1",
+		"totalCost":0.25,"inputUsage":100,"outputUsage":50,"totalUsage":150,
+		"latency":1.5,"input":"hi","output":"there"
+	}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetObservation(context.Background(), "span-1")
+	if err != nil {
+		t.Fatalf("GetObservation: %v", err)
+	}
+	if got.Model != "claude-sonnet" {
+		t.Errorf("Model = %q, want claude-sonnet", got.Model)
+	}
+	if got.CalculatedTotalCost != 0.25 {
+		t.Errorf("CalculatedTotalCost = %v, want 0.25", got.CalculatedTotalCost)
+	}
+	if got.Usage == nil || got.Usage.Input != 100 || got.Usage.Output != 50 || got.Usage.Total != 150 {
+		t.Errorf("Usage = %+v, want 100/50/150", got.Usage)
+	}
+	if got.Metadata["k"] != "v" {
+		t.Errorf("Metadata = %v, want k=v", got.Metadata)
+	}
+	if got.ModelParameters["temperature"] != 0.2 {
+		t.Errorf("ModelParameters = %v, want temperature 0.2", got.ModelParameters)
+	}
+	if got.Level != "DEFAULT" || got.StatusMessage != "ok" {
+		t.Errorf("Level/StatusMessage = %q/%q", got.Level, got.StatusMessage)
+	}
+}
+
+func TestV4GetTrace_SumsCostAcrossSpans(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/public/v3/scores" {
+			_ = json.NewEncoder(w).Encode(v3ScoresResponse{})
+			return
+		}
+		// The root carries no cost of its own; the generations do.
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
+			{ID: "root", TraceID: "trace-1", StartTime: "2026-07-27T12:00:00Z", Tags: []string{"deployment:dep-1"}},
+			{ID: "gen-1", TraceID: "trace-1", ParentObsID: "root", Type: "GENERATION", TotalCost: 0.2},
+			{ID: "gen-2", TraceID: "trace-1", ParentObsID: "root", Type: "GENERATION", TotalCost: 0.05},
+		}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTrace(context.Background(), "trace-1")
+	if err != nil {
+		t.Fatalf("GetTrace: %v", err)
+	}
+	// Reading cost off the root alone would report 0.
+	if got.TotalCost != 0.25 {
+		t.Errorf("TotalCost = %v, want 0.25", got.TotalCost)
+	}
+}
+
+func TestV4GetTraceCore_ReturnsTagsForOwnershipCheck(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{{
+			ID: "root-span-id", TraceID: "trace-1", TraceName: "agent-run",
+			StartTime: "2026-07-27T12:00:00Z", Tags: []string{"deployment:dep-1"},
+		}}})
+	}))
+	defer srv.Close()
+
+	got, err := newV4Client(srv.URL).GetTraceCore(context.Background(), "trace-1")
+	if err != nil {
+		t.Fatalf("GetTraceCore: %v", err)
+	}
+	filters := decodeFilters(t, gotQuery)
+	assertFilter(t, filters, "traceId", []string{"trace-1"})
+	if findFilter(filters, "isRootObservation") == nil {
+		t.Error("root filter not set, so a child span could answer the lookup")
+	}
+	// This is the ownership check's only input. Without tags it rejects every
+	// trace, which reads as a 404 to the caller.
+	if !HasDeploymentTag(got.Tags, "dep-1") {
+		t.Errorf("Tags = %v, want the deployment tag", got.Tags)
+	}
+}
+
 func TestV4GetTrace_MergesSpansAndScores(t *testing.T) {
+	var obsCalls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/public/v3/scores" {
 			if got := r.URL.Query().Get("traceId"); got != "trace-1" {
@@ -1057,26 +1189,41 @@ func TestV4GetTrace_MergesSpansAndScores(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(v3ScoresResponse{Data: []Score{{ID: "score-1", Name: "quality", Value: 0.9}}})
 			return
 		}
-		filters := decodeFilters(t, r.URL.Query())
-		if findFilter(filters, "traceId") != nil {
-			_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
-				{ID: "root", TraceID: "trace-1", Name: "agent-run"},
-				{ID: "child", TraceID: "trace-1", ParentObsID: "root", Type: "GENERATION", Name: "llm-call"},
-			}})
-			return
-		}
+		obsCalls++
+		assertFilter(t, decodeFilters(t, r.URL.Query()), "traceId", []string{"trace-1"})
+		// The child is returned first to prove the root is chosen by having no
+		// parent, not by being first in the page.
 		_ = json.NewEncoder(w).Encode(observationsV2Response{Data: []ObservationV2{
-			{ID: "root", TraceID: "trace-1", Name: "agent-run", UserID: "user-1", Input: "hi", Output: "there"},
+			{ID: "child", TraceID: "trace-1", ParentObsID: "root", Type: "GENERATION", Name: "llm-call"},
+			{ID: "root", TraceID: "trace-1", Name: "root-span", TraceName: "agent-run", UserID: "user-1",
+				StartTime: "2026-07-27T12:00:00Z", Input: "hi", Output: "there",
+				Tags: []string{"deployment:dep-1"}, Release: "v1", Environment: "production"},
 		}})
 	}))
 	defer srv.Close()
 
-	got, err := newV4Client(srv.URL).GetTrace(context.Background(), "root")
+	got, err := newV4Client(srv.URL).GetTrace(context.Background(), "trace-1")
 	if err != nil {
 		t.Fatalf("GetTrace: %v", err)
 	}
-	if got.ID != "root" || got.UserID != "user-1" || got.Output != "there" {
+	// One call for the whole tree; the root no longer needs its own lookup.
+	if obsCalls != 1 {
+		t.Errorf("observation calls = %d, want 1", obsCalls)
+	}
+	if got.ID != "trace-1" || got.UserID != "user-1" || got.Output != "there" {
 		t.Errorf("trace = %+v", got.Trace)
+	}
+	if got.Name != "agent-run" {
+		t.Errorf("Name = %q, want the trace name not the span name", got.Name)
+	}
+	// Callers reject a trace whose tags omit their deployment, and render
+	// CreatedAt as the timestamp. Empty values 404 the request or show an
+	// invalid date.
+	if !HasDeploymentTag(got.Tags, "dep-1") {
+		t.Errorf("Tags = %v, want the deployment tag", got.Tags)
+	}
+	if got.CreatedAt != "2026-07-27T12:00:00Z" {
+		t.Errorf("CreatedAt = %q, want the root start time", got.CreatedAt)
 	}
 	// The root is the trace itself, so it must not also appear as its own span.
 	if len(got.Observations) != 1 || got.Observations[0].ID != "child" {
@@ -1141,7 +1288,7 @@ func TestV4GetMetrics_RewritesTracesView(t *testing.T) {
 				}
 			}
 			if hasRootFilter != tt.wantRootOnly {
-				t.Errorf("isRootObservation filter present = %v, want %v", hasRootFilter, tt.wantRootOnly)
+				t.Errorf("root filter present = %v, want %v", hasRootFilter, tt.wantRootOnly)
 			}
 		})
 	}
