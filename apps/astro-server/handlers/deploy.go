@@ -520,9 +520,9 @@ func prepareDeployment(
 	}
 
 	agentName := submittedSpec.Source.Name
-	if !spec.IsValidName(agentName) {
+	if err := spec.ValidateName(agentName); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("invalid agent name %q: must be lowercase alphanumeric and hyphens only, 1–63 characters", agentName),
+			"error": fmt.Sprintf("invalid agent name %q: %v", agentName, err),
 		})
 		return nil, false
 	}

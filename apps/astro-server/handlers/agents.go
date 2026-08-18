@@ -705,13 +705,13 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Reject org-scoped names (e.g. "@org/agent") — the CLI should strip these before pushing
 		if strings.Contains(rawName, "/") || strings.HasPrefix(rawName, "@") {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("invalid agent name %q: must not contain @org/ prefix — upgrade your CLI", rawName),
+				"error": fmt.Sprintf("invalid agent name %q: must not contain the @org/ prefix; upgrade your CLI", rawName),
 			})
 			return
 		}
-		if !spec.IsValidName(rawName) {
+		if err := spec.ValidateName(rawName); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("invalid agent name %q: must be lowercase alphanumeric and hyphens only, 1–63 characters", rawName),
+				"error": fmt.Sprintf("invalid agent name %q: %v", rawName, err),
 			})
 			return
 		}

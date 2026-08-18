@@ -244,6 +244,35 @@ func TestRegisterAgent_Success(t *testing.T) {
 	}
 }
 
+// The register handler surfaces the real validator error (spec.ValidateName)
+// rather than a hardcoded, inaccurate blurb (#1637).
+func TestRegisterAgent_InvalidName_ReturnsValidatorError(t *testing.T) {
+	log := logger.New("error", "json")
+	cases := []struct{ name, want string }{
+		{"ab", "name must be at least 4 characters"},
+		{"agent", "'agent' is a reserved name"},
+		{"1bad", "name must be lowercase alphanumeric with hyphens, start with a letter, and end with alphanumeric"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			router, index, _ := setupAgentTestRouter()
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+tc.name+"/register", strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("expected error %q, got %s", tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
