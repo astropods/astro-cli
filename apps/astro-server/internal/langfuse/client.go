@@ -67,10 +67,8 @@ type Client struct {
 }
 
 // NewClient creates a Langfuse REST API client. The read implementation is
-// selected once here: v4 by default, v3 only when LANGFUSE_USE_V4_API is set
-// to an explicit false value. An environment whose Langfuse still writes in
-// `legacy` mode has no populated v4 ClickHouse tables, so it must opt out
-// rather than rely on the default. See docs/06-plan/langfuse-v4-migration.md.
+// selected once here, per environment. See
+// docs/06-plan/langfuse-v4-migration.md.
 func NewClient(baseURL, publicKey, secretKey string) *Client {
 	t := &transport{
 		baseURL:   baseURL,
@@ -87,13 +85,13 @@ func NewClient(baseURL, publicKey, secretKey string) *Client {
 	return &Client{transport: t, reader: reader}
 }
 
-// useV4API reports whether to read through the v4 API. An unset or
-// unparseable value keeps the v4 default, so a typo degrades to the intended
-// path instead of silently reverting a cut-over environment to v3.
+// useV4API reports whether to read through the v4 API. An environment whose
+// Langfuse writes in `legacy` mode has no populated v4 ClickHouse tables, so
+// v4 requires an explicit opt-in.
 func useV4API() bool {
 	v, err := strconv.ParseBool(os.Getenv("LANGFUSE_USE_V4_API"))
 	if err != nil {
-		return true
+		return false
 	}
 	return v
 }

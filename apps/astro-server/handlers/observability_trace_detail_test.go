@@ -168,8 +168,8 @@ type traceDetailFixture struct {
 // Callers register their specific route on f.router before making requests.
 // pinV3Langfuse points the handler under test at Langfuse's v3 read path. The
 // httptest upstreams in this package answer v3's wire contract (page numbers,
-// tags=/fromTimestamp= params, traces with embedded observations), while
-// langfuse.NewClient reads v4 by default.
+// tags=/fromTimestamp= params, traces with embedded observations), so the read
+// path must not depend on the ambient environment.
 func pinV3Langfuse(t *testing.T) {
 	t.Helper()
 	t.Setenv("LANGFUSE_USE_V4_API", "false")

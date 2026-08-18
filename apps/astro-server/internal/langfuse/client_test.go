@@ -1562,15 +1562,13 @@ func TestNewClient_SelectsReaderFromEnv(t *testing.T) {
 		env  string
 		want traceReader
 	}{
-		{"empty defaults to v4", "", &v4Reader{}},
-		{"true", "true", &v4Reader{}},
-		{"1", "1", &v4Reader{}},
-		{"false opts out", "false", &v3Reader{}},
-		{"0 opts out", "0", &v3Reader{}},
-		{"FALSE opts out", "FALSE", &v3Reader{}},
-		// A legacy-mode environment opts out explicitly, so an unparseable
-		// value must not be what silently decides the read path for it.
-		{"unparseable defaults to v4", "yes-please", &v4Reader{}},
+		{"empty defaults to v3", "", &v3Reader{}},
+		{"true opts in", "true", &v4Reader{}},
+		{"1 opts in", "1", &v4Reader{}},
+		{"TRUE opts in", "TRUE", &v4Reader{}},
+		{"false", "false", &v3Reader{}},
+		{"0", "0", &v3Reader{}},
+		{"unparseable defaults to v3", "yes-please", &v3Reader{}},
 	}
 
 	for _, tt := range tests {
@@ -1583,11 +1581,11 @@ func TestNewClient_SelectsReaderFromEnv(t *testing.T) {
 		})
 	}
 
-	t.Run("absent defaults to v4", func(t *testing.T) {
+	t.Run("absent defaults to v3", func(t *testing.T) {
 		t.Setenv("LANGFUSE_USE_V4_API", "") // registers the cleanup that restores it
 		os.Unsetenv("LANGFUSE_USE_V4_API")
-		if got := NewClient("http://unused", "pk", "sk").reader; fmt.Sprintf("%T", got) != "*langfuse.v4Reader" {
-			t.Errorf("reader = %T, want *langfuse.v4Reader", got)
+		if got := NewClient("http://unused", "pk", "sk").reader; fmt.Sprintf("%T", got) != "*langfuse.v3Reader" {
+			t.Errorf("reader = %T, want *langfuse.v3Reader", got)
 		}
 	})
 }

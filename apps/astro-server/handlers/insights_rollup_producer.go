@@ -112,8 +112,7 @@ func (p *InsightsRollupProducer) RollUpAgentsDay(ctx context.Context, acct *acco
 // summed by the store's fold, which is correct.
 //
 // This is two separate GetMetrics calls, not one, so that a Langfuse v4
-// target (the default read path, see docs/06-plan/langfuse-v4-migration.md)
-// can satisfy both correctly. v4's traces view is emulated as
+// target can satisfy both correctly. v4's traces view is emulated as
 // view:"observations" filtered to isRootObservation=true, but that filter
 // only produces a correct trace *count* — cost/tokens live on child
 // GENERATION spans and don't roll up onto the root, so they need the same
