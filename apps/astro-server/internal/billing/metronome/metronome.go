@@ -11,6 +11,7 @@ package metronome
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -59,6 +60,7 @@ var (
 	_ billing.BillingProvider      = (*Provider)(nil)
 	_ billing.Provisioner          = (*Provider)(nil)
 	_ billing.ContractInspector    = (*Provider)(nil)
+	_ billing.PlanReporter         = (*Provider)(nil)
 	_ billing.SpendReporter        = (*Provider)(nil)
 	_ billing.SpendThresholdReader = (*Provider)(nil)
 	_ billing.SpendThresholdWriter = (*Provider)(nil)
@@ -334,6 +336,44 @@ func (p *Provider) coveringContracts(ctx context.Context, customerID string, at 
 		return nil, fmt.Errorf("metronome list contracts: %w", err)
 	}
 	return page.Data, nil
+}
+
+func (p *Provider) CustomerPlan(ctx context.Context, customerID string) (billing.Plan, error) {
+	contracts, err := p.coveringContracts(ctx, customerID, time.Now().UTC().Truncate(time.Hour))
+	if err != nil {
+		return "", err
+	}
+	for _, c := range contracts {
+		if plan, ok := p.planForPackage(contractPackageID(c)); ok {
+			return plan, nil
+		}
+	}
+	return "", nil
+}
+
+func (p *Provider) planForPackage(packageID string) (billing.Plan, bool) {
+	if packageID == "" {
+		return "", false
+	}
+	switch packageID {
+	case p.cfg.PackageID:
+		return billing.PlanCredit, true
+	case p.cfg.PackageIDUnlimited:
+		return billing.PlanUnlimited, true
+	case p.cfg.PackageIDNoCredit:
+		return billing.PlanNoCredit, true
+	}
+	return "", false
+}
+
+func contractPackageID(c shared.ContractV2) string {
+	var body struct {
+		PackageID string `json:"package_id"`
+	}
+	if err := json.Unmarshal([]byte(c.RawJSON()), &body); err != nil {
+		return ""
+	}
+	return body.PackageID
 }
 
 // ContractCoverage reports the verdict ProvisionCustomer acts on, for the admin

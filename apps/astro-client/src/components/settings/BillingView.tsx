@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { SectionHeader } from "@/components/settings/SettingsShared";
 import { SpendControls } from "@/components/settings/SpendControls";
+import { PlanSummary } from "@/components/settings/PlanSummary";
 import { PaymentMethod } from "@/components/settings/PaymentMethod";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -582,6 +583,8 @@ export function BillingView({
         title="Billing"
         subtitle="Usage, invoices, credits, and quotas for your account"
       />
+
+      <PlanSummary account={account} />
 
       <PaymentMethod account={account} />
 

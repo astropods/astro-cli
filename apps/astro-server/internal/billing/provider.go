@@ -184,6 +184,12 @@ type SpendThresholdWriter interface {
 	ClearCustomerSpendThreshold(ctx context.Context, customerID string, kind SpendThresholdKind) error
 }
 
+// PlanReporter reports the plan the customer's live contract puts them on, or
+// "" when none covers it.
+type PlanReporter interface {
+	CustomerPlan(ctx context.Context, customerID string) (Plan, error)
+}
+
 // ContractInspector exposes the same coverage check provisioning makes, so the
 // admin view reports that verdict rather than a second opinion. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.

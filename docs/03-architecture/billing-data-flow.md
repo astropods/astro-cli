@@ -1,9 +1,13 @@
-# Billing — Code-Level Data Flow (as built)
+# Billing: Code-Level Data Flow (as built)
 
 How billing data actually moves through `apps/astro-server` today. This is the
 **as-built** view (function-by-function, with file references), complementing the
 design intent in [`../01-spec/metronome-billing-spec.md`](../01-spec/metronome-billing-spec.md).
 Where the code diverges from the spec's target design, this doc says so.
+
+Two companions: [`billing-overview.md`](billing-overview.md) is the five-minute
+version, and [`billing-architecture.md`](billing-architecture.md) is the whole
+system in prose, including the client, the CLI, and the operator tooling.
 
 All paths depend on the `billing.BillingProvider` interface
 (`internal/billing/provider.go`); the concrete backend is chosen once at startup.
@@ -31,13 +35,26 @@ rather than panicking. `BillingBackend()` defaults to `noop` when
 
 ## The interface
 
-`internal/billing/provider.go` defines one `BillingProvider` interface (all backends): `CreateCustomer`, `DeleteCustomer`, `IngestUsage`, `SetIngestAliases`, `GetIngestAliases`, `UsageData`, `Invoices`, `InvoicePDF`, `Balances`.
+`internal/billing/provider.go` defines one `BillingProvider` interface every
+backend implements: `CreateCustomer`, `DeleteCustomer`, `IngestUsage`,
+`SetIngestAliases`, `GetIngestAliases`, `UsageData`, `Invoices`, `InvoicePDF`,
+`Balances`. `noop` returns zero values and is the default backend; `metronome`
+implements the real calls.
 
-There is no hosted-only provisioning surface. Packaging/contracts, credit grants, and commits are **not** server operations — they are provisioned out-of-band (Metronome admin / Terraform). `noop` returns zero values (and is the default backend); `metronome` implements the real calls.
+Hosted-only capabilities sit on separate interfaces, found by assertion, so the
+core seam stays metering-only and `noop` implements none of them:
+
+| Interface | What it adds |
+|---|---|
+| `Provisioner` | `ProvisionCustomer(customerID, accountID, plan)` puts the customer on a package |
+| `PlanReporter` | the plan the live contract puts the customer on |
+| `ContractInspector` | the same coverage check provisioning makes, for the admin view |
+| `SpendReporter` | the customer's money position: credit left, period spend |
+| `SpendThresholdReader` / `SpendThresholdWriter` | the customer's own spend warning and limit |
 
 ---
 
-## Flow 1 — Customer creation (inline, on account create)
+## Flow 1: Customer creation (inline, on account create)
 
 Non-blocking: a billing failure is logged, never fatal to account creation.
 
@@ -53,7 +70,7 @@ sequenceDiagram
     C->>DB: SetBillingCustomerID(acct.ID, backend, customerID)
 ```
 
-## Flow 2 — Account delete (billing archive)
+## Flow 2: Account delete (billing archive)
 
 The billing customer is **archived before** the soft-delete, so charging stops
 immediately and a **failed archive aborts the delete** — the account is never
@@ -80,7 +97,7 @@ sequenceDiagram
 
 ---
 
-## Flow 3 — Usage metering (compute CU-hours)
+## Flow 3: Usage metering (compute CU-hours)
 
 The largest path, and fully provider-agnostic. Deployment lifecycle transitions
 write **anchor rows** to `deployment_billing_state`; a periodic river heartbeat
@@ -116,48 +133,102 @@ Key properties:
 
 ---
 
-## Flow 4 — Balance gating (currently a no-op)
+## Flow 4: Billing gating (live)
 
-Metered-consumption gating (compute, knowledge_storage) has no balance source
-wired, so the `middleware.Entitlements` gate is a **no-op**: `Wrap` passes through
-and `Check` never blocks. DB-backed resource quotas (`internal/quota`) still
-enforce counts and still return 402s. `Balances` is implemented on every
-provider but has no request-path caller; the seam is retained so it can be wired
-later.
+Gating reads a cached status row, not a balance call on the request path.
+`account_billing_status` holds the facts provider events report
+(`credits_exhausted`, `alert_active`, `has_payment_method`, `dunning_since`,
+`force_suspended`). `billing.computeStatus` folds them into one status and
+`middleware.Entitlements` reads it.
+
+`BILLING_GATE_ENFORCE` picks enforce or observe. Observe logs the block it would
+have made and allows the request. Both modes fail open on a read error: a status
+lookup that fails must not block a paying customer.
+
+A status change does two things. It gates the API, and it enqueues workload
+suspend or resume so running agents match the account's standing.
 
 ```mermaid
 flowchart TD
-    REQ["protected route<br/>ent.Wrap(handler, features...)"] --> PASS["handler runs (no consumption gate)"]
+    EV["provider event<br/>(webhook worker)"] --> AS["billing.ApplySignal<br/>writes one fact"]
+    AS --> CS["computeStatus<br/>internal/billing/status.go"]
+    CS --> ROW["account_billing_status<br/>status + reason"]
+    ROW --> ENT["middleware.Entitlements.Check"]
+    ENT --> DEC{"enforce?"}
+    DEC -->|"enforce, suspended"| R402["402 + reason code"]
+    DEC -->|"observe"| LOG["log the would-be block, allow"]
+    CS --> REC["reconcileWorkloads"]
+    REC --> SUS["BillingSuspendWorker / BillingResumeWorker"]
     QUOTA["quota.Wrap / quota.Check<br/>internal/quota"] --> Q402{"over DB limit?"}
-    Q402 -->|yes| R402["402 (resource-count limit)"]
-    Q402 -->|no| PASS
-    CB["provider.Balances(...)<br/>implemented, no request-path caller"]:::todo
-    classDef todo stroke-dasharray: 5 5;
+    Q402 -->|yes| RQ["402 (resource-count limit)"]
 ```
 
-## Flow 5 — Metronome webhook (inbound)
+Both gating latches are deliberate. Exhausted credit and a crossed spend limit
+stay set until something clears them, so resuming an account is an explicit event
+rather than a side effect of the next read. `DunningSweepWorker` re-evaluates the
+payment grace window hourly, which is the one transition no provider event
+announces.
 
-Standalone endpoint, independent of the provider interface. Verifies an HMAC
-signature, then dispatches on event type. Handlers are stubbed (log-only) today.
+## Flow 5: Provider webhooks (inbound)
+
+Both providers land the same way. The handler verifies the signature, enqueues a
+River job, and returns. Nothing is applied on the request path, so redelivery,
+a slow database, and a retry are the queue's problem rather than the webhook's.
+A missing secret disables the endpoint with a 404.
+
+- `POST /webhooks/metronome`, HMAC-SHA256 over `date + "\n" + body`, keyed by
+  `METRONOME_WEBHOOK_SECRET`.
+- `POST /webhooks/stripe`, verified with the stripe-go SDK against
+  `Stripe-Signature`, keyed by `STRIPE_WEBHOOK_SECRET`.
 
 ```mermaid
 sequenceDiagram
-    participant MT as Metronome
-    participant H as MetronomeWebhook<br/>handlers/webhooks_metronome.go:29
-    MT->>H: POST /webhooks/metronome + Metronome-Webhook-Signature
-    alt secret == ""
-        H-->>MT: 404 (endpoint disabled)
-    else
-        H->>H: verifyMetronomeSignature(secret, date, body, sig)<br/>HMAC-SHA256(date + "\n" + body), constant-time · :76
-        alt invalid
-            H-->>MT: 401
-        else valid
-            H->>H: switch env.Type
-            Note right of H: invoice.finalized · payment.failed ·<br/>alert.threshold_reached → log-only (TODO)
-            H-->>MT: 200 {status: ok}
-        end
+    autonumber
+    participant PR as Metronome / Stripe
+    participant H as webhook handler<br/>handlers/webhooks_{metronome,stripe}.go
+    participant Q as River (billing queue)
+    participant W as MetronomeWebhookWorker<br/>StripeWebhookWorker
+    participant DB as account_billing_status
+
+    PR->>H: POST + signature
+    alt secret unset
+        H-->>PR: 404 (endpoint disabled)
+    else invalid signature
+        H-->>PR: 401
+    else verified
+        H->>Q: insert job (dedupe by provider event id)
+        H-->>PR: 200 {status: ok}
+        Q->>W: work
+        W->>W: map provider customer -> account
+        W->>DB: ApplySignal -> recompute status
+        W->>Q: reconcile workloads (suspend / resume)
     end
 ```
+
+The two providers own different halves, and neither reports the other's:
+
+- Metronome sends alerts only: a spend threshold and a contract credit balance,
+  each with a resolved edge. It has no payment-failure or recovery event.
+- Stripe sends payment collection only: failed, action required, uncollectible,
+  voided, paid. `invoice.paid` is the single recovery trigger, because
+  `invoice.payment_succeeded` overlaps it.
+
+Four behaviours are easy to misread from the code alone:
+
+- **The spend warning and the spend limit are one alert type** at different
+  numbers, so the alert name is what separates a heads-up from a suspension. The
+  warning notifies and never gates.
+- **An id-less event skips dedupe** rather than hashing to a shared key, which
+  would collapse two unrelated events into one job. `ApplySignal` is idempotent,
+  so double-processing is the safe side of that trade.
+- **An unknown customer is a permanent no-op.** The job acks instead of retrying
+  for weeks against an account that does not exist here.
+- **`payment_method.detached` is provisional.** Replacing a card detaches the old
+  one while the new one is already attached, and the pair can arrive in either
+  order, so the worker re-reads Stripe and lets the remaining cards decide.
+
+Workloads reconcile on every handled event, not only on a transition, so a
+dropped suspend or resume enqueue is re-attempted by the next event.
 
 ---
 
@@ -179,7 +250,7 @@ not a metering backend — it isn't part of the `billingCustomerColumns` whiteli
 
 ---
 
-## Flow 6 — Payment method (Stripe card vault)
+## Flow 6: Payment method (Stripe card vault)
 
 Stripe is used **only to collect and save a card**; astro-server never charges.
 The card is confirmed synchronously (no webhook): the server re-reads the
@@ -220,6 +291,56 @@ Notes:
 
 ---
 
+## Flow 7: Provisioning (plan and signup credit)
+
+Putting a customer on a package is a server operation, run as a River job rather
+than inline at signup, so a provider outage delays a plan instead of failing an
+account creation.
+
+`BillingProvisionWorker` resolves one of three plans, then calls
+`ProvisionCustomer`:
+
+| Plan | Chosen when | Package |
+|---|---|---|
+| `unlimited` | the creator's verified address matches `BILLING_UNLIMITED_EMAIL_DOMAINS` | `METRONOME_PACKAGE_ID_UNLIMITED` |
+| `credit` | the creator's one signup credit is still unclaimed | `METRONOME_PACKAGE_ID` |
+| `no_credit` | that person already spent their claim on another account | `METRONOME_PACKAGE_ID_NO_CREDIT` |
+
+```mermaid
+flowchart TD
+    SWEEP["BillingProvisionSweepWorker (hourly)<br/>accounts with billing_provisioned_at IS NULL"] --> JOB
+    SIGNUP["account create"] --> JOB["billing.provision job"]
+    JOB --> CUST{"customer exists?"}
+    CUST -->|no| CREATE["CreateCustomer + persist id"]
+    CUST -->|yes| PLAN
+    CREATE --> PLAN["plan(): creator's verified domain,<br/>then the credit ledger"]
+    PLAN --> PROV["ProvisionCustomer(customerID, accountID, plan)"]
+    PROV --> COVER{"a contract already covers now?"}
+    COVER -->|yes| SKIP["no-op: a second contract would bill twice"]
+    COVER -->|no| NEW["Contracts.New(package, uniqueness_key)"]
+    SKIP --> MARK["MarkBillingProvisioned + SignalCreditsGranted"]
+    NEW --> MARK
+```
+
+Three consequences worth knowing:
+
+- **The signup credit belongs to a person, not an account.** The claim is keyed on
+  the creator's user id in `billing_credit_grants`, has no foreign key to
+  `accounts`, and is never deleted, so deleting an account and signing up again
+  cannot earn a second grant.
+- **A missing package is a configuration error, not a fallback.** Falling back
+  would silently bill an internal account or silently restore a spent grant. The
+  account stays unprovisioned and the sweep retries once the configuration lands.
+- **Provisioning cannot change an existing plan.** `ProvisionCustomer` returns
+  early whenever any contract covers now, so re-running the job is a no-op. A plan
+  change is a Metronome renewal transition against the covering contract.
+
+Clearing `billing_provisioned_at` therefore re-runs only the job's tail: it marks
+the account, applies `SignalCreditsGranted`, and reconciles workloads. That is the
+lever for releasing a stuck gating latch without touching the contract.
+
+---
+
 ## What is / isn't behind the interface today
 
 | Concern | On the `BillingProvider` seam? | Live call path |
@@ -227,11 +348,14 @@ Notes:
 | Customer create / delete | ✅ | `handlers/accounts.go`, purge worker |
 | Usage metering (compute CU-hours) | ✅ | `BillingStateManager.RunBillingCycle` → `IngestUsage` |
 | Customer-id persistence | ✅ (backend-aware) | `account/store.go` |
-| Consumption gating (compute / knowledge_storage 402) | ➖ no-op | `middleware.Entitlements` passes through; `Balances` unwired |
+| Billing gating (suspended account → 402) | ✅ status row, not the seam | `middleware.Entitlements` over `account_billing_status`, `BILLING_GATE_ENFORCE` |
 | Resource-count limits (agents, deployments, …) | ✅ DB-backed | `internal/quota` (`quota.Wrap`/`Check`) |
-| Usage readback | ➖ quota counts only | `/usage` returns DB counts; `/usage/infrastructure` returns empty; `metronome.UsageData` returns empty |
-| Packaging / contracts / credit grants | ➖ not a server concern | provisioned out-of-band (Metronome admin / Terraform) |
+| Usage readback | ✅ | `/billing/usage` → `metronome.UsageData`; `/usage` still returns DB resource counts |
+| Packaging / contracts / signup credit | ✅ `Provisioner` | `BillingProvisionWorker` (Flow 7); packages themselves are created per Metronome environment |
 | Payment method (card collection) | ➖ separate `payment.Provider` (Stripe) | `handlers/payment_methods.go`; linked to Metronome via `LinkStripeCustomer` |
-| AI-token metering | ❌ not yet emitted at the billing layer | — |
+| AI-token metering | ➖ not emitted here | the AI gateway ingests `ai_gateway_llm_usage` itself; astro-server only registers the account's Bifrost customer as an ingest alias so it attributes |
 
-Re-enabling consumption gating and usage readback (on `Balances`/provider usage APIs) is the remaining hosted-cutover work.
+`Balances` is implemented on every provider and has no request-path caller;
+gating reads the status row instead. The remaining hosted-cutover work is
+configuration, not code: create the packages in the production Metronome
+environment and flip `BILLING_PROVIDER`.

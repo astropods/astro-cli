@@ -273,6 +273,8 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 type BillingSpendResponse struct {
 	Currency string `json:"currency,omitempty"`
 
+	Plan string `json:"plan,omitempty"`
+
 	CurrentSpend     float64   `json:"current_spend"`
 	HasCurrentSpend  bool      `json:"has_current_spend"`
 	CurrentPeriodEnd time.Time `json:"current_period_end,omitempty"`
@@ -322,6 +324,14 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 				HasUsageSpend:    spend.HasUsageSpend,
 				CreditRemaining:  spend.CreditRemaining,
 				HasCredit:        spend.HasCredit,
+			}
+			if planner, ok := billingProvider.(billing.PlanReporter); ok {
+				plan, perr := planner.CustomerPlan(ctx, customerID)
+				if perr != nil {
+					log.Warn("Failed to load billing plan", "error", perr, "customer_id", customerID)
+				} else {
+					resp.Plan = string(plan)
+				}
 			}
 			// Best-effort: a threshold read that fails must not hide the spend,
 			// which is the half a customer needs to set one in the first place.

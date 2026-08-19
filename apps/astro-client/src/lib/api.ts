@@ -2265,6 +2265,7 @@ export interface BillingStatusResponse {
  *  than "not loaded". */
 export interface BillingSpend {
   currency?: string;
+  plan?: string;
   current_spend: number;
   has_current_spend: boolean;
   current_period_end?: string;
