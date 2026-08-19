@@ -72,21 +72,23 @@ export function MemberPicker({ account, adapter, onSelect, onCancel, isAlreadyGr
                   >
                     <span className="flex items-center gap-2 min-w-0">
                       <UserAvatar
-                        handle={m.username}
-                        name={m.display_name || m.username}
+                        handle={m.username || undefined}
+                        name={m.display_name || m.username || m.email || "Unknown user"}
                         avatarUrl={m.avatar_url}
                         className="size-6"
                       />
                       <span className="flex flex-col min-w-0">
                         <span className="flex items-center gap-1.5 min-w-0">
                           <span className="truncate text-foreground">
-                            {m.display_name || m.username}
+                            {m.display_name || m.username || m.email || "Unknown user"}
                           </span>
                           {slackUnlinked && <SlackUnlinkedBadge />}
                         </span>
-                        <span className="truncate text-[11px] text-muted-foreground">
-                          @{m.username}
-                        </span>
+                        {m.username && (
+                          <span className="truncate text-[11px] text-muted-foreground">
+                            @{m.username}
+                          </span>
+                        )}
                       </span>
                     </span>
                     {granted && (

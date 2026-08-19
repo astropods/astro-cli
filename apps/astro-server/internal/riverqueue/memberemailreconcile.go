@@ -27,9 +27,6 @@ const (
 	// memberEmailReconcileLimit bounds how many missing emails one run resolves,
 	// so a large first backfill drains over several runs, not one WorkOS burst.
 	memberEmailReconcileLimit = 500
-	// memberEmailRetryBackoff is how long an unresolvable user is skipped before
-	// the reconcile re-tries them, so we don't re-query WorkOS every run forever.
-	memberEmailRetryBackoff = 6 * time.Hour
 )
 
 // MemberEmailReconcileArgs backfills and heals the account_member_emails
@@ -60,7 +57,7 @@ func (w *MemberEmailReconcileWorker) Work(ctx context.Context, _ *river.Job[Memb
 	if w.workosClient == nil {
 		return nil
 	}
-	userIDs, err := w.emails.UserIDsMissingEmail(ctx, memberEmailReconcileLimit, time.Now().Add(-memberEmailRetryBackoff))
+	userIDs, err := w.emails.UserIDsMissingEmail(ctx, memberEmailReconcileLimit, time.Now().Add(-memberemails.RetryBackoff))
 	if err != nil {
 		w.log.Error("member email reconcile: list missing failed", "error", err)
 		return nil

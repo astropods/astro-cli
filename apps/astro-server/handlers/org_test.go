@@ -3,9 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
@@ -89,6 +93,220 @@ func injectTestOrgAccountWithSession(acct *account.Account, user *auth.User, ses
 	}
 }
 
+// fakeEmailDirectory records write-backs so tests can assert the mirror heals.
+type fakeEmailDirectory struct {
+	mu        sync.Mutex
+	emails    map[string]string
+	attempted map[string]time.Time
+	readErr   error
+	upserted  map[string]string
+	stamped   []string
+	upsertErr error
+}
+
+func (f *fakeEmailDirectory) EmailsForUsers(_ context.Context, userIDs []string) (map[string]memberemails.MemberEmail, error) {
+	if f.readErr != nil {
+		return nil, f.readErr
+	}
+	out := map[string]memberemails.MemberEmail{}
+	for _, uid := range userIDs {
+		e, hasEmail := f.emails[uid]
+		at, hasAttempt := f.attempted[uid]
+		if !hasEmail && !hasAttempt {
+			continue
+		}
+		out[uid] = memberemails.MemberEmail{Email: e, AttemptedAt: at}
+	}
+	return out, nil
+}
+
+func (f *fakeEmailDirectory) RecordReconcileAttempt(_ context.Context, userID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stamped = append(f.stamped, userID)
+	return nil
+}
+
+func (f *fakeEmailDirectory) UpsertWorkOS(_ context.Context, userID, email string, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.upserted == nil {
+		f.upserted = map[string]string{}
+	}
+	f.upserted[userID] = email
+	return f.upsertErr
+}
+
+type fakeUserFetcher struct {
+	mu    sync.Mutex
+	users map[string]*auth.User
+	err   error
+	calls int
+}
+
+func (f *fakeUserFetcher) GetUser(_ context.Context, userID string) (*auth.User, error) {
+	f.mu.Lock()
+	f.calls++
+	f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	u, ok := f.users[userID]
+	if !ok {
+		return nil, errors.New("not found")
+	}
+	return u, nil
+}
+
+// --- member email tests ---
+
+func TestResolveMemberEmails_PrefersMirrorOverWorkOS(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{emails: map[string]string{"user-1": "mirrored@example.com"}}
+	fetcher := &fakeUserFetcher{}
+
+	got := resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-1"})
+
+	if got["user-1"] != "mirrored@example.com" {
+		t.Errorf("expected mirrored email, got %q", got["user-1"])
+	}
+	if fetcher.calls != 0 {
+		t.Errorf("expected no WorkOS calls, got %d", fetcher.calls)
+	}
+}
+
+func TestResolveMemberEmails_FetchesMissingAndHealsMirror(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{}
+	fetcher := &fakeUserFetcher{users: map[string]*auth.User{
+		"user-2": {ID: "user-2", Email: "invited@example.com", EmailVerified: true},
+	}}
+
+	got := resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-2"})
+
+	if got["user-2"] != "invited@example.com" {
+		t.Errorf("expected fetched email, got %q", got["user-2"])
+	}
+	if dir.upserted["user-2"] != "invited@example.com" {
+		t.Errorf("expected write-back to the mirror, got %q", dir.upserted["user-2"])
+	}
+}
+
+func TestResolveMemberEmails_WorkOSFailureKeepsMirroredResults(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{emails: map[string]string{"user-1": "mirrored@example.com"}}
+	fetcher := &fakeUserFetcher{err: errors.New("workos down")}
+
+	got := resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-1", "user-2"})
+
+	if got["user-1"] != "mirrored@example.com" {
+		t.Errorf("expected mirrored email retained, got %q", got["user-1"])
+	}
+	if _, ok := got["user-2"]; ok {
+		t.Errorf("expected no entry for the unresolved user, got %q", got["user-2"])
+	}
+}
+
+func TestResolveMemberEmails_NoFetcherReturnsMirrorOnly(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{emails: map[string]string{"user-1": "mirrored@example.com"}}
+
+	got := resolveMemberEmails(context.Background(), log, dir, nil, []string{"user-1", "user-2"})
+
+	if len(got) != 1 || got["user-1"] != "mirrored@example.com" {
+		t.Errorf("expected mirror-only result, got %v", got)
+	}
+}
+
+func TestResolveMemberEmails_CapsWorkOSLookups(t *testing.T) {
+	log := logger.New("error", "json")
+	users := map[string]*auth.User{}
+	ids := make([]string, 0, memberEmailLookupLimit+5)
+	for i := 0; i < memberEmailLookupLimit+5; i++ {
+		uid := fmt.Sprintf("user-%d", i)
+		ids = append(ids, uid)
+		users[uid] = &auth.User{ID: uid, Email: uid + "@example.com"}
+	}
+	fetcher := &fakeUserFetcher{users: users}
+
+	got := resolveMemberEmails(context.Background(), log, &fakeEmailDirectory{}, fetcher, ids)
+
+	if fetcher.calls != memberEmailLookupLimit {
+		t.Errorf("expected %d lookups, got %d", memberEmailLookupLimit, fetcher.calls)
+	}
+	if len(got) != memberEmailLookupLimit {
+		t.Errorf("expected %d resolved emails, got %d", memberEmailLookupLimit, len(got))
+	}
+}
+
+// A member WorkOS cannot name must not be re-queried on every listing; the
+// stamp puts them on the same backoff the reconcile job honors.
+func TestResolveMemberEmails_StampsUnresolvableUsers(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{}
+	fetcher := &fakeUserFetcher{err: errors.New("workos 404")}
+
+	resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-1"})
+
+	if len(dir.stamped) != 1 || dir.stamped[0] != "user-1" {
+		t.Errorf("expected an attempt stamped for user-1, got %v", dir.stamped)
+	}
+}
+
+func TestResolveMemberEmails_SkipsRecentlyAttemptedUsers(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{attempted: map[string]time.Time{"user-1": time.Now()}}
+	fetcher := &fakeUserFetcher{users: map[string]*auth.User{
+		"user-1": {ID: "user-1", Email: "late@example.com"},
+	}}
+
+	got := resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-1"})
+
+	if fetcher.calls != 0 {
+		t.Errorf("expected the backoff to skip the lookup, got %d calls", fetcher.calls)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected no resolved emails, got %v", got)
+	}
+}
+
+func TestResolveMemberEmails_RetriesAfterBackoffWindow(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{attempted: map[string]time.Time{
+		"user-1": time.Now().Add(-memberemails.RetryBackoff - time.Minute),
+	}}
+	fetcher := &fakeUserFetcher{users: map[string]*auth.User{
+		"user-1": {ID: "user-1", Email: "resolved@example.com"},
+	}}
+
+	got := resolveMemberEmails(context.Background(), log, dir, fetcher, []string{"user-1"})
+
+	if got["user-1"] != "resolved@example.com" {
+		t.Errorf("expected the retry to resolve, got %q", got["user-1"])
+	}
+}
+
+func TestNameUnprofiledMembers_OnlyTouchesRowsWithNoProfile(t *testing.T) {
+	log := logger.New("error", "json")
+	dir := &fakeEmailDirectory{emails: map[string]string{
+		"user-1": "named@example.com",
+		"user-2": "invited@example.com",
+	}}
+
+	members := []MemberResponse{
+		{UserID: "user-1", Username: "named", DisplayName: "Named"},
+		{UserID: "user-2"},
+	}
+	nameUnprofiledMembers(context.Background(), log, dir, nil, members)
+
+	if members[0].Email != "" {
+		t.Errorf("expected no email on a profiled member, got %q", members[0].Email)
+	}
+	if members[1].Email != "invited@example.com" {
+		t.Errorf("expected the invited address, got %q", members[1].Email)
+	}
+}
+
 // --- ListMembers tests ---
 
 func TestListMembers_Success(t *testing.T) {
@@ -110,7 +328,7 @@ func TestListMembers_Success(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -180,7 +398,7 @@ func TestListMembers_PopulatesSlackWorkspaces(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, slackStore))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, slackStore, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -223,7 +441,7 @@ func TestListMembers_NoAccount(t *testing.T) {
 	log := logger.New("error", "json")
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil, nil, nil))
+	router.GET("/members", injectTestOrgAccount(nil, nil), ListMembers(log, store, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -251,7 +469,7 @@ func TestListMembers_DBError(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()
@@ -625,7 +843,7 @@ func TestListMembers_CrossAccount_Denied(t *testing.T) {
 	memberRoutes.Use(middleware.ResolveAccount(store))
 	// Match main.go: memberRoutes uses RequireAccountMember, not RequireAccountPermission
 	memberRoutes.Use(middleware.RequireAccountMember(store))
-	memberRoutes.GET("", ListMembers(log, store, nil, nil, nil))
+	memberRoutes.GET("", ListMembers(log, store, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/accounts/org-b/members", nil)
 	rec := httptest.NewRecorder()
@@ -652,7 +870,7 @@ func TestListMembers_NonMember_Denied(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 
 	router := gin.New()
-	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil))
+	router.GET("/members", injectTestOrgAccount(acct, user), ListMembers(log, store, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/members", nil)
 	rec := httptest.NewRecorder()

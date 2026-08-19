@@ -31,6 +31,7 @@ import {
   useRemoveAccountMember,
 } from "@/api/queries";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/deployment-utils";
 import { InviteMembersDialog } from "@/components/settings/InviteMembersDialog";
 import type { AccountMember } from "@/lib/api";
@@ -103,7 +104,9 @@ function MemberRow({
   onChangeRole: (role: string) => void;
   onRemove: () => void;
 }) {
-  const displayName = member.display_name || member.username || member.user_id;
+  const isUnnamed = !member.display_name && !member.username && !member.email;
+  const displayName =
+    member.display_name || member.username || member.email || "Unknown user";
   const isPending = member.status === "pending";
 
   return (
@@ -111,13 +114,19 @@ function MemberRow({
       <TableCell>
         <div className="flex items-center gap-3 min-w-0 overflow-hidden">
           <UserAvatar
-            handle={member.username || member.user_id}
+            handle={member.username || undefined}
             name={displayName}
             avatarUrl={member.avatar_url}
             className="size-8 shrink-0"
           />
           <div className="min-w-0">
-            <div className="text-[13px] font-medium text-foreground truncate">
+            <div
+              className={cn(
+                "text-[13px] font-medium truncate",
+                isUnnamed ? "text-muted-foreground italic" : "text-foreground",
+              )}
+              title={isUnnamed ? member.user_id : undefined}
+            >
               {displayName}
               {isCurrentUser && (
                 <span className="text-muted-foreground font-normal"> (you)</span>

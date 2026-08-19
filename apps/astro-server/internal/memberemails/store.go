@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 type Store struct {
@@ -79,6 +81,52 @@ func (s *Store) EmailsForAccount(ctx context.Context, accountID string) (map[str
 			return nil, fmt.Errorf("memberemails: scan: %w", err)
 		}
 		out[email] = userID
+	}
+	return out, rows.Err()
+}
+
+// RetryBackoff is how long a user who resolved to nothing is left alone before
+// another WorkOS lookup, whether the reconcile job or a listing asks.
+const RetryBackoff = 6 * time.Hour
+
+// MemberEmail is a mirrored address alongside the last unresolved lookup for
+// that user, so callers can honor RetryBackoff instead of re-querying WorkOS.
+type MemberEmail struct {
+	Email       string
+	AttemptedAt time.Time
+}
+
+// EmailsForUsers returns user_id → mirrored email and last attempt for the
+// given users, preferring the WorkOS-synced address. Users with neither a
+// recorded email nor a recorded attempt are absent.
+func (s *Store) EmailsForUsers(ctx context.Context, userIDs []string) (map[string]MemberEmail, error) {
+	if len(userIDs) == 0 {
+		return map[string]MemberEmail{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT ON (u.user_id) u.user_id, COALESCE(me.email, ''), a.attempted_at
+		 FROM unnest($1::text[]) AS u(user_id)
+		 LEFT JOIN account_member_emails me ON me.user_id = u.user_id
+		 LEFT JOIN member_email_reconcile_attempts a ON a.user_id = u.user_id
+		 ORDER BY u.user_id, (me.source = 'workos') DESC, me.updated_at DESC`, pq.Array(userIDs))
+	if err != nil {
+		return nil, fmt.Errorf("memberemails: emails for users: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	out := make(map[string]MemberEmail, len(userIDs))
+	for rows.Next() {
+		var (
+			userID    string
+			email     string
+			attempted sql.NullTime
+		)
+		if err := rows.Scan(&userID, &email, &attempted); err != nil {
+			return nil, fmt.Errorf("memberemails: scan: %w", err)
+		}
+		if email == "" && !attempted.Valid {
+			continue
+		}
+		out[userID] = MemberEmail{Email: email, AttemptedAt: attempted.Time}
 	}
 	return out, rows.Err()
 }

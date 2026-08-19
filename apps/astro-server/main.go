@@ -1026,6 +1026,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 	// Setup authentication
 	memberEmailStore := memberemails.NewStore(db)
+	// Names pending invitees, who have no local profile to read.
+	var inviteeLookup *auth.WorkOSClient
+	if cfg.Auth.WorkOSAPIKey != "" {
+		inviteeLookup = auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
+	}
 	authHandler := handlers.NewAuthHandler(log, cfg, accountStore)
 	if orgSync != nil {
 		authHandler.SetOrgSync(orgSync)
@@ -1669,7 +1674,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			memberRoutes.Use(middleware.ResolveAccount(accountStore))
 			memberRoutes.Use(middleware.RequireAccountMember(accountStore))
 			{
-				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, avatarStore, orgClient, slackIdentityStore),
+				api.GET(memberRoutes, "", "List account members", handlers.ListMembers(log, accountStore, avatarStore, orgClient, slackIdentityStore, memberEmailStore, inviteeLookup),
 					oapispec.Tags("Members"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

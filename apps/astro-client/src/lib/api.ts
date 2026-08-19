@@ -237,6 +237,8 @@ export interface AccountMember {
   status: string;
   username: string;
   display_name: string;
+  /** Address on file, sent only for members with no profile. */
+  email?: string;
   created_at: string;
   avatar_url?: string;
   /** Slack workspaces this member has linked. Empty = not connected, in

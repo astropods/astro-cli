@@ -206,6 +206,13 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			}
 		}
 
+		// Login skips this sync until a personal account exists; it retries there.
+		if req.Type == "personal" && orgSync != nil {
+			if err := orgSync.SyncMembershipsForUser(c.Request.Context(), user.ID); err != nil {
+				log.Warn("Failed to sync memberships after personal account create", "error", err, "user_id", user.ID)
+			}
+		}
+
 		// Step 2: For org accounts, create WorkOS Organization and link
 		if req.Type == "organization" && orgClient != nil {
 			ctx := c.Request.Context()

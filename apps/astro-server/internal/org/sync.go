@@ -69,6 +69,14 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 		return nil, fmt.Errorf("cannot add members to personal accounts")
 	}
 
+	hasIdentity, err := s.accountStore.HasPersonalAccount(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check personal account: %w", err)
+	}
+	if !hasIdentity {
+		return nil, fmt.Errorf("user has not completed account setup")
+	}
+
 	m, err := s.client.CreateMembership(ctx, acct.WorkOSOrganizationID, userID, role)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create WorkOS membership: %w", err)
@@ -255,7 +263,17 @@ func (s *Sync) GetMembershipRoles(ctx context.Context, userID string) map[string
 
 // SyncMembershipsForUser reconciles local account_members with WorkOS memberships
 // for a specific user. Called on login as a fallback sync mechanism.
+// Users with no personal account are skipped: member listings name them from
+// that account. Handlers call this again once onboarding creates it.
 func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error {
+	hasIdentity, err := s.accountStore.HasPersonalAccount(userID)
+	if err != nil {
+		return fmt.Errorf("failed to check personal account: %w", err)
+	}
+	if !hasIdentity {
+		return nil
+	}
+
 	memberships, err := s.client.ListMembershipsForUser(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to list WorkOS memberships: %w", err)

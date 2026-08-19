@@ -58,6 +58,27 @@ const pendingMember = {
   created_at: '2025-01-03T00:00:00Z',
 };
 
+const unnamedMember = {
+  account_id: 'org-1',
+  user_id: 'user_01JQZ8UNNAMED',
+  role: 'member',
+  status: 'active',
+  username: '',
+  display_name: '',
+  created_at: '2025-01-04T00:00:00Z',
+};
+
+const pendingInvitee = {
+  account_id: 'org-1',
+  user_id: 'user_01JQZ8INVITED',
+  role: 'member',
+  status: 'pending',
+  username: '',
+  display_name: '',
+  email: 'invited@example.com',
+  created_at: '2025-01-05T00:00:00Z',
+};
+
 function useMembersMock(members = activeMembers) {
   server.use(
     http.get('*/api/v1/accounts/:account/members', () => {
@@ -214,6 +235,42 @@ describe('OrgMembersSettings', () => {
         expect(screen.getByText('Pending User')).toBeInTheDocument();
       });
       expect(screen.getByText('Invited')).toBeInTheDocument();
+    });
+  });
+
+  describe('pending invitees', () => {
+    beforeEach(() => useMembersMock([...activeMembers, pendingInvitee]));
+
+    it('names the row with the invited email', async () => {
+      renderPage('admin');
+      await waitFor(() => {
+        expect(screen.getByText(pendingInvitee.email)).toBeInTheDocument();
+      });
+      expect(screen.queryByText('Unknown user')).not.toBeInTheDocument();
+      expect(screen.queryByText(pendingInvitee.user_id)).not.toBeInTheDocument();
+      expect(screen.getByText('Invited')).toBeInTheDocument();
+    });
+  });
+
+  describe('members with no profile', () => {
+    beforeEach(() => useMembersMock([...activeMembers, unnamedMember]));
+
+    it('shows a placeholder label instead of the raw user ID', async () => {
+      renderPage('admin');
+      await waitFor(() => {
+        expect(screen.getByText('Unknown user')).toBeInTheDocument();
+      });
+      expect(screen.queryByText(unnamedMember.user_id)).not.toBeInTheDocument();
+      expect(screen.getByTitle(unnamedMember.user_id)).toBeInTheDocument();
+    });
+
+    it('falls back to the placeholder avatar instead of an ID-derived URL', async () => {
+      renderPage('admin');
+      await waitFor(() => {
+        expect(screen.getByText('Unknown user')).toBeInTheDocument();
+      });
+      const avatar = screen.getByAltText('Unknown user');
+      expect(avatar).toHaveAttribute('src', expect.stringContaining('placeholders/accounts'));
     });
   });
 

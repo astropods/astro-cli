@@ -5,11 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/memberemails"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
@@ -23,6 +27,18 @@ import (
 type memberRoleSyncer interface {
 	ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerRole string) (string, error)
 	RemoveMember(ctx context.Context, accountID, userID, callerRole string) error
+}
+
+// memberEmailDirectory is satisfied by *memberemails.Store; extracted for unit testing.
+type memberEmailDirectory interface {
+	EmailsForUsers(ctx context.Context, userIDs []string) (map[string]memberemails.MemberEmail, error)
+	UpsertWorkOS(ctx context.Context, userID, email string, verified bool) error
+	RecordReconcileAttempt(ctx context.Context, userID string) error
+}
+
+// workosUserFetcher is satisfied by *auth.WorkOSClient; extracted for unit testing.
+type workosUserFetcher interface {
+	GetUser(ctx context.Context, userID string) (*auth.User, error)
 }
 
 // callerOrgRole returns the caller's role slug within the resolved org, or
@@ -83,12 +99,14 @@ type ChangeMemberRoleRequest struct {
 // callers (e.g. the grants UI) can warn that a Slack grant for this user
 // won't resolve.
 type MemberResponse struct {
-	AccountID       string              `json:"account_id"`
-	UserID          string              `json:"user_id"`
-	Role            string              `json:"role"`
-	Status          string              `json:"status"`
-	Username        string              `json:"username"`
-	DisplayName     string              `json:"display_name"`
+	AccountID   string `json:"account_id"`
+	UserID      string `json:"user_id"`
+	Role        string `json:"role"`
+	Status      string `json:"status"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	// Email is set only for members with no personal account to name them.
+	Email           string              `json:"email,omitempty"`
 	AvatarURL       string              `json:"avatar_url,omitempty"`
 	CreatedAt       string              `json:"created_at"`
 	SlackWorkspaces []SlackWorkspaceRef `json:"slack_workspaces"`
@@ -121,7 +139,17 @@ func toSlackWorkspaceRefs(ms []slackidentity.Mapping) []SlackWorkspaceRef {
 }
 
 // ListMembers handles GET /api/v1/accounts/:account/members
-func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, orgClient *org.Client, slackStore *slackidentity.Store) gin.HandlerFunc {
+func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, orgClient *org.Client, slackStore *slackidentity.Store, memberEmails *memberemails.Store, workosUsers *auth.WorkOSClient) gin.HandlerFunc {
+	// Held as interfaces so a missing dependency stays nil rather than a typed nil.
+	var emailDirectory memberEmailDirectory
+	if memberEmails != nil {
+		emailDirectory = memberEmails
+	}
+	var userFetcher workosUserFetcher
+	if workosUsers != nil {
+		userFetcher = workosUsers
+	}
+
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -224,7 +252,8 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 
 		// When include_pending is set, append WorkOS memberships that have no
 		// local DB entry yet (e.g. freshly invited users before the event
-		// consumer syncs them).
+		// consumer syncs them). Invitees get a personal account only by
+		// onboarding, so the invited address names them until then.
 		if c.Query("include_pending") == "true" {
 			var pendingUIDs []string
 			for uid, info := range infoByUserID {
@@ -257,7 +286,138 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			}
 		}
 
+		nameUnprofiledMembers(c.Request.Context(), log, emailDirectory, userFetcher, result)
+
 		c.JSON(http.StatusOK, gin.H{"members": result})
+	}
+}
+
+const (
+	// memberEmailLookupLimit bounds WorkOS lookups per listing. Results are
+	// mirrored, so a large invite batch resolves over the next few loads.
+	memberEmailLookupLimit = 25
+	// memberEmailLookupConcurrency and memberEmailLookupBudget cap what the
+	// lookups can add to a listing: a slow or unreachable WorkOS costs the
+	// budget, not one round trip per unnamed member.
+	memberEmailLookupConcurrency = 8
+	memberEmailLookupBudget      = 2 * time.Second
+)
+
+// nameUnprofiledMembers stamps the invited address on rows that have no personal
+// account, the only identity those members have until they finish onboarding.
+func nameUnprofiledMembers(ctx context.Context, log *logger.Logger, memberEmails memberEmailDirectory, workosUsers workosUserFetcher, members []MemberResponse) {
+	var unprofiled []string
+	for _, m := range members {
+		if m.Username == "" && m.DisplayName == "" {
+			unprofiled = append(unprofiled, m.UserID)
+		}
+	}
+	if len(unprofiled) == 0 {
+		return
+	}
+	emails := resolveMemberEmails(ctx, log, memberEmails, workosUsers, unprofiled)
+	for i := range members {
+		if members[i].Username == "" && members[i].DisplayName == "" {
+			members[i].Email = emails[members[i].UserID]
+		}
+	}
+}
+
+// resolveMemberEmails maps user_id → email, reading the local mirror first and
+// asking WorkOS for the rest. Best-effort: an unresolved user is left out.
+func resolveMemberEmails(ctx context.Context, log *logger.Logger, memberEmails memberEmailDirectory, workosUsers workosUserFetcher, userIDs []string) map[string]string {
+	emails := map[string]string{}
+	if len(userIDs) == 0 {
+		return emails
+	}
+	mirrored := map[string]memberemails.MemberEmail{}
+	if memberEmails != nil {
+		known, err := memberEmails.EmailsForUsers(ctx, userIDs)
+		if err != nil {
+			log.Warn("Failed to read mirrored member emails", "error", err)
+		} else {
+			mirrored = known
+		}
+	}
+	for uid, m := range mirrored {
+		if m.Email != "" {
+			emails[uid] = m.Email
+		}
+	}
+	if workosUsers == nil {
+		return emails
+	}
+
+	// A user who already resolved to nothing waits out the same backoff the
+	// reconcile job honors, so an unnameable member is not re-queried per view.
+	retryBefore := time.Now().Add(-memberemails.RetryBackoff)
+	missing := make([]string, 0, len(userIDs))
+	for _, uid := range userIDs {
+		if emails[uid] != "" {
+			continue
+		}
+		if at := mirrored[uid].AttemptedAt; !at.IsZero() && at.After(retryBefore) {
+			continue
+		}
+		missing = append(missing, uid)
+	}
+	if len(missing) > memberEmailLookupLimit {
+		log.Warn("Member email lookups capped", "limit", memberEmailLookupLimit, "unnamed", len(missing))
+		missing = missing[:memberEmailLookupLimit]
+	}
+	if len(missing) == 0 {
+		return emails
+	}
+
+	// Writes outlive the lookup budget and the caller: a heal dropped halfway
+	// guarantees the same WorkOS call on the next listing.
+	writeCtx := context.WithoutCancel(ctx)
+	ctx, cancel := context.WithTimeout(ctx, memberEmailLookupBudget)
+	defer cancel()
+
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
+	sem := make(chan struct{}, memberEmailLookupConcurrency)
+	for _, uid := range missing {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			u, err := workosUsers.GetUser(ctx, uid)
+			if err != nil {
+				log.Warn("Failed to fetch member from WorkOS", "error", err, "user_id", uid)
+				recordLookupAttempt(writeCtx, log, memberEmails, uid)
+				return
+			}
+			if u == nil || u.Email == "" {
+				recordLookupAttempt(writeCtx, log, memberEmails, uid)
+				return
+			}
+			mu.Lock()
+			emails[uid] = u.Email
+			mu.Unlock()
+			if memberEmails != nil {
+				if err := memberEmails.UpsertWorkOS(writeCtx, uid, u.Email, u.EmailVerified); err != nil {
+					log.Warn("Failed to mirror member email", "error", err, "user_id", uid)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return emails
+}
+
+// recordLookupAttempt stamps the shared backoff so an unresolvable member is
+// left alone until the reconcile job's next window.
+func recordLookupAttempt(ctx context.Context, log *logger.Logger, memberEmails memberEmailDirectory, userID string) {
+	if memberEmails == nil {
+		return
+	}
+	if err := memberEmails.RecordReconcileAttempt(ctx, userID); err != nil {
+		log.Warn("Failed to record member email attempt", "error", err, "user_id", userID)
 	}
 }
 
