@@ -12,9 +12,10 @@ import (
 
 // allowedCluster is one cluster an account may deploy to, from GET /accounts/:account.
 type allowedCluster struct {
-	ClusterID string `json:"cluster_id"`
-	Region    string `json:"region"`
-	IsDefault bool   `json:"is_default"`
+	ClusterID   string `json:"cluster_id"`
+	Region      string `json:"region"`
+	RegionLabel string `json:"region_label"`
+	IsDefault   bool   `json:"is_default"`
 }
 
 type accountClustersResponse struct {
@@ -51,7 +52,10 @@ func resolveDeployCluster(cmd *cobra.Command, at AccountToken, verbose bool) (st
 	options := make([]huh.Option[string], 0, len(allowed))
 	selected := allowed[0].ClusterID
 	for _, c := range allowed {
-		label := c.Region
+		label := c.RegionLabel
+		if label == "" {
+			label = c.Region
+		}
 		if label == "" {
 			label = c.ClusterID
 		}
