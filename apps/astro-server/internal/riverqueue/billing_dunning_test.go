@@ -19,8 +19,8 @@ import (
 func dunningRow(status billing.Status, reason string, dunningSince any) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"status", "reason", "dunning_since", "alert_active",
-		"force_suspended", "credits_exhausted", "has_payment_method",
-	}).AddRow(string(status), reason, dunningSince, false, false, false, true)
+		"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
+	}).AddRow(string(status), reason, dunningSince, false, false, false, true, nil)
 }
 
 // expectRecompute queues the statements one Recompute issues when the status

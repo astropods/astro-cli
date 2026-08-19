@@ -19,7 +19,7 @@ import (
 
 var billingRecordColumns = []string{
 	"status", "reason", "dunning_since", "alert_active",
-	"force_suspended", "credits_exhausted", "has_payment_method",
+	"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
 }
 
 // gated is the server's verdict on whether a status is worth surfacing, and it
@@ -74,7 +74,7 @@ func TestBillingStatus_GatedFollowsEnforcementAndSuspendedWorkloads(t *testing.T
 			}
 			statusMock.ExpectQuery(`SELECT status, reason`).
 				WillReturnRows(sqlmock.NewRows(billingRecordColumns).
-					AddRow(string(tc.status), reason, nil, false, false, tc.reason == billing.ReasonCreditsExhausted, false))
+					AddRow(string(tc.status), reason, nil, false, false, tc.reason == billing.ReasonCreditsExhausted, false, nil))
 			// Only a non-active status reads the workload state.
 			if tc.status != billing.StatusActive {
 				deployMock.ExpectQuery(`SELECT EXISTS`).

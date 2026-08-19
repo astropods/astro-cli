@@ -203,6 +203,11 @@ export interface ActionPanelProps {
   children?: ReactNode;
   primaryLabel: string;
   onPrimary: () => void;
+  /** Renders the primary action as a link to an external page instead of a
+   *  button. A popup blocker can swallow window.open, and the primary action of
+   *  a panel is the one thing the user came to do. Ignored when confirmTitle is
+   *  set, since a link cannot be gated on a dialog. */
+  primaryHref?: string;
   /** Optional secondary action, rendered as an outline button left of the primary. */
   secondaryLabel?: string;
   onSecondary?: () => void;
@@ -224,6 +229,7 @@ export function ActionPanel({
   children,
   primaryLabel,
   onPrimary,
+  primaryHref,
   secondaryLabel,
   onSecondary,
   dismissible = false,
@@ -264,15 +270,21 @@ export function ActionPanel({
                 {secondaryLabel}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="default"
-              style={buttonStyle}
-              className="hover:opacity-90 active:opacity-80"
-              onClick={confirmTitle ? () => setConfirming(true) : onPrimary}
-            >
-              {primaryLabel}
-            </Button>
+            {primaryHref && !confirmTitle ? (
+              <Button asChild size="sm" variant="default" style={buttonStyle} className="hover:opacity-90 active:opacity-80">
+                <a href={primaryHref} target="_blank" rel="noopener noreferrer">{primaryLabel}</a>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="default"
+                style={buttonStyle}
+                className="hover:opacity-90 active:opacity-80"
+                onClick={confirmTitle ? () => setConfirming(true) : onPrimary}
+              >
+                {primaryLabel}
+              </Button>
+            )}
             {dismissible && (
               <button
                 type="button"

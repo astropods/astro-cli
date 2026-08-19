@@ -375,3 +375,148 @@ func creditAlertJob() *river.Job[MetronomeWebhookArgs] {
 		CustomerID: "cus_1",
 	}}
 }
+
+func TestStripeWebhook_ActionRequiredStoresTheHostedPage(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	mock.MatchExpectationsInOrder(false)
+
+	const link = "https://invoice.stripe.com/i/acct_1/test"
+	for range 2 {
+		mock.ExpectQuery(`FROM accounts WHERE stripe_customer_id`).
+			WithArgs("cus_1").
+			WillReturnRows(accountByCustomerRow("acct_1"))
+	}
+	mock.ExpectExec(`INSERT INTO account_billing_status .*pay_link`).
+		WithArgs("acct_1", link).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO account_billing_status`).
+		WithArgs("acct_1", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectBegin()
+	mock.ExpectQuery("FOR UPDATE").WithArgs("acct_1").WillReturnError(errors.New("stop here"))
+	mock.ExpectRollback()
+
+	w := &StripeWebhookWorker{
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7),
+		log:      logger.New("error", "json"),
+	}
+	_ = w.Work(context.Background(), &river.Job[StripeWebhookArgs]{Args: StripeWebhookArgs{
+		EventID:          "evt_1",
+		EventType:        "invoice.payment_action_required",
+		CustomerID:       "cus_1",
+		HostedInvoiceURL: link,
+	}})
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("the hosted page was not stored: %v", err)
+	}
+}
+
+// The pay link is handed to window.open. A javascript: URL would execute there,
+// so the writer refuses anything that is not an https page rather than trusting
+// the upstream field.
+func TestStripeWebhook_RefusesAPayLinkThatIsNotHTTPS(t *testing.T) {
+	for _, link := range []string{"javascript:alert(1)", "http://invoice.stripe.com/x", "not a url"} {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		if err != nil {
+			t.Fatalf("sqlmock: %v", err)
+		}
+		mock.MatchExpectationsInOrder(false)
+		// No expectations at all: the worker must not reach the account lookup.
+		w := &StripeWebhookWorker{
+			accounts: account.NewAccountStore(db),
+			status:   billing.NewStatusStore(db, 7),
+			log:      logger.New("error", "json"),
+		}
+		if err := w.storePayLink(context.Background(), "cus_1", link); err != nil {
+			t.Errorf("%q: storePayLink returned %v, want a quiet refusal", link, err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Errorf("%q: %v", link, err)
+		}
+		db.Close() //nolint:errcheck
+	}
+}
+
+// Dunning is one marker for every open invoice, so the link stored for the
+// invoice that wanted authentication outlives that invoice's relevance. A later,
+// unrelated decline must not offer it: paying it settles a real debt and leaves
+// the account stopped. The clear is conditional on the URL so a retry on the
+// same invoice keeps the link, which is the case a blanket clear would destroy.
+func TestStripeWebhook_ADifferentInvoiceFailingDropsTheStaleLink(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	mock.MatchExpectationsInOrder(false)
+
+	const invoiceB = "https://invoice.stripe.com/i/acct_1/second"
+	for range 2 {
+		mock.ExpectQuery(`FROM accounts WHERE stripe_customer_id`).
+			WithArgs("cus_1").
+			WillReturnRows(accountByCustomerRow("acct_1"))
+	}
+	mock.ExpectExec(`UPDATE account_billing_status SET pay_link = NULL.*pay_link <> \$2`).
+		WithArgs("acct_1", invoiceB).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO account_billing_status`).
+		WithArgs("acct_1", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectBegin()
+	mock.ExpectQuery("FOR UPDATE").WithArgs("acct_1").WillReturnError(errors.New("stop here"))
+	mock.ExpectRollback()
+
+	w := &StripeWebhookWorker{
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7),
+		log:      logger.New("error", "json"),
+	}
+	_ = w.Work(context.Background(), &river.Job[StripeWebhookArgs]{Args: StripeWebhookArgs{
+		EventID:          "evt_2",
+		EventType:        "invoice.payment_failed",
+		CustomerID:       "cus_1",
+		HostedInvoiceURL: invoiceB,
+	}})
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("the stale link survived a different invoice failing: %v", err)
+	}
+}
+
+// A failure that cannot name its invoice cannot prove the stored link is the one
+// holding the account, so the link goes. Keeping it risks a payment that settles
+// a different invoice and leaves the account stopped; dropping it falls back to
+// replacing the card, which still resolves a decline.
+func TestStripeWebhook_AFailureWithNoInvoiceURLClearsTheLink(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+	mock.MatchExpectationsInOrder(false)
+
+	mock.ExpectQuery(`FROM accounts WHERE stripe_customer_id`).
+		WithArgs("cus_1").
+		WillReturnRows(accountByCustomerRow("acct_1"))
+	mock.ExpectExec(`UPDATE account_billing_status SET pay_link = NULL.*pay_link <> \$2`).
+		WithArgs("acct_1", "").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := &StripeWebhookWorker{
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7),
+		log:      logger.New("error", "json"),
+	}
+	if err := w.clearStalePayLink(context.Background(), "cus_1", ""); err != nil {
+		t.Fatalf("clearStalePayLink returned %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("a link that no event vouches for survived: %v", err)
+	}
+}

@@ -38,6 +38,9 @@ type StatusRecord struct {
 	ForceSuspended   bool
 	CreditsExhausted bool
 	HasPaymentMethod bool
+	// PayLink is Stripe's hosted invoice page when a charge is waiting on the
+	// customer to authenticate. Empty otherwise.
+	PayLink string
 }
 
 // signals projects the record onto the state machine's inputs.
@@ -139,7 +142,7 @@ type rowQuerier interface {
 }
 
 const recordSelect = `
-	SELECT status, reason, dunning_since, alert_active, force_suspended, credits_exhausted, has_payment_method
+	SELECT status, reason, dunning_since, alert_active, force_suspended, credits_exhausted, has_payment_method, pay_link
 	FROM account_billing_status WHERE account_id = $1`
 
 // Record returns the full gating state for one account: the status machine's
@@ -151,10 +154,10 @@ func (s *StatusStore) Record(ctx context.Context, accountID string) (StatusRecor
 
 func readRecord(ctx context.Context, q rowQuerier, accountID, query string) (StatusRecord, error) {
 	var ds sql.NullTime
-	var status, reason sql.NullString
+	var status, reason, payLink sql.NullString
 	rec := StatusRecord{Status: StatusActive}
 	err := q.QueryRowContext(ctx, query, accountID).
-		Scan(&status, &reason, &ds, &rec.AlertActive, &rec.ForceSuspended, &rec.CreditsExhausted, &rec.HasPaymentMethod)
+		Scan(&status, &reason, &ds, &rec.AlertActive, &rec.ForceSuspended, &rec.CreditsExhausted, &rec.HasPaymentMethod, &payLink)
 	if err == sql.ErrNoRows {
 		return StatusRecord{Status: StatusActive}, nil
 	}
@@ -165,6 +168,7 @@ func readRecord(ctx context.Context, q rowQuerier, accountID, query string) (Sta
 		rec.Status = Status(status.String)
 	}
 	rec.Reason = reason.String
+	rec.PayLink = payLink.String
 	if ds.Valid {
 		rec.DunningSince = &ds.Time
 	}
@@ -186,12 +190,46 @@ func (s *StatusStore) SetDunningSince(ctx context.Context, accountID string, t t
 	return nil
 }
 
-// ClearDunning clears the dunning marker (on payment recovery).
+// ClearDunning clears the dunning marker (on payment recovery). The pay link
+// goes with it: it points at one invoice's authentication page, and offering it
+// after that invoice settled sends the customer to a dead end.
 func (s *StatusStore) ClearDunning(ctx context.Context, accountID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE account_billing_status SET dunning_since = NULL, updated_at = now() WHERE account_id = $1`, accountID)
+		`UPDATE account_billing_status SET dunning_since = NULL, pay_link = NULL, updated_at = now() WHERE account_id = $1`, accountID)
 	if err != nil {
 		return fmt.Errorf("clear dunning: %w", err)
+	}
+	return nil
+}
+
+// SetPayLink records the hosted page for a charge waiting on authentication.
+func (s *StatusStore) SetPayLink(ctx context.Context, accountID, url string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, pay_link, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (account_id) DO UPDATE
+		SET pay_link = EXCLUDED.pay_link, updated_at = now()`, accountID, url)
+	if err != nil {
+		return fmt.Errorf("set pay_link: %w", err)
+	}
+	return nil
+}
+
+// ClearStalePayLink drops the stored link unless it belongs to the invoice now
+// failing. Both events carry the invoice's hosted URL, so the URL is the
+// invoice's identity here and no second column is needed. A retry on the same
+// invoice matches and keeps the link, which a blanket clear would destroy.
+//
+// An event that cannot name its invoice clears the link, because the empty
+// string matches no stored URL. That is the safe direction: keeping the link
+// risks charging for an invoice that is not the one holding the account, while
+// dropping it falls back to replacing the card, which still resolves a decline.
+func (s *StatusStore) ClearStalePayLink(ctx context.Context, accountID, currentInvoiceURL string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE account_billing_status SET pay_link = NULL, updated_at = now()
+		WHERE account_id = $1 AND pay_link IS NOT NULL AND pay_link <> $2`, accountID, currentInvoiceURL)
+	if err != nil {
+		return fmt.Errorf("clear stale pay_link: %w", err)
 	}
 	return nil
 }

@@ -70,6 +70,15 @@ describe("billingBannerCopy", () => {
     expect(billingBannerCopy("some_future_reason", "view_billing", true)).toBeNull();
   });
 
+  // The card is not the problem when the bank wants authentication, so copy that
+  // says "update your payment method" sends the customer to fix the wrong thing.
+  it("asks for confirmation rather than a new card when a charge needs authentication", () => {
+    const copy = billingBannerCopy("payment_failed", "complete_payment", true);
+    expect(copy?.title).toContain("confirmation");
+    expect(copy?.body).not.toContain("payment method");
+    expect(copy?.body).toContain("bank");
+  });
+
   it("softens the payment_failed body while still in the grace period", () => {
     expect(billingBannerCopy("payment_failed", "update_card", false)?.body).toContain(
       "grace period",

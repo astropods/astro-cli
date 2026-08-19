@@ -53,7 +53,7 @@ func TestPaymentRequiredResponse_NamesTheFixForEveryReason(t *testing.T) {
 		"":                           ActionContactSupport,
 	}
 	for reason, wantAction := range cases {
-		resp := PaymentRequiredResponse(reason)
+		resp := PaymentRequiredResponse(reason, "")
 		if resp["code"] != "BILLING_SUSPENDED" {
 			t.Errorf("%s: code = %v, want BILLING_SUSPENDED", reason, resp["code"])
 		}
@@ -80,10 +80,9 @@ func TestEntitlementsCheck_CarriesTheReasonWhenBlocking(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 
-	mock.ExpectQuery("SELECT status, reason FROM account_billing_status").
+	mock.ExpectQuery("SELECT status, reason").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"status", "reason"}).
-			AddRow("suspended", billing.ReasonCreditsExhausted))
+		WillReturnRows(statusRow("suspended", billing.ReasonCreditsExhausted, nil))
 
 	got := NewEntitlements(billing.NewStatusStore(db, 7), true, nil).Check(context.Background(), "acct-1")
 	if !got.Blocked {
@@ -91,6 +90,52 @@ func TestEntitlementsCheck_CarriesTheReasonWhenBlocking(t *testing.T) {
 	}
 	if got.Reason != billing.ReasonCreditsExhausted {
 		t.Errorf("Reason = %q, want %q", got.Reason, billing.ReasonCreditsExhausted)
+	}
+}
+
+func statusRow(status, reason string, payLink any) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"status", "reason", "dunning_since", "alert_active",
+		"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
+	}).AddRow(status, reason, nil, false, false, false, true, payLink)
+}
+
+// A bank asking for authentication is not a broken card. The gate has to hand
+// back the hosted page, because sending the customer to replace a working card
+// leaves the charge waiting and the account stopped.
+func TestEntitlementsCheck_CarriesThePayLinkForAnUnauthenticatedCharge(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	const link = "https://invoice.stripe.com/i/acct_1/test"
+	mock.ExpectQuery("SELECT status, reason").
+		WithArgs("acct-1").
+		WillReturnRows(statusRow("suspended", billing.ReasonPaymentFailed, link))
+
+	got := NewEntitlements(billing.NewStatusStore(db, 7), true, nil).Check(context.Background(), "acct-1")
+	if got.PayLink != link {
+		t.Errorf("PayLink = %q, want the hosted page", got.PayLink)
+	}
+	body := PaymentRequiredResponse(got.Reason, got.PayLink)
+	if body["action"] != ActionCompletePayment {
+		t.Errorf("action = %v, want %s", body["action"], ActionCompletePayment)
+	}
+	if body["pay_link"] != link {
+		t.Errorf("pay_link = %v, want it in the 402 body", body["pay_link"])
+	}
+}
+
+// Without a link the same reason still means the card needs replacing, or the
+// banner would offer a button that goes nowhere.
+func TestBillingAction_NoPayLinkKeepsUpdateCard(t *testing.T) {
+	if got := BillingAction(billing.ReasonPaymentFailed, false); got != ActionUpdateCard {
+		t.Errorf("action = %q, want %q", got, ActionUpdateCard)
+	}
+	if got := BillingAction(billing.ReasonCreditsExhausted, true); got != ActionAddCard {
+		t.Errorf("action = %q, want %q: a pay link cannot fix spent credits", got, ActionAddCard)
 	}
 }
 
@@ -128,5 +173,19 @@ func TestEntitlementsCheck_AllowsWhenTheStatusReadFails(t *testing.T) {
 
 	if got := NewEntitlements(billing.NewStatusStore(db, 7), true, nil).Check(context.Background(), "acct-1"); got.Blocked {
 		t.Error("Blocked = true on a read error, want fail-open")
+	}
+}
+
+// A write-off keeps whatever pay link the earlier authentication attempt left
+// behind, because SignalUncollectible clears neither dunning nor the link. The
+// link must not become the offered fix: only a void or an operator lifts
+// force_suspended, so paying it takes the money and leaves the account stopped.
+func TestBillingAction_WriteOffNeverOffersThePayLink(t *testing.T) {
+	if got := BillingAction(billing.ReasonUncollectible, true); got != ActionUpdateCard {
+		t.Errorf("action = %q, want %q: a paid link cannot lift a write-off", got, ActionUpdateCard)
+	}
+	body := PaymentRequiredResponse(billing.ReasonUncollectible, "https://invoice.stripe.com/i/acct_1/test")
+	if _, ok := body["pay_link"]; ok {
+		t.Error("the 402 body carries a pay link for a written-off invoice")
 	}
 }

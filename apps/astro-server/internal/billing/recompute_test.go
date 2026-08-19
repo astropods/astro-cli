@@ -11,8 +11,8 @@ import (
 func recordRows(status Status, reason string, force, exhausted, hasPM bool) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"status", "reason", "dunning_since", "alert_active",
-		"force_suspended", "credits_exhausted", "has_payment_method",
-	}).AddRow(string(status), reason, nil, false, force, exhausted, hasPM)
+		"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
+	}).AddRow(string(status), reason, nil, false, force, exhausted, hasPM, nil)
 }
 
 // A write-off on an account already suspended for spent credits keeps the

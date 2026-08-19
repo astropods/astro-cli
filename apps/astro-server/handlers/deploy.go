@@ -702,7 +702,7 @@ func blockedByBilling(c *gin.Context, entCheck EntitlementChecker, accountID str
 	if !d.Blocked {
 		return false
 	}
-	c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason))
+	c.JSON(http.StatusPaymentRequired, middleware.PaymentRequiredResponse(d.Reason, d.PayLink))
 	return true
 }
 

@@ -10,6 +10,18 @@ import { ActionPanel } from "@/components/ui/status-panel";
 import { billingActionLabel, billingBannerCopy } from "@/lib/billing-copy";
 import { accountSettingsPath } from "@/lib/settings-paths";
 
+/** The pay link becomes an href, where a javascript: URL would execute on click.
+ *  The server only stores an https one, so this is the second lock rather than
+ *  the first. */
+function httpsOnly(link: string | undefined): string | undefined {
+  if (!link) return undefined;
+  try {
+    return new URL(link).protocol === "https:" ? link : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function BillingStatusBanner({ className }: { className?: string }) {
   const { activeAccount } = useActiveAccount();
   const { accounts } = useAuth();
@@ -32,6 +44,7 @@ export function BillingStatusBanner({ className }: { className?: string }) {
   if (accounts.length === 0) return null;
 
   const suspended = data.status === "suspended";
+  const hostedPage = httpsOnly(data.pay_link);
   const copy = billingBannerCopy(data.reason, data.action, suspended);
   // An unrecognised reason means the server gained a status this build predates.
   // Staying silent would hide a stopped account, so fall back to generic copy.
@@ -46,9 +59,14 @@ export function BillingStatusBanner({ className }: { className?: string }) {
       <ActionPanel
         title={title}
         primaryLabel={cta}
-        // Scoped to the gated account. The status comes from activeAccount, so a
-        // fixed personal path sends an org owner to a page where the card they
-        // add cannot lift their org's suspension.
+        // Confirming a charge happens on Stripe's hosted page, the only fix that
+        // is not on our billing page. A link rather than window.open: a blocked
+        // popup would leave the one button that unblocks the account doing
+        // nothing visible.
+        primaryHref={hostedPage}
+        // Everything else is scoped to the gated account: the status comes from
+        // activeAccount, so a fixed personal path sends an org owner to a page
+        // where the card they add cannot lift their org's suspension.
         onPrimary={() => navigate(accountSettingsPath(accounts, activeAccount ?? "", "billing"))}
         tone={suspended ? "error" : "warning"}
       >

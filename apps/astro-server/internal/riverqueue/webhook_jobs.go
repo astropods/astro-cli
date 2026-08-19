@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/url"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -405,11 +406,57 @@ func (w *StripeWebhookWorker) Work(ctx context.Context, job *river.Job[StripeWeb
 		}
 		sig = resolved
 	}
-	if sig == billing.SignalActionRequired && job.Args.HostedInvoiceURL != "" {
-		w.log.Info("stripe webhook: payment action required", "customer_id", job.Args.CustomerID, "hosted_invoice_url", job.Args.HostedInvoiceURL)
+	switch sig {
+	case billing.SignalActionRequired:
+		if job.Args.HostedInvoiceURL != "" {
+			// Stripe sends no email for a charge_automatically invoice, so this link
+			// is the only route the customer has to authenticate.
+			if err := w.storePayLink(ctx, job.Args.CustomerID, job.Args.HostedInvoiceURL); err != nil {
+				return err
+			}
+		}
+	case billing.SignalPaymentFailed:
+		// Dunning is one marker for every open invoice, so a link stored for the
+		// invoice that wanted authentication would still be offered when a later,
+		// unrelated invoice declines. Paying it would settle a real debt and leave
+		// the account stopped, which is the button this drops.
+		if err := w.clearStalePayLink(ctx, job.Args.CustomerID, job.Args.HostedInvoiceURL); err != nil {
+			return err
+		}
 	}
 	return applyWebhookSignal(ctx, w.log, w.accounts.GetByStripeCustomerID, w.status, w.queue, "stripe", job.Args.CustomerID, sig, job.Args.EventID,
 		notifyFacts{HostedInvoiceURL: job.Args.HostedInvoiceURL})
+}
+
+func (w *StripeWebhookWorker) clearStalePayLink(ctx context.Context, customerID, currentInvoiceURL string) error {
+	acct, err := w.accounts.GetByStripeCustomerID(customerID)
+	if errors.Is(err, account.ErrAccountNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return w.status.ClearStalePayLink(ctx, acct.ID, currentInvoiceURL)
+}
+
+func (w *StripeWebhookWorker) storePayLink(ctx context.Context, customerID, payLink string) error {
+	// The link ends up in window.open. Stripe signs the webhook that carries it,
+	// so this is a second lock rather than the first: a non-https scheme reaching
+	// a browser is a script-execution vector, and no legitimate hosted page uses
+	// one.
+	if u, err := url.Parse(payLink); err != nil || u.Scheme != "https" || u.Host == "" {
+		w.log.Warn("stripe webhook: refusing a pay link that is not an https URL", "customer_id", customerID)
+		return nil
+	}
+	acct, err := w.accounts.GetByStripeCustomerID(customerID)
+	if errors.Is(err, account.ErrAccountNotFound) {
+		w.log.Warn("stripe webhook: no account for customer", "customer_id", customerID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return w.status.SetPayLink(ctx, acct.ID, payLink)
 }
 
 func applyWebhookSignal(

@@ -2335,6 +2335,9 @@ export interface BillingStatusResponse {
   gated: boolean;
   /** The one action that lifts the gate, matching the 402 body's `action`. */
   action?: string;
+  /** Stripe's hosted page for a charge waiting on the customer to authenticate.
+   *  Present only with the `complete_payment` action. */
+  pay_link?: string;
 }
 
 /** What an account is running up this period, and the controls it set on itself.

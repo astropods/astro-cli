@@ -47,6 +47,9 @@ type BillingStatusResponse struct {
 	// Action is the one thing that resolves the gate, matching the 402 body's
 	// action so a banner and a refused request never disagree on the fix.
 	Action string `json:"action,omitempty"`
+	// PayLink is Stripe's hosted page for a charge waiting on authentication,
+	// set only alongside the complete_payment action.
+	PayLink string `json:"pay_link,omitempty"`
 }
 
 // GetBillingStatus handles GET /api/v1/accounts/:account/billing/status. It
@@ -90,7 +93,10 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, de
 			Gated:              gated,
 		}
 		if gated {
-			resp.Action = middleware.BillingAction(rec.Reason)
+			resp.Action = middleware.BillingAction(rec.Reason, rec.PayLink != "")
+			if resp.Action == middleware.ActionCompletePayment {
+				resp.PayLink = rec.PayLink
+			}
 		}
 		c.JSON(http.StatusOK, resp)
 	}

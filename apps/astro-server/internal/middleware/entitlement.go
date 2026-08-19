@@ -37,6 +37,9 @@ func NewEntitlements(status *billing.StatusStore, enforce bool, log *logger.Logg
 type Decision struct {
 	Blocked bool
 	Reason  string
+	// PayLink is set when the block clears by authenticating a charge rather
+	// than by changing a card.
+	PayLink string
 }
 
 // Check reports whether the account is billing-suspended, and why. In observe
@@ -46,23 +49,25 @@ func (e *Entitlements) Check(ctx context.Context, accountID string) Decision {
 	if e.status == nil || accountID == "" {
 		return Decision{}
 	}
-	st, reason, err := e.status.Get(ctx, accountID)
+	// Record rather than Get: the block has to name the fix, and for an
+	// unauthenticated charge the fix is a link this row holds.
+	rec, err := e.status.Record(ctx, accountID)
 	if err != nil {
 		if e.log != nil {
 			e.log.Warn("billing gate: status read failed, allowing", "account_id", accountID, "error", err)
 		}
 		return Decision{}
 	}
-	if st != billing.StatusSuspended {
+	if rec.Status != billing.StatusSuspended {
 		return Decision{}
 	}
 	if !e.enforce {
 		if e.log != nil {
-			e.log.Info("billing gate (observe): would block", "account_id", accountID, "reason", reason)
+			e.log.Info("billing gate (observe): would block", "account_id", accountID, "reason", rec.Reason)
 		}
 		return Decision{}
 	}
-	return Decision{Blocked: true, Reason: reason}
+	return Decision{Blocked: true, Reason: rec.Reason, PayLink: rec.PayLink}
 }
 
 // Blocked keeps the boolean form for callers that only branch on it.
@@ -86,7 +91,7 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc) gin.HandlerFunc {
 			return
 		}
 		if d := e.Check(c.Request.Context(), acct.ID); d.Blocked {
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, PaymentRequiredResponse(d.Reason))
+			c.AbortWithStatusJSON(http.StatusPaymentRequired, PaymentRequiredResponse(d.Reason, d.PayLink))
 			return
 		}
 		handler(c)
@@ -97,9 +102,10 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc) gin.HandlerFunc {
 // so a terminal and a banner can phrase it differently without disagreeing on
 // what the user has to do.
 const (
-	ActionAddCard        = "add_card"        // free tier ran dry, no card on file
-	ActionUpdateCard     = "update_card"     // a card exists and collection failed
-	ActionContactSupport = "contact_support" // nothing the account holder can do
+	ActionAddCard         = "add_card"         // free tier ran dry, no card on file
+	ActionUpdateCard      = "update_card"      // a card exists and collection failed
+	ActionContactSupport  = "contact_support"  // nothing the account holder can do
+	ActionCompletePayment = "complete_payment" // the bank wants the customer to authenticate
 )
 
 // BillingAction maps a gating reason to the one thing that resolves it. Only two
@@ -110,11 +116,22 @@ const (
 // Everything else is contact_support, which is the absence of a fix rather than
 // a third one. An unrecognised reason lands there too: a build that cannot name
 // the problem must not send the owner to change a card that may be fine.
-func BillingAction(reason string) string {
+// A pay link outranks update_card on the collection reasons. When the bank asked
+// for authentication the card is fine, and telling the customer to replace it
+// sends them to fix something that is not broken while the charge waits.
+func BillingAction(reason string, hasPayLink bool) string {
 	switch reason {
 	case billing.ReasonCreditsExhausted:
 		return ActionAddCard
-	case billing.ReasonDunning, billing.ReasonPaymentFailed, billing.ReasonUncollectible:
+	case billing.ReasonDunning, billing.ReasonPaymentFailed:
+		if hasPayLink {
+			return ActionCompletePayment
+		}
+		return ActionUpdateCard
+	case billing.ReasonUncollectible:
+		// A write-off is terminal: only a void or an operator lifts it, and
+		// paying the old link would leave the account suspended anyway. Offering
+		// the link here is a button that takes money and changes nothing.
 		return ActionUpdateCard
 	default:
 		return ActionContactSupport
@@ -125,21 +142,27 @@ func BillingAction(reason string) string {
 // it stands, which the CLI does today. Clients that branch on action supply
 // their own wording.
 var actionDetails = map[string]string{
-	ActionAddCard:        "This account's free credits are used up. Add a payment method to continue.",
-	ActionUpdateCard:     "A payment for this account could not be collected. Update the payment method to continue.",
-	ActionContactSupport: "This account is suspended for a billing issue only support can resolve. Contact support to continue.",
+	ActionAddCard:         "This account's free credits are used up. Add a payment method to continue.",
+	ActionUpdateCard:      "A payment for this account could not be collected. Update the payment method to continue.",
+	ActionContactSupport:  "This account is suspended for a billing issue only support can resolve. Contact support to continue.",
+	ActionCompletePayment: "A payment for this account needs to be confirmed with your bank. Complete it to continue.",
 }
 
 // PaymentRequiredResponse is the 402 body for a billing-suspended account. It
-// carries the reason code and the resolving action so a client does not have to
-// re-derive either from raw billing flags.
-func PaymentRequiredResponse(reason string) gin.H {
-	action := BillingAction(reason)
-	return gin.H{
+// carries the reason code, the resolving action, and for the one action the
+// customer cannot complete in the app, the hosted page to finish it on. Pass an
+// empty payLink when there is none.
+func PaymentRequiredResponse(reason, payLink string) gin.H {
+	action := BillingAction(reason, payLink != "")
+	body := gin.H{
 		"error":   "Billing suspended",
 		"code":    "BILLING_SUSPENDED",
 		"reason":  reason,
 		"action":  action,
 		"details": actionDetails[action],
 	}
+	if action == ActionCompletePayment {
+		body["pay_link"] = payLink
+	}
+	return body
 }

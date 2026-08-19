@@ -58,6 +58,50 @@ describe("BillingStatusBanner", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // The hosted page is the only fix that is not inside the app, and it is a link
+  // rather than a window.open: a blocked popup would leave the one control that
+  // unblocks the account doing nothing visible.
+  it("links to Stripe's hosted page when a charge needs authentication", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    mockStatus.mockReturnValue({
+      data: status({
+        status: "suspended",
+        reason: "payment_failed",
+        has_payment_method: true,
+        action: "complete_payment",
+        pay_link: "https://invoice.stripe.com/i/acct_1/test",
+      }),
+    });
+    render(<BillingStatusBanner />);
+
+    const link = screen.getByRole("link", { name: "Complete payment" });
+    expect(link).toHaveAttribute("href", "https://invoice.stripe.com/i/acct_1/test");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(open).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  // An href runs a javascript: URL on click. The server stores only https pages,
+  // so a scheme that reaches here means the row was written by something else.
+  it("ignores a pay link that is not an https page", async () => {
+    mockStatus.mockReturnValue({
+      data: status({
+        status: "suspended",
+        reason: "payment_failed",
+        has_payment_method: true,
+        action: "complete_payment",
+        pay_link: "javascript:alert(1)",
+      }),
+    });
+    render(<BillingStatusBanner />);
+
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Complete payment" }));
+    expect(mockNavigate).toHaveBeenCalled();
+  });
+
   it("prompts for a card when free credits run out", () => {
     mockStatus.mockReturnValue({
       data: status({

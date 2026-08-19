@@ -173,6 +173,11 @@ CREATE TABLE public.account_billing_status (
     credits_exhausted  boolean NOT NULL DEFAULT false,
     -- A card is vaulted in Stripe and linked to the billing provider.
     has_payment_method boolean NOT NULL DEFAULT false,
+    -- Stripe's hosted invoice page for a charge that needs the customer to
+    -- authenticate. Stripe does not email it for charge_automatically invoices,
+    -- so the app is the only place it can be surfaced. Lives exactly as long as
+    -- dunning does.
+    pay_link       text,
     updated_at     timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT account_billing_status_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_billing_status_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE

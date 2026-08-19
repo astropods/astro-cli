@@ -18,6 +18,7 @@ export interface BillingBannerCopy {
  *  `details` for that action. */
 const ACTION_LABEL: Record<string, string> = {
   add_card: "Add payment method",
+  complete_payment: "Complete payment",
   update_card: "Update payment method",
   // No support route exists, so the button opens billing and the instruction
   // rides in the body copy. Also the label for an action this build predates.
@@ -45,6 +46,18 @@ export function billingBannerCopy(
     return {
       title: "Free credits used up",
       body: "Your agents are stopped. Add a payment method to switch to pay-as-you-go and start them again.",
+      cta,
+    };
+  }
+  // The bank wants the customer to authenticate, so the card is fine. Telling
+  // them to replace it sends them to fix something that is not broken while the
+  // charge sits waiting.
+  if (action === "complete_payment") {
+    return {
+      title: "Payment needs confirmation",
+      body: suspended
+        ? "Your agents are stopped until you confirm this payment with your bank."
+        : "Your bank needs you to confirm a payment. Agents stop once the grace period ends.",
       cta,
     };
   }
@@ -85,6 +98,7 @@ export function billingBannerCopy(
  *  unknown action gets copy that holds whichever action it turns out to be. */
 const ACTION_HINT: Record<string, string> = {
   add_card: "Stopped by billing. Add a payment method to start it again.",
+  complete_payment: "Stopped by billing. Confirm the pending payment with your bank to start it again.",
   update_card: "Stopped by billing. Update your payment method to start it again.",
   contact_support: "Stopped by billing. Contact support to start it again.",
 };
