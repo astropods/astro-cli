@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Rectangle,
   LineChart,
   Line,
   XAxis,
@@ -11,10 +12,18 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import { formatCost, formatDateShort } from "@/lib/format-utils";
 import { dayKeysForRange } from "@/lib/date-utils";
 import { buildModelColorMap } from "./model-colors";
+import {
+  GRID_PROPS,
+  SeriesLegend,
+  SeriesTooltip,
+  X_AXIS_BASE,
+  useHiddenSeries,
+  yAxisProps,
+} from "./chart-chrome";
+import { topSegmentKey } from "./stacked-bars";
 
 interface CostOverTimeProps {
   data: Array<{ date: string; models: Array<{ model: string; cost_usd: number }> }>;
@@ -27,45 +36,7 @@ interface CostOverTimeProps {
   variant?: "bar" | "line";
 }
 
-const AXIS_TICK = { fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" } as const;
-const X_AXIS_BASE = { dataKey: "date", tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 8, minTickGap: 40 } as const;
-const Y_AXIS_PROPS = { tickFormatter: formatCost, tick: AXIS_TICK, axisLine: false, tickLine: false, tickMargin: 4, width: 56 } as const;
-const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "var(--color-border)", strokeOpacity: 0.5 } as const;
-
-function CustomTooltip({
-  active,
-  payload,
-  label,
-  colorMap,
-  seriesLabels,
-}: {
-  active?: boolean;
-  payload?: { name: string; value: number }[];
-  label?: string;
-  colorMap: Record<string, string>;
-  seriesLabels?: Record<string, string>;
-}) {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
-  return (
-    <div className="rounded-md border border-border bg-surface/95 px-3 py-2 shadow-lg backdrop-blur">
-      <p className="mb-1.5 text-mono-sm text-muted-foreground">{label}</p>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colorMap[p.name] }} />
-          <span className="font-mono text-body-sm text-muted-foreground">{seriesLabels?.[p.name] ?? p.name}</span>
-          <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{formatCost(p.value)}</span>
-        </div>
-      ))}
-      {payload.length > 1 && (
-        <div className="mt-1 flex items-center gap-2 border-t border-border pt-1">
-          <span className="font-mono text-body-sm text-muted-foreground">Total</span>
-          <span className="ml-auto font-mono text-body-sm font-medium text-foreground">{formatCost(total)}</span>
-        </div>
-      )}
-    </div>
-  );
-}
+const Y_AXIS_PROPS = yAxisProps(formatCost);
 
 export function CostOverTimeChart({ data, days, endDate, colorMap: externalColorMap, seriesLabels, variant = "bar" }: CostOverTimeProps) {
   const { chartData, allModels, colorMap } = useMemo(() => {
@@ -84,21 +55,16 @@ export function CostOverTimeChart({ data, days, endDate, colorMap: externalColor
     return { chartData: rows, allModels: models, colorMap: cMap };
   }, [data, days, endDate, externalColorMap]);
 
-  // Clickable legend: a series in `hidden` is omitted from the chart so
-  // the user can isolate or compare remaining series. Toggling an entry
-  // re-renders without re-fetching.
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const visibleModels = useMemo(() => allModels.filter((m) => !hidden.has(m)), [allModels, hidden]);
-  function toggle(model: string) {
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(model)) next.delete(model);
-      else next.add(model);
-      // Never let the user hide every series — keep at least one visible.
-      if (next.size >= allModels.length) return prev;
-      return next;
-    });
-  }
+  const { hidden, visible: visibleModels, toggle } = useHiddenSeries(allModels);
+
+  // Which segment caps each bar, derived once per row rather than per rendered
+  // rectangle. Recharts retains rectangles to animate between them, so the
+  // visible set is folded into the Bar key to remount when the cap can move.
+  const stackSignature = visibleModels.join("|");
+  const rows = useMemo(
+    () => chartData.map((row) => ({ ...row, cap: topSegmentKey(row, visibleModels) })),
+    [chartData, visibleModels],
+  );
 
   // Skeleton intentionally removed: account-scoped queries use placeholderData
   // so the previous window's chart stays mounted during cross-key refetches,
@@ -125,54 +91,47 @@ export function CostOverTimeChart({ data, days, endDate, colorMap: externalColor
           <div className="min-h-0 flex-1">
             <ResponsiveContainer width="100%" height="100%">
               {variant === "line" ? (
-                <LineChart data={chartData} margin={{ top: 16, right: 52, bottom: 4, left: 0 }}>
+                <LineChart data={rows} margin={{ top: 16, right: 52, bottom: 4, left: 0 }}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis {...X_AXIS_BASE} padding={{ right: 20 }} />
                   <YAxis {...Y_AXIS_PROPS} />
-                  <Tooltip content={<CustomTooltip colorMap={colorMap} seriesLabels={seriesLabels} />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
+                  <Tooltip content={<SeriesTooltip colors={colorMap} names={seriesLabels} format={formatCost} />} cursor={{ stroke: "var(--color-border)", strokeWidth: 1 }} />
                   {visibleModels.map((model) => (
                     <Line key={model} type="monotone" dataKey={model} stroke={colorMap[model]} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: colorMap[model] }} isAnimationActive animationDuration={500} animationEasing="ease-out" />
                   ))}
                 </LineChart>
               ) : (
-                <BarChart data={chartData} margin={{ top: 16, right: 52, bottom: 4, left: 0 }} barCategoryGap="20%" maxBarSize={56}>
+                <BarChart data={rows} margin={{ top: 16, right: 52, bottom: 4, left: 0 }} barCategoryGap="20%" maxBarSize={56}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis {...X_AXIS_BASE} />
                   <YAxis {...Y_AXIS_PROPS} />
-                  <Tooltip content={<CustomTooltip colorMap={colorMap} seriesLabels={seriesLabels} />} cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }} />
-                  {visibleModels.map((model, i) => (
-                    <Bar key={model} dataKey={model} stackId="cost" fill={colorMap[model]} fillOpacity={0.85} radius={i === visibleModels.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} isAnimationActive animationDuration={500} animationEasing="ease-out" />
+                  <Tooltip content={<SeriesTooltip colors={colorMap} names={seriesLabels} format={formatCost} />} cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }} />
+                  {visibleModels.map((model) => (
+                    <Bar
+                      key={`${model}:${stackSignature}`}
+                      dataKey={model}
+                      stackId="cost"
+                      fill={colorMap[model]}
+                      fillOpacity={0.85}
+                      shape={(props: { payload?: { cap?: string } }) => (
+                        <Rectangle {...props} radius={props.payload?.cap === model ? [3, 3, 0, 0] : 0} />
+                      )}
+                      isAnimationActive
+                      animationDuration={500}
+                      animationEasing="ease-out"
+                    />
                   ))}
                 </BarChart>
               )}
             </ResponsiveContainer>
           </div>
-          {allModels.length > 0 && (
-            <div className="mt-3 shrink-0 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5">
-              {allModels.map((m) => {
-                const isHidden = hidden.has(m);
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => toggle(m)}
-                    aria-pressed={!isHidden}
-                    className={cn(
-                      "flex items-center gap-1.5 text-mono-sm transition-opacity",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded",
-                      isHidden ? "text-faint-foreground opacity-50" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn("size-2 rounded-full", isHidden && "opacity-40")}
-                      style={{ backgroundColor: colorMap[m] }}
-                    />
-                    <span className={cn(isHidden && "line-through")}>{seriesLabels?.[m] ?? m}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <SeriesLegend
+            keys={allModels}
+            colors={colorMap}
+            names={seriesLabels}
+            hidden={hidden}
+            onToggle={toggle}
+          />
         </>
       )}
     </Card>

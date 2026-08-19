@@ -242,15 +242,35 @@ type DailyMetricsResponse struct {
 // applied; userID and sessionID are optional additional filters.
 type traceFilter struct {
 	deploymentID string
-	userID       string
-	sessionID    string
-	startTime    string
-	endTime      string
-	limit        int
-	offset       int
-	fields       string
-	orderBy      string
-	filters      []TraceFilter
+	// tag scopes by a raw Langfuse tag instead of a deployment. Dev-tool traces
+	// belong to no deployment, so the source tag is the only scope they have.
+	tag       string
+	userID    string
+	sessionID string
+	startTime string
+	endTime   string
+	limit     int
+	offset    int
+	fields    string
+	orderBy   string
+	filters   []TraceFilter
+}
+
+// traceScopeTag resolves the tag a trace query is scoped by, for either reader.
+//
+// Refusing an unscoped query is the point: an account's traces share one
+// Langfuse project, so a query with neither a deployment nor a tag reads every
+// trace in it, crossing deployment boundaries. Defaulting would make that the
+// quiet behaviour of a forgotten field.
+func traceScopeTag(f traceFilter) (string, error) {
+	switch {
+	case f.tag != "":
+		return f.tag, nil
+	case f.deploymentID != "":
+		return "deployment:" + f.deploymentID, nil
+	default:
+		return "", fmt.Errorf("langfuse: trace query needs a deployment or tag scope")
+	}
 }
 
 // TraceFilter is one condition accepted by Langfuse's JSON-encoded trace
@@ -329,6 +349,27 @@ func (c *Client) GetQueueTraces(ctx context.Context, deploymentID, startTime, en
 		offset:       offset,
 		fields:       "core,io",
 		orderBy:      "timestamp.desc",
+	})
+}
+
+// GetDevtoolTraces returns dev-tool traces, which are tagged by source rather
+// than deployment. Oldest-first so a paged day scan stays stable as traces arrive.
+func (c *Client) GetDevtoolTraces(
+	ctx context.Context,
+	source, startTime, endTime string,
+	limit, offset int,
+) (*TracesResponse, error) {
+	if source == "" {
+		return nil, fmt.Errorf("langfuse: dev-tool trace query needs a source")
+	}
+	return c.reader.getTraces(ctx, traceFilter{
+		tag:       source,
+		startTime: startTime,
+		endTime:   endTime,
+		limit:     limit,
+		offset:    offset,
+		fields:    "core,io",
+		orderBy:   "timestamp.asc",
 	})
 }
 
@@ -706,8 +747,12 @@ type v3Reader struct {
 }
 
 func (r *v3Reader) getTraces(ctx context.Context, f traceFilter) (*TracesResponse, error) {
+	scope, err := traceScopeTag(f)
+	if err != nil {
+		return nil, err
+	}
 	params := url.Values{}
-	params.Set("tags", "deployment:"+f.deploymentID)
+	params.Set("tags", scope)
 	if f.userID != "" {
 		params.Set("userId", f.userID)
 	}
@@ -1065,22 +1110,30 @@ func v4SumCost(spans []ObservationV2) float64 {
 // no tags and rejects every trace.
 const v4ObservationFields = "basic,metrics,trace_context,metadata,model,usage"
 
-func v4ObservationFilters(f traceFilter) []TraceFilter {
+func v4ObservationFilters(f traceFilter) ([]TraceFilter, error) {
+	scope, err := traceScopeTag(f)
+	if err != nil {
+		return nil, err
+	}
 	filters := append([]TraceFilter{}, f.filters...)
-	filters = append(filters, TraceFilter{Type: "stringOptions", Column: "tags", Operator: "any of", Value: []string{"deployment:" + f.deploymentID}})
+	filters = append(filters, TraceFilter{Type: "stringOptions", Column: "tags", Operator: "any of", Value: []string{scope}})
 	if f.userID != "" {
 		filters = append(filters, TraceFilter{Type: "stringOptions", Column: "userId", Operator: "any of", Value: []string{f.userID}})
 	}
 	if f.sessionID != "" {
 		filters = append(filters, TraceFilter{Type: "stringOptions", Column: "sessionId", Operator: "any of", Value: []string{f.sessionID}})
 	}
-	return filters
+	return filters, nil
 }
 
 // getTraces is the v4 equivalent of v3Reader.getTraces, built on
 // /api/public/v2/observations.
 func (r *v4Reader) getTraces(ctx context.Context, f traceFilter) (*TracesResponse, error) {
-	encoded, err := json.Marshal(append(v4ObservationFilters(f), v4RootFilter))
+	filters, err := v4ObservationFilters(f)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(append(filters, v4RootFilter))
 	if err != nil {
 		return nil, fmt.Errorf("langfuse: marshal v4 observation filters: %w", err)
 	}

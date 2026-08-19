@@ -224,5 +224,17 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
+	// Label Claude Code prompts; separate from the roll-up so a Foundry
+	// outage lags labels without stalling spend reporting.
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(ClassificationInterval),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return ClassificationArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{ByPeriod: ClassificationInterval},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	return jobs
 }

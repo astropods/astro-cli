@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -652,12 +653,22 @@ func TestDevtoolSpendRidesTheAgentLineage(t *testing.T) {
 	if row == nil {
 		t.Fatal("dev-tool row missing from agents table")
 	}
-	// Rendered as an aggregated source, not as a deployed agent: no monitor link.
+	// Rendered as an aggregated source, not as a deployed agent, so it links to
+	// the source detail page rather than to a deployment.
 	if row.Identity.Kind != "system" {
 		t.Errorf("identity kind = %q, want system", row.Identity.Kind)
 	}
-	if row.Identity.Href != "" {
-		t.Errorf("identity href = %q, want empty", row.Identity.Href)
+	// Two properties, both load-bearing: the leading slash is what makes the
+	// table route client-side rather than emit a plain anchor, and the account
+	// param is what stops that navigation landing on a different account.
+	if !strings.HasPrefix(row.Identity.Href, "/") {
+		t.Errorf("identity href = %q, must start with / or the table reloads the page", row.Identity.Href)
+	}
+	if !strings.Contains(row.Identity.Href, "account=") {
+		t.Errorf("identity href = %q, must carry the account scope", row.Identity.Href)
+	}
+	if !strings.Contains(row.Identity.Href, "/insights/sources/"+ad.Key) {
+		t.Errorf("identity href = %q, want the source detail route", row.Identity.Href)
 	}
 	if row.Identity.Icon != ad.Icon {
 		t.Errorf("identity icon = %q, want %q", row.Identity.Icon, ad.Icon)

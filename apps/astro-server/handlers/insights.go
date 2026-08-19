@@ -607,8 +607,9 @@ func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryE
 			AvatarName:    dep.AgentName,
 		}
 		if ad, ok := devtoolAdapterByKey(dep.DevtoolSourceKey); ok {
-			// Aggregated local dev-tool usage: system-kind, brand icon, no link.
-			identity = devtoolIdentity(ad)
+			// Aggregated local dev-tool usage: system-kind, brand icon, and a link
+			// to the source detail page rather than to a deployment.
+			identity = devtoolIdentity(ad, accountName)
 		}
 		if dep.IsUnattributed {
 			identity = unattributedIdentity()

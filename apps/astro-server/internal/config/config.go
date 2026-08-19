@@ -295,6 +295,12 @@ type DeploymentConfig struct {
 	// clustercfg's nil-registry fallback — see ClusterEntry.LangfuseBaseURLExt.
 	LangfuseBaseURLExt string
 	LangfuseVPCEIPs    []string
+	// Foundry work-classifier inference. Empty URL disables prompt classification
+	// entirely, so environments without Foundry access behave as before.
+	FoundryInferenceURL string // FOUNDRY_INFERENCE_URL — KServe base URL for the work-classifier heads
+	// The serving API exposes no version, so this must track
+	// work_classifier_versions in the astro-infra Terraform pin; drift is silent.
+	WorkClassifierVersion string // WORK_CLASSIFIER_VERSION — stamps stored labels so a retrain is detectable
 	// PrivateLink automation — managed cluster VPC where VPC endpoints are created at runtime
 	PrivateLinkVpcID     string   // PRIVATELINK_VPC_ID — managed cluster VPC ID (empty = PrivateLink disabled)
 	PrivateLinkSubnetIDs []string // PRIVATELINK_SUBNET_IDS — comma-separated private subnet IDs
@@ -363,6 +369,8 @@ func Load() (*Config, error) {
 			LangfuseSalt:           getEnv("LANGFUSE_SALT", ""),
 			LangfuseOrgID:          getEnv("LANGFUSE_ORG_ID", "astro"),
 			LangfuseBaseURL:        getEnv("LANGFUSE_BASE_URL", ""),
+			FoundryInferenceURL:    getEnv("FOUNDRY_INFERENCE_URL", ""),
+			WorkClassifierVersion:  getEnv("WORK_CLASSIFIER_VERSION", ""),
 			PrivateLinkVpcID:       getEnv("PRIVATELINK_VPC_ID", ""),
 			PrivateLinkSubnetIDs:   getEnvSlice("PRIVATELINK_SUBNET_IDS", nil),
 			PrivateLinkSGID:        getEnv("PRIVATELINK_SG_ID", ""),
@@ -551,6 +559,18 @@ func (c *Config) Validate() error {
 		}
 		if d.PrivateLinkSGID == "" {
 			return fmt.Errorf("PRIVATELINK_SG_ID is required when PRIVATELINK_VPC_ID is set")
+		}
+	}
+
+	if u := c.Deployment.FoundryInferenceURL; u != "" {
+		// Without a version stamp, results are classified and then rejected at
+		// write time, so the pass burns inference every tick and never converges.
+		if c.Deployment.WorkClassifierVersion == "" {
+			return fmt.Errorf("WORK_CLASSIFIER_VERSION is required when FOUNDRY_INFERENCE_URL is set")
+		}
+		// Prompt bodies are the most sensitive payload we send anywhere.
+		if !strings.HasPrefix(u, "https://") && !c.Deployment.IsLocal() {
+			return fmt.Errorf("FOUNDRY_INFERENCE_URL must be https outside local dev")
 		}
 	}
 

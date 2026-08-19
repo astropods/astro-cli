@@ -56,10 +56,57 @@ export function devtoolColor(index: number): string {
 // Brand presentation for known dev-tool sources: chart color + integration-icon
 // key. Unknown sources fall back to DEVTOOL_PALETTE with no logo.
 export const SOURCE_BRAND: Record<string, { color: string; icon?: string }> = {
-  "claude-code": { color: "var(--color-amber-500)", icon: "anthropic" },
+  "claude-code": { color: "var(--color-amber-500)", icon: "claude-code" },
   codex: { color: "var(--color-foreground)", icon: "openai" },
 };
 
 export function devtoolSourceColor(key: string, index: number): string {
   return SOURCE_BRAND[key]?.color ?? devtoolColor(index);
+}
+
+// One palette per axis: each axis's first label is slot 0, so a shared palette
+// could not colour them independently. Saturated shades only — the neutral
+// families read as disabled, and the -300 tints wash out.
+//
+// Index is a label's declared slot, so reordering an entry repaints a category.
+const PURPOSE_PALETTE = [
+  "var(--color-indigo-500)", // 0 work
+  "var(--color-yellow-400)", // 1 personal
+  "var(--color-teal-500)",   // 2 ambiguous
+  "var(--color-green-700)",  // 3 overflow — a label this build does not know
+];
+
+const TOPIC_PALETTE = [
+  "var(--color-yellow-400)", // 0  software-engineering
+  "var(--color-indigo-500)", // 1  data-analytics
+  "var(--color-teal-500)",   // 2  product
+  "var(--color-amber-500)",  // 3  design
+  "var(--color-blue-500)",   // 4  marketing
+  "var(--color-green-600)",  // 5  sales
+  "var(--color-pink-500)",   // 6  customer-support
+  "var(--color-red-500)",    // 7  operations-it
+  "var(--color-purple-500)", // 8  hr-recruiting
+  "var(--color-teal-700)",   // 9  finance-legal
+  "var(--color-green-400)",  // 10 research-learning
+  "var(--color-blue-700)",   // 11 creative-writing
+  "var(--color-teal-400)",   // 12 general-knowledge
+  "var(--color-purple-700)", // 13 personal-life
+  "var(--color-pink-700)",   // 14 other
+  "var(--color-green-700)",  // 15 overflow — a label this build does not know
+];
+
+const AXIS_PALETTES: Record<string, string[]> = {
+  purpose: PURPOSE_PALETTE,
+  topic: TOPIC_PALETTE,
+};
+
+/** Keyed by axis and declared slot, not position in a response.
+ *
+ *  Clamped, not wrapped: the server sends an overflow slot past the declared
+ *  labels for anything it does not know, and a modulo would fold that back onto
+ *  a real category — painting an unknown label as software engineering. */
+export function categoryColor(axisKey: string, colorIndex: number): string {
+  const palette = AXIS_PALETTES[axisKey] ?? TOPIC_PALETTE;
+  const i = Math.min(Math.max(colorIndex, 0), palette.length - 1);
+  return palette[i];
 }

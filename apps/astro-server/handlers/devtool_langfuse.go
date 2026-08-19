@@ -34,8 +34,9 @@ type devtoolUsage struct{ Cells []devtoolCell }
 // fetchDevtoolUsage reads one source's usage from the account's Langfuse project.
 //
 // Grouping by tags and userId alongside a day time-dimension makes every row one
-// (day, tag-set, developer) cell. Dev-tool traces are tagged by source and belong
-// to no deployment, so the tag is the only scope available.
+// (day, developer) cell. Dev-tool traces are tagged by source and belong to no
+// deployment, so the tag is the only scope available; hasTag re-checks the
+// server-side filter because the tags dimension returns whole tag arrays.
 func fetchDevtoolUsage(
 	ctx context.Context,
 	client *langfuse.Client,
@@ -51,7 +52,10 @@ func fetchDevtoolUsage(
 			{Measure: "totalTokens", Aggregation: "sum"},
 			{Measure: "count", Aggregation: "count"},
 		},
-		Dimensions:    []langfuse.MetricsDimension{{Field: "tags"}, {Field: "userId"}},
+		Dimensions: []langfuse.MetricsDimension{{Field: "tags"}, {Field: "userId"}},
+		Filters: []langfuse.MetricsFilter{
+			{Type: "arrayOptions", Column: "tags", Operator: "any of", Value: []string{source}},
+		},
 		TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
 		FromTimestamp: from.UTC().Format(time.RFC3339),
 		ToTimestamp:   to.UTC().Format(time.RFC3339),

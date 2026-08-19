@@ -75,6 +75,10 @@ type Config struct {
 	// build the durable fact table using the same Langfuse helpers the handlers
 	// own. nil → the roll-up workers no-op.
 	InsightsRollupProducer InsightsRollupProducer
+	// ClassificationProducer is injected by main so the classification workers
+	// can reuse the handlers package's dev-tool adapter registry and identity
+	// mapping. nil → the classification workers no-op.
+	ClassificationProducer ClassificationProducer
 	// ReconcileDeployment, when set, is called with a namespace right after the
 	// DeployWorker marks a deployment "deploying", so the controller reconciles
 	// it immediately instead of waiting for the next resync. Optional.
@@ -111,15 +115,16 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	riverClient, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema: "river",
 		Queues: map[string]river.QueueConfig{
-			river.QueueDefault: {MaxWorkers: 10},
-			queueDeploy:        {MaxWorkers: 5},
-			queueBuild:         {MaxWorkers: 3},
-			queueBilling:       {MaxWorkers: 3},
-			queueMetering:      {MaxWorkers: 3},
-			queueInsights:      {MaxWorkers: 3},
-			queueMaintenance:   {MaxWorkers: 5},
-			queueEvalJudge:     {MaxWorkers: evalJudgeMaxWorkers},
-			queueNotifications: {MaxWorkers: 3},
+			river.QueueDefault:  {MaxWorkers: 10},
+			queueDeploy:         {MaxWorkers: 5},
+			queueBuild:          {MaxWorkers: 3},
+			queueBilling:        {MaxWorkers: 3},
+			queueMetering:       {MaxWorkers: 3},
+			queueInsights:       {MaxWorkers: 3},
+			queueMaintenance:    {MaxWorkers: 5},
+			queueEvalJudge:      {MaxWorkers: evalJudgeMaxWorkers},
+			queueNotifications:  {MaxWorkers: 3},
+			queueClassification: {MaxWorkers: classificationMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodicJobs(cfg),
@@ -141,6 +146,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	// This is safe because workers don't run until Start() is called.
 	if wired.insightsRollup != nil {
 		wired.insightsRollup.queue = q
+	}
+	if wired.classification != nil {
+		wired.classification.queue = q
 	}
 	if wired.purge != nil {
 		purgeWorker := wired.purge

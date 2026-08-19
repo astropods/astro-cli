@@ -23,6 +23,7 @@ export default [
       route("new/custom", "pages/NewBlueprint.tsx", { id: "new-custom" }),
       route("agents", "pages/AgentDashboard.tsx"),
       route("insights", "pages/Insights.tsx"),
+      route("insights/sources/:source", "pages/InsightsSource.tsx"),
       route("chat", "pages/chat/Chat.tsx", { id: "chat-index" }),
       route("chat/:deploymentId", "pages/chat/Chat.tsx", { id: "chat-deployment" }),
       route("knowledge", "pages/knowledge/KnowledgeStores.tsx"),

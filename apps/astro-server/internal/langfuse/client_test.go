@@ -1607,3 +1607,113 @@ func assertParam(t *testing.T, query map[string][]string, key, want string) {
 		t.Errorf("param %q = %q, want %q", key, vals[0], want)
 	}
 }
+
+// Dev-tool traces are scoped by source tag, and environments run either reader,
+// so the scope has to survive both encodings — a tags param on v3, a filter
+// entry on v4. A deployment-scoped read would exclude every dev-tool trace.
+func TestGetDevtoolTraces_ScopesBySourceTag(t *testing.T) {
+	capture := func(t *testing.T) (*url.Values, string) {
+		t.Helper()
+		got := &url.Values{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			*got = r.URL.Query()
+			_, _ = w.Write([]byte(`{"data":[],"meta":{"page":1,"limit":100,"totalItems":0,"totalPages":0}}`))
+		}))
+		t.Cleanup(srv.Close)
+		return got, srv.URL
+	}
+
+	t.Run("v3", func(t *testing.T) {
+		t.Setenv("LANGFUSE_USE_V4_API", "false")
+		got, base := capture(t)
+		c := NewClient(base, "pk", "sk")
+		if _, err := c.GetDevtoolTraces(context.Background(), "claude-code", "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", 100, 200); err != nil {
+			t.Fatalf("GetDevtoolTraces: %v", err)
+		}
+		for k, want := range map[string]string{
+			"tags":          "claude-code",
+			"fields":        "core,io",
+			"orderBy":       "timestamp.asc",
+			"limit":         "100",
+			"page":          "3",
+			"fromTimestamp": "2026-08-01T00:00:00Z",
+			"toTimestamp":   "2026-08-02T00:00:00Z",
+		} {
+			if v := got.Get(k); v != want {
+				t.Errorf("%s = %q, want %q", k, v, want)
+			}
+		}
+		if strings.Contains(got.Get("tags"), "deployment:") {
+			t.Errorf("tags = %q, should not be deployment-scoped", got.Get("tags"))
+		}
+	})
+
+	t.Run("v4", func(t *testing.T) {
+		t.Setenv("LANGFUSE_USE_V4_API", "true")
+		got, base := capture(t)
+		c := NewClient(base, "pk", "sk")
+		if _, err := c.GetDevtoolTraces(context.Background(), "claude-code", "2026-08-01T00:00:00Z", "2026-08-02T00:00:00Z", 100, 0); err != nil {
+			t.Fatalf("GetDevtoolTraces: %v", err)
+		}
+		filter := got.Get("filter")
+		if !strings.Contains(filter, `"claude-code"`) {
+			t.Errorf("filter = %s, want the source tag", filter)
+		}
+		if strings.Contains(filter, "deployment:") {
+			t.Errorf("filter = %s, should not be deployment-scoped", filter)
+		}
+		if !strings.Contains(got.Get("fields"), "io") {
+			t.Errorf("fields = %q, want io so prompt text is returned", got.Get("fields"))
+		}
+	})
+}
+
+func TestGetDevtoolTraces_RequiresSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not issue a request without a source")
+	}))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL, "pk", "sk").GetDevtoolTraces(context.Background(), "", "", "", 10, 0); err == nil {
+		t.Fatal("empty source should error")
+	}
+}
+
+// An unscoped trace read would cross deployment boundaries inside the account's
+// shared Langfuse project. Both readers are checked: the guard is shared, but
+// each builds its scope differently — v3 as a tags param, v4 as a filter entry
+// — so a regression could reach one and not the other.
+func TestGetTraces_UnscopedQueryRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("should not issue an unscoped request")
+	}))
+	defer srv.Close()
+	tr := &transport{baseURL: srv.URL, publicKey: "pk", secretKey: "sk", http: srv.Client()}
+
+	readers := map[string]traceReader{
+		"v3": &v3Reader{transport: tr},
+		"v4": &v4Reader{transport: tr},
+	}
+	for name, reader := range readers {
+		t.Run(name, func(t *testing.T) {
+			_, err := reader.getTraces(context.Background(), traceFilter{limit: 10})
+			if err == nil || !strings.Contains(err.Error(), "deployment or tag scope") {
+				t.Fatalf("err = %v, want scope error", err)
+			}
+		})
+	}
+}
+
+// Dev-tool traces have no deployment, so the source tag is their only scope.
+func TestTraceScopeTag(t *testing.T) {
+	if got, err := traceScopeTag(traceFilter{tag: "claude-code"}); err != nil || got != "claude-code" {
+		t.Errorf("tag scope = %q, %v; want claude-code", got, err)
+	}
+	if got, err := traceScopeTag(traceFilter{deploymentID: "dep-1"}); err != nil || got != "deployment:dep-1" {
+		t.Errorf("deployment scope = %q, %v; want deployment:dep-1", got, err)
+	}
+	// A tag wins so a dev-tool read is never silently widened to a deployment.
+	if got, _ := traceScopeTag(traceFilter{tag: "claude-code", deploymentID: "dep-1"}); got != "claude-code" {
+		t.Errorf("tag should take precedence, got %q", got)
+	}
+}

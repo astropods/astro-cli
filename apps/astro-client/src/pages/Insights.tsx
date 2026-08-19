@@ -2,7 +2,6 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { useNavigate } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, Bot, Check, ChevronDown, Plus, RefreshCw, TriangleAlert } from "lucide-react";
-import { useActiveAccount } from "@/hooks/use-active-account";
 import { accountSettingsPath } from "@/lib/settings-paths";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -39,10 +38,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
-import {
-  removeStaleInsightsAccountParam,
-  resolveInsightsScopeAccount,
-} from "./insights-account-param";
+import { useInsightsScopeAccount } from "./insights-account-param";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -252,7 +248,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     }
   });
 
-  const { activeAccount } = useActiveAccount();
   const { accounts } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] =
@@ -281,20 +276,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     ],
     [devtoolSources, resolvedTheme],
   );
-  const paramAccount = searchParams.get("account");
-  const accountNames = useMemo(() => accounts.map((account) => account.name), [accounts]);
-  const scopeAccount = resolveInsightsScopeAccount(paramAccount, accountNames, activeAccount);
-  useEffect(() => {
-    const next = removeStaleInsightsAccountParam(searchParams, accountNames);
-    if (next) setSearchParams(next, { replace: true });
-  }, [accountNames, paramAccount, searchParams, setSearchParams]);
-  const setScopeAccount = useCallback((next: string) => {
-    setSearchParams((previous) => {
-      if (next === activeAccount) previous.delete("account");
-      else previous.set("account", next);
-      return previous;
-    }, { replace: true });
-  }, [activeAccount, setSearchParams]);
+  const { account: scopeAccount, setScopeAccount } = useInsightsScopeAccount(searchParams, setSearchParams);
   // "Add a source" links to this account's Data Sources settings and hotlinks
   // the create modal open (see ApiKeysSettings' ?new= handling).
   const dataSourcesHref = useMemo(

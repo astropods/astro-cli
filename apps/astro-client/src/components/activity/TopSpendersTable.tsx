@@ -251,7 +251,7 @@ function IdentityAvatar({
   const baseClassName = cn("size-6 shrink-0 rounded-full", className);
   const resolvedTheme = useResolvedTheme();
 
-  // Dev-tool source rows carry an integration-icon key (e.g. "anthropic",
+  // Dev-tool source rows carry an integration-icon key (e.g. "claude-code",
   // "openai") that resolves to a themed brand logo.
   if (identity.icon) {
     return (
@@ -332,7 +332,9 @@ function IdentityAvatar({
   );
 }
 
-function IdentityLabel({
+/** Renders one discriminated identity. Exported so a person looks the same
+ *  wherever they are listed. */
+export function IdentityLabel({
   identity,
   className,
   icon,

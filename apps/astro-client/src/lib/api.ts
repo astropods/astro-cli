@@ -1555,7 +1555,7 @@ export interface InsightsIdentityRef {
   user_id?: string;
   user_details?: UserDetails;
   tooltip?: string;
-  icon?: string; // integration-icon key (e.g. "anthropic") resolved to a themed brand logo
+  icon?: string; // integration-icon key (e.g. "claude-code") resolved to a themed brand logo
   // Set when the underlying resource no longer exists — a deleted agent whose
   // past spend is still reported. The server also clears `href`, so the row is
   // not a link.
@@ -1569,7 +1569,7 @@ export interface InsightsAgentChip {
   avatar_account: string;
   avatar_name: string;
   is_deleted?: boolean;
-  icon?: string; // integration-icon key (e.g. "anthropic") → themed logo, for dev-tool chips
+  icon?: string; // integration-icon key (e.g. "claude-code") → themed logo, for dev-tool chips
 }
 
 export interface InsightsStatCards {
@@ -1670,6 +1670,83 @@ export interface InsightsDevtoolSource {
   key: string;
   label: string;
   icon?: string;
+}
+
+/** One label's slice of an axis. `aggregated` marks the synthetic remainder the
+ *  server folds a wide axis's tail into, so the legend can say so. */
+export interface InsightsSourceLabel {
+  key: string;
+  label: string;
+  /** Slot in the axis's declared label space, not a position in this response.
+   *  Keeps a category's colour stable across ranges, folds, and absences. */
+  color_index: number;
+  traces: number;
+  traces_pct: number;
+  cost_usd: number;
+  cost_pct: number;
+  aggregated?: boolean;
+}
+
+/** One day of an axis. Keyed by label; only labels the server kept appear, so
+ *  the chart and the table always show the same segments. */
+export interface InsightsSourceSeriesPoint {
+  date: string;
+  traces: Record<string, number>;
+  cost_usd: Record<string, number>;
+}
+
+export interface InsightsSourceAxis {
+  labels: InsightsSourceLabel[];
+  series: InsightsSourceSeriesPoint[];
+  /** Covers classified prompts only, so it is the denominator for `cost_pct`
+   *  and is not expected to equal the source's spend on the Insights page. */
+  totals: { traces: number; cost_usd: number };
+}
+
+/** Why the numbers may be partial. Distinguishing these matters: a source with
+ *  spend and no labels is a settings problem, not a quiet week. */
+export interface InsightsSourceCoverage {
+  classified_from?: string;
+  classified_through?: string;
+  backfill_complete: boolean;
+  /** False with spend present means prompt collection is off in the customer's
+   *  Anthropic admin console — a setting Astro can neither read nor push. */
+  content_available: boolean;
+  /** Prompts present but priced at zero — what an unpriced model in Langfuse
+   *  looks like. The spend view says so rather than charting a flat zero. */
+  cost_unavailable: boolean;
+}
+
+/** One developer's prompts. Each label's `traces_pct` is the share of *this
+ *  person's* prompts, which is what separates unusual usage from heavy usage. */
+export interface InsightsSourcePersonRow {
+  key: string;
+  identity: InsightsIdentityRef;
+  traces: number;
+  cost_usd: number;
+  axes: Record<string, InsightsSourceLabel[]>;
+}
+
+export interface InsightsSourcePeople {
+  rows: InsightsSourcePersonRow[];
+  total_count: number;
+  /** A non-admin seeing only their own row; the charts stay account-wide. */
+  restricted_to_self: boolean;
+  /** A restricted viewer whose dev-tool address is not linked to their account,
+   *  so nothing can be attributed to them. Distinct from having no prompts. */
+  viewer_unresolved: boolean;
+}
+
+export interface InsightsSourceResponse {
+  source: InsightsDevtoolSource;
+  ranges: Record<string, {
+    days: number;
+    period: { start: string; end: string; days: number };
+    axes: Record<string, InsightsSourceAxis>;
+    people: InsightsSourcePeople;
+  }>;
+  coverage: InsightsSourceCoverage;
+  axes: Array<{ key: string; label: string }>;
 }
 
 export interface TraceEntry {
@@ -3316,6 +3393,16 @@ class ApiClient {
   ): Promise<InsightsResponse> {
     return this.request<InsightsResponse>(
       `/api/v1/accounts/${encodeURIComponent(account)}/insights${buildQS(params)}`
+    );
+  }
+
+  async getAccountInsightsSource(
+    account: string,
+    source: string,
+    params?: { day?: string },
+  ): Promise<InsightsSourceResponse> {
+    return this.request<InsightsSourceResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/insights/sources/${encodeURIComponent(source)}${buildQS(params)}`
     );
   }
 

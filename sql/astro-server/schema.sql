@@ -1249,8 +1249,7 @@ CREATE TABLE public.insights_usage_daily (
     actor_key       varchar(256)  NOT NULL DEFAULT '',
     model           varchar(128)  NOT NULL DEFAULT '',
 
-    -- requests is permanently 0 for dev-tool sources: no such metric is
-    -- emitted. That is real data, not a pending value, so per-request derived
+    -- Can be 0 for a source that reported none, so per-request derived
     -- columns must guard the denominator.
     requests        bigint        NOT NULL DEFAULT 0,
     input_tokens    bigint        NOT NULL DEFAULT 0,
@@ -1305,5 +1304,77 @@ CREATE TABLE public.insights_rollup_state (
     consecutive_errors int         NOT NULL DEFAULT 0,
     CONSTRAINT insights_rollup_state_pkey PRIMARY KEY (account_id, source),
     CONSTRAINT insights_rollup_state_account_id_fkey
+        FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+-- Per-trace prompt labels. The primary key is the idempotency guarantee, so
+-- re-runs are safe upserts. model_version is part of the key so a retrain adds a
+-- generation rather than erasing the previous one: the rows are a training
+-- corpus, and how a prompt was labelled before is signal. Readers must therefore
+-- always scope to one version or they count a trace once per generation.
+CREATE TABLE public.trace_classifications (
+    account_id    uuid         NOT NULL,
+    source        varchar(64)  NOT NULL DEFAULT 'claude-code',
+    unit_kind     varchar(16)  NOT NULL DEFAULT 'turn',
+    unit_id       text         NOT NULL,
+    axis          varchar(16)  NOT NULL,
+    label         varchar(64)  NOT NULL,
+    score         real         NOT NULL,
+    model_version text         NOT NULL,
+    occurred_at   timestamptz  NOT NULL,
+    -- Resolved to an Astro identity at aggregate time, as the insights fold does.
+    user_email    varchar(320) NOT NULL DEFAULT '',
+    created_at    timestamptz  NOT NULL DEFAULT now(),
+    updated_at    timestamptz  NOT NULL DEFAULT now(),
+    CONSTRAINT trace_classifications_pkey PRIMARY KEY (account_id, unit_kind, unit_id, axis, model_version),
+    CONSTRAINT trace_classifications_account_id_fkey
+        FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT trace_classifications_unit_kind_check CHECK (unit_kind IN ('turn', 'session')),
+    CONSTRAINT trace_classifications_axis_check CHECK (axis IN ('purpose', 'topic', 'task')),
+    CONSTRAINT trace_classifications_score_check CHECK (score >= 0 AND score <= 1)
+);
+
+-- Day-window scan for the roll-up, which is always version-scoped.
+CREATE INDEX trace_classifications_account_occurred_idx
+    ON public.trace_classifications (account_id, model_version, occurred_at);
+CREATE INDEX trace_classifications_stale_version_idx
+    ON public.trace_classifications (account_id, model_version);
+
+-- Daily label aggregates for the source detail page. Separate from
+-- insights_usage_daily, whose grain CHECK and model/deployment dimensions do not
+-- apply. cost_usd partitions the figure Insights already reports, so segments sum.
+CREATE TABLE public.insights_classification_daily (
+    account_id  uuid          NOT NULL,
+    day         date          NOT NULL,
+    source      varchar(64)   NOT NULL,
+    axis        varchar(16)   NOT NULL,
+    label       varchar(64)   NOT NULL,
+    actor_kind  varchar(16)   NOT NULL DEFAULT '',
+    actor_key   varchar(256)  NOT NULL DEFAULT '',
+    traces      bigint        NOT NULL DEFAULT 0,
+    cost_usd    numeric(18,6) NOT NULL DEFAULT 0,
+    computed_at timestamptz   NOT NULL DEFAULT now(),
+    CONSTRAINT insights_classification_daily_pkey
+        PRIMARY KEY (account_id, day, source, axis, label, actor_kind, actor_key),
+    CONSTRAINT insights_classification_daily_account_id_fkey
+        FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT insights_classification_daily_axis_check CHECK (axis IN ('purpose', 'topic', 'task'))
+);
+
+-- Watermark for the classification pass, separate from insights_rollup_state so
+-- a Foundry outage cannot stall spend reporting. Two cursors because the
+-- backfill runs backward: [backfilled_from, classified_through] is the
+-- fully-classified window, and the page renders only that.
+CREATE TABLE public.classification_state (
+    account_id         uuid        NOT NULL,
+    source             varchar(64) NOT NULL,
+    classified_through date,
+    backfilled_from    date,
+    backfill_complete  boolean     NOT NULL DEFAULT false,
+    last_run_at        timestamptz,
+    last_error         text        NOT NULL DEFAULT '',
+    consecutive_errors int         NOT NULL DEFAULT 0,
+    CONSTRAINT classification_state_pkey PRIMARY KEY (account_id, source),
+    CONSTRAINT classification_state_account_id_fkey
         FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );

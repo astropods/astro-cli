@@ -39,6 +39,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metronome"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
+	"github.com/astropods/astro/apps/astro-server/internal/classification"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterconfig"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -81,6 +82,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/slackidentity"
 	"github.com/astropods/astro/apps/astro-server/internal/watcher"
+	"github.com/astropods/astro/apps/astro-server/internal/workclassifier"
 )
 
 func main() {
@@ -833,6 +835,17 @@ func runWorker(
 			MemberEmails:  memberemails.NewStore(db),
 			Rollups:       insightsrollup.NewStore(db),
 		},
+		ClassificationProducer: &handlers.ClassificationProducer{
+			Log:           log,
+			Cfg:           cfg,
+			LangfuseStore: workerLangfuseStore,
+			MemberEmails:  memberemails.NewStore(db),
+			Classifier: workclassifier.NewClient(
+				cfg.Deployment.FoundryInferenceURL,
+				cfg.Deployment.WorkClassifierVersion,
+			),
+			Classifications: classification.NewStore(db),
+		},
 		ReconcileDeployment: reconcileDeployment,
 		KMSClient:           workerKMSClient,
 	})
@@ -1374,6 +1387,20 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
+
+				// Local-only: force an immediate classification pass instead of
+				// waiting for the hourly tick. Deliberately not registered in
+				// deployed environments — it drives load onto the shared Foundry
+				// inference pool and exists purely for local iteration.
+				if cfg.Deployment.IsLocal() {
+					api.POST(accountManage, "/classification/run", "Run a classification pass now (local only)", handlers.RunClassification(log, queue),
+						oapispec.Tags("Observability"),
+						oapispec.BearerAuth(),
+						oapispec.PathParam("account", "Account name"),
+						oapispec.Response(202, &handlers.RunClassificationResponse{}),
+						oapispec.Response(503, &handlers.ErrorResponse{}),
+					)
+				}
 
 				api.GET(accountManage, "/billing/usage", "Get billing usage", handlers.GetBillingUsage(log, accountStore, billingProvider, cfg.BillingBackend()),
 					oapispec.Tags("Billing"),
@@ -2343,6 +2370,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("hide_sources", "Comma-separated source keys (or 'agents') to exclude", false),
 				oapispec.QueryParam("days", "Range the tables cover: 7, 14, 30 or 90; omitted means account-wide", false),
 				oapispec.Response(200, &handlers.InsightsResponse{}),
+			)
+			api.GET(protected, "/accounts/:account/insights/sources/:source", "Get a dev-tool source's classification breakdown", handlers.GetAccountInsightsSource(log, accountStore, classification.NewStore(db)),
+				oapispec.Tags("Observability"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("source", "Dev-tool source key (e.g. claude-code)"),
+				oapispec.QueryParam("day", "Narrow the per-developer breakdown to one UTC day (YYYY-MM-DD)", false),
+				oapispec.Response(200, &handlers.InsightsSourceResponse{}),
 			)
 
 			api.GET(accountMember, "/observability/deployment-summaries", "Get bulk deployment observability summaries", handlers.GetLangfuseSummaries(log, deploymentStore, k8sCache),

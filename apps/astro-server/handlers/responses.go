@@ -715,6 +715,102 @@ type InsightsPersonRow struct {
 	Metrics    InsightsPersonMetrics `json:"metrics"`
 }
 
+// InsightsSourceResponse is the view model for one dev-tool source's detail
+// page: what the account used the tool for, by classified prompt.
+type InsightsSourceResponse struct {
+	Source   DevtoolSourceRef               `json:"source"`
+	Ranges   map[string]InsightsSourceRange `json:"ranges"`
+	Coverage InsightsSourceCoverage         `json:"coverage"`
+	Axes     []InsightsSourceAxisRef        `json:"axes"`
+}
+
+// InsightsSourceAxisRef drives the client's axis sections, so a new axis needs
+// no client change.
+type InsightsSourceAxisRef struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+// InsightsSourceCoverage distinguishes the ways this page can be empty, which
+// call for different actions.
+type InsightsSourceCoverage struct {
+	// YYYY-MM-DD UTC bounds of the fully-classified window; an in-progress
+	// backfill reports less than the range asks for.
+	ClassifiedFrom    string `json:"classified_from,omitempty"`
+	ClassifiedThrough string `json:"classified_through,omitempty"`
+	BackfillComplete  bool   `json:"backfill_complete"`
+	// False with spend present means content collection is off upstream, in a
+	// console Astro cannot read or push.
+	ContentAvailable bool `json:"content_available"`
+	// Prompts priced at zero, which is what an unpriced model looks like and is
+	// otherwise indistinguishable from free usage.
+	CostUnavailable bool `json:"cost_unavailable"`
+}
+
+type InsightsSourceRange struct {
+	Days   int                           `json:"days"`
+	Period AccountSummaryPeriod          `json:"period"`
+	Axes   map[string]InsightsSourceAxis `json:"axes"`
+	People InsightsSourcePeople          `json:"people"`
+}
+
+// InsightsSourcePeople is the per-developer breakdown, carried per range so the
+// range selector stays refetch-free.
+type InsightsSourcePeople struct {
+	Rows             []InsightsSourcePersonRow `json:"rows"`
+	TotalCount       int                       `json:"total_count"`
+	RestrictedToSelf bool                      `json:"restricted_to_self"`
+	// Restricted viewer whose dev-tool address is not linked to their account,
+	// so no row can be theirs — not the same as having no prompts.
+	ViewerUnresolved bool `json:"viewer_unresolved"`
+}
+
+type InsightsSourcePersonRow struct {
+	Key      string              `json:"key"`
+	Identity InsightsIdentityRef `json:"identity"`
+	Traces   int64               `json:"traces"`
+	CostUSD  float64             `json:"cost_usd"`
+	// Labels here carry TracesPct as a share of *this person's* prompts.
+	Axes map[string][]InsightsSourceLabel `json:"axes"`
+}
+
+type InsightsSourceAxis struct {
+	Labels []InsightsSourceLabel       `json:"labels"`
+	Series []InsightsSourceSeriesPoint `json:"series"`
+	// Classified prompts only — the denominator for Labels, and not the source's
+	// total spend on Insights.
+	Totals InsightsSourceTotals `json:"totals"`
+}
+
+type InsightsSourceTotals struct {
+	Traces  int64   `json:"traces"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// InsightsSourceLabel carries both shares because they diverge: a category can
+// be a small share of prompts and a large share of spend.
+type InsightsSourceLabel struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	// Slot in the axis's declared label space, so a label keeps its colour when
+	// the response reorders.
+	ColorIndex int     `json:"color_index"`
+	Traces     int64   `json:"traces"`
+	TracesPct  float64 `json:"traces_pct"`
+	CostUSD    float64 `json:"cost_usd"`
+	CostPct    float64 `json:"cost_pct"`
+	// The synthetic remainder a wide axis's tail folds into.
+	Aggregated bool `json:"aggregated,omitempty"`
+}
+
+// InsightsSourceSeriesPoint carries only the labels the fold kept, so the chart
+// and the table show the same segments.
+type InsightsSourceSeriesPoint struct {
+	Date    string             `json:"date"`
+	Traces  map[string]int64   `json:"traces"`
+	CostUSD map[string]float64 `json:"cost_usd"`
+}
+
 // TraceEntry represents a single trace in the traces list. UserID is the
 // raw Langfuse user_id; UserDetails is the resolved discriminated identity
 // (nil when the trace has no user attached or when classification can't

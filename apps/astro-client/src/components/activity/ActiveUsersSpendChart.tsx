@@ -9,6 +9,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Card } from "@/components/ui/card";
+import { AXIS_TICK, GRID_PROPS } from "./chart-chrome";
 import { cn } from "@/lib/utils";
 import { formatCost, formatDateShort } from "@/lib/format-utils";
 import { dayKeysForRange } from "@/lib/date-utils";
@@ -31,8 +32,6 @@ interface ActiveUsersSpendChartProps {
 }
 
 
-const AXIS_TICK = { fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" } as const;
-const GRID_PROPS = { strokeDasharray: "3 3", vertical: false as const, stroke: "var(--color-border)", strokeOpacity: 0.5 } as const;
 
 // Distinct line colors so the two series read as different metrics. Pulled
 // from the theme palette rather than the agent/user color map (those churn

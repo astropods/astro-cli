@@ -89,6 +89,16 @@ Exclusions are matched on each person's Anthropic account email and are set per 
 | **Excluded users** | Usage metadata only — never prompts, responses, or tool calls, even with content collection on. |
 | **Never** | Raw model API request bodies. |
 
+Cost is calculated from the token counts Claude Code reports, so a very recently
+released model can show usage and token counts with no cost attached until
+pricing for it is available. Request counts and per-request figures are reported
+alongside token usage.
+
+<Note>
+Claude Code spend history starts fresh from the release that introduced this
+reporting. Usage recorded before then is not carried into your dashboard.
+</Note>
+
 ## Manage keys
 
 - **Stop collecting** from a set of machines: revoke the data source in **Settings → Data Sources**. Machines using it stop sending telemetry immediately.

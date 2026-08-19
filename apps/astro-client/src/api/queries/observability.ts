@@ -56,6 +56,22 @@ export function useAccountInsights(
   });
 }
 
+/** `day` narrows only the per-developer breakdown; the charts stay on the range.
+ *  It is a distinct query key so drilling into a day and back is served from
+ *  cache rather than refetched. */
+export function useAccountInsightsSource(
+  account: string,
+  source: string,
+  opts?: { enabled?: boolean; day?: string },
+) {
+  return useQuery({
+    queryKey: observabilityKeys.insightsSource(account, source, opts?.day),
+    queryFn: () => api.getAccountInsightsSource(account, source, { day: opts?.day }),
+    enabled: (opts?.enabled ?? true) && !!account && !!source,
+    ...INSIGHTS_QUERY_OPTS,
+  });
+}
+
 export function useAccountObservabilitySummary(
   account: string,
   params?: Record<string, string>,

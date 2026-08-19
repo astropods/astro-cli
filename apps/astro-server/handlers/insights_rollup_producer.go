@@ -368,11 +368,8 @@ func (p *InsightsRollupProducer) fetchDevtoolGrain(
 	day time.Time,
 	emailToUserID map[string]string,
 ) ([]insightsrollup.Fact, error) {
-	from, to := rollupDayBounds(day)
-	fromT, _ := time.Parse(time.RFC3339, from)
-	toT, _ := time.Parse(time.RFC3339, to)
-
-	usage, err := fetchDevtoolUsage(ctx, client, ad.Key, fromT, toT)
+	start := day.UTC().Truncate(24 * time.Hour)
+	usage, err := fetchDevtoolUsage(ctx, client, ad.Key, start, start.AddDate(0, 0, 1))
 	if err != nil {
 		return nil, err
 	}
@@ -397,12 +394,7 @@ func (p *InsightsRollupProducer) fetchDevtoolGrain(
 		attributed += b.CostUSD
 		attributedReq += int64(b.Requests)
 		attributedTok += int64(b.Tokens)
-		kind, key := insightsrollup.ActorKindUnidentified, email
-		if userID, ok := emailToUserID[strings.ToLower(email)]; ok && userID != "" {
-			// Same key space as agent spend for a member, which is exactly what
-			// makes the two merge into one People row without a special case.
-			kind, key = insightsrollup.ActorKindMember, userID
-		}
+		kind, key := devtoolActorFor(email, emailToUserID)
 		facts = append(facts, insightsrollup.Fact{
 			ActorKind:   kind,
 			ActorKey:    key,

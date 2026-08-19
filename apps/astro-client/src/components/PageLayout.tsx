@@ -41,7 +41,9 @@ export function PageContainer({ children, className, outerClassName, style, oute
 }
 
 interface PageHeaderProps {
-  title: string;
+  /** ReactNode, not string, so a page can put a mark before its title —
+   *  `adornment` renders after it. */
+  title: ReactNode;
   description?: string;
   /** Rendered inline to the right of the title (e.g. scope switcher). */
   adornment?: ReactNode;

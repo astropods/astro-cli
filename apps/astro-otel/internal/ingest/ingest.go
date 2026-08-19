@@ -398,7 +398,6 @@ func mapLangfuseIdentity(attrs []*commonpb.KeyValue) []*commonpb.KeyValue {
 	return attrs
 }
 
-// stringAttr returns the string value for key, or "" if absent or non-string.
 // Claude Code emits bare token names; these are the keys Langfuse prices against.
 var usageAttrMap = map[string]string{
 	"input_tokens":          "input",
@@ -448,6 +447,7 @@ func intAttr(attrs []*commonpb.KeyValue, key string) (int64, bool) {
 	return 0, false
 }
 
+// stringAttr returns the string value for key, or "" if absent or non-string.
 func stringAttr(attrs []*commonpb.KeyValue, key string) string {
 	for _, kv := range attrs {
 		if kv != nil && kv.Key == key {

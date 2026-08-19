@@ -92,6 +92,8 @@ export const observabilityKeys = {
     params
       ? (['observability', 'insights', account, params] as const)
       : (['observability', 'insights', account] as const),
+  insightsSource: (account: string, source: string, day?: string) =>
+    ['observability', 'insights', account, 'sources', source, day ?? ''] as const,
 };
 
 export const usageKeys = {

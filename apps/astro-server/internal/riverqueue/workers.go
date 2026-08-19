@@ -126,6 +126,7 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 type wiredWorkers struct {
 	purge           *AccountPurgeWorker
 	insightsRollup  *InsightsRollupWorker
+	classification  *ClassificationDiscoveryWorker
 	migrate         *MigrateDeploymentClusterWorker
 	dunning         *DunningSweepWorker
 	billingResume   *BillingResumeWorker
@@ -442,6 +443,22 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "InsightsRollupAccountWorker")
 
+	// Classification advances independently of the usage roll-up: it depends on
+	// the Foundry inference service, and an outage there must lag labels without
+	// stalling spend reporting.
+	classificationDiscovery := &ClassificationDiscoveryWorker{
+		langfuseStore: langfuse.NewStore(cfg.DB),
+		log:           log,
+	}
+	addWorkerWithCatalogCheck(log, workers, classificationDiscovery)
+	log.Info("river: registered worker", "worker", "ClassificationDiscoveryWorker", "period", ClassificationInterval.String())
+
+	addWorkerWithCatalogCheck(log, workers, &ClassificationAccountWorker{
+		producer: cfg.ClassificationProducer,
+		log:      log,
+	})
+	log.Info("river: registered worker", "worker", "ClassificationAccountWorker")
+
 	addWorkerWithCatalogCheck(log, workers, &AvatarBackfillWorker{
 		avatarStore: cfg.AvatarStore,
 		db:          cfg.DB,
@@ -542,6 +559,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		ghBuild:         ghBuildWorker,
 		observation:     observationSweep,
 		insightsRollup:  insightsRollupDiscovery,
+		classification:  classificationDiscovery,
 		undeploy:        undeployWorker,
 		deploymentFGA:   deploymentFGAWorker,
 	}
