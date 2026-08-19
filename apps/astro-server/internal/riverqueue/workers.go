@@ -167,8 +167,10 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var provisionWorker *BillingProvisionWorker
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
+		var unlimitedDomains []string
 		if cfg.ServerConfig != nil {
 			graceDays = cfg.ServerConfig.BillingDunningGraceDays
+			unlimitedDomains = cfg.ServerConfig.BillingUnlimitedEmailDomains
 		}
 		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays)
 		billingDepStore := deploymentstore.NewStore(cfg.DB)
@@ -208,11 +210,12 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
 
 		provisionWorker = &BillingProvisionWorker{
-			accounts: cfg.AccountStore,
-			provider: cfg.Billing,
-			backend:  cfg.BillingBackend,
-			status:   statusStore,
-			log:      log,
+			accounts:         cfg.AccountStore,
+			provider:         cfg.Billing,
+			backend:          cfg.BillingBackend,
+			status:           statusStore,
+			unlimitedDomains: unlimitedDomains,
+			log:              log,
 		}
 		addWorkerWithCatalogCheck(log, workers, provisionWorker)
 		provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}

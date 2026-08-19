@@ -1084,6 +1084,40 @@ func (s *AccountStore) GetOwnerEmail(accountID string) (string, error) {
 	return email, nil
 }
 
+// GetCreatorVerifiedEmail returns the verified WorkOS address of the account's
+// creator, or "" when they have none.
+//
+// It pins to the creator rather than joining across members, because it decides
+// an entitlement. GetOwnerEmail may fall through to a later member when the
+// creator has no mirrored address, which is harmless for a label and wrong for
+// a plan. Verification is required for the same reason: a domain that anyone
+// can assert is not evidence of who they work for. UpsertWorkOS keeps one
+// WorkOS row per user, so the order only settles the answer if that ever stops
+// holding.
+func (s *AccountStore) GetCreatorVerifiedEmail(accountID string) (string, error) {
+	var email string
+	err := s.db.QueryRow(`
+		SELECT me.email
+		FROM account_member_emails me
+		WHERE me.user_id = (
+			SELECT user_id FROM account_members
+			WHERE account_id = $1
+			ORDER BY created_at
+			LIMIT 1
+		)
+		AND me.source = 'workos' AND me.email <> '' AND me.verified
+		ORDER BY me.created_at, me.email
+		LIMIT 1
+	`, accountID).Scan(&email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get account creator verified email: %w", err)
+	}
+	return email, nil
+}
+
 // SetStripeCustomerID stores the Stripe customer ID for an account.
 func (s *AccountStore) SetStripeCustomerID(accountID, customerID string) error {
 	_, err := s.db.Exec(`

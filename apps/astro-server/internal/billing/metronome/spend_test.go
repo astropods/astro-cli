@@ -10,6 +10,8 @@ import (
 	"github.com/Metronome-Industries/metronome-go/v3"
 	"github.com/Metronome-Industries/metronome-go/v3/option"
 	"github.com/Metronome-Industries/metronome-go/v3/shared"
+
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
 
 // spendProvider points a Provider at a stub Metronome. No retries, so a 500
@@ -145,7 +147,7 @@ func TestProvisionCustomer_CreatesOnlyTheContract(t *testing.T) {
 	})
 	p.cfg = Config{PackageID: "pkg_1"}
 
-	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", true)
+	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", billing.PlanCredit)
 	if err != nil || !provisioned {
 		t.Fatalf("ProvisionCustomer = (%v, %v), want (true, nil)", provisioned, err)
 	}
@@ -169,7 +171,7 @@ func TestProvisionCustomer_SkipsWhenCovered(t *testing.T) {
 	})
 	p.cfg = Config{PackageID: "pkg_1"}
 
-	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", true)
+	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", billing.PlanCredit)
 	if err != nil || !provisioned {
 		t.Fatalf("ProvisionCustomer = (%v, %v), want (true, nil)", provisioned, err)
 	}

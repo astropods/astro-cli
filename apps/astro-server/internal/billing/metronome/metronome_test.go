@@ -31,7 +31,7 @@ func TestNew_ImplementsInterface(t *testing.T) {
 // report false so the caller leaves the account in the backfill sweep.
 func TestProvisionCustomer_NoPackageIsNoop(t *testing.T) {
 	p := New(Config{APIKey: "test-key"})
-	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", true)
+	provisioned, err := p.ProvisionCustomer(context.Background(), "cust_1", "acct_1", billing.PlanCredit)
 	if err != nil {
 		t.Fatalf("expected no-op, got %v", err)
 	}
@@ -61,26 +61,28 @@ func TestIsConflict(t *testing.T) {
 	}
 }
 
-// The two packages differ only in the signup credit, so picking the wrong one is
-// either a free grant or a missing rate card. A missing no-credit package is a
-// configuration error rather than a reason to fall back: falling back to the
-// credit package restores the grant silently, which is what this removes.
+// Picking the wrong package is either a free grant or a wrongly billed account.
+// A missing one is a configuration error rather than a reason to fall back,
+// because falling back does either of those silently.
 func TestProvisionPackageSelection(t *testing.T) {
+	full := Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare", PackageIDUnlimited: "pkg_free"}
 	cases := []struct {
-		name       string
-		cfg        Config
-		withCredit bool
-		want       string
-		wantErr    bool
+		name    string
+		cfg     Config
+		plan    billing.Plan
+		want    string
+		wantErr bool
 	}{
-		{"first account takes the credit package", Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare"}, true, "pkg_credit", false},
-		{"later account takes the bare package", Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare"}, false, "pkg_bare", false},
-		{"unconfigured provisioning is a no-op", Config{}, true, "", false},
-		{"missing bare package refuses rather than granting", Config{PackageID: "pkg_credit"}, false, "", true},
+		{"first account takes the credit package", full, billing.PlanCredit, "pkg_credit", false},
+		{"later account takes the bare package", full, billing.PlanNoCredit, "pkg_bare", false},
+		{"internal account takes the unlimited package", full, billing.PlanUnlimited, "pkg_free", false},
+		{"unconfigured provisioning is a no-op", Config{}, billing.PlanCredit, "", false},
+		{"missing bare package refuses rather than granting", Config{PackageID: "pkg_credit"}, billing.PlanNoCredit, "", true},
+		{"missing unlimited package refuses rather than billing", Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare"}, billing.PlanUnlimited, "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := (&Provider{cfg: tc.cfg}).provisionPackage(tc.withCredit)
+			got, err := (&Provider{cfg: tc.cfg}).provisionPackage(tc.plan)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("provisionPackage = %q, want an error", got)

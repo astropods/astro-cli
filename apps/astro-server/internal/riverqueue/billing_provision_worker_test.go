@@ -22,7 +22,7 @@ type fakeProvisioner struct {
 	provisioned     bool
 	provisionErr    error
 	provisionCalls  int
-	withCredit      bool
+	plan            billing.Plan
 }
 
 func (f *fakeProvisioner) CreateCustomer(context.Context, billing.Account) (string, error) {
@@ -30,9 +30,9 @@ func (f *fakeProvisioner) CreateCustomer(context.Context, billing.Account) (stri
 	return f.createdCustomer, nil
 }
 
-func (f *fakeProvisioner) ProvisionCustomer(_ context.Context, _, _ string, withCredit bool) (bool, error) {
+func (f *fakeProvisioner) ProvisionCustomer(_ context.Context, _, _ string, plan billing.Plan) (bool, error) {
 	f.provisionCalls++
-	f.withCredit = withCredit
+	f.plan = plan
 	return f.provisioned, f.provisionErr
 }
 
@@ -40,12 +40,23 @@ const (
 	acctRe          = `SELECT a\.id, a\.name, a\.type`
 	getCustomerRe   = `SELECT metronome_customer_id FROM accounts`
 	setCustomerRe   = `UPDATE accounts SET metronome_customer_id`
-	ownerEmailRe    = `SELECT me\.email`
+	ownerEmailRe    = `SELECT me\.email\s+FROM account_members`
+	creatorEmailRe  = `SELECT me\.email\s+FROM account_member_emails`
 	bifrostIDRe     = `SELECT bifrost_customer_id FROM accounts`
 	markProvisionRe = `UPDATE accounts SET billing_provisioned_at`
 	creatorRe       = `SELECT user_id FROM account_members`
 	claimCreditRe   = `INSERT INTO billing_credit_grants`
 )
+
+// expectCreatorEmail stubs the verified-creator lookup that decides the plan.
+// An empty string stands for a creator with no verified address.
+func expectCreatorEmail(mock sqlmock.Sqlmock, email string) {
+	rows := sqlmock.NewRows([]string{"email"})
+	if email != "" {
+		rows = rows.AddRow(email)
+	}
+	mock.ExpectQuery(creatorEmailRe).WillReturnRows(rows)
+}
 
 // expectCreditClaim stands in for the per-person credit ledger. holder is the
 // account the user's one claim belongs to, so passing the account under test
@@ -103,6 +114,7 @@ func TestProvisionWorker_StampsOnceWhenProvisioned(t *testing.T) {
 	w, mock := provisionWorker(t, p)
 
 	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	expectCreditClaim(mock, "acct_1")
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -124,6 +136,7 @@ func TestProvisionWorker_LeavesUnstampedWhenNothingProvisioned(t *testing.T) {
 	w, mock := provisionWorker(t, &fakeProvisioner{provisioned: false})
 
 	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	expectCreditClaim(mock, "acct_1")
 	// No mark expectation: stamping here is the bug.
@@ -143,6 +156,7 @@ func TestProvisionWorker_PersistsNewCustomerID(t *testing.T) {
 	w, mock := provisionWorker(t, p)
 
 	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow(nil))
 	mock.ExpectQuery(bifrostIDRe).WillReturnRows(sqlmock.NewRows([]string{"bifrost_customer_id"}).AddRow(nil))
 	mock.ExpectQuery(ownerEmailRe).WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("owner@example.com"))
@@ -166,14 +180,14 @@ func TestProvisionWorker_PersistsNewCustomerID(t *testing.T) {
 // credit indefinitely.
 func TestProvisionWorker_SignupCreditGoesToTheFirstAccountOnly(t *testing.T) {
 	cases := []struct {
-		name       string
-		holder     string
-		wantCredit bool
+		name     string
+		holder   string
+		wantPlan billing.Plan
 	}{
 		// The ledger row names this account, so the claim is ours.
-		{"first account for this user", "acct_1", true},
+		{"first account for this user", "acct_1", billing.PlanCredit},
 		// The user already spent their claim on an earlier account.
-		{"user already claimed it", "acct_earlier", false},
+		{"user already claimed it", "acct_earlier", billing.PlanNoCredit},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,6 +195,7 @@ func TestProvisionWorker_SignupCreditGoesToTheFirstAccountOnly(t *testing.T) {
 			w, mock := provisionWorker(t, p)
 
 			expectAccount(mock)
+			expectCreatorEmail(mock, "owner@example.com")
 			mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 			expectCreditClaim(mock, tc.holder)
 			mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -188,8 +203,8 @@ func TestProvisionWorker_SignupCreditGoesToTheFirstAccountOnly(t *testing.T) {
 			if err := runProvision(t, w); err != nil {
 				t.Fatalf("Work: %v", err)
 			}
-			if p.withCredit != tc.wantCredit {
-				t.Errorf("provisioned withCredit = %v, want %v", p.withCredit, tc.wantCredit)
+			if p.plan != tc.wantPlan {
+				t.Errorf("provisioned plan = %q, want %q", p.plan, tc.wantPlan)
 			}
 		})
 	}
@@ -203,6 +218,7 @@ func TestProvisionWorker_NoCreatorMeansNoCredit(t *testing.T) {
 	w, mock := provisionWorker(t, p)
 
 	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	mock.ExpectQuery(creatorRe).WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -213,7 +229,101 @@ func TestProvisionWorker_NoCreatorMeansNoCredit(t *testing.T) {
 	if p.provisionCalls != 1 {
 		t.Fatalf("provision calls = %d, want 1: the account must still be billable", p.provisionCalls)
 	}
-	if p.withCredit {
-		t.Error("credit was granted to an account with no resolvable creator")
+	if p.plan != billing.PlanNoCredit {
+		t.Errorf("plan = %q, want %q: credit needs a resolvable creator", p.plan, billing.PlanNoCredit)
+	}
+}
+
+// An internal owner takes the unlimited plan without touching the credit ledger,
+// so the person's one claim is not spent on an account that has no use for it.
+func TestProvisionWorker_InternalOwnerTakesUnlimitedAndKeepsTheClaim(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+	w.unlimitedDomains = []string{"postman.com"}
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "Employee@Postman.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	// No credit-claim expectation: reaching the ledger at all is the bug.
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if p.plan != billing.PlanUnlimited {
+		t.Errorf("plan = %q, want %q", p.plan, billing.PlanUnlimited)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected statements: %v", err)
+	}
+}
+
+// A personal address keeps the signup credit rather than being handed unlimited
+// usage.
+func TestProvisionWorker_OutsideOwnerKeepsTheStandardPlan(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+	w.unlimitedDomains = []string{"postman.com"}
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "someone@gmail.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if p.plan != billing.PlanCredit {
+		t.Errorf("plan = %q, want %q", p.plan, billing.PlanCredit)
+	}
+}
+
+// Matching on a suffix would hand unlimited usage to anyone who can register
+// evil-postman.com, and a subdomain is a different organisation.
+func TestHasEmailDomain(t *testing.T) {
+	domains := []string{"postman.com", " Example.COM "}
+	cases := []struct {
+		email string
+		want  bool
+	}{
+		{"a@postman.com", true},
+		{"a@POSTMAN.com", true},
+		{"a@example.com", true},
+		{"a+tag@postman.com", true},
+		{"weird@name@postman.com", true},
+		{"a@evil-postman.com", false},
+		{"a@mail.postman.com", false},
+		{"a@gmail.com", false},
+		{"postman.com", false},
+		{"a@", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := hasEmailDomain(tc.email, domains); got != tc.want {
+			t.Errorf("hasEmailDomain(%q) = %v, want %v", tc.email, got, tc.want)
+		}
+	}
+}
+
+// The plan is an entitlement, so an unverified address does not earn it. The
+// lookup returns nothing for a creator with no verified address, and the
+// account falls back to the standard plan rather than free usage.
+func TestProvisionWorker_UnverifiedCreatorDoesNotEarnUnlimited(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+	w.unlimitedDomains = []string{"postman.com"}
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if p.plan != billing.PlanCredit {
+		t.Errorf("plan = %q, want %q", p.plan, billing.PlanCredit)
 	}
 }

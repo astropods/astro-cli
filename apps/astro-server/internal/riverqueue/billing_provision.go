@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -64,12 +65,13 @@ func init() {
 // on the rate card and grants signup credit.
 type BillingProvisionWorker struct {
 	river.WorkerDefaults[BillingProvisionArgs]
-	accounts *account.AccountStore
-	provider billing.BillingProvider
-	backend  string
-	status   *billing.StatusStore
-	queue    *Queue // set post-construction in New(); enqueues resume
-	log      *logger.Logger
+	accounts         *account.AccountStore
+	provider         billing.BillingProvider
+	backend          string
+	status           *billing.StatusStore
+	unlimitedDomains []string
+	queue            *Queue // set post-construction in New(); enqueues resume
+	log              *logger.Logger
 }
 
 func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[BillingProvisionArgs]) error {
@@ -113,11 +115,11 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	// Provisioning is optional on the seam; backends without it are done here.
 	if p, ok := w.provider.(billing.Provisioner); ok {
-		withCredit, err := w.claimSignupCredit(acct.ID)
+		plan, err := w.plan(acct.ID)
 		if err != nil {
 			return err
 		}
-		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID, withCredit)
+		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID, plan)
 		if err != nil {
 			return err
 		}
@@ -151,6 +153,46 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
 	return nil
+}
+
+// plan resolves the rate treatment. An internal creator is answered before the
+// ledger, so the plan does not spend the person's one claim on an account that
+// has no use for it.
+func (w *BillingProvisionWorker) plan(accountID string) (billing.Plan, error) {
+	creatorEmail, err := w.accounts.GetCreatorVerifiedEmail(accountID)
+	if err != nil {
+		return "", err
+	}
+	if hasEmailDomain(creatorEmail, w.unlimitedDomains) {
+		return billing.PlanUnlimited, nil
+	}
+	withCredit, err := w.claimSignupCredit(accountID)
+	if err != nil {
+		return "", err
+	}
+	if withCredit {
+		return billing.PlanCredit, nil
+	}
+	return billing.PlanNoCredit, nil
+}
+
+// hasEmailDomain compares the part after the last "@" for equality, so neither a
+// subdomain nor a lookalike like evil-postman.com matches.
+func hasEmailDomain(email string, domains []string) bool {
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return false
+	}
+	got := strings.ToLower(email[at+1:])
+	if got == "" {
+		return false
+	}
+	for _, want := range domains {
+		if got == strings.ToLower(strings.TrimSpace(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 // claimSignupCredit reports whether this account should be provisioned with the

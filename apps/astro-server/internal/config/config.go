@@ -37,6 +37,10 @@ type Config struct {
 	// MetronomePackageIDNoCredit provisions an account whose owner has already
 	// taken their signup credit. Same rates, no grant.
 	MetronomePackageIDNoCredit string // METRONOME_PACKAGE_ID_NO_CREDIT
+	// MetronomePackageIDUnlimited provisions an account whose owner address is in
+	// BillingUnlimitedEmailDomains. Same rates at a zero multiplier.
+	MetronomePackageIDUnlimited  string   // METRONOME_PACKAGE_ID_UNLIMITED
+	BillingUnlimitedEmailDomains []string // BILLING_UNLIMITED_EMAIL_DOMAINS
 	// MetronomeDashboardEnv is the environment segment in Metronome dashboard
 	// URLs (app.metronome.com/<env>/customers/...), used only to build admin
 	// deep links. Empty for the default environment. The API token is scoped to
@@ -415,23 +419,25 @@ func Load() (*Config, error) {
 			AppIdentifier:  getEnv("NOVU_APP_IDENTIFIER", ""),
 			SocketURL:      getEnv("NOVU_SOCKET_URL", ""),
 		},
-		BillingProvider:            getEnv("BILLING_PROVIDER", ""),
-		MetronomeAPIKey:            getEnv("METRONOME_API_KEY", ""),
-		MetronomeWebhookSecret:     getEnv("METRONOME_WEBHOOK_SECRET", ""),
-		MetronomePackageID:         getEnv("METRONOME_PACKAGE_ID", ""),
-		MetronomePackageIDNoCredit: getEnv("METRONOME_PACKAGE_ID_NO_CREDIT", ""),
-		MetronomeDashboardEnv:      getEnv("METRONOME_DASHBOARD_ENV", ""),
-		StripeSecretKey:            getEnv("STRIPE_SECRET_KEY", ""),
-		StripePublishableKey:       getEnv("STRIPE_PUBLISHABLE_KEY", ""),
-		StripeWebhookSecret:        getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		BillingGateEnforce:         getEnv("BILLING_GATE_ENFORCE", "") == "true",
-		BillingDunningGraceDays:    getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
-		QuotaEnforce:               getEnv("QUOTA_ENFORCE", "") == "true",
-		FGAShadowEnabled:           getEnv("FGA_SHADOW_ENABLED", "") == "true",
-		FGAEnforcementEnabled:      getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
-		QuotaDefaults:              loadQuotaDefaults(),
-		OTelIngestEndpoint:         getEnv("OTEL_INGEST_ENDPOINT", ""),
-		RedisURL:                   getEnv("REDIS_URL", ""),
+		BillingProvider:              getEnv("BILLING_PROVIDER", ""),
+		MetronomeAPIKey:              getEnv("METRONOME_API_KEY", ""),
+		MetronomeWebhookSecret:       getEnv("METRONOME_WEBHOOK_SECRET", ""),
+		MetronomePackageID:           getEnv("METRONOME_PACKAGE_ID", ""),
+		MetronomePackageIDNoCredit:   getEnv("METRONOME_PACKAGE_ID_NO_CREDIT", ""),
+		MetronomePackageIDUnlimited:  getEnv("METRONOME_PACKAGE_ID_UNLIMITED", ""),
+		BillingUnlimitedEmailDomains: getEnvSliceOrOff("BILLING_UNLIMITED_EMAIL_DOMAINS", []string{"postman.com"}),
+		MetronomeDashboardEnv:        getEnv("METRONOME_DASHBOARD_ENV", ""),
+		StripeSecretKey:              getEnv("STRIPE_SECRET_KEY", ""),
+		StripePublishableKey:         getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeWebhookSecret:          getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		BillingGateEnforce:           getEnv("BILLING_GATE_ENFORCE", "") == "true",
+		BillingDunningGraceDays:      getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
+		QuotaEnforce:                 getEnv("QUOTA_ENFORCE", "") == "true",
+		FGAShadowEnabled:             getEnv("FGA_SHADOW_ENABLED", "") == "true",
+		FGAEnforcementEnabled:        getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
+		QuotaDefaults:                loadQuotaDefaults(),
+		OTelIngestEndpoint:           getEnv("OTEL_INGEST_ENDPOINT", ""),
+		RedisURL:                     getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -468,6 +474,15 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop or metronome)", c.BillingProvider)
 		}
+	}
+
+	// Provisioning resolves the plan per account, so an unset package surfaces
+	// only as a failed job for whoever signs up next. Refuse at boot instead,
+	// where the environment is being configured and someone is reading.
+	if c.BillingBackend() == BillingBackendMetronome && c.MetronomePackageID != "" &&
+		len(c.BillingUnlimitedEmailDomains) > 0 && c.MetronomePackageIDUnlimited == "" {
+		return fmt.Errorf("METRONOME_PACKAGE_ID_UNLIMITED is required for BILLING_UNLIMITED_EMAIL_DOMAINS (%v); create the package in this Metronome environment and set it",
+			c.BillingUnlimitedEmailDomains)
 	}
 
 	// Deployment config only required for API mode
@@ -640,6 +655,16 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+// getEnvSliceOrOff reads a comma-separated list that has a default but can
+// still be turned off. getEnvSlice cannot: it reads an empty value as absent
+// and hands back the default, so a defaulted list is unclearable.
+func getEnvSliceOrOff(key string, defaultValue []string) []string {
+	if _, set := os.LookupEnv(key); !set {
+		return defaultValue
+	}
+	return getEnvSlice(key, nil)
 }
 
 // getEnvSlice gets a comma-separated environment variable as a slice

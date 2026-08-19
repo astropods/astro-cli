@@ -81,3 +81,75 @@ func TestValidate_AcceptsRotatedDeployTokenSecretInProduction(t *testing.T) {
 		t.Errorf("rotated secret should be accepted in non-local mode; got %v", err)
 	}
 }
+
+// The domain list defaults to a value while the package does not, so an
+// environment turning provisioning on without the package would resolve the
+// unlimited plan for every internal account and fail the job every time.
+func TestValidate_RequiresUnlimitedPackageWhenDomainsAreSet(t *testing.T) {
+	cases := []struct {
+		name      string
+		provider  string
+		packageID string
+		unlimited string
+		domains   []string
+		wantErr   bool
+	}{
+		{"domains without a package refuses", "metronome", "pkg_credit", "", []string{"postman.com"}, true},
+		{"both set is fine", "metronome", "pkg_credit", "pkg_free", []string{"postman.com"}, false},
+		{"no domains needs no package", "metronome", "pkg_credit", "", nil, false},
+		// Provisioning is off entirely without a base package, so the plan is
+		// never resolved and the unlimited package is irrelevant.
+		{"provisioning off needs no package", "metronome", "", "", []string{"postman.com"}, false},
+		{"noop needs no package", "noop", "pkg_credit", "", []string{"postman.com"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := minimalProductionConfig()
+			cfg.BillingProvider = tc.provider
+			cfg.MetronomePackageID = tc.packageID
+			cfg.MetronomePackageIDUnlimited = tc.unlimited
+			cfg.BillingUnlimitedEmailDomains = tc.domains
+
+			err := cfg.Validate()
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "METRONOME_PACKAGE_ID_UNLIMITED") {
+					t.Errorf("Validate should name the missing package; got err=%v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Validate: %v", err)
+			}
+		})
+	}
+}
+
+// An environment that wants no unlimited plan has to be able to say so.
+// getEnvSlice reads an empty value as absent and restores the default, which
+// would make the boot check demand a package no one wants.
+func TestGetEnvSliceOrOff_ExplicitEmptyClearsTheDefault(t *testing.T) {
+	const key = "BILLING_UNLIMITED_EMAIL_DOMAINS"
+	def := []string{"postman.com"}
+
+	t.Run("unset takes the default", func(t *testing.T) {
+		got := getEnvSliceOrOff(key, def)
+		if len(got) != 1 || got[0] != "postman.com" {
+			t.Errorf("got %v, want [postman.com]", got)
+		}
+	})
+
+	t.Run("empty turns it off", func(t *testing.T) {
+		t.Setenv(key, "")
+		if got := getEnvSliceOrOff(key, def); len(got) != 0 {
+			t.Errorf("got %v, want none", got)
+		}
+	})
+
+	t.Run("a value replaces the default", func(t *testing.T) {
+		t.Setenv(key, "example.com,other.test")
+		got := getEnvSliceOrOff(key, def)
+		if len(got) != 2 || got[0] != "example.com" || got[1] != "other.test" {
+			t.Errorf("got %v, want [example.com other.test]", got)
+		}
+	})
+}

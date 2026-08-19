@@ -46,17 +46,25 @@ type Account struct {
 	BifrostCustomerID string
 }
 
+// Plan is the rate treatment an account is provisioned onto. Signup credit
+// belongs to a person rather than an account, so only the first account a user
+// provisions takes PlanCredit. PlanUnlimited rates every metered product at
+// zero, so usage still meters and the statement never totals anything.
+type Plan string
+
+const (
+	PlanCredit    Plan = "credit"
+	PlanNoCredit  Plan = "no_credit"
+	PlanUnlimited Plan = "unlimited"
+)
+
 // Provisioner puts a customer on the rate card and grants signup credit. Kept
 // off BillingProvider (interface assertion) so noop implements nothing.
 type Provisioner interface {
 	// ProvisionCustomer is idempotent — keyed on accountID provider-side. The
 	// bool is false when the provider is unconfigured: nothing provisioned,
 	// nothing failed, so callers must not record the account as done.
-	//
-	// withCredit selects the plan. Signup credit belongs to a person rather than
-	// an account, so only the first account a user provisions receives it; every
-	// later one lands on the same rates with no grant.
-	ProvisionCustomer(ctx context.Context, customerID, accountID string, withCredit bool) (bool, error)
+	ProvisionCustomer(ctx context.Context, customerID, accountID string, plan Plan) (bool, error)
 }
 
 // Coverage states. There is one package, so any contract effective now bills
