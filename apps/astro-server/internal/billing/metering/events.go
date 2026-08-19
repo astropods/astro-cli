@@ -3,20 +3,18 @@ package metering
 import (
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
 
-// usageEvent builds a billing.UsageEvent with a fresh idempotency UUID and the
-// current timestamp. The active billing.BillingProvider maps it to its own wire
-// format on ingest.
-func usageEvent(eventType, accountID string, props map[string]any) billing.UsageEvent {
+// usageEventAt stamps the event with the end of the span it covers rather than
+// the moment it was sent. Metronome files usage into a billing period by event
+// time, so a catch-up emit would otherwise bill last night's usage to today.
+func usageEventAt(txID string, at time.Time, eventType, accountID string, props map[string]any) billing.UsageEvent {
 	return billing.UsageEvent{
-		TransactionID: uuid.New().String(),
+		TransactionID: txID,
 		AccountID:     accountID,
 		Type:          eventType,
-		Time:          time.Now().UTC(),
+		Time:          at.UTC(),
 		Properties:    props,
 	}
 }

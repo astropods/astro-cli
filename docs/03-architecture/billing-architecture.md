@@ -109,7 +109,7 @@ request, with the same envelope:
 |---|---|---|
 | `event_type` | `deployment_compute_usage` | `ai_gateway_llm_usage` |
 | Sender | astro-server `MeteringWorker`, every 5 minutes | `bifrost-otel` collector, per LLM request |
-| `transaction_id` | a fresh UUID per event, which defeats Metronome's dedupe | the Bifrost request ID, or the trace ID when absent |
+| `transaction_id` | `deployment:component:windowStart` | the Bifrost request ID, or the trace ID when absent |
 | `properties` | `cu_hours`, `agent_name`, `deployment_id`, `component`, `cpu`, `memory`, `replicas` | `model`, `provider`, `input_tokens`, `output_tokens`, `total_tokens`, `cached_read_tokens`, `reasoning_tokens`, `virtual_key_id`, and `cost_usd` when the span carries a cost |
 | Billable metric | Compute Units, `sum(cu_hours)` | LLM Usage, `sum(cost_usd)` |
 
@@ -125,7 +125,8 @@ environment has its own key.
 
 **Compute, in-process.** `MeteringWorker` calls `IngestUsage` through the Metronome
 Go SDK, in the same pass that advances `last_emitted_at`. Nothing buffers the push:
-a failure leaves the anchor where it was, so the next tick re-emits the same delta.
+a failure leaves the anchor where it was, so the next tick re-emits the same
+windows, which Metronome recognises and ignores.
 
 River is the background-job system astro-server runs on, and every scheduled or
 deferred piece of billing work is a River job: provisioning, the dunning sweep,
@@ -224,8 +225,8 @@ can never disagree.
 ### `deployment_billing_state`
 
 One row per (deployment, component). Carries `last_emitted_at`, the CPU and
-memory reservation, and the replica count. This is the anchor that makes metering
-delta-based rather than interval-based.
+memory reservation, and the replica count. The anchor marks the last window
+billed, so a tick knows which windows have closed since.
 
 ### `billing_credit_grants`
 
@@ -338,40 +339,51 @@ A customer pays for the capacity they asked us to hold. This is deliberate. Usag
 would make a bill unpredictable and would charge nothing for an idle agent
 occupying a node.
 
-**Delta-based, not interval-based.** `BillingStateManager.RunBillingCycle` reads
-`deployment_billing_state`, computes `now - last_emitted_at` per row, emits that
-many CU-hours, and advances the anchor. A missed tick bills correctly on the next
-one instead of silently dropping an interval.
+**Billed on closed windows.** Time is divided into five-minute windows aligned to
+the clock. `BillingStateManager.RunBillingCycle` reads `deployment_billing_state`
+and emits one event per window that has fully closed since `last_emitted_at`,
+then advances the anchor to the last window it emitted. A missed tick bills
+correctly on the next one instead of silently dropping an interval, because the
+windows it skipped are still closed and still unemitted.
+
+A window that is still open is not billed. It has no final value yet, and the
+tick that saw it half elapsed would send a different amount than the tick that
+saw it whole. Usage is therefore billed up to one window after it is incurred.
 
 Each cycle does four things in order:
 
 1. `healMissingBillingRows` creates state rows for workloads that have none.
-2. `emitActiveBilling` bills the delta for active, non-stale rows.
+2. `emitActiveBilling` bills the closed windows of active, non-stale rows.
 3. `reconcileStale` bills a stale row up to its `status_changed_at` and stops.
 4. `reconcileStopped` closes rows for workloads that no longer run.
 
 Stale rows are excluded from step 2 so step 3 can bill them to the exact moment
-they stopped, rather than to the tick boundary.
+they stopped, rather than to a window boundary.
 
-**Compute events carry no working idempotency key.** `UsageEvent.TransactionID`
-is a fresh UUID per event, so Metronome's 34-day dedupe has nothing to match on
-and a span sent twice is charged twice. The LLM pipeline does not share the
-problem: its transaction ID is the Bifrost request ID. The event type is
-`deployment_compute_usage`, subject is the account ID, and the payload carries
-`cu_hours`, `agent_name`, `deployment_id`, `component`, `cpu`, `memory`, and
-`replicas`.
+Catch-up is capped at 24 hours of windows per row per tick. The anchor advances
+to the last window emitted, so the next tick continues from there.
+
+**The transaction ID names the window, not the send.** It is
+`deployment:component:windowStart`, so the same stretch of time always produces
+the same ID and Metronome's 34-day dedupe drops a repeat instead of charging it.
+The two closing paths bill up to a recorded stop time rather than the grid, so
+their IDs carry both ends of that span. The event is stamped with the end of the
+span it covers, because Metronome files usage into a billing period by event
+time. The event type is `deployment_compute_usage`, subject is the account ID,
+and the payload carries `cu_hours`, `agent_name`, `deployment_id`, `component`,
+`cpu`, `memory`, and `replicas`.
 
 **Components are billed separately.** The agent, each model, each knowledge
 store, integrations, interfaces, and observability each get their own row and
 their own event, so an invoice can break down where the money went.
 
-**The anchor advances only after a clean push.** A failed `IngestUsage` re-emits
-the same delta next cycle rather than losing it, so the design is safe against
-undercounting. It is not safe against overcounting. The anchor is written in a
-separate statement, and the ingest can succeed while the response is lost, so
-both leave the anchor behind while Metronome already holds the usage. The next
-cycle then re-bills those minutes under a new transaction ID, and nothing can
-collapse the pair.
+**The anchor advances only after a clean push,** so nothing is lost when an
+ingest fails. It is no longer what keeps the bill correct. The anchor is written
+in a separate statement that can fail on its own, and an ingest can succeed while
+the response is lost; either leaves the anchor behind while Metronome already
+holds the usage. The next cycle re-emits those windows under the IDs they already
+carry, and Metronome ignores them. The anchor now decides when work is repeated,
+not whether it is right.
 
 ### Pipeline 2: LLM tokens, from astro-infra
 

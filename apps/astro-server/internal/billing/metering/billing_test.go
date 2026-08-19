@@ -376,30 +376,36 @@ func TestRunBillingCycle_EmitsDelta(t *testing.T) {
 
 	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
 
-	fiveMinAgo := time.Now().Add(-5 * time.Minute)
-	db.Exec(`INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas) VALUES ('dep-1', 'agent', 1, ?, '1', '2Gi', 1)`, fiveMinAgo)
+	// Two whole windows back, so exactly two have closed whatever the wall clock
+	// reads. The part of the current window that has not closed bills next tick.
+	anchor := time.Now().UTC().Truncate(meterWindow).Add(-2 * meterWindow)
+	db.Exec(`INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas) VALUES ('dep-1', 'agent', 1, ?, '1', '2Gi', 1)`, anchor)
 
 	m.RunBillingCycle(context.Background())
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if len(*received) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(*received))
+	if len(*received) != 2 {
+		t.Fatalf("expected one event per closed window, got %d", len(*received))
 	}
 
-	cuHours := eventData((*received)[0])["cu_hours"].(float64)
-	// CU = 1, elapsed ≈ 5min ≈ 0.0833h
-	expectedCUH := 1.0 * (5.0 / 60.0)
-	if math.Abs(cuHours-expectedCUH) > 0.01 {
-		t.Errorf("reconcile CU-hours: expected ≈ %f, got %f", expectedCUH, cuHours)
+	var total float64
+	for _, ev := range *received {
+		total += eventData(ev)["cu_hours"].(float64)
+	}
+	expectedCUH := 1.0 * 2 * meterWindow.Hours()
+	if math.Abs(total-expectedCUH) > 0.001 {
+		t.Errorf("reconcile CU-hours: expected ≈ %f, got %f", expectedCUH, total)
 	}
 
-	// Verify last_emitted_at was advanced (should be within last few seconds)
+	// The anchor lands on the last closed boundary, not on now: the open window
+	// has not been billed and must not be skipped.
 	var lastEmitted time.Time
 	db.QueryRow("SELECT last_emitted_at FROM deployment_billing_state WHERE deployment_id = 'dep-1'").Scan(&lastEmitted)
-	if time.Since(lastEmitted) > 10*time.Second {
-		t.Error("last_emitted_at was not advanced after reconcile")
+	wantAnchor := anchor.Add(2 * meterWindow)
+	if !lastEmitted.UTC().Equal(wantAnchor) {
+		t.Errorf("last_emitted_at = %s, want the last closed boundary %s", lastEmitted.UTC(), wantAnchor)
 	}
 }
 
@@ -635,9 +641,13 @@ func TestHealMissingBillingRows_IdempotentOnSubsequentTicks(t *testing.T) {
 
 	var lastEmitted time.Time
 	db.QueryRow("SELECT last_emitted_at FROM deployment_billing_state WHERE deployment_id = 'dep-1'").Scan(&lastEmitted)
-	// last_emitted_at should have been advanced by RunBillingCycle (not reset to now by heal)
-	if lastEmitted.Before(time.Now().Add(-5 * time.Second)) {
-		t.Error("existing billing row's last_emitted_at was overwritten by heal")
+	// Heal must leave an existing row alone. The cycle then advances the anchor to
+	// the last closed window, which sits between the seed and now.
+	if !lastEmitted.UTC().After(tenMinAgo.UTC()) {
+		t.Errorf("last_emitted_at = %s, want it advanced past the seeded %s", lastEmitted.UTC(), tenMinAgo.UTC())
+	}
+	if lastEmitted.UTC().After(time.Now().UTC()) {
+		t.Errorf("last_emitted_at = %s is in the future: an open window was billed", lastEmitted.UTC())
 	}
 }
 

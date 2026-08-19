@@ -101,7 +101,7 @@ sequenceDiagram
 
 The largest path, and fully provider-agnostic. Deployment lifecycle transitions
 write **anchor rows** to `deployment_billing_state`; a periodic river heartbeat
-computes CU-hour **deltas** and pushes them through `IngestUsage`. No events are
+bills each closed **window** and pushes it through `IngestUsage`. No events are
 emitted at start/stop — only the heartbeat emits.
 
 ```mermaid
@@ -119,7 +119,7 @@ sequenceDiagram
     loop periodic heartbeat
         HB->>HB: NewHeartbeat(provider, db, log, billing)
         HB->>BSM: RunBillingCycle(ctx) (via Heartbeat.emitComputeUsage:92)
-        Note over BSM: emitActiveBilling — for each active row:<br/>cu = rawCU(cpu,mem,replicas), value = cu x elapsedHours<br/>build UsageEvent batch (TransactionID = event UUID)
+        Note over BSM: emitActiveBilling — for each active row:<br/>cu = rawCU(cpu,mem,replicas), one event per closed window<br/>TransactionID = deployment:component:windowStart
         BSM->>P: IngestUsage(events)
         P->>BE: noop→discard · metronome→V1.Usage.Ingest (chunk 100)
         Note over BSM: only advance last_emitted_at after IngestUsage succeeds
@@ -127,8 +127,23 @@ sequenceDiagram
 ```
 
 Key properties:
-- **Idempotency**: `UsageEvent.TransactionID` is the event UUID; Metronome dedupes within its 34-day window, so retries/backfill are safe.
-- **Failure handling**: if `IngestUsage` errors, the anchor timestamps are *not* advanced, so the next cycle re-emits the same delta (`billing.go:143-146`).
+- **Idempotency**: usage bills on five-minute windows aligned to the clock, and
+  `UsageEvent.TransactionID` is the row plus the window start. Metronome ignores a
+  transaction ID it has already accepted, for 34 days, so re-emitting a window is
+  free.
+- **Only closed windows are emitted.** An open window has no final value yet:
+  the tick that saw it half elapsed and the tick that saw it whole would send
+  different amounts under one ID, and Metronome would keep the first. Waiting for
+  the window to close is what makes a repeat identical. Usage is therefore billed
+  up to one window later than it is incurred.
+- **Failure handling**: if `IngestUsage` errors, the anchor is *not* advanced and
+  the next cycle re-emits the same windows. That repeat is safe rather than a
+  second charge, which is the whole point of keying the ID on the window.
+- **Event time is the end of the span**, not the moment of sending. Metronome
+  files usage into a billing period by event time, so a catch-up emit would
+  otherwise bill last night's usage to today.
+- **Catch-up is bounded** at 24 hours of windows per row per tick; the anchor
+  advances to the last window emitted and the next tick continues.
 - **Package location**: this machinery lives in `internal/billing/metering`, written against the `billing.BillingProvider` interface — it drives any backend.
 
 ---

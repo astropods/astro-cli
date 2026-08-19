@@ -113,7 +113,10 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 	}
 	defer rows.Close() //nolint:errcheck
 
-	type rowKey struct{ deploymentID, component string }
+	type rowKey struct {
+		deploymentID, component string
+		anchor                  time.Time
+	}
 	var events []billing.UsageEvent
 	var keys []rowKey
 	for rows.Next() {
@@ -124,16 +127,27 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 			m.log.Error("metering: failed to scan active billing row", "error", err)
 			continue
 		}
-		keys = append(keys, rowKey{deploymentID, component})
-		elapsed := now.Sub(lastEmitted).Hours()
-		if elapsed <= 0 {
-			continue
-		}
 		cu := rawCU(cpuReq, memReq, replicas)
 		if cu <= 0 {
 			continue
 		}
-		events = append(events, computeUsageEvent(accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*elapsed))
+		spans, skipped := completedWindows(lastEmitted, now)
+		if skipped > 0 {
+			// Past Metronome's backdating limit, so these hours can never be
+			// billed. Logged loudly because the anchor moves past them either
+			// way, and silent revenue loss is the worst version of this.
+			m.log.Error("metering: usage older than the backdating limit cannot be billed",
+				"deployment_id", deploymentID, "component", component,
+				"unbillable_hours", skipped.Hours(), "anchor", lastEmitted)
+		}
+		if len(spans) == 0 {
+			continue
+		}
+		for _, sp := range spans {
+			events = append(events, computeUsageEvent(spanTxID(deploymentID, component, sp), sp.end,
+				accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*sp.hours()))
+		}
+		keys = append(keys, rowKey{deploymentID, component, spans[len(spans)-1].end})
 	}
 	if err := rows.Err(); err != nil {
 		m.log.Error("metering: failed to iterate active billing rows", "error", err)
@@ -147,23 +161,28 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 		m.log.Info("metering: reconciled active compute", "events", len(events))
 	}
 
-	if len(keys) == 0 {
-		return
+	// Grouped by anchor because a row that hit the catch-up cap stops short of the
+	// others. A failure here is survivable now: the next tick re-emits the same
+	// windows under the same transaction IDs and Metronome ignores them.
+	byAnchor := map[time.Time][]rowKey{}
+	for _, k := range keys {
+		byAnchor[k.anchor] = append(byAnchor[k.anchor], k)
 	}
-
-	placeholders := make([]string, len(keys))
-	params := make([]any, 0, len(keys)*2+1)
-	params = append(params, now)
-	for i, k := range keys {
-		placeholders[i] = fmt.Sprintf("($%d, $%d)", 2*i+2, 2*i+3)
-		params = append(params, k.deploymentID, k.component)
-	}
-	query := fmt.Sprintf( //nolint:gosec // placeholders are $N positional params, not user input
-		"UPDATE deployment_billing_state SET last_emitted_at = $1 WHERE (deployment_id, component) IN (%s)",
-		strings.Join(placeholders, ", "),
-	)
-	if _, err := m.db.ExecContext(ctx, query, params...); err != nil {
-		m.log.Error("metering: failed to advance billing timestamps", "error", err)
+	for anchor, group := range byAnchor {
+		placeholders := make([]string, len(group))
+		params := make([]any, 0, len(group)*2+1)
+		params = append(params, anchor)
+		for i, k := range group {
+			placeholders[i] = fmt.Sprintf("($%d, $%d)", 2*i+2, 2*i+3)
+			params = append(params, k.deploymentID, k.component)
+		}
+		query := fmt.Sprintf( //nolint:gosec // placeholders are $N positional params, not user input
+			"UPDATE deployment_billing_state SET last_emitted_at = $1 WHERE (deployment_id, component) IN (%s)",
+			strings.Join(placeholders, ", "),
+		)
+		if _, err := m.db.ExecContext(ctx, query, params...); err != nil {
+			m.log.Error("metering: failed to advance billing timestamps", "error", err)
+		}
 	}
 }
 
@@ -195,10 +214,11 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 		}
 
 		// Bill up to the time the deployment actually stopped
-		elapsed := statusChangedAt.Sub(lastEmitted).Hours()
+		span := meterSpan{start: lastEmitted, end: statusChangedAt}
 		cu := rawCU(cpuReq, memReq, replicas)
-		if elapsed > 0 && cu > 0 {
-			events = append(events, computeUsageEvent(accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*elapsed))
+		if span.hours() > 0 && cu > 0 {
+			events = append(events, computeUsageEvent(finalTxID(deploymentID, component, span), span.end,
+				accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*span.hours()))
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -256,15 +276,16 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 			continue
 		}
 		keys = append(keys, rowKey{deploymentID, component})
-		elapsed := stoppedAt.Sub(lastEmitted).Hours()
-		if elapsed <= 0 {
+		span := meterSpan{start: lastEmitted, end: stoppedAt}
+		if span.hours() <= 0 {
 			continue
 		}
 		cu := rawCU(cpuReq, memReq, replicas)
 		if cu <= 0 {
 			continue
 		}
-		events = append(events, computeUsageEvent(accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*elapsed))
+		events = append(events, computeUsageEvent(finalTxID(deploymentID, component, span), span.end,
+			accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*span.hours()))
 	}
 	if err := rows.Err(); err != nil {
 		m.log.Error("metering: failed to iterate stopped billing rows", "error", err)
@@ -329,8 +350,8 @@ func (m *BillingStateManager) healMissingBillingRows(ctx context.Context, now ti
 	}
 }
 
-func computeUsageEvent(accountID, agentName, deploymentID, component, cpuReq, memReq string, replicas int, cuHours float64) billing.UsageEvent {
-	return usageEvent("deployment_compute_usage", accountID, map[string]any{
+func computeUsageEvent(txID string, at time.Time, accountID, agentName, deploymentID, component, cpuReq, memReq string, replicas int, cuHours float64) billing.UsageEvent {
+	return usageEventAt(txID, at, "deployment_compute_usage", accountID, map[string]any{
 		"cu_hours":      cuHours,
 		"agent_name":    agentName,
 		"deployment_id": deploymentID,
@@ -339,6 +360,64 @@ func computeUsageEvent(accountID, agentName, deploymentID, component, cpuReq, me
 		"memory":        memReq,
 		"replicas":      replicas,
 	})
+}
+
+// meterWindow is the grid active usage is billed on. A window is billed once and
+// keyed by its own start, so re-emitting one carries the same transaction ID and
+// Metronome drops it rather than charging twice. Only windows that have fully
+// elapsed are emitted, which is what makes a repeat byte-identical: the value of
+// a closed window cannot change.
+const meterWindow = 5 * time.Minute
+
+// maxCatchUpWindows bounds one row's catch-up after a long outage. The anchor
+// advances to the last window emitted, so the next tick continues where this one
+// stopped.
+const maxCatchUpWindows = 288 // 24 hours at a five-minute window
+
+// maxBackdate is how far back a window can be and still be billable. Metronome
+// rejects usage timestamped more than 34 days ago, and the anchor advances past
+// whatever is emitted, so a window older than this is revenue that cannot be
+// recovered. Held one day inside the limit to leave room for a slow tick.
+const maxBackdate = 33 * 24 * time.Hour
+
+// meterSpan is one billable stretch of time for one row.
+type meterSpan struct {
+	start, end time.Time
+}
+
+func (s meterSpan) hours() float64 { return s.end.Sub(s.start).Hours() }
+
+// completedWindows splits [anchor, now) into the windows that have fully closed.
+// The first span may be shorter than a window when the anchor sits inside one;
+// its length is still final, because the window it belongs to is over.
+func completedWindows(anchor, now time.Time) (spans []meterSpan, skipped time.Duration) {
+	limit := now.UTC().Truncate(meterWindow)
+	cursor := anchor.UTC()
+	if oldest := now.UTC().Add(-maxBackdate); cursor.Before(oldest) {
+		skipped = oldest.Sub(cursor)
+		cursor = oldest
+	}
+	for cursor.Before(limit) && len(spans) < maxCatchUpWindows {
+		end := cursor.Truncate(meterWindow).Add(meterWindow)
+		if end.After(limit) {
+			break
+		}
+		spans = append(spans, meterSpan{start: cursor, end: end})
+		cursor = end
+	}
+	return spans, skipped
+}
+
+// spanTxID identifies a span by the row and the window it belongs to, so the same
+// stretch of time always produces the same ID.
+func spanTxID(deploymentID, component string, s meterSpan) string {
+	return fmt.Sprintf("%s:%s:%d", deploymentID, component, s.start.UTC().Truncate(meterWindow).Unix())
+}
+
+// finalTxID identifies a row's closing span, which is bounded by a recorded stop
+// time rather than the window grid.
+func finalTxID(deploymentID, component string, s meterSpan) string {
+	return fmt.Sprintf("%s:%s:final:%d:%d", deploymentID, component, s.start.UTC().Unix(), s.end.UTC().Unix())
 }
 
 // rawCU calculates compute units from raw CPU/memory strings and replica count.

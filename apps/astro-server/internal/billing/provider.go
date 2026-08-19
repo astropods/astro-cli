@@ -27,10 +27,11 @@ var ErrBillingUnavailable = errors.New("billing: not available")
 var ErrInvoiceNotAvailable = errors.New("billing: invoice not available")
 
 // UsageEvent is a single metered usage record. TransactionID is the idempotency
-// key (the metering UUID) so retries and backfills dedupe. Properties carries
-// the metric payload (e.g. cu_hours, model, component).
+// key, and it has to identify the span the event covers rather than the moment
+// it was built, or a repeat is a second charge. Properties carries the metric
+// payload (e.g. cu_hours, model, component).
 type UsageEvent struct {
-	TransactionID string         // idempotency key; reuse the event UUID
+	TransactionID string         // idempotency key; derive it from the span
 	AccountID     string         // Astro account ID (ingest alias / subject)
 	Type          string         // event type (deployment_compute_usage, active_agents, …)
 	Time          time.Time      // event timestamp

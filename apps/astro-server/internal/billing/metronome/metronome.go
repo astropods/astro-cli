@@ -419,8 +419,9 @@ func isConflict(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict
 }
 
-// IngestUsage sends usage events, chunked to the batch limit. The event UUID is
-// the transaction_id (34-day dedupe window), preserving idempotency.
+// IngestUsage sends usage events, chunked to the batch limit. The caller's
+// TransactionID becomes the transaction_id, which Metronome dedupes on for 34
+// days, so the ID has to name the span rather than the send.
 func (p *Provider) IngestUsage(ctx context.Context, events []billing.UsageEvent) error {
 	for start := 0; start < len(events); start += ingestBatchLimit {
 		end := min(start+ingestBatchLimit, len(events))
