@@ -25,11 +25,19 @@ type AssignmentSubject struct {
 	ID   string
 }
 
+// AssignmentSource identifies whether access is direct or group-derived.
+type AssignmentSource string
+
+const (
+	AssignmentSourceDirect AssignmentSource = "direct"
+	AssignmentSourceGroup  AssignmentSource = "group"
+)
+
 type RoleAssignment struct {
 	ID                    string
 	Subject               AssignmentSubject
 	Role                  RoleSlug
-	Source                string
+	Source                AssignmentSource
 	GroupRoleAssignmentID string
 	Resource              ResourceRef
 }

@@ -269,13 +269,20 @@ flowchart TD
 - Preserve legacy visibility for historical deployments without a lifecycle row until backfill. Once a deployment enters the lifecycle ledger, pending synchronization fails closed instead of briefly exposing it through organization membership.
 - Follow up by authorizing revision history through the currently active deployment's `deployment:read` capability. Return not found when no active deployment exists instead of introducing discovery for deleted WorkOS resources.
 
-### PR8.3 — Deployment access APIs
+### PR8.3A — Deployment access domain
 
-- Add the allowlisted Viewer, Builder, and Admin access-level catalog beside its first API consumer.
-- List, assign, and remove `deployment-viewer`, `deployment-builder`, and `deployment-admin` for membership or group subjects.
-- Require `deployment:manage_access`, validate grants server-side, and allowlist the three built-in deployment roles.
-- Validate that the caller, subject, group, deployment, and WorkOS resource belong to the same organization.
-- Return direct and group-derived assignment sources clearly; the browser never calls WorkOS directly.
+- Define the allowlisted Viewer, Builder, and Admin access-level catalog.
+- Add the transport-independent service for listing built-in roles and recording versioned desired-role changes for organization members.
+- Validate that the subject, deployment, and WorkOS resource belong to the same organization.
+- Reconcile desired state asynchronously with retry history and a repair sweep; the newest version wins and WorkOS remains authoritative for effective access.
+- Add no HTTP routes or enforcement changes.
+
+### PR8.3B — Deployment access HTTP APIs
+
+- Expose list, set, and remove operations through Astro's deployment API.
+- Require `deployment:manage_access`, preserve private-by-default errors, and audit mutations.
+- Return direct and group-derived assignment sources plus pending, retrying, and synced desired-role state; mutations return `202 Accepted`.
+- Keep the browser on Astro APIs; request handlers never hold database locks across WorkOS calls.
 
 ### PR8.4 — Organization group APIs
 
@@ -293,8 +300,8 @@ Proposed PR8.3/8.4 API surface; exact paths follow existing server conventions d
 | Add/list members | `POST/GET /accounts/:accountId/access-groups/:groupId/members` |
 | Remove member | `DELETE /accounts/:accountId/access-groups/:groupId/members/:accountMemberId` |
 | List assignments | `GET /deployments/:deploymentId/access` |
-| Assign role | `POST /deployments/:deploymentId/access` |
-| Remove assignment | `DELETE /deployments/:deploymentId/access/:assignmentId` |
+| Set built-in role | `PUT /deployments/:deploymentId/access` |
+| Remove built-in role | `DELETE /deployments/:deploymentId/access/:subjectType/:subjectId` |
 | Check capability | `POST /authz/check` |
 
 ### PR8.5 — Queen FGA inspector

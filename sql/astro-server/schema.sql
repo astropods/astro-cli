@@ -425,6 +425,41 @@ CREATE INDEX idx_deployment_fga_sync_pending
        OR synced_version IS DISTINCT FROM desired_version
        OR creator_assignment_pending;
 
+-- Durable desired state for direct built-in resource roles. WorkOS remains the
+-- authorization source of truth; this ledger makes mutations retryable and observable.
+CREATE TABLE public.resource_access_fga_sync (
+    account_id uuid NOT NULL,
+    organization_id text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id text NOT NULL,
+    subject_type text NOT NULL,
+    -- Astro user ID for memberships; WorkOS group ID for groups.
+    subject_id text NOT NULL,
+    workos_subject_id text NOT NULL,
+    -- NULL means remove direct built-in access.
+    desired_role text,
+    desired_version bigint NOT NULL DEFAULT 1,
+    synced_role text,
+    synced_version bigint,
+    attempt_count int NOT NULL DEFAULT 0,
+    last_error text,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    synced_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT resource_access_fga_sync_pkey PRIMARY KEY (
+        organization_id, resource_type, resource_id, subject_type, workos_subject_id
+    ),
+    CONSTRAINT resource_access_fga_sync_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT resource_access_fga_sync_subject_type_check CHECK (subject_type IN ('organization_membership', 'group'))
+);
+
+CREATE INDEX idx_resource_access_fga_sync_resource
+    ON public.resource_access_fga_sync(account_id, resource_type, resource_id);
+
+CREATE INDEX idx_resource_access_fga_sync_pending
+    ON public.resource_access_fga_sync(next_attempt_at, updated_at)
+    WHERE synced_version IS DISTINCT FROM desired_version;
+
 -- Who gets alerted about a deployment. A member becomes a watcher implicitly by
 -- acting on it (deploying, changing config, rolling back, …); registration is
 -- driven off the audit-log seam, so any action recorded there enrolls its actor.

@@ -321,8 +321,8 @@ func TestGetMember_NotFound(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}))
 
 	_, err := store.GetMember("acct-1", "user-2")
-	if err == nil {
-		t.Fatal("expected error for member not found")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("error = %v, want sql.ErrNoRows", err)
 	}
 }
 
@@ -372,6 +372,23 @@ func TestGetMemberByWorkosMembershipID_Found(t *testing.T) {
 	}
 }
 
+func TestGetMembersByWorkosMembershipIDsContext(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close() //nolint:errcheck
+	store := NewAccountStore(db)
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM account_member_workos mw JOIN account_members am").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "user_id", "workos_membership_id", "created_at"}).
+			AddRow("acct-1", "user-1", "wm-1", now).
+			AddRow("acct-1", "user-2", "wm-2", now))
+
+	members, err := store.GetMembersByWorkosMembershipIDsContext(context.Background(), []string{"wm-1", "wm-2", "wm-missing"})
+	if err != nil || len(members) != 2 || members["wm-1"].UserID != "user-1" || members["wm-2"].UserID != "user-2" {
+		t.Fatalf("members = %#v, error = %v", members, err)
+	}
+}
+
 func TestGetMemberByWorkosMembershipID_NotFound(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
@@ -382,7 +399,7 @@ func TestGetMemberByWorkosMembershipID_NotFound(t *testing.T) {
 
 	_, err := store.GetMemberByWorkosMembershipID("wm-unknown")
 	if err == nil {
-		t.Fatal("expected error for not found")
+		t.Fatal("expected error for member not found")
 	}
 }
 

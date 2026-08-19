@@ -138,6 +138,7 @@ type wiredWorkers struct {
 	observation     *ObservationSweepWorker
 	undeploy        *UndeployWorker
 	deploymentFGA   *DeploymentFGAReconcileWorker
+	resourceAccess  *ResourceAccessFGAReconcileWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -275,6 +276,16 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 	addWorkerWithCatalogCheck(log, workers, deploymentFGAWorker)
 	log.Info("river: registered worker", "worker", "DeploymentFGAReconcileWorker", "period", "1m")
+	var resourceAccessWorker *ResourceAccessFGAReconcileWorker
+	if cfg.AccessReconciler != nil && cfg.ResourceAccessSync != nil {
+		resourceAccessWorker = &ResourceAccessFGAReconcileWorker{
+			reconciler: cfg.AccessReconciler,
+			store:      cfg.ResourceAccessSync,
+			log:        log,
+		}
+		addWorkerWithCatalogCheck(log, workers, resourceAccessWorker)
+		log.Info("river: registered worker", "worker", "ResourceAccessFGAReconcileWorker", "period", "1m")
+	}
 
 	var langfuseBaseURL string
 	if cfg.ServerConfig != nil {
@@ -562,5 +573,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		classification:  classificationDiscovery,
 		undeploy:        undeployWorker,
 		deploymentFGA:   deploymentFGAWorker,
+		resourceAccess:  resourceAccessWorker,
 	}
 }

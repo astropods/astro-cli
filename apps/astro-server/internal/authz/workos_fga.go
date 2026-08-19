@@ -25,6 +25,8 @@ var (
 	ErrResourceNotFound = errors.New("resource not found")
 	// ErrRoleAssignmentExists means WorkOS already has the requested role assignment.
 	ErrRoleAssignmentExists = errors.New("role assignment already exists")
+	// ErrRoleAssignmentNotFound means the requested role assignment is already absent.
+	ErrRoleAssignmentNotFound = errors.New("role assignment not found")
 )
 
 var _ FGA = (*WorkOSFGA)(nil)
@@ -151,7 +153,7 @@ func (f *WorkOSFGA) RemoveRole(ctx context.Context, subject AssignmentSubject, r
 			RoleSlug:       string(role),
 			ResourceTarget: workOSResourceTarget(resource),
 		}); err != nil {
-			return fmt.Errorf("remove WorkOS role %q from membership on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+			return fmt.Errorf("remove WorkOS role %q from membership on %s:%s: %w", role, resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrRoleAssignmentNotFound))
 		}
 	case AssignmentSubjectGroup:
 		externalID := resource.ExternalID
@@ -161,7 +163,7 @@ func (f *WorkOSFGA) RemoveRole(ctx context.Context, subject AssignmentSubject, r
 			ResourceExternalID: &externalID,
 			ResourceTypeSlug:   &resourceType,
 		}); err != nil {
-			return fmt.Errorf("remove WorkOS role %q from group on %s:%s: %w", role, resource.Type, resource.ExternalID, err)
+			return fmt.Errorf("remove WorkOS role %q from group on %s:%s: %w", role, resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrRoleAssignmentNotFound))
 		}
 	default:
 		return fmt.Errorf("unsupported assignment subject type %q", subject.Type)
@@ -190,11 +192,15 @@ func (f *WorkOSFGA) ListRoleAssignments(ctx context.Context, organizationID stri
 		if current.OrganizationMembershipID == "" || current.Role == nil || current.Source == nil || current.Resource == nil {
 			return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: assignment %q is missing organization membership, role, source, or resource", resource.Type, resource.ExternalID, current.ID)
 		}
+		source := AssignmentSource(current.Source.Type)
+		if source != AssignmentSourceDirect && source != AssignmentSourceGroup {
+			return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: assignment %q has unsupported source %q", resource.Type, resource.ExternalID, current.ID, current.Source.Type)
+		}
 		assignment := RoleAssignment{
 			ID:       current.ID,
 			Subject:  MembershipAssignmentSubject(current.OrganizationMembershipID),
 			Role:     RoleSlug(current.Role.Slug),
-			Source:   string(current.Source.Type),
+			Source:   source,
 			Resource: resource,
 		}
 		if current.Source.GroupRoleAssignmentID != nil {
@@ -203,7 +209,7 @@ func (f *WorkOSFGA) ListRoleAssignments(ctx context.Context, organizationID stri
 		assignments = append(assignments, assignment)
 	}
 	if err := iterator.Err(); err != nil {
-		return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: %w", resource.Type, resource.ExternalID, err)
+		return nil, fmt.Errorf("list WorkOS role assignments on %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
 	}
 	return assignments, nil
 }
@@ -223,12 +229,12 @@ func (f *WorkOSFGA) ListGroupRoleAssignments(ctx context.Context, groupID string
 			ID:       current.ID,
 			Subject:  GroupAssignmentSubject(current.GroupID),
 			Role:     RoleSlug(current.Role.Slug),
-			Source:   "direct",
+			Source:   AssignmentSourceDirect,
 			Resource: ResourceRef{Type: ResourceType(current.Resource.ResourceTypeSlug), ExternalID: current.Resource.ExternalID},
 		})
 	}
 	if err := iterator.Err(); err != nil {
-		return nil, fmt.Errorf("list WorkOS group role assignments: %w", err)
+		return nil, fmt.Errorf("list WorkOS group role assignments: %w", classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
 	}
 	return assignments, nil
 }

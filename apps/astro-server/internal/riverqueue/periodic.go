@@ -164,6 +164,18 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
+	if cfg.ResourceAccessSync != nil && cfg.AccessReconciler != nil {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return ResourceAccessFGAReconcileArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{ByPeriod: 1 * time.Minute},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	if cfg.WorkOSClient != nil {
 		// Backfill member emails still missing from the mirror. Emails are
 		// captured at auth time (login + account create); this reconcile is the

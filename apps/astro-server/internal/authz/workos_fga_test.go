@@ -250,6 +250,27 @@ func TestWorkOSFGARemoveRoleSupportsMembershipsAndGroups(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGARemoveRoleClassifiesNotFound(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, _ *http.Request) {
+		writeWorkOSJSON(t, response, http.StatusNotFound, map[string]string{
+			"code":    "role_assignment_not_found",
+			"message": "role assignment not found",
+		})
+	})
+	defer closeServer()
+
+	err := fga.RemoveRole(context.Background(), MembershipAssignmentSubject("om_123"), RoleDeploymentViewer, DeploymentResource("dep_123"))
+	if !errors.Is(err, ErrRoleAssignmentNotFound) {
+		t.Fatalf("error = %v, want errors.Is(_, ErrRoleAssignmentNotFound)", err)
+	}
+	var apiErr *workos.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %v, want wrapped *workos.APIError", err)
+	}
+}
+
 func TestWorkOSFGACheck(t *testing.T) {
 	t.Parallel()
 
@@ -410,7 +431,7 @@ func TestWorkOSFGAListRoleAssignments(t *testing.T) {
 	if err != nil || len(assignments) != 1 {
 		t.Fatalf("ListRoleAssignments() = %v, %v", assignments, err)
 	}
-	if assignments[0].Subject != MembershipAssignmentSubject("om_123") || assignments[0].Role != RoleDeploymentViewer || assignments[0].Source != "direct" {
+	if assignments[0].Subject != MembershipAssignmentSubject("om_123") || assignments[0].Role != RoleDeploymentViewer || assignments[0].Source != AssignmentSourceDirect {
 		t.Fatalf("assignment = %#v", assignments[0])
 	}
 }
@@ -440,11 +461,42 @@ func TestWorkOSFGAListGroupRoleAssignments(t *testing.T) {
 		ID:       "gra_123",
 		Subject:  GroupAssignmentSubject("group_123"),
 		Role:     RoleDeploymentBuilder,
-		Source:   "direct",
+		Source:   AssignmentSourceDirect,
 		Resource: DeploymentResource("dep_123"),
 	}
 	if !reflect.DeepEqual(assignments[0], want) {
 		t.Fatalf("assignment = %#v, want %#v", assignments[0], want)
+	}
+}
+
+func TestWorkOSFGAListAssignmentsClassifiesMissingResource(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		call func(*WorkOSFGA) error
+	}{
+		{name: "membership", call: func(fga *WorkOSFGA) error {
+			_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
+			return err
+		}},
+		{name: "group", call: func(fga *WorkOSFGA) error {
+			_, err := fga.ListGroupRoleAssignments(context.Background(), "group_123")
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, _ *http.Request) {
+				writeWorkOSJSON(t, response, http.StatusNotFound, map[string]string{
+					"code": "entity_not_found", "message": "resource not found",
+				})
+			})
+			defer closeServer()
+			if err := test.call(fga); !errors.Is(err, ErrResourceNotFound) {
+				t.Fatalf("error = %v, want ErrResourceNotFound", err)
+			}
+		})
 	}
 }
 

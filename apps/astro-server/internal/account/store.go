@@ -691,7 +691,7 @@ func (s *AccountStore) GetMemberContext(ctx context.Context, accountID, userID s
 		WHERE am.account_id = $1 AND am.user_id = $2
 	`, accountID, userID).Scan(&m.AccountID, &m.UserID, &wid, &m.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("member not found")
+		return nil, fmt.Errorf("member not found for account %s and user %s: %w", accountID, userID, sql.ErrNoRows)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query member: %w", err)
@@ -747,6 +747,35 @@ func (s *AccountStore) GetMemberByWorkosMembershipID(membershipID string) (*Acco
 		return nil, fmt.Errorf("failed to query member: %w", err)
 	}
 	return &m, nil
+}
+
+// GetMembersByWorkosMembershipIDsContext resolves WorkOS memberships in one query.
+func (s *AccountStore) GetMembersByWorkosMembershipIDsContext(ctx context.Context, membershipIDs []string) (map[string]*AccountMember, error) {
+	members := make(map[string]*AccountMember, len(membershipIDs))
+	if len(membershipIDs) == 0 {
+		return members, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT am.account_id, am.user_id, mw.workos_membership_id, am.created_at
+		FROM account_member_workos mw
+		JOIN account_members am ON am.account_id = mw.account_id AND am.user_id = mw.user_id
+		WHERE mw.workos_membership_id = ANY($1)
+	`, pq.Array(membershipIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query members: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var member AccountMember
+		if err := rows.Scan(&member.AccountID, &member.UserID, &member.WorkOSMembershipID, &member.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan member: %w", err)
+		}
+		members[member.WorkOSMembershipID] = &member
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate members: %w", err)
+	}
+	return members, nil
 }
 
 // UpsertMemberByWorkosMembershipID inserts or updates a member keyed by WorkOS membership ID.

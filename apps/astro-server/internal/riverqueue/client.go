@@ -48,6 +48,8 @@ type Config struct {
 	K8sCache             k8scache.Cache
 	ServerConfig         *config.Config
 	DeploymentFGASync    *authz.DeploymentFGASyncStore
+	ResourceAccessSync   *authz.ResourceAccessSyncStore
+	AccessReconciler     *authz.AccessReconciler
 	FGA                  authz.FGA
 	OrgClient            *org.Client
 	PromClient           *promquery.Client
@@ -198,6 +200,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.deploymentFGA != nil {
 		wired.deploymentFGA.queue = q
 	}
+	if wired.resourceAccess != nil {
+		wired.resourceAccess.queue = q
+	}
 
 	return q, nil
 }
@@ -290,6 +295,16 @@ func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID, clusterID s
 // The durable desired-state row and periodic sweep recover a failed enqueue.
 func (q *Queue) InsertDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error {
 	_, err := q.Insert(ctx, DeploymentFGAReconcileArgs{DeploymentID: deploymentID}, nil)
+	return err
+}
+
+// InsertResourceAccessFGAReconcileJob enqueues reconciliation for one resource.
+func (q *Queue) InsertResourceAccessFGAReconcileJob(ctx context.Context, key authz.AccessIntentKey) error {
+	_, err := q.Insert(ctx, ResourceAccessFGAReconcileArgs{
+		OrganizationID: key.OrganizationID,
+		ResourceType:   string(key.Resource.Type),
+		ResourceID:     key.Resource.ExternalID,
+	}, nil)
 	return err
 }
 
