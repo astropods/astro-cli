@@ -377,3 +377,73 @@ func resetBillingSetFlags(t *testing.T) {
 }
 
 func ptrFloat(v float64) *float64 { return &v }
+
+// A usage cap is a quantity, so it must reach the usage endpoint rather than the
+// spend one, and it must preserve the unnamed control for that metric only.
+func TestBillingSetUsageMetric(t *testing.T) {
+	current := map[string]any{
+		"currency": "USD",
+		"warning":  map[string]any{"amount": 8.0, "in_alarm": false},
+		"usage": map[string]any{
+			"compute": map[string]any{
+				"unit":    "CU-hours",
+				"warning": map[string]any{"amount": 100.0, "in_alarm": false},
+			},
+		},
+	}
+
+	var path string
+	var sent struct {
+		Metric  string   `json:"metric"`
+		Warning *float64 `json:"warning"`
+		Limit   *float64 `json:"limit"`
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			path = r.URL.Path
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+			jsonHandler(http.StatusOK, map[string]any{"available": true})(w, r)
+			return
+		}
+		jsonHandler(http.StatusOK, spendPayload(current))(w, r)
+	})
+	setupBillingTest(t, handler)
+
+	require.NoError(t, billingSetCmd.Flags().Set("metric", "compute"))
+	require.NoError(t, billingSetCmd.Flags().Set("limit", "500"))
+	t.Cleanup(func() {
+		resetBillingSetFlags(t)
+		require.NoError(t, billingSetCmd.Flags().Set("metric", ""))
+		billingSetCmd.Flags().Lookup("metric").Changed = false
+	})
+
+	buf := &bytes.Buffer{}
+	billingSetCmd.SetOut(buf)
+	billingSetCmd.SetContext(context.Background())
+
+	require.NoError(t, runBillingSet(billingSetCmd, nil))
+	assert.Contains(t, path, "/billing/usage/thresholds")
+	assert.Equal(t, "compute", sent.Metric)
+	assert.Equal(t, ptrFloat(500), sent.Limit)
+	// The compute warning survives, and the spend warning is not confused for it.
+	assert.Equal(t, ptrFloat(100), sent.Warning)
+	assert.Contains(t, buf.String(), msgUsageControlsSaved("compute"))
+}
+
+func TestBillingSetRejectsAnUnknownMetric(t *testing.T) {
+	setupBillingTest(t, jsonHandler(http.StatusOK, map[string]any{"available": true}))
+	require.NoError(t, billingSetCmd.Flags().Set("metric", "storage"))
+	require.NoError(t, billingSetCmd.Flags().Set("limit", "5"))
+	t.Cleanup(func() {
+		resetBillingSetFlags(t)
+		require.NoError(t, billingSetCmd.Flags().Set("metric", ""))
+		billingSetCmd.Flags().Lookup("metric").Changed = false
+	})
+
+	billingSetCmd.SetOut(&bytes.Buffer{})
+	billingSetCmd.SetContext(context.Background())
+
+	err := runBillingSet(billingSetCmd, nil)
+	require.Error(t, err)
+	assert.Equal(t, errUnknownUsageMetric("storage").Error(), err.Error())
+}

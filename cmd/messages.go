@@ -182,3 +182,11 @@ func errBillingSetNoChange() error {
 func msgSpendControlsSaved() string {
 	return "Spend controls saved"
 }
+
+func errUnknownUsageMetric(metric string) error {
+	return fmt.Errorf("--metric %q is not a metered quantity; use compute or gateway", metric)
+}
+
+func msgUsageControlsSaved(metric string) string {
+	return fmt.Sprintf("Usage controls saved for %s", metric)
+}

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +74,11 @@ The warning notifies. The limit suspends the account's agents. Both are
 measured against usage spend for the period, before credit is drawn down.
 
 A control you do not name keeps its current value. Use --clear-warning or
---clear-limit to remove one.`,
+--clear-limit to remove one.
+
+With --metric, the numbers cap a metered quantity instead of money. That is
+the only control that works on a plan billed at zero, where spend never moves.
+Metrics are compute (CU-hours) and gateway (US dollars of model usage).`,
 	Args: cobra.NoArgs,
 	RunE: runBillingSet,
 }
@@ -92,6 +98,7 @@ func init() {
 	billingSetCmd.Flags().Float64("limit", 0, "Spend amount that suspends the account's agents")
 	billingSetCmd.Flags().Bool("clear-warning", false, "Remove the spend warning")
 	billingSetCmd.Flags().Bool("clear-limit", false, "Remove the spend limit")
+	billingSetCmd.Flags().String("metric", "", "Cap a metered quantity instead of spend: compute or gateway")
 
 	rootCmd.AddCommand(billingCmd)
 }
@@ -109,6 +116,12 @@ type spendThreshold struct {
 	InAlarm bool    `json:"in_alarm"`
 }
 
+type usageThresholds struct {
+	Unit    string          `json:"unit"`
+	Warning *spendThreshold `json:"warning,omitempty"`
+	Limit   *spendThreshold `json:"limit,omitempty"`
+}
+
 type billingSpend struct {
 	Currency         string          `json:"currency,omitempty"`
 	Plan             string          `json:"plan,omitempty"`
@@ -121,6 +134,9 @@ type billingSpend struct {
 	HasCredit        bool            `json:"has_credit"`
 	Warning          *spendThreshold `json:"warning,omitempty"`
 	Limit            *spendThreshold `json:"limit,omitempty"`
+	// Usage caps a metered quantity rather than money. It is the only control
+	// that works on a plan whose priced spend is always zero.
+	Usage map[string]usageThresholds `json:"usage,omitempty"`
 }
 
 type billingStatus struct {
@@ -239,8 +255,39 @@ func runBillingGet(cmd *cobra.Command, _ []string) error {
 	printSpendControl(cmd, "Warning", spend.Warning, cur)
 	printSpendControl(cmd, "Limit", spend.Limit, cur)
 
-	dim.Fprintf(w, "\nControls are measured against usage spend, before credit is drawn down.\n") //nolint:errcheck,gosec
+	for _, metric := range sortedMetrics(spend.Usage) {
+		u := spend.Usage[metric]
+		fmt.Fprintf(w, "\n  %s usage (%s)\n", metric, u.Unit) //nolint:errcheck,gosec
+		printUsageControl(cmd, "Warning", u.Warning)          //nolint:errcheck,gosec
+		printUsageControl(cmd, "Limit", u.Limit)              //nolint:errcheck,gosec
+	}
+
+	dim.Fprintf(w, "\nSpend controls measure usage spend, before credit is drawn down.\n") //nolint:errcheck,gosec
 	return nil
+}
+
+// sortedMetrics keeps the order stable across runs, which a map range would not.
+func sortedMetrics(usage map[string]usageThresholds) []string {
+	names := make([]string, 0, len(usage))
+	for m := range usage {
+		names = append(names, m)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// printUsageControl renders a quantity, not money, so it carries no currency.
+func printUsageControl(cmd *cobra.Command, label string, t *spendThreshold) {
+	w := cmd.OutOrStdout()
+	if t == nil {
+		fmt.Fprintf(w, "    %-13s not set\n", label+":") //nolint:errcheck,gosec
+		return
+	}
+	state := "ok"
+	if t.InAlarm {
+		state = "CROSSED"
+	}
+	fmt.Fprintf(w, "    %-13s %s (%s)\n", label+":", strconv.FormatFloat(t.Amount, 'f', -1, 64), state) //nolint:errcheck,gosec
 }
 
 func printSpendControl(cmd *cobra.Command, label string, t *spendThreshold, currency string) {
@@ -402,6 +449,11 @@ func runBillingSet(cmd *cobra.Command, _ []string) error {
 		return errBillingSetNoChange()
 	}
 
+	metric, _ := cmd.Flags().GetString("metric")
+	if metric != "" && !validUsageMetric(metric) {
+		return errUnknownUsageMetric(metric)
+	}
+
 	// Read first so a control the caller did not name keeps its value. Without
 	// this, naming only the limit would silently drop the warning.
 	at, verbose, err := cmdAuth(cmd)
@@ -418,11 +470,15 @@ func runBillingSet(cmd *cobra.Command, _ []string) error {
 	}
 
 	body := struct {
+		Metric  string   `json:"metric,omitempty"`
 		Warning *float64 `json:"warning"`
 		Limit   *float64 `json:"limit"`
-	}{
-		Warning: existingThreshold(current.Warning),
-		Limit:   existingThreshold(current.Limit),
+	}{Metric: metric}
+	if metric == "" {
+		body.Warning, body.Limit = existingThreshold(current.Warning), existingThreshold(current.Limit)
+	} else {
+		held := current.Usage[metric]
+		body.Warning, body.Limit = existingThreshold(held.Warning), existingThreshold(held.Limit)
 	}
 	if warningSet {
 		v, _ := cmd.Flags().GetFloat64("warning")
@@ -440,16 +496,33 @@ func runBillingSet(cmd *cobra.Command, _ []string) error {
 	}
 
 	u := apiPath(billingBaseURL(), at.Account, "accounts", "billing", "spend", "thresholds")
+	if metric != "" {
+		u = apiPath(billingBaseURL(), at.Account, "accounts", "billing", "usage", "thresholds")
+	}
 	if _, err := apiCall(cmd.Context(), http.MethodPut, u, body, at.Token, verbose, nil); err != nil {
 		return err
 	}
 
 	w := cmd.OutOrStdout()
-	color.New(color.FgGreen).Fprint(w, "✓ ")                                        //nolint:errcheck,gosec
+	color.New(color.FgGreen).Fprint(w, "✓ ") //nolint:errcheck,gosec
+	if metric != "" {
+		fmt.Fprintf(w, "%s\n", msgUsageControlsSaved(metric))         //nolint:errcheck,gosec
+		printUsageControl(cmd, "Warning", thresholdFor(body.Warning)) //nolint:errcheck,gosec
+		printUsageControl(cmd, "Limit", thresholdFor(body.Limit))     //nolint:errcheck,gosec
+		return nil
+	}
 	fmt.Fprintf(w, "%s\n", msgSpendControlsSaved())                                 //nolint:errcheck,gosec
 	printSpendControl(cmd, "Warning", thresholdFor(body.Warning), current.Currency) //nolint:errcheck,gosec
 	printSpendControl(cmd, "Limit", thresholdFor(body.Limit), current.Currency)     //nolint:errcheck,gosec
 	return nil
+}
+
+// usageMetrics are the metrics the server accepts. Rejecting an unknown one
+// here keeps a typo from silently saving nothing.
+var usageMetrics = []string{"compute", "gateway"}
+
+func validUsageMetric(s string) bool {
+	return slices.Contains(usageMetrics, s)
 }
 
 func existingThreshold(t *spendThreshold) *float64 {
