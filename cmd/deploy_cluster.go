@@ -15,6 +15,7 @@ type allowedCluster struct {
 	ClusterID   string `json:"cluster_id"`
 	Region      string `json:"region"`
 	RegionLabel string `json:"region_label"`
+	RegionFlag  string `json:"region_flag"`
 	IsDefault   bool   `json:"is_default"`
 }
 
@@ -58,6 +59,9 @@ func resolveDeployCluster(cmd *cobra.Command, at AccountToken, verbose bool) (st
 		}
 		if label == "" {
 			label = c.ClusterID
+		}
+		if c.RegionFlag != "" {
+			label = c.RegionFlag + "  " + label
 		}
 		if c.IsDefault {
 			label += " (default)"
