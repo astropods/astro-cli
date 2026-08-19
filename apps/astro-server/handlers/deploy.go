@@ -1556,6 +1556,7 @@ type AgentDeploymentSummary struct {
 	CreatedAt              string                `json:"created_at"`
 	UpdatedAt              string                `json:"updated_at,omitempty"`
 	DeployedBy             string                `json:"deployed_by,omitempty"`
+	AccessReady            *bool                 `json:"access_ready,omitempty"`
 }
 
 // CountDeployments returns the number of visible deployments for an account.

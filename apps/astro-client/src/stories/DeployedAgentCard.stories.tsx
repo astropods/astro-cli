@@ -121,3 +121,17 @@ export const Deploying: Story = {
     deploymentStatus: "pending",
   },
 };
+
+export const SettingUpAccess: Story = {
+  args: {
+    ...Deploying.args,
+    accessProvisioning: true,
+  },
+};
+
+export const DelayedAccess: Story = {
+  args: {
+    ...SettingUpAccess.args,
+    accessProvisioningDelayed: true,
+  },
+};

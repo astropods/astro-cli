@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 
 	workos "github.com/workos/workos-go/v10"
+	"golang.org/x/sync/singleflight"
 )
 
 // WorkOSFGA delegates Astro's small FGA contract to the official WorkOS SDK.
 type WorkOSFGA struct {
-	authorization *workos.AuthorizationService
+	authorization              *workos.AuthorizationService
+	organizationResources      sync.Map
+	organizationResourceLookup singleflight.Group
 }
 
 var (
@@ -239,14 +243,16 @@ func (f *WorkOSFGA) ListResources(ctx context.Context, membershipID string, acti
 	if err := validateResource(parent); err != nil {
 		return nil, fmt.Errorf("parent %w", err)
 	}
+	parentResource, err := f.workOSParentResource(ctx, parent)
+	if err != nil {
+		return nil, err
+	}
 	iterator := f.authorization.ListResourcesForMembership(
 		ctx,
 		membershipID,
 		&workos.AuthorizationListResourcesForMembershipParams{
 			PermissionSlug: string(action),
-			ParentResource: workos.AuthorizationParentResourceByExternalID{
-				TypeSlug: string(parent.Type), ExternalID: parent.ExternalID,
-			},
+			ParentResource: parentResource,
 		},
 	)
 	resources := make([]ResourceRef, 0)
@@ -258,6 +264,48 @@ func (f *WorkOSFGA) ListResources(ctx context.Context, membershipID string, acti
 		return nil, fmt.Errorf("list WorkOS resources with permission %q: %w", action, err)
 	}
 	return resources, nil
+}
+
+func (f *WorkOSFGA) workOSParentResource(ctx context.Context, parent ResourceRef) (workos.AuthorizationParentResource, error) {
+	if parent.Type != ResourceOrganization {
+		return workos.AuthorizationParentResourceByExternalID{
+			TypeSlug: string(parent.Type), ExternalID: parent.ExternalID,
+		}, nil
+	}
+
+	if cached, ok := f.organizationResources.Load(parent.ExternalID); ok {
+		id, _ := cached.(string)
+		return workos.AuthorizationParentResourceByID{ID: id}, nil
+	}
+
+	resolved, err, _ := f.organizationResourceLookup.Do(parent.ExternalID, func() (any, error) {
+		if cached, ok := f.organizationResources.Load(parent.ExternalID); ok {
+			return cached, nil
+		}
+
+		organizationID := parent.ExternalID
+		resourceType := string(ResourceOrganization)
+		iterator := f.authorization.ListResources(ctx, &workos.AuthorizationListResourcesParams{
+			OrganizationID:   &organizationID,
+			ResourceTypeSlug: &resourceType,
+		})
+		for iterator.Next() {
+			current := iterator.Current()
+			if current.OrganizationID == organizationID && current.ResourceTypeSlug == resourceType && current.ID != "" {
+				f.organizationResources.Store(organizationID, current.ID)
+				return current.ID, nil
+			}
+		}
+		if err := iterator.Err(); err != nil {
+			return nil, fmt.Errorf("resolve WorkOS organization resource %q: %w", organizationID, err)
+		}
+		return nil, fmt.Errorf("resolve WorkOS organization resource %q: %w", organizationID, ErrResourceNotFound)
+	})
+	if err != nil {
+		return nil, err
+	}
+	resourceID, _ := resolved.(string)
+	return workos.AuthorizationParentResourceByID{ID: resourceID}, nil
 }
 
 func (f *WorkOSFGA) Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error) {

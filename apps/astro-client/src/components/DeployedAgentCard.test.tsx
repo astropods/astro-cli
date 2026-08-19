@@ -129,6 +129,38 @@ describe("DeployedAgentCard", () => {
     expect(screen.queryByRole("menuitem", { name: "Delete agent" })).not.toBeInTheDocument();
   });
 
+  it("renders a non-navigable access provisioning state", () => {
+    renderDeployedAgentCard({ accessProvisioning: true });
+
+    expect(screen.getByText("Setting up access")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Deployment access is being configured" })).toHaveTextContent("Updates automatically");
+    expect(screen.queryByRole("link", { name: "View details for Prism" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agent options" })).not.toBeInTheDocument();
+  });
+
+  it("uses the delayed copy when access setup exceeds the normal window", () => {
+    renderDeployedAgentCard({ accessProvisioning: true, accessProvisioningDelayed: true });
+
+    expect(screen.getByText("Still setting up access")).toBeInTheDocument();
+    expect(screen.getByText("Secure access is taking longer than usual.")).toBeInTheDocument();
+  });
+
+  it("offers a retry when access setup reaches its terminal state", async () => {
+    const user = userEvent.setup();
+    const onRetryAccess = vi.fn();
+    renderDeployedAgentCard({
+      accessProvisioning: true,
+      accessProvisioningStalled: true,
+      onRetryAccess,
+    });
+
+    expect(screen.getByText("Access setup needs attention")).toBeInTheDocument();
+    expect(screen.getByText("We couldn’t finish setting up secure access.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry access setup" }));
+    expect(onRetryAccess).toHaveBeenCalledOnce();
+  });
+
   it("keeps target-length deployment titles fully visible", () => {
     renderDeployedAgentCard({ displayName: "Sohum's Slack Test Bot" });
     expect(screen.getByText("Sohum's Slack Test Bot")).toBeInTheDocument();

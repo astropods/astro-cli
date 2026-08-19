@@ -918,6 +918,8 @@ export interface AgentDeploymentSummary {
   updated_at?: string;
   account_id?: string;
   account_name?: string;
+  /** False while WorkOS is still registering the resource or creator role. */
+  access_ready?: boolean;
 }
 
 // ============================================================================

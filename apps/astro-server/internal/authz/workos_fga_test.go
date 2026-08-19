@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	workos "github.com/workos/workos-go/v10"
 )
@@ -305,28 +306,85 @@ func TestWorkOSFGAListEffectivePermissions(t *testing.T) {
 
 func TestWorkOSFGAListResources(t *testing.T) {
 	t.Parallel()
+	var organizationLookups atomic.Int32
+	lookupStarted := make(chan struct{}, 1)
+	releaseLookup := make(chan struct{})
 	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organization_memberships/om_123/resources" {
+		if request.Method != http.MethodGet {
 			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
 		}
 		query := request.URL.Query()
-		if query.Get("permission_slug") != "deployment:read" || query.Get("parent_resource_type_slug") != "organization" || query.Get("parent_resource_external_id") != "org_123" {
-			t.Fatalf("query = %v", query)
+		switch request.URL.Path {
+		case "/authorization/resources":
+			organizationLookups.Add(1)
+			lookupStarted <- struct{}{}
+			<-releaseLookup
+			if query.Get("organization_id") != "org_123" || query.Get("resource_type_slug") != "organization" {
+				t.Fatalf("organization query = %v", query)
+			}
+			writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+				"data": []map[string]any{{
+					"id": "authz_resource_org_123", "external_id": "workos-generated-root",
+					"resource_type_slug": "organization", "organization_id": "org_123",
+				}},
+				"list_metadata": map[string]any{"before": nil, "after": nil},
+			})
+		case "/authorization/organization_memberships/om_123/resources", "/authorization/organization_memberships/om_456/resources":
+			if query.Get("permission_slug") != "deployment:read" || query.Get("parent_resource_id") != "authz_resource_org_123" {
+				t.Fatalf("membership resources query = %v", query)
+			}
+			writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+				"data":          []map[string]any{{"external_id": "dep_123", "resource_type_slug": "deployment", "organization_id": "org_123"}},
+				"list_metadata": map[string]any{"before": nil, "after": nil},
+			})
+		default:
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+	})
+	defer closeServer()
+
+	want := []ResourceRef{DeploymentResource("dep_123")}
+	results := make(chan []ResourceRef, 2)
+	errs := make(chan error, 2)
+	for _, membershipID := range []string{"om_123", "om_456"} {
+		go func() {
+			resources, err := fga.ListResources(context.Background(), membershipID, ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
+			results <- resources
+			errs <- err
+		}()
+	}
+	<-lookupStarted
+	time.Sleep(50 * time.Millisecond)
+	close(releaseLookup)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("ListResources() error = %v", err)
+		}
+		if resources := <-results; !reflect.DeepEqual(resources, want) {
+			t.Fatalf("ListResources() = %v, want %v", resources, want)
+		}
+	}
+	if got := organizationLookups.Load(); got != 1 {
+		t.Fatalf("organization resource lookups = %d, want 1", got)
+	}
+}
+
+func TestWorkOSFGAListResourcesRejectsMissingOrganizationResource(t *testing.T) {
+	t.Parallel()
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/resources" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
 		}
 		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
-			"data":          []map[string]any{{"external_id": "dep_123", "resource_type_slug": "deployment", "organization_id": "org_123"}},
+			"data":          []map[string]any{},
 			"list_metadata": map[string]any{"before": nil, "after": nil},
 		})
 	})
 	defer closeServer()
 
-	resources, err := fga.ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
-	if err != nil {
-		t.Fatalf("ListResources() error = %v", err)
-	}
-	want := []ResourceRef{DeploymentResource("dep_123")}
-	if !reflect.DeepEqual(resources, want) {
-		t.Fatalf("ListResources() = %v, want %v", resources, want)
+	_, err := fga.ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{Type: ResourceOrganization, ExternalID: "org_123"})
+	if !errors.Is(err, ErrResourceNotFound) {
+		t.Fatalf("ListResources() error = %v, want ErrResourceNotFound", err)
 	}
 }
 

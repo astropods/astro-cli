@@ -21,6 +21,7 @@ type UserDeploymentCursor struct {
 type UserDeployment struct {
 	Deployment  *Deployment
 	AccountName string
+	AccessReady bool
 }
 
 const userDeploymentColumns = `d.id, d.account_id, d.source_account_id, d.agent_name, d.build_id,
@@ -67,12 +68,24 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+userDeploymentColumns+`, a.name
+		SELECT `+userDeploymentColumns+`, a.name,
+		       CASE
+		         WHEN NOT (d.account_id = ANY(COALESCE($3::uuid[], ARRAY[]::uuid[]))) THEN TRUE
+		         WHEN fs.desired_state IS DISTINCT FROM 'registered' THEN TRUE
+		         ELSE COALESCE(
+		           fs.desired_state = 'registered'
+		           AND fs.synced_state = fs.desired_state
+		           AND fs.synced_version = fs.desired_version
+		           AND NOT fs.creator_assignment_pending,
+		           FALSE
+		         )
+		       END AS access_ready
 		FROM deployments d
 		JOIN account_members am
 		  ON am.account_id = d.account_id
 		 AND am.user_id = $1
 		JOIN accounts a ON a.id = d.account_id AND a.deleted_at IS NULL
+		LEFT JOIN deployment_fga_sync fs ON fs.deployment_id = d.id
 		WHERE d.account_id = ANY($2::uuid[])
 		  AND d.status <> 'undeployed'
 	`+fgaReadPredicate+`
@@ -98,6 +111,7 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 	for rows.Next() {
 		var deployment Deployment
 		var accountName string
+		var accessReady bool
 		if err := rows.Scan(
 			&deployment.ID,
 			&deployment.AccountID,
@@ -111,12 +125,14 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 			&deployment.DeployedAt,
 			&deployment.AvatarColors,
 			&accountName,
+			&accessReady,
 		); err != nil {
 			return nil, fmt.Errorf("scan visible deployment for user: %w", err)
 		}
 		deployments = append(deployments, UserDeployment{
 			Deployment:  &deployment,
 			AccountName: accountName,
+			AccessReady: accessReady,
 		})
 	}
 	if err := rows.Err(); err != nil {

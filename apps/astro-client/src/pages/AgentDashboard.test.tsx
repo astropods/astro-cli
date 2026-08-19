@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
+import { act, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
@@ -21,17 +21,30 @@ function userDeployments(response: {
 vi.mock('@/components/ui/LiveRevealOverlay', () => ({
   LiveRevealOverlay: ({
     deployment,
+    accessReady,
+    accessDelayed,
+    accessStalled,
     onDismiss,
     onViewDeployment,
+    onRetryAccess,
   }: {
     deployment: { display_name?: string; name: string };
+    accessReady?: boolean;
+    accessDelayed?: boolean;
+    accessStalled?: boolean;
     onDismiss: () => void;
     onViewDeployment: () => void;
+    onRetryAccess?: () => void;
   }) => (
     <div data-testid="live-reveal-overlay">
       <span>{deployment.display_name ?? deployment.name}</span>
+      <span>{accessReady ? 'Access ready' : accessStalled ? 'Access setup stalled' : accessDelayed ? 'Still setting up access' : 'Setting up access'}</span>
       <button onClick={onDismiss}>Dismiss</button>
-      <button onClick={onViewDeployment}>View deployment</button>
+      {accessStalled ? (
+        <button onClick={onRetryAccess}>Retry access setup</button>
+      ) : (
+        <button disabled={!accessReady} onClick={onViewDeployment}>View deployment</button>
+      )}
     </div>
   ),
 }));
@@ -40,6 +53,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 
@@ -280,7 +294,11 @@ describe('AgentDashboard page', () => {
 
 describe('reveal overlay after deploy', () => {
    
-  function renderDashboardWithReveal(revealState: Record<string, string | null>) {
+  function renderDashboardWithReveal(
+    revealState: Record<string, string | null>,
+    options: { path?: string; auth?: typeof mockAuthContext } = {},
+  ) {
+    const url = new URL(options.path ?? '/agents', 'http://astro.local');
     return renderRoute(
       [
         {
@@ -297,7 +315,10 @@ describe('reveal overlay after deploy', () => {
           Component: () => <div data-testid="deployment-detail">Deployment Detail</div>,
         },
       ],
-      { initialEntries: [{ pathname: '/agents', state: revealState }] as unknown as string[] },
+      {
+        initialEntries: [{ pathname: url.pathname, search: url.search, state: revealState }] as unknown as string[],
+        auth: options.auth,
+      },
     );
   }
 
@@ -338,8 +359,159 @@ describe('reveal overlay after deploy', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('My Agent Display')).toBeInTheDocument();
+      expect(within(screen.getByTestId('live-reveal-overlay')).getByText('My Agent Display')).toBeInTheDocument();
     });
+  });
+
+  it('keeps the create receipt visible and blocks navigation while access is provisioning', async () => {
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+
+    renderDashboardWithReveal({
+      revealDeploymentId: 'dep-new',
+      revealAgentName: 'my-agent',
+      revealDisplayName: 'My Agent',
+      revealAccount: 'testuser',
+      revealAvatarUrl: null,
+    });
+
+    const overlay = await screen.findByTestId('live-reveal-overlay');
+    expect(within(overlay).getByText('Setting up access')).toBeInTheDocument();
+    expect(within(overlay).getByRole('button', { name: 'View deployment' })).toBeDisabled();
+
+    const pendingCard = document.querySelector('[data-deployment-id="dep-new"]');
+    expect(pendingCard).not.toBeNull();
+    expect(within(pendingCard as HTMLElement).getByText('Setting up access')).toBeInTheDocument();
+    expect(within(pendingCard as HTMLElement).getByRole('status', { name: 'Deployment access is being configured' })).toHaveTextContent('Updates automatically');
+  });
+
+  it('hides the synthetic receipt when it does not match the active search', async () => {
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+
+    renderDashboardWithReveal({
+      revealDeploymentId: 'dep-new',
+      revealAgentName: 'my-agent',
+      revealDisplayName: 'My Agent',
+      revealAccount: 'testuser',
+      revealAvatarUrl: null,
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-deployment-id="dep-new"]')).not.toBeNull();
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('Search agents...'), {
+      target: { value: 'different-agent' },
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-deployment-id="dep-new"]')).toBeNull();
+    });
+  });
+
+  it('hides the synthetic receipt outside the selected account', async () => {
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+    const multiAccountAuth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal' as const },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization' as const },
+      ],
+    };
+
+    renderDashboardWithReveal(
+      {
+        revealDeploymentId: 'dep-new',
+        revealAgentName: 'my-agent',
+        revealDisplayName: 'My Agent',
+        revealAccount: 'testuser',
+        revealAvatarUrl: null,
+      },
+      { path: '/agents?account=acme', auth: multiAccountAuth },
+    );
+
+    await screen.findByTestId('live-reveal-overlay');
+    expect(document.querySelector('[data-deployment-id="dep-new"]')).toBeNull();
+  });
+
+  it('stops automatic access setup after two minutes and offers a retry', async () => {
+    const user = userEvent.setup();
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({ deployments: [], count: 0 }),
+      ),
+    );
+
+    renderDashboardWithReveal({
+      revealDeploymentId: 'dep-new',
+      revealAgentName: 'my-agent',
+      revealDisplayName: 'My Agent',
+      revealAccount: 'testuser',
+      revealAvatarUrl: null,
+    });
+
+    const overlay = await screen.findByTestId('live-reveal-overlay');
+    const stalledTimer = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 120_000)?.[0];
+    expect(stalledTimer).toBeTypeOf('function');
+
+    act(() => (stalledTimer as () => void)());
+
+    expect(within(overlay).getByText('Access setup stalled')).toBeInTheDocument();
+    const retry = within(overlay).getByRole('button', { name: 'Retry access setup' });
+    expect(retry).toBeEnabled();
+
+    await user.click(retry);
+    await waitFor(() => {
+      expect(within(overlay).getByText('Setting up access')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps navigation blocked when the resource is visible but creator access has not converged', async () => {
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({
+          deployments: [
+            {
+              id: 'dep-new',
+              name: 'my-agent',
+              display_name: 'My Agent',
+              account_name: 'testuser',
+              build_id: 'b1',
+              namespace: 'ns-1',
+              status: 'Running',
+              access_ready: false,
+              created_at: '2025-04-01T00:00:00Z',
+            },
+          ],
+          count: 1,
+        }),
+      ),
+    );
+
+    renderDashboardWithReveal({
+      revealDeploymentId: 'dep-new',
+      revealAgentName: 'my-agent',
+      revealDisplayName: 'My Agent',
+      revealAccount: 'testuser',
+      revealAvatarUrl: null,
+    });
+
+    const overlay = await screen.findByTestId('live-reveal-overlay');
+    expect(within(overlay).getByText('Setting up access')).toBeInTheDocument();
+    expect(within(overlay).getByRole('button', { name: 'View deployment' })).toBeDisabled();
+    expect(document.querySelectorAll('[data-deployment-id="dep-new"]')).toHaveLength(1);
   });
 
   it('keeps location state display_name even after deployment query loads', async () => {
@@ -399,6 +571,26 @@ describe('reveal overlay after deploy', () => {
 
   it('navigates to deployment detail when view deployment is clicked', async () => {
     const user = userEvent.setup();
+    server.use(
+      http.get('/api/v1/me/deployments', () =>
+        userDeployments({
+          deployments: [
+            {
+              id: 'dep-new',
+              name: 'my-agent',
+              display_name: 'My Agent',
+              account_name: 'testuser',
+              build_id: 'b1',
+              namespace: 'ns-1',
+              status: 'Running',
+              access_ready: true,
+              created_at: '2025-04-01T00:00:00Z',
+            },
+          ],
+          count: 1,
+        }),
+      ),
+    );
 
     renderDashboardWithReveal({
       revealDeploymentId: 'dep-new',
@@ -407,11 +599,12 @@ describe('reveal overlay after deploy', () => {
       revealAvatarUrl: null,
     });
 
+    const overlay = await screen.findByTestId('live-reveal-overlay');
     await waitFor(() => {
-      expect(screen.getByTestId('live-reveal-overlay')).toBeInTheDocument();
+      expect(within(overlay).getByRole('button', { name: /view deployment/i })).toBeEnabled();
     });
 
-    await user.click(screen.getByRole('button', { name: /view deployment/i }));
+    await user.click(within(overlay).getByRole('button', { name: /view deployment/i }));
 
     await waitFor(() => {
       expect(screen.getByTestId('deployment-detail')).toBeInTheDocument();

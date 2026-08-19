@@ -677,9 +677,14 @@ func (s *AccountStore) RemoveMember(accountID, userID string) error {
 
 // GetMember retrieves a single account member.
 func (s *AccountStore) GetMember(accountID, userID string) (*AccountMember, error) {
+	return s.GetMemberContext(context.Background(), accountID, userID)
+}
+
+// GetMemberContext retrieves a single account member with request cancellation.
+func (s *AccountStore) GetMemberContext(ctx context.Context, accountID, userID string) (*AccountMember, error) {
 	var m AccountMember
 	var wid sql.NullString
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT am.account_id, am.user_id, mw.workos_membership_id, am.created_at
 		FROM account_members am
 		LEFT JOIN account_member_workos mw ON mw.account_id = am.account_id AND mw.user_id = am.user_id

@@ -37,6 +37,10 @@ export function useUserDeployments(
   scope: UserResourceScopeSelection,
   params: UserResourceListParams = {},
   enabled = true,
+  options?: {
+    pendingDeploymentId?: string;
+    pendingAccessPollInterval?: number | false;
+  },
 ) {
   const api = useApiClient();
   const listParams = { ...params, limit: USER_DEPLOYMENTS_PAGE_SIZE };
@@ -52,6 +56,16 @@ export function useUserDeployments(
     staleTime: USER_RESOURCE_STALE_TIME_MS,
     refetchInterval: (query) => {
       const pages = query.state.data?.pages ?? [];
+      const pendingDeploymentId = options?.pendingDeploymentId;
+      const pendingDeployment = pendingDeploymentId
+        ? pages.flatMap((page) => page.deployments).find((deployment) => deployment.id === pendingDeploymentId)
+        : undefined;
+      if (
+        pendingDeploymentId
+        && (!pendingDeployment || pendingDeployment.access_ready === false)
+      ) {
+        return options?.pendingAccessPollInterval ?? 2000;
+      }
       const transitional = pages.some((page) =>
         page.deployments.some((deployment) =>
           ["pending", "provisioning", "deploying", "undeploying"].includes(

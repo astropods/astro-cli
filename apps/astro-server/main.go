@@ -913,6 +913,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	)
 	deploymentResourceDiscovery, _ := deploymentFGA.(authz.ResourceDiscovery)
 	deploymentDiscovery := authz.NewDeploymentDiscovery(
+		log,
 		deploymentFGA != nil && cfg.FGAEnforcementEnabled && deploymentResourceDiscovery != nil,
 		deploymentResourceDiscovery,
 		fgaExperiment,

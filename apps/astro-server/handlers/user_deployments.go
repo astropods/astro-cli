@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	userDeploymentCachePrefix  = "usr:list:deployments:v3:"
-	userDeploymentDefaultLimit = 50
-	userDeploymentMaxLimit     = 100
+	userDeploymentCachePrefix                  = "usr:list:deployments:v3:"
+	userDeploymentDefaultLimit                 = 50
+	userDeploymentMaxLimit                     = 100
+	deploymentAccessProvisioningCacheBypassTTL = 2 * time.Minute
 )
 
 // UserDeploymentsResponse is one globally ordered page across the explicitly
@@ -235,10 +236,19 @@ func ListUserDeployments(
 					ResultCount:       len(deployments),
 					NextCursorPresent: nextCursor != "",
 				},
-				RemoteCacheable: enrichmentErr == nil,
+				RemoteCacheable: enrichmentErr == nil && deploymentListRemoteCacheable(rows, time.Now()),
 			}, nil
 		},
 	})
+}
+
+func deploymentListRemoteCacheable(deployments []deploymentstore.UserDeployment, now time.Time) bool {
+	for _, deployment := range deployments {
+		if !deployment.AccessReady && now.Before(deployment.Deployment.DeployedAt.Add(deploymentAccessProvisioningCacheBypassTTL)) {
+			return false
+		}
+	}
+	return true
 }
 
 func enrichUserDeploymentRows(
@@ -359,6 +369,7 @@ func enrichUserDeploymentRows(
 		if latest, ok := deployAudit[deployment.ID]; ok {
 			deployedBy = latest.ActorID
 		}
+		accessReady := row.AccessReady
 		result = append(result, AgentDeploymentSummary{
 			ID:                     base.ID,
 			Name:                   base.Name,
@@ -375,6 +386,7 @@ func enrichUserDeploymentRows(
 			CreatedAt:              deployment.DeployedAt.Format(time.RFC3339),
 			UpdatedAt:              updatedAt,
 			DeployedBy:             deployedBy,
+			AccessReady:            &accessReady,
 		})
 	}
 	return result, enrichmentErr

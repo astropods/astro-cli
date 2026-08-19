@@ -21,6 +21,8 @@ type concurrentDecisionLog struct {
 	info     int
 	warns    int
 	debugMsg string
+	warnMsg  string
+	warnArgs []any
 }
 
 func (l *concurrentDecisionLog) Debug(message string, _ ...any) {
@@ -34,10 +36,18 @@ func (l *concurrentDecisionLog) Info(string, ...any) {
 	l.info++
 	l.mu.Unlock()
 }
-func (l *concurrentDecisionLog) Warn(string, ...any) {
+func (l *concurrentDecisionLog) Warn(message string, args ...any) {
 	l.mu.Lock()
 	l.warns++
+	l.warnMsg = message
+	l.warnArgs = append([]any(nil), args...)
 	l.mu.Unlock()
+}
+
+func (l *concurrentDecisionLog) warning() (string, []any, int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.warnMsg, append([]any(nil), l.warnArgs...), l.warns
 }
 
 func TestCapabilityServiceEvaluatesCompleteCatalogFromOneEffectivePermissionList(t *testing.T) {

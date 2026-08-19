@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { RequestSparkline, ZERO_SERIES } from "@/components/RequestSparkline";
 import {
   ArrowUpRightIcon,
+  ArrowPathIcon,
   BookOpenIcon,
   CheckIcon,
   Cog6ToothIcon,
@@ -83,6 +84,13 @@ export interface DeployedAgentCardProps {
    *  configure form pre-loaded with that build — same flow as the
    *  detail page's update affordance. */
   latestBuildId?: string;
+  /** Creator-only receipt state while WorkOS registers the resource and role. */
+  accessProvisioning?: boolean;
+  /** True after access setup has exceeded the normal short convergence window. */
+  accessProvisioningDelayed?: boolean;
+  /** True after access setup exceeds the bounded automatic retry window. */
+  accessProvisioningStalled?: boolean;
+  onRetryAccess?: () => void;
   className?: string;
 }
 
@@ -369,6 +377,10 @@ export function DeployedAgentCard({
   installedAt,
   hasUpdateAvailable,
   latestBuildId,
+  accessProvisioning = false,
+  accessProvisioningDelayed = false,
+  accessProvisioningStalled = false,
+  onRetryAccess,
   className,
 }: DeployedAgentCardProps) {
   // Vertical fade: avatar tint at the top of the card, fading to the bare
@@ -415,7 +427,7 @@ export function DeployedAgentCard({
   }, [name, displayName, account, avatarUrl, installedAt, deploymentId]);
   // Card-level clicks and the Manage action share the builder-focused default:
   // the deployment history and controls page.
-  const detailPath = deploymentId
+  const detailPath = deploymentId && !accessProvisioning
     ? deploymentPath(account, deploymentId)
     : undefined;
   const copyId = () => {
@@ -473,6 +485,7 @@ export function DeployedAgentCard({
           is open). Position absolute so it overlays the card chrome instead
           of taking layout space. */}
       <div
+        hidden={accessProvisioning}
         className={cn(
           "absolute top-2 right-2 z-[3] transition-opacity duration-150",
           menuVisible ? "opacity-100" : "pointer-events-none opacity-0",
@@ -545,7 +558,22 @@ export function DeployedAgentCard({
         >
           {account}/{name}
         </Link>
-        {(hasError || hasUpdateAvailable) && (
+        {accessProvisioning && (
+          <div className="mt-1">
+            <StatusBadge
+              color={accessProvisioningStalled ? "error" : "warning"}
+              indicator
+              spinning={!accessProvisioningStalled}
+            >
+              {accessProvisioningStalled
+                ? "Access setup needs attention"
+                : accessProvisioningDelayed
+                  ? "Still setting up access"
+                  : "Setting up access"}
+            </StatusBadge>
+          </div>
+        )}
+        {!accessProvisioning && (hasError || hasUpdateAvailable) && (
           <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
             {hasError && <StatusBadge color="error">Error</StatusBadge>}
             {hasUpdateAvailable &&
@@ -571,17 +599,55 @@ export function DeployedAgentCard({
           itself isn't wrapped in a Link — the whole card is the click target
           for the default deployment detail (see `detailPath` / `handleCardClick`). */}
       <div className="relative z-[1] flex w-full flex-1 items-center justify-center">
-        <RequestSparkline
-          // When the cache hasn't populated for this deployment yet (or the
-          // entry came back without a series), render a flat zero line
-          // instead of an empty space so the layout stays consistent across
-          // cards in the same row.
-          series={requestSeries && requestSeries.length > 1 ? requestSeries : ZERO_SERIES}
-          tokenSeries={tokenSeries}
-        />
+        {accessProvisioning ? (
+          <div className="flex w-full flex-col items-center gap-2 px-2 text-center">
+            <p className="text-body-sm text-muted-foreground">
+              {accessProvisioningStalled
+                ? "We couldn’t finish setting up secure access."
+                : accessProvisioningDelayed
+                  ? "Secure access is taking longer than usual."
+                  : "Securing this deployment before it can be opened."}
+            </p>
+            {!accessProvisioningStalled && (
+              <div className="h-1 w-full max-w-36 overflow-hidden rounded-full bg-muted">
+                <div className="h-full w-1/2 rounded-full bg-warning/70 motion-safe:animate-pulse" />
+              </div>
+            )}
+          </div>
+        ) : (
+          <RequestSparkline
+            // When the cache hasn't populated for this deployment yet (or the
+            // entry came back without a series), render a flat zero line
+            // instead of an empty space so the layout stays consistent across
+            // cards in the same row.
+            series={requestSeries && requestSeries.length > 1 ? requestSeries : ZERO_SERIES}
+            tokenSeries={tokenSeries}
+          />
+        )}
       </div>
       <div className="relative z-[1] flex w-full items-center gap-2">
-        {canLaunch && deploymentId ? (
+        {accessProvisioning ? (
+          accessProvisioningStalled ? (
+            <Button
+              variant="outline"
+              className="flex-1 gap-2"
+              onClick={onRetryAccess}
+              disabled={!onRetryAccess}
+            >
+              <ArrowPathIcon className="size-4" />
+              Retry access setup
+            </Button>
+          ) : (
+            <div
+              role="status"
+              aria-label="Deployment access is being configured"
+              className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background/35 px-3 text-sm font-medium text-muted-foreground"
+            >
+              <ArrowPathIcon className="size-4 motion-safe:animate-spin" />
+              Updates automatically
+            </div>
+          )
+        ) : canLaunch && deploymentId ? (
           <>
             <TooltipProvider>
               <Tooltip>

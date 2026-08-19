@@ -12,11 +12,19 @@ export function DeploymentAgentCard({
   account,
   requestSeries,
   tokenSeries,
+  accessProvisioning,
+  accessProvisioningDelayed,
+  accessProvisioningStalled,
+  onRetryAccess,
 }: {
   deployment: AgentDeploymentSummary;
   account: string;
   requestSeries?: number[];
   tokenSeries?: number[];
+  accessProvisioning?: boolean;
+  accessProvisioningDelayed?: boolean;
+  accessProvisioningStalled?: boolean;
+  onRetryAccess?: () => void;
 }) {
   const avatarUrl = useDeploymentAvatarUrl(deployment);
   const hasMessaging = isChatListEligible(deployment);
@@ -42,6 +50,10 @@ export function DeploymentAgentCard({
       installedAt={deployment.created_at}
       hasUpdateAvailable={hasUpdateAvailable}
       latestBuildId={deployment.latest_build_id}
+      accessProvisioning={accessProvisioning}
+      accessProvisioningDelayed={accessProvisioningDelayed}
+      accessProvisioningStalled={accessProvisioningStalled}
+      onRetryAccess={onRetryAccess}
     />
   );
 }

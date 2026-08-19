@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Share2, X } from "lucide-react";
+import { ArrowRight, RefreshCw, Share2, X } from "lucide-react";
 import type { AgentDeploymentSummary } from "@/lib/api";
 import { formatDate } from "@/lib/deployment-utils";
 import { useBlueprint } from "@/api/queries/blueprints";
@@ -24,11 +24,21 @@ function capDeploymentDisplayName(name: string): string {
 export function LiveRevealOverlay({
   deployment,
   account,
+  accessReady = true,
+  accessDelayed = false,
+  accessStalled = false,
+  deploymentStatus,
+  onRetryAccess,
   onViewDeployment,
   onDismiss,
 }: {
   deployment: AgentDeploymentSummary;
   account: string;
+  accessReady?: boolean;
+  accessDelayed?: boolean;
+  accessStalled?: boolean;
+  deploymentStatus?: string;
+  onRetryAccess?: () => void;
   onViewDeployment: () => void;
   onDismiss: () => void;
 }) {
@@ -46,6 +56,22 @@ export function LiveRevealOverlay({
 
   const avatarUrl = useDeploymentAvatarUrl(deployment);
   const deploymentDisplayName = capDeploymentDisplayName(deployment.display_name ?? deployment.name);
+  const runtimeReady = ["active", "running"].includes(deploymentStatus?.toLowerCase() ?? "");
+  const fullyReady = accessReady && runtimeReady;
+  const stateLabel = accessStalled
+    ? "Access setup needs attention"
+    : !accessReady
+      ? "Setting up access"
+      : fullyReady
+        ? "Active"
+        : "Deploying";
+  const stateTitle = accessStalled
+    ? `${deploymentDisplayName} couldn’t finish access setup`
+    : !accessReady
+      ? `${deploymentDisplayName} is almost ready`
+    : fullyReady
+      ? `${deploymentDisplayName} is ready!`
+      : `${deploymentDisplayName} is deploying!`;
 
   const baseCardData = useMemo<CardData>(() => {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -113,21 +139,36 @@ export function LiveRevealOverlay({
         )}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="-mt-16 flex flex-col items-center gap-2">
-          <StatusBadge color="warning" indicator spinning>Deploying</StatusBadge>
+        <div className="flex flex-col items-center gap-2">
+          <StatusBadge
+            color={accessStalled ? "error" : fullyReady ? "success" : "warning"}
+            indicator
+            spinning={!fullyReady && !accessStalled}
+          >
+            {accessDelayed && !accessReady && !accessStalled ? "Still setting up access" : stateLabel}
+          </StatusBadge>
           <h1 className="mb-0 max-w-[min(92vw,760px)] text-[clamp(2rem,4vw,46px)] leading-[1.04] font-semibold tracking-tight text-white text-balance break-words drop-shadow-[0_2px_14px_rgba(0,0,0,0.45)] [overflow-wrap:anywhere]">
-            {deploymentDisplayName} is deploying!
+            {stateTitle}
           </h1>
+          {!accessReady && (
+            <p className="mt-2 max-w-[480px] text-sm text-white/70 dark:text-white/70">
+              {accessStalled
+                ? "We couldn’t confirm secure access. Retry the setup, or return to your agents and try again later."
+                : accessDelayed
+                  ? "Secure access is taking longer than usual. You can close this window and keep working."
+                  : "We’re securing this deployment before it can be opened."}
+            </p>
+          )}
         </div>
 
-        <div className="mt-12 flex w-[min(82vw,330px)] flex-col items-center gap-0">
+        <div className="mt-6 flex w-[min(82vw,330px,33vh)] flex-col items-center gap-0">
           {/* Hidden preload keeps the avatar URL in the browser cache so the SVG
               <image> element doesn't flicker when the card is regenerated after
               color extraction completes. */}
           <img src={avatarUrl} aria-hidden className="sr-only" alt="" />
           <div
             className={cn(
-              "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out",
+              "w-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.55)] transition-all duration-700 ease-out [&_.holo-card]:block [&_.holo-card]:w-full [&_.holo-card_svg]:h-auto [&_.holo-card_svg]:w-full",
               entered ? "translate-y-0 scale-[1.02] opacity-100" : "translate-y-4 scale-[0.98] opacity-0",
             )}
           >
@@ -140,28 +181,68 @@ export function LiveRevealOverlay({
           </div>
         </div>
 
-        <div className="mt-10 flex w-[min(82vw,330px)] flex-col items-stretch gap-2">
-          <Button
-            variant="default"
-            onClick={onViewDeployment}
-            className="w-full gap-2"
-          >
-            View deployment <ArrowRight className="size-4" />
-          </Button>
-          <ShareBadgeDropdown
-            launchName={deploymentDisplayName}
-            blueprintUrl={blueprintUrl}
-            svg={revealCardSvg}
-            downloadName={deployment.name}
-            downloadId={deployment.id}
-          >
+        <div className="mt-6 flex w-[min(82vw,330px,33vh)] flex-col items-stretch gap-2">
+          {accessStalled ? (
+            <>
+              <Button
+                variant="default"
+                onClick={onRetryAccess}
+                disabled={!onRetryAccess}
+                className="w-full gap-2"
+              >
+                Retry access setup <RefreshCw className="size-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onDismiss}
+                className="w-full border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              >
+                Back to agents
+              </Button>
+            </>
+          ) : !accessReady ? (
+            <>
+              <div
+                role="status"
+                aria-label="Deployment access is being configured"
+                className="flex min-h-10 items-center justify-center gap-2 rounded-md border border-white/25 bg-white/5 px-4 text-sm font-medium text-white/85 dark:border-white/25 dark:bg-white/5 dark:text-white/85"
+              >
+                <RefreshCw className="size-4 motion-safe:animate-spin" />
+                {accessDelayed ? "Still securing access" : "Securing deployment access"}
+              </div>
+              <Button
+                variant="outline"
+                onClick={onDismiss}
+                className="w-full border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              >
+                Back to agents
+              </Button>
+            </>
+          ) : (
             <Button
-              variant="outline"
-              className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              variant="default"
+              onClick={onViewDeployment}
+              className="w-full gap-2"
             >
-              <Share2 className="size-4" /> Share badge
+              View deployment <ArrowRight className="size-4" />
             </Button>
-          </ShareBadgeDropdown>
+          )}
+          {accessReady && !accessStalled && (
+            <ShareBadgeDropdown
+              launchName={deploymentDisplayName}
+              blueprintUrl={blueprintUrl}
+              svg={revealCardSvg}
+              downloadName={deployment.name}
+              downloadId={deployment.id}
+            >
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-white/35 bg-transparent text-white shadow-none hover:border-white/55 hover:bg-white/10 hover:text-white dark:border-white/35 dark:bg-transparent dark:hover:border-white/55 dark:hover:bg-white/10"
+              >
+                <Share2 className="size-4" /> Share badge
+              </Button>
+            </ShareBadgeDropdown>
+          )}
         </div>
       </div>
     </div>

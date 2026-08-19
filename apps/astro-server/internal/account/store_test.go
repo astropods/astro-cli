@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -261,6 +262,19 @@ func TestGetMember_Found(t *testing.T) {
 	}
 	if m.WorkOSMembershipID != "wm-1" {
 		t.Errorf("expected workos_membership_id 'wm-1', got %q", m.WorkOSMembershipID)
+	}
+}
+
+func TestGetMemberContextHonorsCancellation(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close() //nolint:errcheck
+	store := NewAccountStore(db)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := store.GetMemberContext(ctx, "acct-1", "user-1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetMemberContext() error = %v, want context.Canceled", err)
 	}
 }
 

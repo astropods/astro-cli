@@ -46,3 +46,35 @@ export const Default: Story = {
     onViewDeployment: () => {},
   },
 };
+
+export const SettingUpAccess: Story = {
+  args: {
+    ...Default.args,
+    accessReady: false,
+  },
+};
+
+export const DelayedAccess: Story = {
+  args: {
+    ...Default.args,
+    accessReady: false,
+    accessDelayed: true,
+  },
+};
+
+export const AccessSetupNeedsAttention: Story = {
+  args: {
+    ...Default.args,
+    accessReady: false,
+    accessStalled: true,
+    onRetryAccess: () => {},
+  },
+};
+
+export const Active: Story = {
+  args: {
+    ...Default.args,
+    accessReady: true,
+    deploymentStatus: "Running",
+  },
+};

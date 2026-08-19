@@ -14,7 +14,10 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-const deploymentDiscoveryCacheTTL = 3 * time.Second
+const (
+	deploymentDiscoveryCacheTTL = 3 * time.Second
+	deploymentDiscoveryTimeout  = 2 * time.Second
+)
 
 // DeploymentVisibility is the FGA portion of one deployment-list request.
 // Accounts absent from FGAAccountIDs retain legacy membership visibility.
@@ -32,12 +35,13 @@ type deploymentManagedAccountStore interface {
 }
 
 type deploymentDiscoveryMemberStore interface {
-	GetMember(accountID, userID string) (*account.AccountMember, error)
+	GetMemberContext(context.Context, string, string) (*account.AccountMember, error)
 }
 
 // DeploymentDiscovery resolves list visibility with one WorkOS resource-list
 // request per selected, opted-in organization rather than one check per card.
 type DeploymentDiscovery struct {
+	log        DecisionLogger
 	active     bool
 	discovery  ResourceDiscovery
 	experiment AccountExperimentGate
@@ -63,6 +67,7 @@ type deploymentDiscoveryCacheEntry struct {
 }
 
 func NewDeploymentDiscovery(
+	log DecisionLogger,
 	active bool,
 	discovery ResourceDiscovery,
 	experiment AccountExperimentGate,
@@ -70,7 +75,7 @@ func NewDeploymentDiscovery(
 	members deploymentDiscoveryMemberStore,
 ) *DeploymentDiscovery {
 	return &DeploymentDiscovery{
-		active: active, discovery: discovery, experiment: experiment, managed: managed, members: members,
+		log: log, active: active, discovery: discovery, experiment: experiment, managed: managed, members: members,
 		cache:           make(map[deploymentDiscoveryCacheKey]deploymentDiscoveryCacheEntry),
 		cacheGeneration: make(map[string]uint64),
 	}
@@ -106,9 +111,11 @@ func (d *DeploymentDiscovery) Visible(
 	if !d.Active() {
 		return DeploymentVisibility{}, nil
 	}
-	if d.discovery == nil || d.experiment == nil || d.managed == nil || d.members == nil {
+	if d.log == nil || d.discovery == nil || d.experiment == nil || d.managed == nil || d.members == nil {
 		return DeploymentVisibility{}, errors.New("deployment discovery is not configured")
 	}
+	discoveryCtx, cancel := context.WithTimeout(ctx, deploymentDiscoveryTimeout)
+	defer cancel()
 
 	accountIDs := make([]string, 0, len(accounts))
 	byID := make(map[string]account.AccountWithRole, len(accounts))
@@ -122,7 +129,7 @@ func (d *DeploymentDiscovery) Visible(
 	if len(accountIDs) == 0 {
 		return DeploymentVisibility{}, nil
 	}
-	managedIDs, err := d.managed.AccountsWithManagedDeployments(ctx, accountIDs)
+	managedIDs, err := d.managed.AccountsWithManagedDeployments(discoveryCtx, accountIDs)
 	if err != nil {
 		return DeploymentVisibility{}, fmt.Errorf("resolve FGA-managed deployment accounts: %w", err)
 	}
@@ -141,7 +148,7 @@ func (d *DeploymentDiscovery) Visible(
 			}
 		}
 	}
-	var group errgroup.Group
+	group, groupCtx := errgroup.WithContext(discoveryCtx)
 	group.SetLimit(4)
 	for _, accountID := range managedIDs {
 		acct, ok := byID[accountID]
@@ -149,14 +156,22 @@ func (d *DeploymentDiscovery) Visible(
 			continue
 		}
 		group.Go(func() error {
-			resources, enforced := d.visibleAccount(ctx, userID, acct)
+			resources, enforced, visibleErr := d.visibleAccount(groupCtx, userID, acct)
+			if visibleErr != nil {
+				return visibleErr
+			}
 			if enforced {
 				markEnforced(acct.ID, resources)
 			}
 			return nil
 		})
 	}
-	_ = group.Wait()
+	if err := group.Wait(); err != nil {
+		return DeploymentVisibility{}, fmt.Errorf("discover readable deployments: %w", err)
+	}
+	if err := discoveryCtx.Err(); err != nil {
+		return DeploymentVisibility{}, fmt.Errorf("discover readable deployments: %w", err)
+	}
 
 	visibility.FGAAccountIDs = sortedUnique(visibility.FGAAccountIDs)
 	visibility.ReadableDeploymentIDs = sortedUnique(visibility.ReadableDeploymentIDs)
@@ -169,26 +184,57 @@ func (d *DeploymentDiscovery) visibleAccount(
 	ctx context.Context,
 	userID string,
 	acct account.AccountWithRole,
-) ([]ResourceRef, bool) {
+) ([]ResourceRef, bool, error) {
 	generation := d.accountCacheGeneration(acct.ID)
 	enabled, err := d.experiment.Enabled(ctx, acct.ID)
 	if err != nil {
-		return nil, true
+		return d.failClosed(ctx, acct, "resolve organization experiment", err)
 	}
 	if !enabled {
-		return nil, false
+		return nil, false, nil
 	}
-	member, err := d.members.GetMember(acct.ID, userID)
-	if err != nil || member.WorkOSMembershipID == "" {
-		return nil, true
+	member, err := d.members.GetMemberContext(ctx, acct.ID, userID)
+	if err != nil {
+		return d.failClosed(ctx, acct, "resolve organization membership", err)
+	}
+	if member.WorkOSMembershipID == "" {
+		return d.failClosed(ctx, acct, "resolve organization membership", ErrWorkOSMembershipUnavailable)
 	}
 	resources, err := d.cachedResources(
 		ctx, acct.ID, member.WorkOSMembershipID, acct.WorkOSOrganizationID, generation,
 	)
 	if err != nil {
-		return nil, true
+		return d.failClosed(ctx, acct, "list readable deployment resources", err)
 	}
-	return resources, true
+	return resources, true, nil
+}
+
+func (d *DeploymentDiscovery) failClosed(
+	ctx context.Context,
+	acct account.AccountWithRole,
+	operation string,
+	err error,
+) ([]ResourceRef, bool, error) {
+	if deadlineErr := discoveryDeadlineError(ctx, err); deadlineErr != nil {
+		return nil, true, deadlineErr
+	}
+	d.log.Warn("Deployment visibility discovery failed closed",
+		"operation", operation,
+		"account_id", acct.ID,
+		"workos_organization_id", acct.WorkOSOrganizationID,
+		"error", err,
+	)
+	return nil, true, nil
+}
+
+func discoveryDeadlineError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 func (d *DeploymentDiscovery) cachedResources(
@@ -210,8 +256,12 @@ func (d *DeploymentDiscovery) cachedResources(
 		if resources, ok := d.cached(key); ok {
 			return resources, nil
 		}
+		// The shared lookup must outlive its initiating request so one canceled
+		// caller cannot fail every request waiting on the same flight.
+		flightCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deploymentDiscoveryTimeout)
+		defer cancel()
 		resources, err := d.discovery.ListResources(
-			ctx,
+			flightCtx,
 			membershipID,
 			ActionDeploymentRead,
 			ResourceRef{Type: ResourceOrganization, ExternalID: organizationID},

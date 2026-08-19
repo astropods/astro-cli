@@ -243,7 +243,7 @@ func TestReadableDeploymentQueriesTreatNilFGAScopeAsLegacy(t *testing.T) {
 		t.Fatalf("insert deployment FGA sync row: %v", err)
 	}
 
-	assertVisible := func(t *testing.T, fgaAccountIDs, readableDeploymentIDs []string, want bool) {
+	assertVisible := func(t *testing.T, fgaAccountIDs, readableDeploymentIDs []string, want, wantAccessReady bool) {
 		t.Helper()
 		ids, err := store.ListReadableDeploymentIDsForUser(
 			ctx, userID, []string{deployment.ID}, fgaAccountIDs, readableDeploymentIDs,
@@ -264,15 +264,38 @@ func TestReadableDeploymentQueriesTreatNilFGAScopeAsLegacy(t *testing.T) {
 		if got := len(rows) == 1 && rows[0].Deployment.ID == deployment.ID; got != want {
 			t.Fatalf("visible deployments = %v, want visible=%v", rows, want)
 		}
+		if want && rows[0].AccessReady != wantAccessReady {
+			t.Fatalf("access ready = %v, want %v", rows[0].AccessReady, wantAccessReady)
+		}
 	}
 
 	t.Run("legacy nil scope remains visible", func(t *testing.T) {
-		assertVisible(t, nil, nil, true)
+		assertVisible(t, nil, nil, true, true)
 	})
 	t.Run("enforced unreadable deployment is hidden", func(t *testing.T) {
-		assertVisible(t, []string{accountID}, nil, false)
+		assertVisible(t, []string{accountID}, nil, false, false)
 	})
-	t.Run("enforced readable deployment remains visible", func(t *testing.T) {
-		assertVisible(t, []string{accountID}, []string{deployment.ID}, true)
+	t.Run("enforced readable deployment reports access provisioning", func(t *testing.T) {
+		assertVisible(t, []string{accountID}, []string{deployment.ID}, true, false)
+	})
+	t.Run("enforced readable deployment reports converged access", func(t *testing.T) {
+		if _, err := db.ExecContext(ctx, `
+			UPDATE deployment_fga_sync
+			SET synced_state = desired_state, synced_version = desired_version
+			WHERE deployment_id = $1
+		`, deployment.ID); err != nil {
+			t.Fatalf("mark deployment FGA sync row converged: %v", err)
+		}
+		assertVisible(t, []string{accountID}, []string{deployment.ID}, true, true)
+	})
+	t.Run("non-registered intent uses legacy visibility and is ready", func(t *testing.T) {
+		if _, err := db.ExecContext(ctx, `
+			UPDATE deployment_fga_sync
+			SET desired_state = 'deleted'
+			WHERE deployment_id = $1
+		`, deployment.ID); err != nil {
+			t.Fatalf("mark deployment FGA sync row deleted: %v", err)
+		}
+		assertVisible(t, []string{accountID}, nil, true, true)
 	})
 }

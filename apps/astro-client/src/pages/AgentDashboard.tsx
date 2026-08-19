@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
 import { loadUserResourceScoped } from "@/lib/api.server";
@@ -22,6 +22,9 @@ import type { AgentDeploymentSummary, AvatarColors } from "@/lib/api";
 export const meta: Route.MetaFunction = () => [{ title: "Agents | Astro" }];
 export const shouldRevalidate = shouldRevalidateUserResourceList;
 
+const ACCESS_PROVISIONING_DELAYED_MS = 10_000;
+const ACCESS_PROVISIONING_STALLED_MS = 120_000;
+
 // Inline (not loadAccountScoped) to prime the deployments cache before render.
 export async function loader({ request }: Route.LoaderArgs) {
   return loadUserResourceScoped(request, (api, scope) =>
@@ -37,12 +40,13 @@ function AgentDashboardInner() {
   const navigate = useNavigate();
 
   const [revealDeployment] = useState<AgentDeploymentSummary | null>(() => {
-    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAvatarColors?: AvatarColors } | null;
+    const rs = location.state as { revealDeploymentId?: string; revealAgentName?: string; revealDisplayName?: string; revealAccount?: string; revealAvatarColors?: AvatarColors } | null;
     if (!rs?.revealDeploymentId || !rs.revealAgentName) return null;
     return {
       id: rs.revealDeploymentId,
       name: rs.revealAgentName,
       display_name: rs.revealDisplayName ?? rs.revealAgentName,
+      account_name: rs.revealAccount,
       avatar_colors: rs.revealAvatarColors,
       build_id: "",
       created_at: new Date().toISOString(),
@@ -60,7 +64,17 @@ function AgentDashboardInner() {
     [accountFilters, accounts],
   );
   const { search, setSearch, params } = useUserResourceSearch();
-  const deploymentsQuery = useUserDeployments(scope, params, isAuthenticated);
+  const [accessProvisioningDelayed, setAccessProvisioningDelayed] = useState(false);
+  const [accessProvisioningStalled, setAccessProvisioningStalled] = useState(false);
+  const [accessProvisioningAttempt, setAccessProvisioningAttempt] = useState(0);
+  const deploymentsQuery = useUserDeployments(scope, params, isAuthenticated, {
+    pendingDeploymentId: revealDeployment?.id,
+    pendingAccessPollInterval: accessProvisioningStalled
+      ? false
+      : accessProvisioningDelayed
+        ? 10_000
+        : 2000,
+  });
   const deploymentPages = deploymentsQuery.data?.pages ?? [];
   const pagination = useCursorPagination({
     pages: deploymentPages,
@@ -69,8 +83,58 @@ function AgentDashboardInner() {
     fetchNextPage: deploymentsQuery.fetchNextPage,
     resetKey: JSON.stringify([scope.all, scope.accounts, params]),
   });
-  const deployments = pagination.page?.deployments ?? [];
+  const listedDeployments = pagination.page?.deployments ?? [];
+  const resolvedRevealDeployment = revealDeployment
+    ? deploymentPages.flatMap((page) => page.deployments).find((deployment) => deployment.id === revealDeployment.id)
+    : undefined;
+  const accessProvisioning = !!revealDeployment
+    && (!resolvedRevealDeployment || resolvedRevealDeployment.access_ready === false);
+  useEffect(() => {
+    if (!accessProvisioning) {
+      setAccessProvisioningDelayed(false);
+      setAccessProvisioningStalled(false);
+      return;
+    }
+    setAccessProvisioningDelayed(false);
+    setAccessProvisioningStalled(false);
+    const delayedTimeout = window.setTimeout(
+      () => setAccessProvisioningDelayed(true),
+      ACCESS_PROVISIONING_DELAYED_MS,
+    );
+    const stalledTimeout = window.setTimeout(
+      () => setAccessProvisioningStalled(true),
+      ACCESS_PROVISIONING_STALLED_MS,
+    );
+    return () => {
+      window.clearTimeout(delayedTimeout);
+      window.clearTimeout(stalledTimeout);
+    };
+  }, [accessProvisioning, accessProvisioningAttempt]);
 
+  const revealAccount = revealDeployment?.account_name || userAccount;
+  const revealQuery = params.q?.toLowerCase() ?? "";
+  const revealMatchesScope = scope.accounts.includes(revealAccount);
+  const revealMatchesSearch =
+    !revealQuery ||
+    (!!revealDeployment &&
+      (revealDeployment.name.toLowerCase().includes(revealQuery) ||
+        revealDeployment.display_name?.toLowerCase().includes(revealQuery)));
+  const showSyntheticReveal =
+    !resolvedRevealDeployment &&
+    !!revealDeployment &&
+    pagination.currentPage === 1 &&
+    revealMatchesScope &&
+    revealMatchesSearch;
+  const deployments = showSyntheticReveal && revealDeployment
+    ? [revealDeployment, ...listedDeployments]
+    : listedDeployments;
+
+  const retryAccessProvisioning = () => {
+    setAccessProvisioningDelayed(false);
+    setAccessProvisioningStalled(false);
+    setAccessProvisioningAttempt((attempt) => attempt + 1);
+    void deploymentsQuery.refetch();
+  };
 
   const clearRevealState = () => {
     navigate(location.pathname + location.search, { replace: true, state: {} });
@@ -109,20 +173,29 @@ function AgentDashboardInner() {
             pagination.currentPage,
             deploymentsQuery.isPending,
           ])}
-          skeletonDeploymentId={showReveal ? revealDeployment?.id ?? null : null}
+          accessProvisioningDeploymentId={accessProvisioning ? revealDeployment?.id ?? null : null}
+          accessProvisioningDelayed={accessProvisioningDelayed}
+          accessProvisioningStalled={accessProvisioningStalled}
+          onRetryAccessProvisioning={retryAccessProvisioning}
         />
       </PageContainer>
 
       {showReveal && revealDeployment && (
         <LiveRevealOverlay
           deployment={revealDeployment}
-          account={userAccount}
+          account={revealDeployment.account_name || userAccount}
+          accessReady={!accessProvisioning}
+          accessDelayed={accessProvisioningDelayed}
+          accessStalled={accessProvisioningStalled}
+          deploymentStatus={resolvedRevealDeployment?.status}
+          onRetryAccess={retryAccessProvisioning}
           onDismiss={() => {
             setShowReveal(false);
             clearRevealState();
           }}
           onViewDeployment={() => {
-            const targetPath = deploymentPath(userAccount, revealDeployment.id);
+            if (accessProvisioning) return;
+            const targetPath = deploymentPath(revealDeployment.account_name || userAccount, revealDeployment.id);
             const backPath = location.pathname + location.search;
             window.history.replaceState({}, "", location.pathname + location.search);
             navigate(targetPath, { state: { fromAgents: true, backPath } });

@@ -12,7 +12,7 @@ import (
 
 var userDeploymentTestColumns = []string{
 	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-	"status", "error_message", "deployed_at", "avatar_colors", "account_name",
+	"status", "error_message", "deployed_at", "avatar_colors", "account_name", "access_ready",
 }
 
 func TestListVisibleDeploymentsForUserPageKeepsOneQueryForManyMemberships(t *testing.T) {
@@ -75,7 +75,7 @@ func TestListVisibleDeploymentsForUserPageUsesGlobalKeysetBoundary(t *testing.T)
 		).
 		WillReturnRows(sqlmock.NewRows(userDeploymentTestColumns).AddRow(
 			"dep-1", "11111111-1111-1111-1111-111111111111", nil, "agent", "build-1", "ns", "Agent",
-			"active", nil, rowTime, nil, "alpha",
+			"active", nil, rowTime, nil, "alpha", true,
 		))
 
 	rows, err := store.ListVisibleDeploymentsForUserPage(
@@ -91,7 +91,7 @@ func TestListVisibleDeploymentsForUserPageUsesGlobalKeysetBoundary(t *testing.T)
 	if err != nil {
 		t.Fatalf("ListVisibleDeploymentsForUserPage: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Deployment.ID != "dep-1" || rows[0].AccountName != "alpha" {
+	if len(rows) != 1 || rows[0].Deployment.ID != "dep-1" || rows[0].AccountName != "alpha" || !rows[0].AccessReady {
 		t.Fatalf("rows = %#v, want dep-1 in alpha", rows)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -149,6 +149,45 @@ func TestUserDeploymentsRequiresExplicitScope(t *testing.T) {
 	}
 }
 
+func TestDeploymentListRemoteCacheableBoundsProvisioningBypass(t *testing.T) {
+	now := time.Date(2026, time.August, 19, 12, 0, 0, 0, time.UTC)
+	deployment := func(accessReady bool, deployedAt time.Time) deploymentstore.UserDeployment {
+		return deploymentstore.UserDeployment{
+			Deployment:  &deploymentstore.Deployment{DeployedAt: deployedAt},
+			AccessReady: accessReady,
+		}
+	}
+
+	if !deploymentListRemoteCacheable([]deploymentstore.UserDeployment{deployment(true, now)}, now) {
+		t.Fatal("converged deployment page should be cacheable")
+	}
+	if deploymentListRemoteCacheable([]deploymentstore.UserDeployment{deployment(true, now), deployment(false, now.Add(-time.Minute))}, now) {
+		t.Fatal("provisioning deployment page should not be remotely cached")
+	}
+	if !deploymentListRemoteCacheable([]deploymentstore.UserDeployment{deployment(false, now.Add(-3*time.Minute))}, now) {
+		t.Fatal("stalled provisioning should not disable remote caching indefinitely")
+	}
+}
+
+func TestAgentDeploymentSummaryOnlySerializesComputedAccessReadiness(t *testing.T) {
+	withoutReadiness, err := json.Marshal(AgentDeploymentSummary{ID: "dep-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(withoutReadiness), "access_ready") {
+		t.Fatalf("uncomputed summary = %s", withoutReadiness)
+	}
+
+	pending := false
+	withReadiness, err := json.Marshal(AgentDeploymentSummary{ID: "dep-1", AccessReady: &pending})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(withReadiness), `"access_ready":false`) {
+		t.Fatalf("computed summary = %s", withReadiness)
+	}
+}
+
 func TestUserDeploymentsReturnsOneGlobalMembershipGuardedPage(t *testing.T) {
 	cache := &recordingCache{entries: map[string][]byte{}}
 	router, mock := setupCrossAccountDeploymentRouter(t, cache)

@@ -259,12 +259,15 @@ flowchart TD
 ### PR8.2 — Read visibility and discovery
 
 - Use WorkOS resource discovery to return only deployments for which the current membership has `deployment:read`.
+- Resolve and cache each WorkOS organization's immutable authorization-root resource ID, then scope discovery with that `parent_resource_id`.
 - Enforce the same boundary on every cataloged deployment control-plane read so hidden deployments cannot be opened by URL or recovered through status, files, logs, observability, configuration, network, or summary endpoints.
 - Avoid one WorkOS check per deployment; discover accessible resource IDs once and filter Astro's database result.
+- Coalesce concurrent discovery for the same membership and organization behind one bounded WorkOS lookup that is independent of the initiating HTTP request's cancellation.
 - Run discovery before list-cache lookup and include the live authorization set in the cache identity so revocation cannot reuse another permission state's cached cards.
 - Keep model-owned evaluation routes and chat/messaging data-plane routes on their explicitly separate authorization paths; `deployment:read` is not silently made their final policy here.
 - Preserve current behavior for personal accounts, opted-out organizations, and the global kill switch.
 - Preserve legacy visibility for historical deployments without a lifecycle row until backfill. Once a deployment enters the lifecycle ledger, pending synchronization fails closed instead of briefly exposing it through organization membership.
+- Follow up by authorizing revision history through the currently active deployment's `deployment:read` capability. Return not found when no active deployment exists instead of introducing discovery for deleted WorkOS resources.
 
 ### PR8.3 — Deployment access APIs
 

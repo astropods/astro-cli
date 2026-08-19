@@ -160,6 +160,7 @@ export default function DeployBlueprint({ loaderData }: Route.ComponentProps) {
           revealDeploymentId: result.deployment_id,
           revealAgentName: agent.name,
           revealDisplayName: form.deployName,
+          revealAccount: form.targetAccount,
           revealAvatarUrl,
           revealAvatarColors,
         },

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
@@ -20,12 +22,18 @@ type discoveryMemberStore struct {
 	members map[string]*account.AccountMember
 }
 
-func (s discoveryMemberStore) GetMember(accountID, userID string) (*account.AccountMember, error) {
+func (s discoveryMemberStore) GetMemberContext(_ context.Context, accountID, userID string) (*account.AccountMember, error) {
 	member, ok := s.members[accountID+"/"+userID]
 	if !ok {
 		return nil, errors.New("member not found")
 	}
 	return member, nil
+}
+
+type discoveryMemberStoreFunc func(context.Context, string, string) (*account.AccountMember, error)
+
+func (f discoveryMemberStoreFunc) GetMemberContext(ctx context.Context, accountID, userID string) (*account.AccountMember, error) {
+	return f(ctx, accountID, userID)
 }
 
 func TestDeploymentVisibilityEnforcesUnsortedAccountIDs(t *testing.T) {
@@ -45,6 +53,7 @@ func TestDeploymentDiscoverySkipsManagedLookupWithoutWorkOSOrganizations(t *test
 
 	managedCalls := 0
 	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
 		true,
 		&authz.FakeFGA{},
 		experimentGateFunc(func(context.Context, string) (bool, error) {
@@ -84,6 +93,7 @@ func TestDeploymentDiscoveryListsOncePerManagedOptedInOrganization(t *testing.T)
 		}, nil
 	}}
 	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
 		true,
 		fga,
 		experimentGateFunc(func(_ context.Context, accountID string) (bool, error) {
@@ -128,6 +138,7 @@ func TestDeploymentDiscoveryCachesPollingBurstsAndInvalidatesExperimentChanges(t
 		return []authz.ResourceRef{authz.DeploymentResource("dep_123")}, nil
 	}}
 	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
 		true,
 		fga,
 		experimentGateFunc(func(context.Context, string) (bool, error) {
@@ -182,6 +193,7 @@ func TestDeploymentDiscoveryFailsClosedOnlyForFailedOrganization(t *testing.T) {
 		return []authz.ResourceRef{authz.DeploymentResource("dep_healthy")}, nil
 	}}
 	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
 		true,
 		fga,
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
@@ -208,10 +220,209 @@ func TestDeploymentDiscoveryFailsClosedOnlyForFailedOrganization(t *testing.T) {
 	}
 }
 
+func TestDeploymentDiscoveryLogsPerOrganizationFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		stage     string
+		wantError string
+	}{
+		{name: "experiment", stage: "experiment", wantError: "experiment unavailable"},
+		{name: "membership", stage: "membership", wantError: "member not found"},
+		{name: "empty membership id", stage: "empty_membership", wantError: authz.ErrWorkOSMembershipUnavailable.Error()},
+		{name: "resources", stage: "resources", wantError: "WorkOS unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			log := &concurrentDecisionLog{}
+			fga := &authz.FakeFGA{ListResourcesFunc: func(context.Context, string, authz.Action, authz.ResourceRef) ([]authz.ResourceRef, error) {
+				if test.stage == "resources" {
+					return nil, errors.New(test.wantError)
+				}
+				return nil, nil
+			}}
+			members := map[string]*account.AccountMember{
+				"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
+			}
+			if test.stage == "membership" {
+				members = nil
+			} else if test.stage == "empty_membership" {
+				members["acct_123/user_123"].WorkOSMembershipID = ""
+			}
+			discovery := authz.NewDeploymentDiscovery(
+				log,
+				true,
+				fga,
+				experimentGateFunc(func(context.Context, string) (bool, error) {
+					if test.stage == "experiment" {
+						return false, errors.New(test.wantError)
+					}
+					return true, nil
+				}),
+				managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
+					return []string{"acct_123"}, nil
+				}),
+				discoveryMemberStore{members: members},
+			)
+
+			visibility, err := discovery.Visible(context.Background(), "user_123", []account.AccountWithRole{
+				{ID: "acct_123", Type: "organization", WorkOSOrganizationID: "org_123"},
+			})
+			if err != nil || !visibility.EnforcesAccount("acct_123") || len(visibility.ReadableDeploymentIDs) != 0 {
+				t.Fatalf("Visible() = (%#v, %v), want organization-only fail closed", visibility, err)
+			}
+			message, args, warns := log.warning()
+			fields := make(map[string]any, len(args)/2)
+			for index := 0; index+1 < len(args); index += 2 {
+				key, _ := args[index].(string)
+				fields[key] = args[index+1]
+			}
+			if warns != 1 || message != "Deployment visibility discovery failed closed" ||
+				fields["account_id"] != "acct_123" || fields["workos_organization_id"] != "org_123" ||
+				fields["error"] == nil || fields["error"].(error).Error() != test.wantError {
+				t.Fatalf("warning = (%q, %#v, %d)", message, fields, warns)
+			}
+		})
+	}
+}
+
+func TestDeploymentDiscoveryBoundsWorkOSFanout(t *testing.T) {
+	t.Parallel()
+
+	var deadline time.Time
+	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
+		true,
+		&authz.FakeFGA{ListResourcesFunc: func(ctx context.Context, _ string, _ authz.Action, _ authz.ResourceRef) ([]authz.ResourceRef, error) {
+			deadline, _ = ctx.Deadline()
+			return nil, nil
+		}},
+		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
+		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
+			return []string{"acct_123"}, nil
+		}),
+		discoveryMemberStore{members: map[string]*account.AccountMember{
+			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
+		}},
+	)
+
+	started := time.Now()
+	_, err := discovery.Visible(context.Background(), "user_123", []account.AccountWithRole{
+		{ID: "acct_123", Type: "organization", WorkOSOrganizationID: "org_123"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := deadline.Sub(started)
+	if deadline.IsZero() || budget < time.Second || budget > 2100*time.Millisecond {
+		t.Fatalf("WorkOS discovery deadline budget = %v, want at most two seconds", budget)
+	}
+}
+
+func TestDeploymentDiscoveryDeadlineIsRequestWideFailure(t *testing.T) {
+	t.Parallel()
+
+	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
+		true,
+		&authz.FakeFGA{ListResourcesFunc: func(ctx context.Context, _ string, _ authz.Action, _ authz.ResourceRef) ([]authz.ResourceRef, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}},
+		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
+		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
+			return []string{"acct_123"}, nil
+		}),
+		discoveryMemberStore{members: map[string]*account.AccountMember{
+			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
+		}},
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	visibility, err := discovery.Visible(ctx, "user_123", []account.AccountWithRole{
+		{ID: "acct_123", Type: "organization", WorkOSOrganizationID: "org_123"},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) || len(visibility.FGAAccountIDs) != 0 {
+		t.Fatalf("Visible() = (%#v, %v), want empty request-wide deadline failure", visibility, err)
+	}
+}
+
+func TestDeploymentDiscoveryCanceledLeaderDoesNotFailFollower(t *testing.T) {
+	t.Parallel()
+
+	type requestKey struct{}
+	type result struct {
+		visibility authz.DeploymentVisibility
+		err        error
+	}
+
+	workOSStarted := make(chan struct{})
+	followerResolvedMembership := make(chan struct{})
+	releaseWorkOS := make(chan struct{})
+	var workOSCalls atomic.Int32
+	discovery := authz.NewDeploymentDiscovery(
+		&concurrentDecisionLog{},
+		true,
+		&authz.FakeFGA{ListResourcesFunc: func(ctx context.Context, _ string, _ authz.Action, _ authz.ResourceRef) ([]authz.ResourceRef, error) {
+			if workOSCalls.Add(1) == 1 {
+				close(workOSStarted)
+			}
+			<-releaseWorkOS
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return []authz.ResourceRef{authz.DeploymentResource("dep_123")}, nil
+		}},
+		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
+		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
+			return []string{"acct_123"}, nil
+		}),
+		discoveryMemberStoreFunc(func(ctx context.Context, accountID, userID string) (*account.AccountMember, error) {
+			if ctx.Value(requestKey{}) == "follower" {
+				close(followerResolvedMembership)
+			}
+			return &account.AccountMember{AccountID: accountID, UserID: userID, WorkOSMembershipID: "om_123"}, nil
+		}),
+	)
+	accounts := []account.AccountWithRole{{
+		ID: "acct_123", Type: "organization", WorkOSOrganizationID: "org_123",
+	}}
+
+	leaderCtx, cancelLeader := context.WithCancel(context.WithValue(context.Background(), requestKey{}, "leader"))
+	leaderDone := make(chan result, 1)
+	go func() {
+		visibility, err := discovery.Visible(leaderCtx, "user_123", accounts)
+		leaderDone <- result{visibility: visibility, err: err}
+	}()
+	<-workOSStarted
+	cancelLeader()
+
+	followerDone := make(chan result, 1)
+	go func() {
+		followerCtx := context.WithValue(context.Background(), requestKey{}, "follower")
+		visibility, err := discovery.Visible(followerCtx, "user_123", accounts)
+		followerDone <- result{visibility: visibility, err: err}
+	}()
+	<-followerResolvedMembership
+	time.Sleep(10 * time.Millisecond)
+	close(releaseWorkOS)
+
+	follower := <-followerDone
+	if follower.err != nil || !reflect.DeepEqual(follower.visibility.ReadableDeploymentIDs, []string{"dep_123"}) {
+		t.Fatalf("follower Visible() = (%#v, %v)", follower.visibility, follower.err)
+	}
+	if calls := workOSCalls.Load(); calls != 1 {
+		t.Fatalf("WorkOS calls = %d, want one shared lookup", calls)
+	}
+	<-leaderDone
+}
+
 func TestDeploymentDiscoveryInactiveDoesNoWork(t *testing.T) {
 	t.Parallel()
 
-	discovery := authz.NewDeploymentDiscovery(false, nil, nil, nil, nil)
+	discovery := authz.NewDeploymentDiscovery(nil, false, nil, nil, nil, nil)
 	visible, err := discovery.Visible(context.Background(), "user_123", []account.AccountWithRole{{ID: "acct_123"}})
 	if err != nil || len(visible.FGAAccountIDs) != 0 {
 		t.Fatalf("Visible() = %#v, %v", visible, err)
