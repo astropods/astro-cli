@@ -21,6 +21,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -321,9 +322,12 @@ function InvoicePdfModal({
               <StatusBadge color={invoiceStatusColor(invoice.status)}>{invoice.status ?? "—"}</StatusBadge>
             )}
           </DialogTitle>
+          <DialogDescription>
+            {invoice ? `Invoice ${invoicePeriod(invoice)}, rendered as a PDF.` : "Invoice PDF."}
+          </DialogDescription>
         </DialogHeader>
         {isLoading && <TabLoading />}
-        {error && <EmptyState message="Couldn't load the invoice PDF." />}
+        {error && <EmptyState message="No PDF is available for this invoice." />}
         {url && (
           <iframe
             src={url}

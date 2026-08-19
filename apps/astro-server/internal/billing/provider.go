@@ -20,9 +20,10 @@ import (
 // backend). Callers treat it as "billing not available" rather than a failure.
 var ErrBillingUnavailable = errors.New("billing: not available")
 
-// ErrInvoiceNotAvailable is returned by InvoicePDF when the invoice has no PDF
-// yet (e.g. a draft invoice that isn't finalized). Callers treat it as a 404,
-// not a server error.
+// ErrInvoiceNotAvailable is returned by InvoicePDF when the provider holds no
+// PDF for the invoice. A draft invoice is the common case, but a finalized one
+// can lack a PDF too, so callers report absence rather than a stage. Treated as
+// a 404, not a server error.
 var ErrInvoiceNotAvailable = errors.New("billing: invoice not available")
 
 // UsageEvent is a single metered usage record. TransactionID is the idempotency

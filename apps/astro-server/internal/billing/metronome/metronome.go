@@ -450,7 +450,7 @@ func (p *Provider) InvoicePDF(ctx context.Context, customerID, invoiceID string)
 		InvoiceID:  invoiceID,
 	})
 	if err != nil {
-		// Draft/non-finalized invoices have no PDF yet → treat as not available.
+		// No stored PDF: a draft, or a finalized invoice Metronome never rendered.
 		var apiErr *metronome.Error
 		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 			return nil, billing.ErrInvoiceNotAvailable

@@ -249,7 +249,7 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 				return
 			}
 			if errors.Is(err, billing.ErrInvoiceNotAvailable) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "invoice is not finalized yet"})
+				c.JSON(http.StatusNotFound, gin.H{"error": "no PDF is available for this invoice"})
 				return
 			}
 			log.Error("Failed to load invoice PDF", "error", err, "account_id", acct.ID, "invoice_id", invoiceID)
