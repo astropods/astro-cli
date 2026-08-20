@@ -138,6 +138,7 @@ func TestAccessServiceListAccessResolvesScopeOnce(t *testing.T) {
 			return "org_123", false, nil
 		}),
 		fakeAccessMembers{},
+		nil,
 		&fakeAccessIntents{list: func(string, authz.ResourceRef) ([]authz.AccessIntent, error) {
 			return intents, nil
 		}},
@@ -245,12 +246,70 @@ func TestAccessServiceDisabledDoesNotReachWorkOS(t *testing.T) {
 		accountResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) { return "acct_123", false, nil }),
 		organizationResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) { return "org_123", false, nil }),
 		fakeAccessMembers{},
+		nil,
 		&fakeAccessIntents{},
 	)
 	_, err := service.List(context.Background(), authz.DeploymentResource("dep_123"))
 	if !errors.Is(err, authz.ErrAccessManagementUnavailable) {
 		t.Fatalf("List() error = %v, want ErrAccessManagementUnavailable", err)
 	}
+}
+
+func TestAccessServiceRecordsGroupIntentInResourceOrganization(t *testing.T) {
+	t.Parallel()
+
+	resource := authz.DeploymentResource("dep_123")
+	service := newGroupAccessService(t, &authz.FakeGroups{GetGroupFunc: func(_ context.Context, organizationID, groupID string) (authz.Group, error) {
+		return authz.Group{ID: groupID, OrganizationID: organizationID}, nil
+	}})
+
+	intent, changed, err := service.Assign(context.Background(), resource, authz.AssignmentSubjectGroup, "group_123", authz.AccessLevelViewer)
+	if err != nil || !changed || intent.Subject != authz.GroupAssignmentSubject("group_123") || intent.DesiredRole != authz.RoleDeploymentViewer {
+		t.Fatalf("Assign() intent=%+v changed=%t error=%v", intent, changed, err)
+	}
+}
+
+func TestAccessServiceRejectsGroupOutsideResourceOrganization(t *testing.T) {
+	t.Parallel()
+
+	service := newGroupAccessService(t, &authz.FakeGroups{GetGroupFunc: func(context.Context, string, string) (authz.Group, error) {
+		return authz.Group{ID: "group_123", OrganizationID: "org_other"}, nil
+	}})
+
+	_, _, err := service.Assign(context.Background(), authz.DeploymentResource("dep_123"), authz.AssignmentSubjectGroup, "group_123", authz.AccessLevelViewer)
+	if !errors.Is(err, authz.ErrResourceNotVisible) {
+		t.Fatalf("Assign() error=%v, want ErrResourceNotVisible", err)
+	}
+}
+
+func TestAccessServicePreservesGroupLookupFailure(t *testing.T) {
+	t.Parallel()
+
+	want := errors.New("WorkOS unavailable")
+	service := newGroupAccessService(t, &authz.FakeGroups{GetGroupFunc: func(context.Context, string, string) (authz.Group, error) {
+		return authz.Group{}, want
+	}})
+
+	_, _, err := service.Assign(context.Background(), authz.DeploymentResource("dep_123"), authz.AssignmentSubjectGroup, "group_123", authz.AccessLevelViewer)
+	if !errors.Is(err, want) {
+		t.Fatalf("Assign() error=%v, want wrapped lookup failure", err)
+	}
+}
+
+func newGroupAccessService(t *testing.T, groups authz.Groups) *authz.AccessService {
+	t.Helper()
+	intents := &fakeAccessIntents{record: func(intent authz.AccessIntent) (authz.AccessIntent, bool, error) {
+		return intent, true, nil
+	}}
+	return authz.NewAccessService(
+		&authz.FakeFGA{},
+		enabledResourceGate,
+		accountResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) { return "acct_123", false, nil }),
+		organizationResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) { return "org_123", false, nil }),
+		fakeAccessMembers{},
+		groups,
+		intents,
+	)
 }
 
 func newAccessService(t *testing.T, fga *authz.FakeFGA, members fakeAccessMembers) *authz.AccessService {
@@ -276,6 +335,7 @@ func newAccessServiceWithIntents(t *testing.T, fga *authz.FakeFGA, members fakeA
 			return "org_123", false, nil
 		}),
 		members,
+		nil,
 		intents,
 	)
 }

@@ -959,12 +959,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		authz.ActionDeploymentRead,
 	)
 	accessAssignments, _ := deploymentFGA.(authz.AccessAssignments)
+	accessGroups, _ := deploymentFGA.(authz.Groups)
 	deploymentAccess := authz.NewAccessService(
 		accessAssignments,
 		deploymentAccessRollout,
 		resourceAccounts,
 		resourceAccounts,
 		accountStore,
+		accessGroups,
 		resourceAccessSync,
 	)
 	alertStore := observation.NewStore(db)

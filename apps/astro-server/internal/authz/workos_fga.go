@@ -14,6 +14,7 @@ import (
 // WorkOSFGA delegates Astro's small FGA contract to the official WorkOS SDK.
 type WorkOSFGA struct {
 	authorization              *workos.AuthorizationService
+	groups                     *workos.GroupService
 	organizationResources      sync.Map
 	organizationResourceLookup singleflight.Group
 }
@@ -32,6 +33,7 @@ var (
 var _ FGA = (*WorkOSFGA)(nil)
 var _ AccessAssignments = (*WorkOSFGA)(nil)
 var _ ResourceDiscovery = (*WorkOSFGA)(nil)
+var _ Groups = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -40,7 +42,7 @@ func NewWorkOSFGA(apiKey string) *WorkOSFGA {
 }
 
 func newWorkOSFGA(client *workos.Client) *WorkOSFGA {
-	return &WorkOSFGA{authorization: client.Authorization()}
+	return &WorkOSFGA{authorization: client.Authorization(), groups: client.Groups()}
 }
 
 func (f *WorkOSFGA) RegisterResource(ctx context.Context, organizationID string, resource ResourceRef, name string) error {

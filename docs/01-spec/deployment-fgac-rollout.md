@@ -284,9 +284,14 @@ flowchart TD
 - Return direct and group-derived assignment sources plus pending, retrying, and synced desired-role state; mutations return `202 Accepted`.
 - Keep the browser on Astro APIs; request handlers never hold database locks across WorkOS calls.
 
-### PR8.4 — Organization group APIs
+### PR8.4A — Organization group domain
 
-- Add the focused WorkOS Groups contract and cursor-safe pagination beside its first API consumer.
+- Add the focused WorkOS Groups contract and cursor-safe pagination.
+- Extend the deployment access service to validate group subjects within the resource organization.
+- Keep WorkOS authoritative and add no group HTTP routes.
+
+### PR8.4B — Organization group APIs
+
 - Create, list, update, and delete organization groups.
 - Add, list, and remove organization members using local account-member IDs; Astro resolves WorkOS membership IDs internally.
 - Apply the same tenant validation and FGA kill-switch behavior as deployment access APIs.

@@ -36,6 +36,7 @@ type AccessService struct {
 	accounts      AccountResolver
 	organizations OrganizationResolver
 	members       accessMemberStore
+	groups        Groups
 	intents       accessIntentStore
 }
 
@@ -45,11 +46,12 @@ func NewAccessService(
 	accounts AccountResolver,
 	organizations OrganizationResolver,
 	members accessMemberStore,
+	groups Groups,
 	intents accessIntentStore,
 ) *AccessService {
 	return &AccessService{
 		assignments: assignments, gate: gate,
-		accounts: accounts, organizations: organizations, members: members,
+		accounts: accounts, organizations: organizations, members: members, groups: groups,
 		intents: intents,
 	}
 }
@@ -203,7 +205,7 @@ func (s *AccessService) recordIntent(
 	if s.intents == nil {
 		return AccessIntent{}, false, errors.New("resource access intent store is not configured")
 	}
-	subject, err := s.resolveSubject(ctx, accountID, subjectType, subjectID)
+	subject, err := s.resolveSubject(ctx, accountID, organizationID, subjectType, subjectID)
 	if err != nil {
 		return AccessIntent{}, false, err
 	}
@@ -243,7 +245,7 @@ func (s *AccessService) resourceScope(ctx context.Context, resource ResourceRef)
 
 func (s *AccessService) resolveSubject(
 	ctx context.Context,
-	accountID string,
+	accountID, organizationID string,
 	subjectType AssignmentSubjectType,
 	subjectID string,
 ) (AssignmentSubject, error) {
@@ -266,6 +268,21 @@ func (s *AccessService) resolveSubject(
 			return AssignmentSubject{}, ErrAccessSubjectNotProvisioned
 		}
 		return MembershipAssignmentSubject(member.WorkOSMembershipID), nil
+	case AssignmentSubjectGroup:
+		if s.groups == nil {
+			return AssignmentSubject{}, ErrAccessManagementUnavailable
+		}
+		group, err := s.groups.GetGroup(ctx, organizationID, subjectID)
+		if errors.Is(err, ErrGroupNotFound) {
+			return AssignmentSubject{}, ErrResourceNotVisible
+		}
+		if err != nil {
+			return AssignmentSubject{}, fmt.Errorf("resolve assignment group: %w", err)
+		}
+		if group.ID != subjectID || group.OrganizationID != organizationID {
+			return AssignmentSubject{}, ErrResourceNotVisible
+		}
+		return GroupAssignmentSubject(group.ID), nil
 	default:
 		return AssignmentSubject{}, fmt.Errorf("unsupported assignment subject type %q", subjectType)
 	}
