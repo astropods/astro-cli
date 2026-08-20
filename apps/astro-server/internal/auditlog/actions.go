@@ -40,6 +40,11 @@ const (
 	DeploymentTriggerIngestion = "deployment.trigger_ingestion"
 	DeploymentGrantAccess      = "deployment.grant_access"
 	DeploymentRevokeAccess     = "deployment.revoke_access"
+	AccessGroupCreate          = "access_group.create"
+	AccessGroupUpdate          = "access_group.update"
+	AccessGroupDelete          = "access_group.delete"
+	AccessGroupAddMember       = "access_group.add_member"
+	AccessGroupRemoveMember    = "access_group.remove_member"
 
 	AvatarUpload = "avatar.upload"
 	AvatarPreset = "avatar.preset"

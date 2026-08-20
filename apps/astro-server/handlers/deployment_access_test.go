@@ -129,6 +129,15 @@ func TestSetDeploymentAccessRejectsUnknownRoleBeforeService(t *testing.T) {
 	}
 }
 
+func TestDeploymentAccessAcceptsGroupSubject(t *testing.T) {
+	t.Parallel()
+
+	got, ok := deploymentAccessSubjectType("group")
+	if !ok || got != authz.AssignmentSubjectGroup {
+		t.Fatalf("deploymentAccessSubjectType(group) = %q, %v", got, ok)
+	}
+}
+
 func TestSetDeploymentAccessReportsUnprovisionedMember(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -169,7 +178,7 @@ func TestRemoveDeploymentAccess(t *testing.T) {
 		},
 		{
 			name: "rejects unknown subject type",
-			path: "/api/v1/deployments/dep_123/access/group/group_123",
+			path: "/api/v1/deployments/dep_123/access/bot/bot_123",
 			remove: func(context.Context, authz.ResourceRef, authz.AssignmentSubjectType, string) (authz.AccessIntent, bool, error) {
 				t.Fatal("invalid subject type reached service")
 				return authz.AccessIntent{}, false, nil

@@ -98,7 +98,7 @@ func SetDeploymentAccess(log *logger.Logger, service deploymentAccessService, qu
 		}
 		subjectType, ok := deploymentAccessSubjectType(request.SubjectType)
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "subject_type must be member"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "subject_type must be member or group"})
 			return
 		}
 		level := authz.AccessLevel(request.Role)
@@ -127,7 +127,7 @@ func RemoveDeploymentAccess(log *logger.Logger, service deploymentAccessService,
 	return func(c *gin.Context) {
 		subjectType, ok := deploymentAccessSubjectType(c.Param("subject_type"))
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "subject_type must be member"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "subject_type must be member or group"})
 			return
 		}
 		deploymentID := c.Param("id")
@@ -158,6 +158,8 @@ func deploymentAccessSubjectType(value string) (authz.AssignmentSubjectType, boo
 	switch value {
 	case "member":
 		return authz.AssignmentSubjectMembership, true
+	case "group":
+		return authz.AssignmentSubjectGroup, true
 	default:
 		return "", false
 	}

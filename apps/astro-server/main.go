@@ -975,6 +975,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	agentMetricsStore := deps.Stores.AgentMetrics
 	clusterStore := deps.Stores.Cluster
 	auditStore := deps.Stores.Audit
+	accessGroupHandler := handlers.NewAccessGroupHandler(
+		log,
+		accessGroups,
+		fgaExperiment,
+		accountStore,
+		auditStore,
+		cfg.FGAEnforcementEnabled && accessGroups != nil,
+	)
 	watcherStore := deps.Stores.Watcher
 	avatarStore := deps.Stores.Avatar
 	readmeAssetStore := deps.Stores.ReadmeAssets
@@ -1342,6 +1350,40 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.UpdateFineGrainedAccessExperimentRequest{}),
 					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
 				)
+				api.POST(accountAdmin, "/access-groups", "Create access group", accessGroupHandler.Create,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.AccessGroupRequest{}),
+					oapispec.Response(201, &handlers.AccessGroupResponse{}),
+				)
+				api.PATCH(accountAdmin, "/access-groups/:group_id", "Update access group", accessGroupHandler.Update,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
+					oapispec.Body(&handlers.AccessGroupRequest{}),
+					oapispec.Response(200, &handlers.AccessGroupResponse{}),
+				)
+				api.DELETE(accountAdmin, "/access-groups/:group_id", "Delete access group", accessGroupHandler.Delete,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
+					oapispec.Response(204, nil),
+				)
+				api.GET(accountAdmin, "/access-groups/:group_id/members", "List access group members", accessGroupHandler.ListMembers,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
+					oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+					oapispec.QueryParam("cursor", "Opaque cursor returned by the previous page", false),
+					oapispec.Response(200, &handlers.AccessGroupMemberPageResponse{}),
+				)
+				api.POST(accountAdmin, "/access-groups/:group_id/members", "Add access group member", accessGroupHandler.AddMember,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
+					oapispec.Body(&handlers.AddAccessGroupMemberRequest{}), oapispec.Response(204, nil),
+				)
+				api.DELETE(accountAdmin, "/access-groups/:group_id/members/:user_id", "Remove access group member", accessGroupHandler.RemoveMember,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
+					oapispec.PathParam("user_id", "Astro user ID"), oapispec.Response(204, nil),
+				)
 			}
 
 			// Account-scoped routes (admin or owner — org:manage).
@@ -1603,6 +1645,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountMember.Use(middleware.ResolveAccount(accountStore))
 			accountMember.Use(middleware.RequireAccountMember(accountStore))
 			{
+				api.GET(accountMember, "/access-groups", "List access groups", accessGroupHandler.List,
+					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
+					oapispec.QueryParam("cursor", "Opaque cursor returned by the previous page", false),
+					oapispec.Response(200, &handlers.AccessGroupPageResponse{}),
+				)
 				api.GET(accountMember, "/usage", "Get account usage", handlers.GetAccountUsage(log, quotaChecker),
 					oapispec.Tags("Usage"),
 					oapispec.BearerAuth(),
@@ -2093,8 +2142,8 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Tags("Deployments", "Authorization"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("subject_type", "Subject type: member"),
-				oapispec.PathParam("subject_id", "Astro user ID"),
+				oapispec.PathParam("subject_type", "Subject type: member or group"),
+				oapispec.PathParam("subject_id", "Astro user ID or WorkOS group ID"),
 				oapispec.Response(202, &handlers.DeploymentAccessMutationResponse{}),
 				oapispec.Response(400, &handlers.ErrorResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
