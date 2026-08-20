@@ -1,6 +1,11 @@
 package riverqueue
 
-const evalJudgeMaxWorkers = 3
+const (
+	evalJudgeMaxWorkers = 3
+	// One evaluation job makes one model call per evaluator in the set, so its
+	// ceiling is lower than a queue whose jobs make a single call.
+	evaluationMaxWorkers = 2
+)
 
 // Per process, not global: the Foundry pool degrades past ~8 in-flight, so
 // the real ceiling constrains worker replica count too.
@@ -20,6 +25,7 @@ const (
 	queueInsights       = "insights"       // insights daily roll-up, observability summary refresh
 	queueMaintenance    = "maintenance"    // periodic backfills, reconciles, purges, privatelink
 	queueEvalJudge      = "eval-judge"     // eval-dataset judgment prediction generation
+	queueEvaluation     = "evaluation"     // eval-dataset evaluator runs
 	queueNotifications  = "notifications"  // user alert delivery (Novu triggers)
 	queueClassification = "classification" // Claude Code prompt classification + label roll-up
 )

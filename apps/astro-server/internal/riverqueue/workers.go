@@ -15,6 +15,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
+	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -349,21 +351,14 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "DeployWorker")
 
-	evalJudgeWorker := &EvalJudgePredictionWorker{
-		datasets:    evaldatasetstore.NewStore(cfg.DB),
-		predictions: judgmentstore.NewStore(cfg.DB),
-		log:         log,
-	}
+	var loadLangfuse func(context.Context, string) (*langfuse.AccountLangfuse, error)
+	var ensureJudgeKey func(context.Context, string) (string, string, error)
+	var evalLangfuseBaseURL string
 	if cfg.ServerConfig != nil {
 		langfuseStore := langfuse.NewStore(cfg.DB)
-		langfuseBaseURL := cfg.ServerConfig.Deployment.LangfuseBaseURL
-		evalJudgeWorker.loadLangfuse = func(_ context.Context, accountID string) (*langfuse.AccountLangfuse, error) {
+		evalLangfuseBaseURL = cfg.ServerConfig.Deployment.LangfuseBaseURL
+		loadLangfuse = func(_ context.Context, accountID string) (*langfuse.AccountLangfuse, error) {
 			return langfuseStore.Get(accountID)
-		}
-		if langfuseBaseURL != "" {
-			evalJudgeWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evalJudgeTraceClient {
-				return langfuse.NewClient(langfuseBaseURL, credentials.PublicKey, credentials.SecretKey)
-			}
 		}
 
 		gatewayConfig := cfg.ServerConfig.Deployment
@@ -378,16 +373,51 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 				billingpkg.NewAliasSyncer(cfg.Billing, cfg.AccountStore, cfg.BillingBackend, cfg.Logger),
 			)
 			judgeStore := aigateway.NewJudgeStore(cfg.DB)
-			evalJudgeWorker.ensureJudgeKey = func(ctx context.Context, accountID string) (string, string, error) {
+			ensureJudgeKey = func(ctx context.Context, accountID string) (string, string, error) {
 				return provisioner.EnsureJudgeKey(ctx, judgeStore, cfg.Vault, accountID)
 			}
-			evalJudgeWorker.newPredictor = func(baseURL string) evalJudgePredictor {
-				return evaljudge.New(aigateway.NewInvocationClient(baseURL))
-			}
+		}
+	}
+
+	evalJudgeWorker := &EvalJudgePredictionWorker{
+		datasets:       evaldatasetstore.NewStore(cfg.DB),
+		predictions:    judgmentstore.NewStore(cfg.DB),
+		loadLangfuse:   loadLangfuse,
+		ensureJudgeKey: ensureJudgeKey,
+		log:            log,
+	}
+	if evalLangfuseBaseURL != "" {
+		evalJudgeWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evalJudgeTraceClient {
+			return langfuse.NewClient(evalLangfuseBaseURL, credentials.PublicKey, credentials.SecretKey)
+		}
+	}
+	if ensureJudgeKey != nil {
+		evalJudgeWorker.newPredictor = func(baseURL string) evalJudgePredictor {
+			return evaljudge.New(aigateway.NewInvocationClient(baseURL))
 		}
 	}
 	addWorkerWithCatalogCheck(log, workers, evalJudgeWorker)
 	log.Info("river: registered worker", "worker", "EvalJudgePredictionWorker")
+
+	evaluationWorker := &EvalDatasetEvaluationWorker{
+		datasets:       evaldatasetstore.NewStore(cfg.DB),
+		runs:           evalrunstore.NewStore(cfg.DB),
+		loadLangfuse:   loadLangfuse,
+		ensureJudgeKey: ensureJudgeKey,
+		log:            log,
+	}
+	if evalLangfuseBaseURL != "" {
+		evaluationWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evaluationTraceClient {
+			return langfuse.NewClient(evalLangfuseBaseURL, credentials.PublicKey, credentials.SecretKey)
+		}
+	}
+	if ensureJudgeKey != nil {
+		evaluationWorker.newRunner = func(baseURL string) evaluationRunner {
+			return evaluator.New(aigateway.NewInvocationClient(baseURL))
+		}
+	}
+	addWorkerWithCatalogCheck(log, workers, evaluationWorker)
+	log.Info("river: registered worker", "worker", "EvalDatasetEvaluationWorker")
 
 	undeployWorker := &UndeployWorker{
 		deployer: dep,

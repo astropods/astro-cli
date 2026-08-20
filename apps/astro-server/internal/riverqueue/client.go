@@ -125,6 +125,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			queueInsights:       {MaxWorkers: 3},
 			queueMaintenance:    {MaxWorkers: 5},
 			queueEvalJudge:      {MaxWorkers: evalJudgeMaxWorkers},
+			queueEvaluation:     {MaxWorkers: evaluationMaxWorkers},
 			queueNotifications:  {MaxWorkers: 3},
 			queueClassification: {MaxWorkers: classificationMaxWorkers},
 		},
@@ -226,6 +227,7 @@ func (q *Queue) Start(ctx context.Context) error {
 		queueInsights,
 		queueMaintenance,
 		queueEvalJudge,
+		queueEvaluation,
 	})
 	return nil
 }
@@ -339,6 +341,29 @@ func evalJudgePredictionInsertManyParams(evalDatasetID string, traceIDs []string
 	for _, traceID := range traceIDs {
 		params = append(params, river.InsertManyParams{
 			Args: EvalJudgePredictionArgs{
+				EvalDatasetID: evalDatasetID,
+				TraceID:       traceID,
+			},
+		})
+	}
+	return params
+}
+
+// InsertEvalDatasetEvaluationJobs enqueues one evaluation job per trace in one
+// River transaction.
+func (q *Queue) InsertEvalDatasetEvaluationJobs(ctx context.Context, evalDatasetID string, traceIDs []string) error {
+	if len(traceIDs) == 0 {
+		return nil
+	}
+	_, err := q.client.InsertMany(ctx, evalDatasetEvaluationInsertManyParams(evalDatasetID, traceIDs))
+	return err
+}
+
+func evalDatasetEvaluationInsertManyParams(evalDatasetID string, traceIDs []string) []river.InsertManyParams {
+	params := make([]river.InsertManyParams, 0, len(traceIDs))
+	for _, traceID := range traceIDs {
+		params = append(params, river.InsertManyParams{
+			Args: EvalDatasetEvaluationArgs{
 				EvalDatasetID: evalDatasetID,
 				TraceID:       traceID,
 			},

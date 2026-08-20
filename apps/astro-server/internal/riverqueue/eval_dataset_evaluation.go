@@ -1,0 +1,479 @@
+package riverqueue
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
+
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
+	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
+)
+
+type EvalDatasetEvaluationArgs struct {
+	EvalDatasetID string `json:"eval_dataset_id"`
+	TraceID       string `json:"trace_id"`
+}
+
+func (EvalDatasetEvaluationArgs) Kind() string { return "eval_dataset.evaluation" }
+
+func init() {
+	registerJobKind[EvalDatasetEvaluationArgs]()
+}
+
+func (EvalDatasetEvaluationArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{
+		Queue:       queueEvaluation,
+		MaxAttempts: 3,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true,
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable,
+				rivertype.JobStatePending,
+				rivertype.JobStateRunning,
+				rivertype.JobStateRetryable,
+				rivertype.JobStateScheduled,
+			},
+		},
+	}
+}
+
+const (
+	evaluationTimeout           = 10 * time.Minute
+	evaluationPreviousTurnLimit = 3
+	evaluationFailureMessage    = "Evaluation failed. Try again."
+	evaluationNoResultMessage   = "No evaluator produced a result."
+	evaluationQuotaMessage      = "AI usage quota exceeded. Try again after the quota resets or is increased."
+)
+
+var errEvaluationNotConfigured = errors.New("evaluation is not configured")
+
+type evaluationDatasetStore interface {
+	GetByID(context.Context, string) (*evaldatasetstore.EvalDataset, error)
+}
+
+type evaluationRunStore interface {
+	EnsureRun(ctx context.Context, evalDatasetID, traceID, evaluationRef string, traceTimestamp time.Time) (*evalrunstore.Run, error)
+	CreateResults(ctx context.Context, runID string, evaluatorKeys []string) error
+	CompletedResultKeys(ctx context.Context, runID string) (map[string]bool, error)
+	MarkResultInProgress(ctx context.Context, runID, evaluatorKey string) error
+	CompleteResult(ctx context.Context, runID string, result evalrunstore.Result) error
+	FailResult(ctx context.Context, runID, evaluatorKey, message string) error
+	FailPendingResults(ctx context.Context, runID, message string) error
+	FinalizeRun(ctx context.Context, runID string, status evalrunstore.Status, errorMessage *string) error
+}
+
+type evaluationTraceClient interface {
+	GetTrace(context.Context, string) (*langfuse.TraceDetail, error)
+	GetObservation(context.Context, string) (*langfuse.Observation, error)
+	GetPreviousSessionTraces(context.Context, string, string, string, string, string, int) ([]langfuse.Trace, error)
+	GetNextSessionTrace(context.Context, string, string, string, string, string) (*langfuse.Trace, error)
+}
+
+type evaluationRunner interface {
+	Evaluate(context.Context, string, evaluator.Evaluator, evaluator.Input) (evaluator.Result, error)
+}
+
+type EvalDatasetEvaluationWorker struct {
+	river.WorkerDefaults[EvalDatasetEvaluationArgs]
+	datasets       evaluationDatasetStore
+	runs           evaluationRunStore
+	loadLangfuse   func(context.Context, string) (*langfuse.AccountLangfuse, error)
+	newTraceClient func(*langfuse.AccountLangfuse) evaluationTraceClient
+	ensureJudgeKey func(context.Context, string) (string, string, error)
+	newRunner      func(string) evaluationRunner
+	log            *logger.Logger
+}
+
+func (w *EvalDatasetEvaluationWorker) Timeout(*river.Job[EvalDatasetEvaluationArgs]) time.Duration {
+	return evaluationTimeout
+}
+
+func (w *EvalDatasetEvaluationWorker) Work(ctx context.Context, job *river.Job[EvalDatasetEvaluationArgs]) error {
+	args := job.Args
+	if strings.TrimSpace(args.EvalDatasetID) == "" || strings.TrimSpace(args.TraceID) == "" {
+		return river.JobCancel(fmt.Errorf("eval dataset evaluation: dataset and trace IDs are required"))
+	}
+	if w.datasets == nil || w.runs == nil {
+		return river.JobCancel(fmt.Errorf("eval dataset evaluation: %w", errEvaluationNotConfigured))
+	}
+
+	dataset, err := w.datasets.GetByID(ctx, args.EvalDatasetID)
+	if err != nil {
+		return fmt.Errorf("load eval dataset: %w", err)
+	}
+	if dataset == nil {
+		return river.JobCancel(fmt.Errorf("eval dataset %q no longer exists", args.EvalDatasetID))
+	}
+	if w.loadLangfuse == nil || w.newTraceClient == nil || w.ensureJudgeKey == nil || w.newRunner == nil {
+		return river.JobCancel(fmt.Errorf("eval dataset evaluation: %w", errEvaluationNotConfigured))
+	}
+
+	// Resolve before creating the run so an unresolvable set never leaves an
+	// orphaned in-progress row.
+	evaluationRef := evalpreset.RefDefaultSet
+	set, err := evalpreset.ResolveSet(evaluationRef)
+	if err != nil {
+		return river.JobCancel(fmt.Errorf("resolve evaluation set %q: %w", evaluationRef, err))
+	}
+
+	client, err := w.resolveTraceClient(ctx, dataset)
+	if err != nil {
+		return err
+	}
+	trace, traceTimestamp, err := loadEvaluationTrace(ctx, client, dataset, args.TraceID)
+	if err != nil {
+		return err
+	}
+
+	run, err := w.runs.EnsureRun(ctx, dataset.ID, args.TraceID, evaluationRef, traceTimestamp)
+	if err != nil {
+		return fmt.Errorf("ensure evaluation run: %w", err)
+	}
+	keys := make([]string, 0, len(set))
+	for _, ev := range set {
+		keys = append(keys, ev.Key)
+	}
+	if err := w.runs.CreateResults(ctx, run.ID, keys); err != nil {
+		return w.retryOrFailRun(ctx, job, run.ID, fmt.Errorf("create evaluator results: %w", err))
+	}
+
+	// Narrow before loading context so a retry only pays for what it re-runs.
+	completed, err := w.runs.CompletedResultKeys(ctx, run.ID)
+	if err != nil {
+		return w.retryOrFailRun(ctx, job, run.ID, fmt.Errorf("load completed evaluator results: %w", err))
+	}
+	remaining := make([]evaluator.Evaluator, 0, len(set))
+	for _, ev := range set {
+		if !completed[ev.Key] {
+			remaining = append(remaining, ev)
+		}
+	}
+
+	input, err := buildEvaluationInput(ctx, client, dataset, trace, remaining)
+	if err != nil {
+		cause := fmt.Errorf("load evaluation context: %w", err)
+		if isPermanentLangfuseError(err) {
+			return w.failRun(ctx, run.ID, cause)
+		}
+		return w.retryOrFailRun(ctx, job, run.ID, cause)
+	}
+
+	apiKey, gatewayURL, err := w.ensureJudgeKey(ctx, dataset.AccountID)
+	if err != nil {
+		if errors.Is(err, aigateway.ErrJudgeKeyDecrypt) {
+			return w.failRun(ctx, run.ID, fmt.Errorf("ensure judge key: %w", err))
+		}
+		return w.retryOrFailRun(ctx, job, run.ID, fmt.Errorf("ensure judge key: %w", err))
+	}
+
+	return w.runSet(ctx, job, run.ID, w.newRunner(gatewayURL), apiKey, remaining, input, len(completed))
+}
+
+// resolveTraceClient loads the account's Langfuse credentials once, so the trace
+// read and the context reads share one client.
+func (w *EvalDatasetEvaluationWorker) resolveTraceClient(
+	ctx context.Context,
+	dataset *evaldatasetstore.EvalDataset,
+) (evaluationTraceClient, error) {
+	credentials, err := w.loadLangfuse(ctx, dataset.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("load Langfuse credentials: %w", err)
+	}
+	if credentials == nil ||
+		strings.TrimSpace(credentials.PublicKey) == "" ||
+		strings.TrimSpace(credentials.SecretKey) == "" {
+		return nil, river.JobCancel(fmt.Errorf("langfuse is not configured for account %s", dataset.AccountID))
+	}
+	return w.newTraceClient(credentials), nil
+}
+
+// loadEvaluationTrace fetches the trace once: the same response carries its input
+// and output, its observations, and its scores.
+func loadEvaluationTrace(
+	ctx context.Context,
+	client evaluationTraceClient,
+	dataset *evaldatasetstore.EvalDataset,
+	traceID string,
+) (*langfuse.TraceDetail, time.Time, error) {
+	trace, err := client.GetTrace(ctx, traceID)
+	if err != nil {
+		if errors.Is(err, langfuse.ErrNotFound) || isPermanentLangfuseError(err) {
+			return nil, time.Time{}, river.JobCancel(fmt.Errorf("load target trace: %w", err))
+		}
+		return nil, time.Time{}, fmt.Errorf("load target trace: %w", err)
+	}
+	if trace == nil || trace.Input == nil {
+		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace has no input"))
+	}
+	if !langfuse.HasDeploymentTag(trace.Tags, dataset.DeploymentID) {
+		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace does not belong to deployment %s", dataset.DeploymentID))
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, trace.Timestamp)
+	if err != nil {
+		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace has invalid timestamp %q", trace.Timestamp))
+	}
+	return trace, timestamp, nil
+}
+
+// buildEvaluationInput loads only the context the resolved set asks for, so a set
+// that wants none costs no extra Langfuse calls.
+func buildEvaluationInput(
+	ctx context.Context,
+	client evaluationTraceClient,
+	dataset *evaldatasetstore.EvalDataset,
+	trace *langfuse.TraceDetail,
+	set []evaluator.Evaluator,
+) (evaluator.Input, error) {
+	input := evaluator.Input{
+		TraceID:     trace.ID,
+		TraceInput:  trace.Input,
+		TraceOutput: trace.Output,
+	}
+
+	wants := evaluator.ContextConfig{}
+	for _, ev := range set {
+		context := ev.Config.Context
+		wants.PreviousTurns = wants.PreviousTurns || context.PreviousTurns
+		wants.NextUserMessage = wants.NextUserMessage || context.NextUserMessage
+		wants.UserFeedback = wants.UserFeedback || context.UserFeedback
+		wants.Steps = wants.Steps || context.Steps
+	}
+
+	if wants.PreviousTurns {
+		previous, err := client.GetPreviousSessionTraces(
+			ctx, dataset.DeploymentID, trace.UserID, trace.SessionID, trace.ID, trace.Timestamp, evaluationPreviousTurnLimit,
+		)
+		if err != nil {
+			return evaluator.Input{}, fmt.Errorf("load previous session traces: %w", err)
+		}
+		for _, previousTrace := range previous {
+			input.PreviousTurns = append(input.PreviousTurns, evaluator.SessionTurn{
+				Input:  previousTrace.Input,
+				Output: previousTrace.Output,
+			})
+		}
+	}
+	if wants.NextUserMessage {
+		next, err := client.GetNextSessionTrace(ctx, dataset.DeploymentID, trace.UserID, trace.SessionID, trace.ID, trace.Timestamp)
+		if err != nil {
+			return evaluator.Input{}, fmt.Errorf("load next session trace: %w", err)
+		}
+		if next != nil {
+			input.NextUserMessage = textFromAny(next.Input)
+		}
+	}
+	if wants.UserFeedback {
+		input.UserFeedback = latestThumbsFeedback(trace.Scores)
+	}
+	if wants.Steps {
+		observations, err := hydrateObservationIO(ctx, client, trace.Observations, readableObservations(set, trace.Observations))
+		if err != nil {
+			return evaluator.Input{}, err
+		}
+		input.Steps = evaluationSteps(observations)
+	}
+	return input, nil
+}
+
+// readableObservations collects the observations some evaluator will actually
+// read. Each one narrows to its declared types and then sees at most
+// evaluator.MaxSteps of them, so anything past that window is fetched for
+// nothing.
+func readableObservations(set []evaluator.Evaluator, observations []langfuse.Observation) map[string]bool {
+	readable := make(map[string]bool)
+	for _, ev := range set {
+		context := ev.Config.Context
+		if !context.Steps {
+			continue
+		}
+		declared := make(map[string]bool, len(context.StepTypes))
+		for _, stepType := range context.StepTypes {
+			declared[normalizeObservationType(stepType)] = true
+		}
+		matched := 0
+		for _, observation := range observations {
+			if matched == evaluator.MaxSteps {
+				break
+			}
+			if len(declared) > 0 && !declared[normalizeObservationType(observation.Type)] {
+				continue
+			}
+			matched++
+			if observation.ID != "" {
+				readable[observation.ID] = true
+			}
+		}
+	}
+	return readable
+}
+
+func hydrateObservationIO(
+	ctx context.Context,
+	client evaluationTraceClient,
+	observations []langfuse.Observation,
+	readable map[string]bool,
+) ([]langfuse.Observation, error) {
+	out := make([]langfuse.Observation, 0, len(observations))
+	for _, observation := range observations {
+		if !readable[observation.ID] {
+			out = append(out, observation)
+			continue
+		}
+		full, err := client.GetObservation(ctx, observation.ID)
+		if err != nil {
+			return nil, fmt.Errorf("hydrate observation %s: %w", observation.ID, err)
+		}
+		if full != nil {
+			observation.Input = full.Input
+			observation.Output = full.Output
+		}
+		out = append(out, observation)
+	}
+	return out, nil
+}
+
+func normalizeObservationType(observationType string) string {
+	return strings.ToLower(strings.TrimSpace(observationType))
+}
+
+func evaluationSteps(observations []langfuse.Observation) []evaluator.Step {
+	steps := make([]evaluator.Step, 0, len(observations))
+	for _, observation := range observations {
+		step := evaluator.Step{
+			Name:   observation.Name,
+			Type:   normalizeObservationType(observation.Type),
+			Input:  observation.Input,
+			Output: observation.Output,
+		}
+		if strings.EqualFold(observation.Level, "ERROR") {
+			step.Error = observation.StatusMessage
+			if step.Error == "" {
+				step.Error = "step failed"
+			}
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+// runSet evaluates the set in definition order, skipping evaluators a prior
+// attempt already completed. A permanent failure is stored and the loop
+// continues; a transient one still lets the remaining evaluators run before the
+// job returns for retry, so each attempt makes as much progress as it can.
+func (w *EvalDatasetEvaluationWorker) runSet(
+	ctx context.Context,
+	job *river.Job[EvalDatasetEvaluationArgs],
+	runID string,
+	runner evaluationRunner,
+	apiKey string,
+	set []evaluator.Evaluator,
+	input evaluator.Input,
+	completedBefore int,
+) error {
+	finalAttempt := job.Attempt >= job.MaxAttempts
+	completed := completedBefore
+	var retryable []error
+
+	for _, ev := range set {
+		if err := w.runs.MarkResultInProgress(ctx, runID, ev.Key); err != nil {
+			return w.retryOrFailRun(ctx, job, runID, fmt.Errorf("mark evaluator %q in progress: %w", ev.Key, err))
+		}
+
+		result, err := runner.Evaluate(ctx, apiKey, ev, input)
+		if err == nil {
+			if err := w.runs.CompleteResult(ctx, runID, evalrunstore.Result{
+				EvaluatorKey: ev.Key,
+				Value:        result.Value,
+				Confidence:   result.Confidence,
+				Explanation:  result.Explanation,
+			}); err != nil {
+				return w.retryOrFailRun(ctx, job, runID, fmt.Errorf("store evaluator %q result: %w", ev.Key, err))
+			}
+			completed++
+			continue
+		}
+
+		message := evaluationFailureMessage
+		switch {
+		case isBudgetExceeded(err):
+			message = evaluationQuotaMessage
+		case isPermanentInvocationError(err), errors.Is(err, evaluator.ErrInvalidOutput), errors.Is(err, evaluator.ErrInvalidDefinition):
+		default:
+			if !finalAttempt {
+				retryable = append(retryable, fmt.Errorf("evaluator %q: %w", ev.Key, err))
+				continue
+			}
+		}
+		if storeErr := w.runs.FailResult(ctx, runID, ev.Key, message); storeErr != nil {
+			return w.retryOrFailRun(ctx, job, runID, fmt.Errorf("store evaluator %q failure: %w", ev.Key, storeErr))
+		}
+		w.logEvaluatorFailure(job, ev.Key, err)
+	}
+
+	if len(retryable) > 0 {
+		return errors.Join(retryable...)
+	}
+	status, message := evalrunstore.StatusCompleted, (*string)(nil)
+	if completed == 0 {
+		noResult := evaluationNoResultMessage
+		status, message = evalrunstore.StatusFailed, &noResult
+	}
+	if err := w.runs.FinalizeRun(ctx, runID, status, message); err != nil {
+		return fmt.Errorf("finalize evaluation run: %w", err)
+	}
+	return nil
+}
+
+// retryOrFailRun leaves retry scheduling to River and finalizes the run only
+// once the attempts are spent, so an exhausted job never leaves the run
+// in progress forever.
+func (w *EvalDatasetEvaluationWorker) retryOrFailRun(
+	ctx context.Context,
+	job *river.Job[EvalDatasetEvaluationArgs],
+	runID string,
+	cause error,
+) error {
+	if job.Attempt < job.MaxAttempts {
+		return cause
+	}
+	return w.failRun(ctx, runID, cause)
+}
+
+// failRun records a trace-level failure that stopped evaluators from running at
+// all, which is the only case a run itself ends as failed.
+func (w *EvalDatasetEvaluationWorker) failRun(ctx context.Context, runID string, cause error) error {
+	message := evaluationFailureMessage
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := w.runs.FailPendingResults(finalizeCtx, runID, message); err != nil {
+		return errors.Join(cause, fmt.Errorf("fail pending results: %w", err))
+	}
+	if err := w.runs.FinalizeRun(finalizeCtx, runID, evalrunstore.StatusFailed, &message); err != nil {
+		return errors.Join(cause, fmt.Errorf("finalize failed run: %w", err))
+	}
+	return river.JobCancel(cause)
+}
+
+func (w *EvalDatasetEvaluationWorker) logEvaluatorFailure(job *river.Job[EvalDatasetEvaluationArgs], key string, err error) {
+	if w.log == nil {
+		return
+	}
+	w.log.Error("evaluator failed",
+		"eval_dataset_id", job.Args.EvalDatasetID,
+		"trace_id", job.Args.TraceID,
+		"evaluator_key", key,
+		"attempt", job.Attempt,
+		"max_attempts", job.MaxAttempts,
+		"error", err,
+	)
+}

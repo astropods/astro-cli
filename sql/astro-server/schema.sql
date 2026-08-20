@@ -1175,6 +1175,40 @@ CREATE TABLE public.eval_dataset_prediction_requests (
     CONSTRAINT eval_dataset_prediction_requests_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed'))
 );
 
+CREATE TABLE public.eval_dataset_evaluation_runs (
+    id                   uuid        NOT NULL DEFAULT gen_random_uuid(),
+    eval_dataset_id      uuid        NOT NULL,
+    trace_id             text        NOT NULL,
+    trace_timestamp      timestamptz NOT NULL,
+    evaluation_ref       text        NOT NULL,
+    status               text        NOT NULL DEFAULT 'queued',
+    error_message        text,
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_evaluation_runs_pkey PRIMARY KEY (id),
+    CONSTRAINT eval_dataset_evaluation_runs_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_evaluation_runs_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed'))
+);
+
+CREATE UNIQUE INDEX eval_dataset_evaluation_runs_active_idx
+    ON public.eval_dataset_evaluation_runs
+    (eval_dataset_id, trace_id, evaluation_ref)
+    WHERE status IN ('queued', 'in_progress');
+
+CREATE TABLE public.eval_dataset_evaluator_results (
+    evaluation_run_id uuid             NOT NULL,
+    evaluator_key     text             NOT NULL,
+    status            text             NOT NULL DEFAULT 'queued',
+    value_json        jsonb,
+    confidence        double precision,
+    explanation       text,
+    error_message     text,
+    CONSTRAINT eval_dataset_evaluator_results_pkey PRIMARY KEY (evaluation_run_id, evaluator_key),
+    CONSTRAINT eval_dataset_evaluator_results_run_fkey FOREIGN KEY (evaluation_run_id) REFERENCES public.eval_dataset_evaluation_runs(id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_evaluator_results_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed')),
+    CONSTRAINT eval_dataset_evaluator_results_confidence_check CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1)
+);
+
 -- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
 -- when the user connects their Slack account via WorkOS Pipes — the link
 -- handler exchanges the Pipes-issued access token for the slack identity via
