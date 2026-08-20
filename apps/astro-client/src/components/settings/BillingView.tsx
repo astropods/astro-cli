@@ -174,6 +174,17 @@ function buildUsageChart(rows: BillingUsageRow[]) {
   return { metrics, data, totals };
 }
 
+const METRIC_UNITS: Record<string, { unit: string; money: boolean }> = {
+  "Compute Units": { unit: "CU-hours", money: false },
+  "LLM Usage": { unit: "USD", money: true },
+};
+
+function formatMetricTotal(metric: string, total: number): string {
+  const spec = METRIC_UNITS[metric];
+  if (!spec) return formatNumber(total, 2);
+  return spec.money ? `$${formatNumber(total, 2)}` : `${formatNumber(total, 2)} ${spec.unit}`;
+}
+
 function formatDay(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -249,7 +260,9 @@ function UsageTab({ account }: { account: string }) {
             {chart.totals.map(({ metric, total }) => (
               <TableRow key={metric}>
                 <TableCell className="font-medium">{metric}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatNumber(total, 2)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMetricTotal(metric, total)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
