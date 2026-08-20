@@ -68,7 +68,7 @@ func TestEnsureDevKey_MintsFreshWhenAbsent(t *testing.T) {
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(
-		context.Background(), devStore, "", nil,
+		context.Background(), devStore, testVault(t),
 		"acct-1", "user-7",
 	)
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestEnsureDevKey_ReusesWhenNotExpired(t *testing.T) {
 	devStore := NewDevStore(db)
 
 	apiKey, baseURL, gotExpiresAt, err := provisioner.EnsureDevKey(
-		context.Background(), devStore, "", nil,
+		context.Background(), devStore, testVault(t),
 		"acct-1", "user-7",
 	)
 	require.NoError(t, err)
@@ -139,7 +139,7 @@ func TestEnsureDevKey_ReplacesWhenExpiring(t *testing.T) {
 	devStore := NewDevStore(db)
 
 	apiKey, _, _, err := provisioner.EnsureDevKey(
-		context.Background(), devStore, "", nil,
+		context.Background(), devStore, testVault(t),
 		"acct-1", "user-7",
 	)
 	require.NoError(t, err)
@@ -179,11 +179,11 @@ func TestEnsureDevKey_PerUserIsolation(t *testing.T) {
 	devStore := NewDevStore(db)
 
 	aliceKey, _, _, err := provisioner.EnsureDevKey(
-		context.Background(), devStore, "", nil, "acct-1", "alice",
+		context.Background(), devStore, testVault(t), "acct-1", "alice",
 	)
 	require.NoError(t, err)
 	bobKey, _, _, err := provisioner.EnsureDevKey(
-		context.Background(), devStore, "", nil, "acct-1", "bob",
+		context.Background(), devStore, testVault(t), "acct-1", "bob",
 	)
 	require.NoError(t, err)
 

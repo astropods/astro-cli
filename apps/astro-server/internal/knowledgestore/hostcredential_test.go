@@ -56,7 +56,7 @@ func TestEncryptHostCredential_RoundTrip(t *testing.T) {
 	store := &KnowledgeStore{ID: "s1", EncryptedDataKey: key}
 	const dns = "vpce-0abc.vpce-svc-0def.us-east-1.vpce.amazonaws.com"
 
-	cred, err := EncryptHostCredential(context.Background(), fk, store, dns)
+	cred, err := EncryptHostCredential(context.Background(), envelope.NewVault(fk, ""), store, dns)
 	if err != nil {
 		t.Fatalf("EncryptHostCredential: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestEncryptHostCredential_RoundTrip(t *testing.T) {
 // than a silently-bad credential.
 func TestEncryptHostCredential_KMSError(t *testing.T) {
 	store := &KnowledgeStore{ID: "s1", EncryptedDataKey: randHostKey(t)}
-	if _, err := EncryptHostCredential(context.Background(), errHostKMS{}, store, "host"); err == nil {
+	if _, err := EncryptHostCredential(context.Background(), envelope.NewVault(errHostKMS{}, ""), store, "host"); err == nil {
 		t.Error("expected error when KMS Decrypt fails")
 	}
 }
@@ -98,11 +98,11 @@ func TestEncryptHostCredential_UniqueNonce(t *testing.T) {
 	fk := &fakeHostKMS{key: randHostKey(t)}
 	store := &KnowledgeStore{ID: "s1", EncryptedDataKey: fk.key}
 
-	c1, err := EncryptHostCredential(context.Background(), fk, store, "host")
+	c1, err := EncryptHostCredential(context.Background(), envelope.NewVault(fk, ""), store, "host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	c2, err := EncryptHostCredential(context.Background(), fk, store, "host")
+	c2, err := EncryptHostCredential(context.Background(), envelope.NewVault(fk, ""), store, "host")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,12 +66,14 @@ func parseSasbotSpec(t *testing.T) *deployment.AstroDeploymentSpec {
 func saveSasbot(t *testing.T, db *sql.DB, store *ds.Store, spec *deployment.AstroDeploymentSpec, nsCfg *ds.NormalizedSpecConfig) *ds.Deployment {
 	t.Helper()
 	accountID := ensureTestAccount(t, db)
+	enc := testEncryptor(t)
 	d, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
 		ID: deployid.New(), AccountID: accountID, AgentName: "sasbot",
 		DisplayName: "Sasbot", BuildID: "14f4c4dd", Namespace: "ns-sasbot-e2e",
-		SpecJSON: sasbotSpecJSON,
+		SpecJSON:         sasbotSpecJSON,
+		EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: enc.KMSKeyARN,
 	}, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, spec, nil, nsCfg)
+		return ds.SaveNormalizedSpec(tx, depID, spec, enc, nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)

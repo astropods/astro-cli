@@ -1,16 +1,12 @@
 package handlers
 
 import (
-	"context"
 	"net/http"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -41,7 +37,7 @@ func IssueAIGatewayDevKey(
 	log *logger.Logger,
 	provisioner *aigateway.Provisioner,
 	devStore *aigateway.DevStore,
-	cfg *config.Config,
+	vault *envelope.Vault,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if provisioner == nil || devStore == nil {
@@ -62,11 +58,7 @@ func IssueAIGatewayDevKey(
 		}
 
 		ctx := c.Request.Context()
-		apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(
-			ctx, devStore,
-			cfg.Deployment.KMSKeyARN, loadKMSClient(ctx, log),
-			acct.ID, user.ID,
-		)
+		apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(ctx, devStore, vault, acct.ID, user.ID)
 		if err != nil {
 			log.Error("Failed to ensure AI Gateway dev key", "error", err, "account_id", acct.ID, "user_id", user.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to issue AI Gateway key"})
@@ -79,16 +71,4 @@ func IssueAIGatewayDevKey(
 			ExpiresAt: expiresAt.UTC().Format(time.RFC3339),
 		})
 	}
-}
-
-// loadKMSClient returns a KMS client built from the default AWS credential
-// chain. Returns nil (with a warn log) when the chain can't be loaded —
-// EnsureDevKey then falls back to plaintext storage (dev/test envs).
-func loadKMSClient(ctx context.Context, log *logger.Logger) envelope.KMSClient {
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		log.Warn("Failed to load AWS config for KMS; AI Gateway dev keys will be stored unencrypted", "error", err)
-		return nil
-	}
-	return kms.NewFromConfig(awsCfg)
 }

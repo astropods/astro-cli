@@ -130,7 +130,7 @@ func TestPersistResolvedHost_Integration(t *testing.T) {
 		"PASSWORD": "secret123",
 	})
 
-	w := &KnowledgeReconcileWorker{ksStore: store, log: logger.New("error", "json"), kmsClient: &fakeKMS{key: key}}
+	w := &KnowledgeReconcileWorker{ksStore: store, log: logger.New("error", "json"), vault: envelope.NewVault(&fakeKMS{key: key}, "")}
 	if err := w.persistResolvedHost(context.Background(), storeID, resolvedDNS); err != nil {
 		t.Fatalf("persistResolvedHost: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestPersistResolvedHost_Integration_NoDataKey(t *testing.T) {
 		t.Fatalf("create store: %v", err)
 	}
 
-	w := &KnowledgeReconcileWorker{ksStore: store, log: logger.New("error", "json"), kmsClient: &fakeKMS{key: randKey(t)}}
+	w := &KnowledgeReconcileWorker{ksStore: store, log: logger.New("error", "json"), vault: envelope.NewVault(&fakeKMS{key: randKey(t)}, "")}
 	if err := w.persistResolvedHost(context.Background(), storeID, "anything"); err != nil {
 		t.Errorf("expected no-op for store without data key, got %v", err)
 	}

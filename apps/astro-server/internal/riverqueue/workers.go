@@ -300,6 +300,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			Cfg:              cfg.ServerConfig,
 			Store:            store,
 			Log:              cfg.Logger,
+			Vault:            cfg.Vault,
 			KnowledgeStore:   knowledgestore.NewStore(cfg.DB, cfg.K8sCache),
 			ImagePreflighter: cfg.ImagePreflighter,
 		}
@@ -378,13 +379,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			)
 			judgeStore := aigateway.NewJudgeStore(cfg.DB)
 			evalJudgeWorker.ensureJudgeKey = func(ctx context.Context, accountID string) (string, string, error) {
-				return provisioner.EnsureJudgeKey(
-					ctx,
-					judgeStore,
-					gatewayConfig.KMSKeyARN,
-					cfg.KMSClient,
-					accountID,
-				)
+				return provisioner.EnsureJudgeKey(ctx, judgeStore, cfg.Vault, accountID)
 			}
 			evalJudgeWorker.newPredictor = func(baseURL string) evalJudgePredictor {
 				return evaljudge.New(aigateway.NewInvocationClient(baseURL))
@@ -514,9 +509,9 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	ksStoreForWorkers := knowledgestore.NewStore(cfg.DB, cfg.K8sCache)
 	addWorkerWithCatalogCheck(log, workers, &KnowledgeReconcileWorker{
-		ksStore:   ksStoreForWorkers,
-		log:       cfg.Logger,
-		localMode: cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.IsLocal(),
+		ksStore: ksStoreForWorkers,
+		log:     cfg.Logger,
+		vault:   cfg.Vault,
 	})
 	log.Info("river: registered worker", "worker", "KnowledgeReconcileWorker", "period", "30s")
 

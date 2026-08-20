@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,26 +14,26 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
-func setupVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
+func setupVarRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db, mock, _ := sqlmock.New()
 	store := accountvars.NewStore(db)
 	log := logger.New("error", "json")
-	cfg := &config.Config{} // no KMS — secrets stored as plaintext in tests
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testacct"})
 		c.Next()
 	})
-	router.POST("/variables", CreateAccountVariable(log, store, cfg))
+	router.POST("/variables", CreateAccountVariable(log, store, testVault(t)))
 	return router, mock
 }
 
@@ -45,7 +46,7 @@ func postVariables(router *gin.Engine, body string) *httptest.ResponseRecorder {
 }
 
 func TestCreateAccountVariable_SingleEntry(t *testing.T) {
-	router, mock := setupVarRouter()
+	router, mock := setupVarRouter(t)
 
 	mock.ExpectExec("INSERT INTO account_variables").
 		WithArgs("acct-1", "API_KEY", "sk-123", false, sqlmock.AnyArg(), "My key").
@@ -74,13 +75,14 @@ func TestCreateAccountVariable_SingleEntry(t *testing.T) {
 }
 
 func TestCreateAccountVariable_BulkEntries(t *testing.T) {
-	router, mock := setupVarRouter()
+	router, mock := setupVarRouter(t)
 
+	expectAccountDataKey(mock)
 	mock.ExpectExec("INSERT INTO account_variables").
 		WithArgs("acct-1", "FOO", "bar", false, sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO account_variables").
-		WithArgs("acct-1", "SECRET_KEY", "s3cr3t", true, sqlmock.AnyArg(), "").
+		WithArgs("acct-1", "SECRET_KEY", sqlmock.AnyArg(), true, sqlmock.AnyArg(), "").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := `{"variables":[
@@ -112,7 +114,7 @@ func TestCreateAccountVariable_BulkEntries(t *testing.T) {
 }
 
 func TestCreateAccountVariable_InvalidName(t *testing.T) {
-	router, mock := setupVarRouter()
+	router, mock := setupVarRouter(t)
 
 	// The valid entry should still be saved
 	mock.ExpectExec("INSERT INTO account_variables").
@@ -149,7 +151,7 @@ func TestCreateAccountVariable_InvalidName(t *testing.T) {
 }
 
 func TestCreateAccountVariable_MixedCaseNames(t *testing.T) {
-	router, mock := setupVarRouter()
+	router, mock := setupVarRouter(t)
 
 	names := []string{"myApp_key", "database_url", "_INTERNAL", "NodeEnv"}
 	for _, name := range names {
@@ -185,7 +187,7 @@ func TestCreateAccountVariable_MixedCaseNames(t *testing.T) {
 }
 
 func TestCreateAccountVariable_EmptyVariables(t *testing.T) {
-	router, _ := setupVarRouter()
+	router, _ := setupVarRouter(t)
 
 	rec := postVariables(router, `{"variables":[]}`)
 
@@ -195,7 +197,7 @@ func TestCreateAccountVariable_EmptyVariables(t *testing.T) {
 }
 
 func TestCreateAccountVariable_InvalidJSON(t *testing.T) {
-	router, _ := setupVarRouter()
+	router, _ := setupVarRouter(t)
 
 	rec := postVariables(router, `not json`)
 
@@ -205,7 +207,7 @@ func TestCreateAccountVariable_InvalidJSON(t *testing.T) {
 }
 
 func TestCreateAccountVariable_DBError(t *testing.T) {
-	router, mock := setupVarRouter()
+	router, mock := setupVarRouter(t)
 
 	mock.ExpectExec("INSERT INTO account_variables").
 		WithArgs("acct-1", "FAIL_KEY", "val", false, sqlmock.AnyArg(), "").
@@ -230,19 +232,19 @@ func TestCreateAccountVariable_DBError(t *testing.T) {
 	}
 }
 
-func setupUpdateVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
+func setupUpdateVarRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	db, mock, _ := sqlmock.New()
 	store := accountvars.NewStore(db)
 	log := logger.New("error", "json")
-	cfg := &config.Config{} // no KMS
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testacct"})
 		c.Next()
 	})
-	router.PUT("/variables/:varName", UpdateAccountVariable(log, store, cfg))
+	router.PUT("/variables/:varName", UpdateAccountVariable(log, store, testVault(t)))
 	return router, mock
 }
 
@@ -254,14 +256,13 @@ func putVariable(router *gin.Engine, name, body string) *httptest.ResponseRecord
 	return rec
 }
 
-// TestSecretStorageNoKMS verifies that both create and update store secret values as
-// plaintext when KMS is not configured — no base64 wrapping should occur.
-func TestSecretStorageNoKMS(t *testing.T) {
-	t.Run("create stores plaintext", func(t *testing.T) {
-		router, mock := setupVarRouter()
+func TestSecretStorageIsAlwaysEncrypted(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		router, mock := setupVarRouter(t)
 
+		expectAccountDataKey(mock)
 		mock.ExpectExec("INSERT INTO account_variables").
-			WithArgs("acct-1", "MY_SECRET", "s3cr3t", true, []byte(nil), "").
+			WithArgs("acct-1", "MY_SECRET", encryptedValue(t), true, nonEmptyNonce(t), "").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		rec := postVariables(router, `{"variables":[{"name":"MY_SECRET","value":"s3cr3t","secret":true}]}`)
@@ -269,8 +270,8 @@ func TestSecretStorageNoKMS(t *testing.T) {
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 
-	t.Run("update stores plaintext", func(t *testing.T) {
-		router, mock := setupUpdateVarRouter()
+	t.Run("update", func(t *testing.T) {
+		router, mock := setupUpdateVarRouter(t)
 		now := time.Now()
 
 		rows := sqlmock.NewRows([]string{"account_id", "name", "value", "secret", "nonce", "description", "created_at", "updated_at"}).
@@ -278,10 +279,9 @@ func TestSecretStorageNoKMS(t *testing.T) {
 		mock.ExpectQuery("SELECT.*account_variables").
 			WithArgs("acct-1", "MY_SECRET").
 			WillReturnRows(rows)
-
-		// Expects plaintext value — currently FAILS because update base64-encodes without KMS.
+		expectAccountDataKey(mock)
 		mock.ExpectExec("INSERT INTO account_variables").
-			WithArgs("acct-1", "MY_SECRET", "s3cr3t", true, []byte(nil), "").
+			WithArgs("acct-1", "MY_SECRET", encryptedValue(t), true, nonEmptyNonce(t), "").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		rec := putVariable(router, "MY_SECRET", `{"value":"s3cr3t"}`)
@@ -289,6 +289,35 @@ func TestSecretStorageNoKMS(t *testing.T) {
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 }
+
+func expectAccountDataKey(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery("FROM account_encryption_keys").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "encrypted_data_key", "kms_key_arn", "created_at"}))
+	mock.ExpectExec("INSERT INTO account_encryption_keys").
+		WithArgs("acct-1", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func encryptedValue(t *testing.T) sqlmock.Argument {
+	t.Helper()
+	return argumentFunc(func(v driver.Value) bool {
+		s, ok := v.(string)
+		return ok && s != "s3cr3t" && s != ""
+	})
+}
+
+func nonEmptyNonce(t *testing.T) sqlmock.Argument {
+	t.Helper()
+	return argumentFunc(func(v driver.Value) bool {
+		b, ok := v.([]byte)
+		return ok && len(b) > 0
+	})
+}
+
+type argumentFunc func(driver.Value) bool
+
+func (f argumentFunc) Match(v driver.Value) bool { return f(v) }
 
 func setupGetVarRouter() (*gin.Engine, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
@@ -435,7 +464,7 @@ func TestResolveVarReferences_RejectsSecretTypeMismatch(t *testing.T) {
 				deployment,
 				"acct-1",
 				accountvars.NewStore(db),
-				&config.Config{},
+				testVault(t),
 			)
 
 			require.Nil(t, refs)
@@ -495,7 +524,7 @@ func TestResolveVarReferences_ResolvesMatchingTypes(t *testing.T) {
 				deployment,
 				"acct-1",
 				accountvars.NewStore(db),
-				&config.Config{},
+				testVault(t),
 			)
 
 			require.NoError(t, resolveErr)
@@ -505,4 +534,13 @@ func TestResolveVarReferences_ResolvesMatchingTypes(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+func testVault(t *testing.T) *envelope.Vault {
+	t.Helper()
+	client, err := envelope.NewLocalKMSClient()
+	if err != nil {
+		t.Fatalf("local kms: %v", err)
+	}
+	return envelope.NewVault(client, "arn:aws:kms:test:000:key/test")
 }

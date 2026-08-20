@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
 
 type failingJudgeKMS struct{}
@@ -61,14 +63,14 @@ func TestEnsureJudgeKeyMintsAccountScopedKey(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(judgeKeyColumns))
 	mock.ExpectExec("INSERT INTO account_llm_judge_keys").
-		WithArgs("acct-1", "vk-judge", "sk-bf-judge", []byte(nil), []byte(nil), sqlmock.AnyArg()).
+		WithArgs("acct-1", "vk-judge", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	customers := newFakeCustomerStore()
 	customers.ids["acct-1"] = "cust-existing"
 	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), customers, nil)
 	apiKey, baseURL, err := provisioner.EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "", nil, "acct-1",
+		context.Background(), NewJudgeStore(db), testVault(t), "acct-1",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-bf-judge", apiKey)
@@ -98,7 +100,7 @@ func TestEnsureJudgeKeyReusesStoredKey(t *testing.T) {
 
 	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	apiKey, baseURL, err := provisioner.EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "", nil, "acct-1",
+		context.Background(), NewJudgeStore(db), testVault(t), "acct-1",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-bf-existing", apiKey)
@@ -133,7 +135,7 @@ func TestEnsureJudgeKeyRecoversFromConcurrentGenerateConflict(t *testing.T) {
 	customers := newFakeCustomerStore()
 	customers.ids["acct-1"] = "cust-existing"
 	apiKey, baseURL, err := NewProvisioner(NewClient(srv.URL, "", ""), customers, nil).EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "", nil, "acct-1",
+		context.Background(), NewJudgeStore(db), testVault(t), "acct-1",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-bf-winner", apiKey)
@@ -169,7 +171,7 @@ func TestEnsureJudgeKeyReturnsOrphanedConflictWithoutDeleting(t *testing.T) {
 	customers := newFakeCustomerStore()
 	customers.ids["acct-1"] = "cust-existing"
 	_, _, err = NewProvisioner(NewClient(srv.URL, "", ""), customers, nil).EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "", nil, "acct-1",
+		context.Background(), NewJudgeStore(db), testVault(t), "acct-1",
 	)
 	require.ErrorIs(t, err, ErrJudgeKeyOrphaned)
 	assert.ErrorContains(t, err, "account_id=acct-1")
@@ -181,7 +183,7 @@ func TestEnsureJudgeKeyReturnsOrphanedConflictWithoutDeleting(t *testing.T) {
 
 func TestEnsureJudgeKeyValidatesInputs(t *testing.T) {
 	provisioner := NewProvisioner(NewClient("http://unused", "", ""), newFakeCustomerStore(), nil)
-	_, _, err := provisioner.EnsureJudgeKey(context.Background(), nil, "", nil, "")
+	_, _, err := provisioner.EnsureJudgeKey(context.Background(), nil, testVault(t), "")
 	require.ErrorContains(t, err, "accountID")
 }
 
@@ -199,7 +201,7 @@ func TestEnsureJudgeKeyRevokesMintWhenEncryptionFails(t *testing.T) {
 	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), customers, nil)
 
 	_, _, err = provisioner.EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "kms-key", failingJudgeKMS{}, "acct-1",
+		context.Background(), NewJudgeStore(db), envelope.NewVault(failingJudgeKMS{}, "kms-key"), "acct-1",
 	)
 	require.ErrorContains(t, err, "encrypt judge key")
 	assert.Equal(t, int32(1), deletes.Load())
@@ -222,7 +224,7 @@ func TestEnsureJudgeKeyRevokesMintWhenSaveFails(t *testing.T) {
 	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), customers, nil)
 
 	_, _, err = provisioner.EnsureJudgeKey(
-		context.Background(), NewJudgeStore(db), "", nil, "acct-1",
+		context.Background(), NewJudgeStore(db), testVault(t), "acct-1",
 	)
 	require.ErrorContains(t, err, "save judge key")
 	assert.Equal(t, int32(1), deletes.Load())

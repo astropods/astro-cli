@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -46,6 +47,7 @@ type Deps struct {
 	Log   *logger.Logger
 	Cfg   *config.Config
 	DB    *sql.DB
+	Vault *envelope.Vault
 	Ent   *middleware.Entitlements
 	Quota *quota.DBChecker
 	Probe *handlers.ProbeHandler

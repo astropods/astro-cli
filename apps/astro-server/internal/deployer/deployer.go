@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
@@ -40,9 +38,7 @@ type Deployer struct {
 	Cfg          *config.Config
 	Store        *deploymentstore.Store
 	Log          *logger.Logger
-	// KMSClient is an optional KMS client for decrypting secrets. If nil,
-	// a client is created from the default AWS config at decrypt time.
-	KMSClient envelope.KMSClient
+	Vault        *envelope.Vault
 	// Langfuse per-account project provisioning (optional)
 	LangfuseStore       *langfuse.Store
 	LangfuseProvisioner *langfuse.Provisioner
@@ -156,8 +152,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 			return nil, fmt.Errorf("agent.astro_ai_gateway is true but AI Gateway is not enabled in this environment (AI_GATEWAY_URL unset)")
 		}
 		apiKey, baseURL, agErr := d.AIGatewayProvisioner.EnsureDeploymentKey(
-			ctx, d.AIGatewayStore,
-			d.Cfg.Deployment.KMSKeyARN, d.kmsClient(ctx),
+			ctx, d.AIGatewayStore, d.Vault,
 			aigateway.DeploymentKeyParams{
 				AccountID:    acct.ID,
 				DeploymentID: dep.ID,
@@ -389,31 +384,14 @@ func (d *Deployer) populateBuildEnv(
 	return d.Store.SaveBuildEnv(dep.ID, writes, enc)
 }
 
-// encryptorForDeployment returns an Encryptor that uses the deployment's
-// existing data key (decrypted via KMS), or nil if KMS isn't configured
-// or the deployment has no encrypted data key.
 func (d *Deployer) encryptorForDeployment(
 	ctx context.Context,
 	dep *deploymentstore.Deployment,
 ) (*envelope.Encryptor, error) {
-	if len(dep.EncryptedDataKey) == 0 || d.Cfg.Deployment.KMSKeyARN == "" {
+	if len(dep.EncryptedDataKey) == 0 {
 		return nil, nil
 	}
-	kmsClient := d.kmsClient(ctx)
-	if kmsClient == nil {
-		return nil, nil
-	}
-	out, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
-		CiphertextBlob: dep.EncryptedDataKey,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("kms decrypt data key: %w", err)
-	}
-	enc, err := envelope.NewEncryptorFromPlaintext(out.Plaintext, dep.EncryptedDataKey, d.Cfg.Deployment.KMSKeyARN)
-	// Zero the plaintext key as soon as the gcm is built.
-	for i := range out.Plaintext {
-		out.Plaintext[i] = 0
-	}
+	enc, err := d.Vault.EncryptorFor(ctx, dep.EncryptedDataKey)
 	if err != nil {
 		return nil, fmt.Errorf("build encryptor: %w", err)
 	}
@@ -453,7 +431,7 @@ func (d *Deployer) resolveBoundKnowledge(
 		if credErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to get credentials for store %q: %w", name, store.ID, credErr)
 		}
-		plainCreds, resolveErr := knowledgestore.ResolveCredentials(ctx, store, creds, d.kmsClient(ctx))
+		plainCreds, resolveErr := knowledgestore.ResolveCredentials(ctx, store, creds, d.Vault)
 		if resolveErr != nil {
 			return nil, nil, fmt.Errorf("knowledge %q: failed to resolve credentials for store %q: %w", name, store.ID, resolveErr)
 		}
@@ -521,27 +499,6 @@ func mapBoundCredentials(plainCreds map[string]string) map[string]string {
 		}
 	}
 	return out
-}
-
-// kmsClient returns the deployer's KMS client, falling back to the backend for
-// the current environment.
-//
-// The fallback must make the same choice as the connect path
-// (knowledgestore.KMSBackend), because the two operate on the same ciphertext:
-// connecting a store wraps its data key, deploying an agent unwraps it. Reaching
-// unconditionally for AWS here meant a local environment encrypted with the local
-// backend and then tried to decrypt with AWS, which cannot succeed regardless of
-// what credentials are available.
-func (d *Deployer) kmsClient(ctx context.Context) envelope.KMSClient {
-	if d.KMSClient != nil {
-		return d.KMSClient
-	}
-	client, err := knowledgestore.KMSBackend(ctx, d.Cfg.Deployment.IsLocal())
-	if err != nil {
-		d.Log.Warn("Failed to create KMS client", "error", err)
-		return nil
-	}
-	return client
 }
 
 // buildNamespaceLabels returns the namespace label set for a deployment.
@@ -621,14 +578,11 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 		return nil
 	}
 
-	// Build a decryptor if the deployment has KMS-encrypted secrets.
 	var dec *envelope.Decryptor
-	if len(dep.EncryptedDataKey) > 0 && d.Cfg.Deployment.KMSKeyARN != "" {
-		if kmsClient := d.kmsClient(ctx); kmsClient != nil {
-			dec, err = envelope.NewDecryptor(ctx, kmsClient, dep.EncryptedDataKey)
-			if err != nil {
-				d.Log.Warn("Failed to create KMS decryptor", "error", err, "deployment_id", dep.ID)
-			}
+	if len(dep.EncryptedDataKey) > 0 {
+		dec, err = d.Vault.Decryptor(ctx, dep.EncryptedDataKey)
+		if err != nil {
+			return fmt.Errorf("build decryptor for %s: %w", dep.ID, err)
 		}
 	}
 

@@ -95,58 +95,6 @@ func saveDeploymentWithSecrets(
 	return d
 }
 
-// TestRehydrateSecrets_Plaintext verifies that secret variable values stored as
-// plaintext (no KMS) are injected back into a stripped spec by RehydrateSecrets.
-func TestRehydrateSecrets_Plaintext(t *testing.T) {
-	db := testDB(t)
-	store := ds.NewStore(db)
-
-	full := minimalSlackSpec()
-	dep := saveDeploymentWithSecrets(t, db, store, full, nil)
-
-	// Load the revision — secrets should be stripped
-	rev, err := store.GetCurrentRevision(dep.ID)
-	if err != nil {
-		t.Fatalf("GetCurrentRevision: %v", err)
-	}
-	var loaded deployment.AstroDeploymentSpec
-	if err := json.Unmarshal(rev.SpecJSON, &loaded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if loaded.Variables["SLACK_BOT_TOKEN"].Value != "" {
-		t.Fatal("expected stripped spec to have empty SLACK_BOT_TOKEN value")
-	}
-
-	// Reload deployment with full columns (EncryptedDataKey, etc.)
-	dep, err = store.GetDeploymentByID(dep.ID)
-	if err != nil {
-		t.Fatalf("GetDeploymentByID: %v", err)
-	}
-
-	d := &deployer.Deployer{
-		Store: store,
-		Cfg:   &config.Config{},
-		Log:   logger.New("error", "text"),
-	}
-
-	if err := d.RehydrateSecrets(context.Background(), dep, &loaded); err != nil {
-		t.Fatalf("RehydrateSecrets: %v", err)
-	}
-
-	// Verify secret values were restored
-	if got := loaded.Variables["SLACK_BOT_TOKEN"].Value; got != "xoxb-test-token-value" {
-		t.Errorf("SLACK_BOT_TOKEN: got %q, want %q", got, "xoxb-test-token-value")
-	}
-	if got := loaded.Variables["SLACK_APP_TOKEN"].Value; got != "xapp-test-token-value" {
-		t.Errorf("SLACK_APP_TOKEN: got %q, want %q", got, "xapp-test-token-value")
-	}
-
-	// Non-secret should be unchanged
-	if got := loaded.Variables["LOG_LEVEL"].Value; got != "debug" {
-		t.Errorf("LOG_LEVEL: got %q, want %q", got, "debug")
-	}
-}
-
 // TestRehydrateSecrets_Encrypted verifies end-to-end rehydration with KMS
 // envelope encryption using a fake KMS key.
 func TestRehydrateSecrets_Encrypted(t *testing.T) {
@@ -194,10 +142,10 @@ func TestRehydrateSecrets_Encrypted(t *testing.T) {
 	}
 
 	d := &deployer.Deployer{
-		Store:     store,
-		Cfg:       &config.Config{Deployment: config.DeploymentConfig{KMSKeyARN: "arn:aws:kms:test:000:key/test"}},
-		Log:       logger.New("error", "text"),
-		KMSClient: &fakeKMS{key: aesKey},
+		Store: store,
+		Cfg:   &config.Config{Deployment: config.DeploymentConfig{KMSKeyARN: "arn:aws:kms:test:000:key/test"}},
+		Log:   logger.New("error", "text"),
+		Vault: envelope.NewVault(&fakeKMS{key: aesKey}, "arn:aws:kms:test:000:key/test"),
 	}
 
 	if err := d.RehydrateSecrets(context.Background(), dep, &loaded); err != nil {
@@ -321,10 +269,10 @@ func TestRepairPreservesVariables(t *testing.T) {
 	}
 
 	d := &deployer.Deployer{
-		Store:     store,
-		Cfg:       &config.Config{Deployment: config.DeploymentConfig{KMSKeyARN: "arn:aws:kms:test:000:key/test"}},
-		Log:       logger.New("error", "text"),
-		KMSClient: &fakeKMS{key: aesKey},
+		Store: store,
+		Cfg:   &config.Config{Deployment: config.DeploymentConfig{KMSKeyARN: "arn:aws:kms:test:000:key/test"}},
+		Log:   logger.New("error", "text"),
+		Vault: envelope.NewVault(&fakeKMS{key: aesKey}, "arn:aws:kms:test:000:key/test"),
 	}
 
 	if err := d.RehydrateSecrets(context.Background(), dep, &loaded); err != nil {

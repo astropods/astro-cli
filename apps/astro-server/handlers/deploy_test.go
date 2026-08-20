@@ -447,6 +447,7 @@ func TestRedeployEmitsDeploymentOperateObservation(t *testing.T) {
 		agentindex.NewIndexWithDB(indexDB),
 		account.NewAccountStore(accountDB),
 		cfg,
+		testVault(t),
 		deploymentstore.NewStore(deployDB),
 		nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil,
 	)) //nolint:staticcheck // dependencies after observation are unnecessary; the unmatched account lookup rejects safely.
@@ -1932,7 +1933,7 @@ func minimalDeploySpec(sourceAccount, agentName, buildID string) string {
 }
 
 // setupValidateRouter creates a gin engine wired with ValidateDeployment.
-func setupValidateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+func setupValidateRouter(t *testing.T, userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -1955,7 +1956,7 @@ func setupValidateRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.S
 			c.Next()
 		})
 	}
-	router.POST("/deploy/validate", ValidateDeployment(log, index, store, cfg))
+	router.POST("/deploy/validate", ValidateDeployment(log, index, store, cfg, testVault(t)))
 
 	return router, indexMock, accountMock
 }
@@ -2027,7 +2028,7 @@ func TestCanDeploySourceAgent_Boundary(t *testing.T) {
 }
 
 func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
-	router, indexMock, accountMock := setupValidateRouter("user-target")
+	router, indexMock, accountMock := setupValidateRouter(t, "user-target")
 
 	now := time.Now()
 	// Source and target are different accounts
@@ -2080,7 +2081,7 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 }
 
 func TestDeploy_PublicSourceAgent_CrossAccount_Allowed(t *testing.T) {
-	router, indexMock, accountMock := setupValidateRouter("user-target")
+	router, indexMock, accountMock := setupValidateRouter(t, "user-target")
 
 	now := time.Now()
 	body := crossAccountDeployableSpec()
@@ -2137,7 +2138,7 @@ func TestDeploy_PublicSourceAgent_CrossAccount_Allowed(t *testing.T) {
 }
 
 func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
-	router, indexMock, accountMock := setupValidateRouter("user-1")
+	router, indexMock, accountMock := setupValidateRouter(t, "user-1")
 
 	now := time.Now()
 	body := minimalDeploySpec("myorg", "nonexistent", "build-1")
@@ -2182,7 +2183,7 @@ func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router, _, accountMock := setupValidateRouter("user-1")
+			router, _, accountMock := setupValidateRouter(t, "user-1")
 
 			now := time.Now()
 			body := minimalDeploySpec("myorg", tt.agentName, "build-1")
@@ -2223,8 +2224,8 @@ func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
 
 // setupDeployRouter creates a gin engine wired with DeployAgent and ValidateDeployment.
 // Returns (router, indexMock, accountMock, deployMock).
-func setupDeployRouter(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
-	router, im, am, dm, _ := setupDeployRouterWithPreflighter(userID, nil)
+func setupDeployRouter(t *testing.T, userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	router, im, am, dm, _ := setupDeployRouterWithPreflighter(t, userID, nil)
 	return router, im, am, dm
 }
 
@@ -2251,7 +2252,7 @@ func signedDeployRequest(t *testing.T, body string) *http.Request {
 // TestDeploy_MissingSignatureHeader: requests without X-Template-Signature
 // must be rejected by the deploy handler before any DB or k8s work.
 func TestDeploy_MissingSignatureHeader(t *testing.T) {
-	router, _, _, _ := setupDeployRouter("user-1")
+	router, _, _, _ := setupDeployRouter(t, "user-1")
 
 	body := deployableSpec("")
 	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
@@ -2272,7 +2273,7 @@ func TestDeploy_MissingSignatureHeader(t *testing.T) {
 // TestDeploy_BadSignature: requests with a non-empty but invalid
 // X-Template-Signature must be rejected with the same 400.
 func TestDeploy_BadSignature(t *testing.T) {
-	router, _, _, _ := setupDeployRouter("user-1")
+	router, _, _, _ := setupDeployRouter(t, "user-1")
 
 	body := deployableSpec("")
 	req := httptest.NewRequest(http.MethodPost, "/deploy", strings.NewReader(body))
@@ -2293,7 +2294,7 @@ func TestDeploy_BadSignature(t *testing.T) {
 // TestDeploy_TamperedBody: a request signed correctly against one body but
 // submitted with a different body must be rejected.
 func TestDeploy_TamperedBody(t *testing.T) {
-	router, _, _, _ := setupDeployRouter("user-1")
+	router, _, _, _ := setupDeployRouter(t, "user-1")
 
 	// Sign one body, submit a different one — signature won't match.
 	original := deployableSpec("")
@@ -2321,7 +2322,7 @@ func TestDeploy_TamperedBody(t *testing.T) {
 
 // setupDeployRouterWithPreflighter is the variant used by image-preflight tests.
 // Returns the cfg too so callers can inspect it if needed.
-func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePreflighter) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, *config.Config) {
+func setupDeployRouterWithPreflighter(t *testing.T, userID string, preflighter *k8s.ImagePreflighter) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, *config.Config) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -2347,7 +2348,7 @@ func setupDeployRouterWithPreflighter(userID string, preflighter *k8s.ImagePrefl
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, preflighter, nil, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, quota.Checker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, preflighter, nil, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, quota.Checker, avatarStore, omClient, db, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -2521,7 +2522,7 @@ func crossAccountDeployableSpec() string {
 }
 
 func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -2580,7 +2581,7 @@ func TestDeploy_WithoutDeploymentID_CreatesNew(t *testing.T) {
 }
 
 func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -2654,7 +2655,7 @@ func TestDeploy_WithDeploymentID_UpdatesExisting(t *testing.T) {
 }
 
 func TestDeploy_WithDeploymentID_NotFound(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -2695,7 +2696,7 @@ func TestDeploy_ImageNotFound_Returns422(t *testing.T) {
 		Timeout: 2 * time.Second,
 	})
 
-	router, indexMock, accountMock, _, _ := setupDeployRouterWithPreflighter("user-1", preflighter)
+	router, indexMock, accountMock, _, _ := setupDeployRouterWithPreflighter(t, "user-1", preflighter)
 	expectDeployPrep(accountMock, indexMock)
 
 	body := deployableSpec("")
@@ -2723,7 +2724,7 @@ func TestDeploy_ImageNotFound_Returns422(t *testing.T) {
 }
 
 func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -2750,7 +2751,7 @@ func TestDeploy_WithDeploymentID_InactiveRejected(t *testing.T) {
 // UPDATE inside UpdateDeploymentPending, and the handler's translation must
 // cover that path too, not just SaveDeploymentPending.
 func TestDeploy_DisplayNameCollision_RenameRejected(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -2790,7 +2791,7 @@ func TestDeploy_DisplayNameCollision_RenameRejected(t *testing.T) {
 // SaveDeploymentPending's INSERT trips the partial unique index — so the
 // test wires the INSERT to return the canonical pq unique_violation.
 func TestDeploy_DisplayNameCollision_NewDeployRejected(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrep(accountMock, indexMock)
 
@@ -3419,7 +3420,7 @@ func TestGetDeploymentLogs_InvalidWorkloadRejected(t *testing.T) {
 // (which includes a schedule trigger), runs EnforceEditable and ValidateAndResolve,
 // and should accept the spec with 202.
 func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
-	router, indexMock, accountMock, deployMock := setupDeployRouter("user-1")
+	router, indexMock, accountMock, deployMock := setupDeployRouter(t, "user-1")
 
 	expectDeployPrepWithIngestion(accountMock, indexMock)
 
@@ -3475,7 +3476,7 @@ func TestDeploy_WithScheduleIngestion_Succeeds(t *testing.T) {
 // Submits a deployment spec with a schedule ingestion but an empty cron
 // expression. The resolver should reject it with a validation error.
 func TestDeploy_WithEmptySchedule_Rejected(t *testing.T) {
-	router, indexMock, accountMock, _ := setupDeployRouter("user-1")
+	router, indexMock, accountMock, _ := setupDeployRouter(t, "user-1")
 
 	expectDeployPrepWithIngestion(accountMock, indexMock)
 
@@ -4452,7 +4453,7 @@ func setupGetDeploymentTest(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmock
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 		c.Next()
 	})
-	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, deployStore, nil, nil, nil))
+	router.GET("/api/v1/deployments/:id", GetDeployment(log, accountStore, cfg, testVault(t), deployStore, nil, nil, nil))
 
 	return router, deployMock, accountMock
 }
@@ -5324,7 +5325,7 @@ func TestHydratePreservedInlineSecrets(t *testing.T) {
 		ds,
 		&deploymentstore.Deployment{ID: deploymentID},
 		deploymentstore.NewStore(deployDB),
-		&config.Config{},
+		testVault(t),
 		restoreConfiguredSecrets,
 	)
 	if err != nil {
@@ -5352,7 +5353,7 @@ func TestHydratePreservedInlineSecretsValidationWithoutStore(t *testing.T) {
 		ds,
 		nil,
 		nil,
-		&config.Config{},
+		testVault(t),
 		validateConfiguredSecrets,
 	)
 	if err != nil {
@@ -5367,7 +5368,7 @@ func TestHydratePreservedInlineSecretsValidationWithoutStore(t *testing.T) {
 }
 
 func TestValidateDeploymentAcceptsOpaqueConfiguredSecretWithoutStore(t *testing.T) {
-	router, indexMock, accountMock := setupValidateRouter("user-1")
+	router, indexMock, accountMock := setupValidateRouter(t, "user-1")
 	expectDeployPrep(accountMock, indexMock)
 
 	var body map[string]any
@@ -5406,7 +5407,7 @@ func TestHydratePreservedInlineSecretsDeployWithoutStoreIsRejected(t *testing.T)
 		ds,
 		nil,
 		nil,
-		&config.Config{},
+		testVault(t),
 		restoreConfiguredSecrets,
 	)
 	if err == nil || !strings.Contains(err.Error(), "existing deployment") {
@@ -5438,7 +5439,7 @@ func TestHydratePreservedInlineSecretsRejectsMissingStoredValue(t *testing.T) {
 		ds,
 		&deploymentstore.Deployment{ID: "dep-missing-inline"},
 		deploymentstore.NewStore(deployDB),
-		&config.Config{},
+		testVault(t),
 		restoreConfiguredSecrets,
 	)
 	if err == nil || !strings.Contains(err.Error(), "no stored inline secret") {
@@ -6031,13 +6032,13 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 // additionally wires a real clusterstore.Store backed by an sqlmock. Returns
 // the cluster mock alongside the existing mocks so callers can prime
 // `clusterstore.Get` lookups.
-func setupDeployRouterWithClusterStore(userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
-	return setupDeployRouterWithClusterStoreClients(userID, map[string]k8s.ClusterClient{
+func setupDeployRouterWithClusterStore(t *testing.T, userID string) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	return setupDeployRouterWithClusterStoreClients(t, userID, map[string]k8s.ClusterClient{
 		"eu-west-1-managed": healthyStubCluster(),
 	})
 }
 
-func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[string]k8s.ClusterClient) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+func setupDeployRouterWithClusterStoreClients(t *testing.T, userID string, cachedClients map[string]k8s.ClusterClient) (*gin.Engine, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	gin.SetMode(gin.TestMode)
 
 	indexDB, indexMock, _ := sqlmock.New()
@@ -6071,7 +6072,7 @@ func setupDeployRouterWithClusterStoreClients(userID string, cachedClients map[s
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, deployStore, nil, clusterStore, k8sReg, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, quota.Checker, avatarStore, omClient, db, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, clusterStore, k8sReg, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, quota.Checker, avatarStore, omClient, db, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, clusterMock
 }
@@ -6101,7 +6102,7 @@ func deployableSpecWithClusterID(clusterID string) string {
 }
 
 func TestDeploy_WithUnknownClusterID_Returns400(t *testing.T) {
-	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStore("user-1")
+	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStore(t, "user-1")
 	expectDeployPrepWithCluster(accountMock, indexMock, "unknown-cluster")
 
 	// clusterstore.Get returns ErrNotFound when sql.ErrNoRows propagates.
@@ -6132,7 +6133,7 @@ func TestDeploy_WithUnknownClusterID_Returns400(t *testing.T) {
 
 func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 	const clusterID = "eu-west-1-unhealthy"
-	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStoreClients("user-1", map[string]k8s.ClusterClient{
+	router, indexMock, accountMock, _, clusterMock := setupDeployRouterWithClusterStoreClients(t, "user-1", map[string]k8s.ClusterClient{
 		clusterID: unhealthyStubCluster("connection refused"),
 	})
 	expectDeployPrepWithCluster(accountMock, indexMock, clusterID)
@@ -6179,7 +6180,7 @@ func TestDeploy_WithUnhealthyClusterID_Returns400(t *testing.T) {
 }
 
 func TestDeploy_WithValidClusterID_PersistsToDeploymentsTable(t *testing.T) {
-	router, indexMock, accountMock, deployMock, clusterMock := setupDeployRouterWithClusterStore("user-1")
+	router, indexMock, accountMock, deployMock, clusterMock := setupDeployRouterWithClusterStore(t, "user-1")
 
 	now := time.Now()
 	// Deploy validates the cluster (GetEntry), Refresh evicts cache, then

@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -20,7 +19,7 @@ func TestIssueAIGatewayDevKey_NilDeps(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	log := logger.New("error", "json")
-	router.POST("/keys", IssueAIGatewayDevKey(log, nil, nil, &config.Config{}))
+	router.POST("/keys", IssueAIGatewayDevKey(log, nil, nil, testVault(t)))
 
 	req := httptest.NewRequest(http.MethodPost, "/keys", nil)
 	rec := httptest.NewRecorder()

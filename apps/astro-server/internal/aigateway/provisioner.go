@@ -18,14 +18,6 @@ var ErrJudgeKeyOrphaned = errors.New("upstream judge key exists without a local 
 // with the worker's current KMS configuration.
 var ErrJudgeKeyDecrypt = errors.New("decrypt stored judge key")
 
-// Provisioner mints, stores, and revokes per-deployment virtual keys
-// against the AI Gateway (LiteLLM). KMS client + key ARN are passed in at
-// method-call time (same shape as langfuse.Provisioner) so the deployer can
-// supply a lazily-resolved KMS handle via its kmsClient() helper.
-//
-// Lifecycle: minted at first deploy, decrypted-and-returned on retries and
-// redeploys, revoked on undeploy. No rotation today — a future
-// deployment-template API will trigger explicit rotation.
 type Provisioner struct {
 	client    *Client
 	customers CustomerStore
@@ -116,8 +108,7 @@ type DeploymentKeyParams struct {
 func (p *Provisioner) EnsureDeploymentKey(
 	ctx context.Context,
 	store *Store,
-	kmsKeyARN string,
-	kmsClient envelope.KMSClient,
+	vault *envelope.Vault,
 	params DeploymentKeyParams,
 ) (apiKey, baseURL string, err error) {
 	if params.AccountID == "" || params.DeploymentID == "" {
@@ -129,7 +120,7 @@ func (p *Provisioner) EnsureDeploymentKey(
 		return "", "", fmt.Errorf("check existing: %w", err)
 	}
 	if existing != nil {
-		pk, err := decryptAPIKey(ctx, kmsClient, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
+		pk, err := decryptAPIKey(ctx, vault, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
 		if err != nil {
 			return "", "", fmt.Errorf("decrypt existing key: %w", err)
 		}
@@ -149,7 +140,7 @@ func (p *Provisioner) EnsureDeploymentKey(
 		return "", "", fmt.Errorf("generate key: %w", err)
 	}
 
-	ciphertext, encDataKey, nonce, err := encryptAPIKey(ctx, kmsClient, kmsKeyARN, resp.Key)
+	ciphertext, encDataKey, nonce, err := encryptAPIKey(ctx, vault, resp.Key)
 	if err != nil {
 		if delErr := p.client.DeleteKey(ctx, resp.KeyID); delErr != nil {
 			return "", "", errors.Join(fmt.Errorf("encrypt key (orphan upstream %s): %w", resp.KeyID, err), fmt.Errorf("revoke also failed: %w", delErr))
@@ -261,15 +252,14 @@ func (p *Provisioner) RevokeAccountDevKeys(ctx context.Context, devStore *DevSto
 func (p *Provisioner) EnsureJudgeKey(
 	ctx context.Context,
 	store *JudgeStore,
-	kmsKeyARN string,
-	kmsClient envelope.KMSClient,
+	vault *envelope.Vault,
 	accountID string,
 ) (apiKey, baseURL string, err error) {
 	if accountID == "" {
 		return "", "", fmt.Errorf("EnsureJudgeKey: accountID is required")
 	}
 
-	existing, plaintext, err := loadExistingJudgeKey(ctx, store, kmsClient, accountID)
+	existing, plaintext, err := loadExistingJudgeKey(ctx, store, vault, accountID)
 	if err != nil {
 		return "", "", err
 	}
@@ -289,7 +279,7 @@ func (p *Provisioner) EnsureJudgeKey(
 	resp, err := p.client.GenerateKey(ctx, keyRequest)
 	if err != nil {
 		if isConflictErr(err) {
-			existing, plaintext, recoveryErr := loadExistingJudgeKey(ctx, store, kmsClient, accountID)
+			existing, plaintext, recoveryErr := loadExistingJudgeKey(ctx, store, vault, accountID)
 			if recoveryErr != nil {
 				return "", "", errors.Join(
 					fmt.Errorf("generate judge key: %w", err),
@@ -315,7 +305,7 @@ func (p *Provisioner) EnsureJudgeKey(
 		return "", "", fmt.Errorf("generate judge key: %w", err)
 	}
 
-	ciphertext, encryptedDataKey, nonce, err := encryptAPIKey(ctx, kmsClient, kmsKeyARN, resp.Key)
+	ciphertext, encryptedDataKey, nonce, err := encryptAPIKey(ctx, vault, resp.Key)
 	if err != nil {
 		if deleteErr := p.client.DeleteKey(ctx, resp.KeyID); deleteErr != nil {
 			return "", "", errors.Join(
@@ -352,7 +342,7 @@ func (p *Provisioner) EnsureJudgeKey(
 func loadExistingJudgeKey(
 	ctx context.Context,
 	store *JudgeStore,
-	kmsClient envelope.KMSClient,
+	vault *envelope.Vault,
 	accountID string,
 ) (*JudgeKey, string, error) {
 	existing, err := store.Get(ctx, accountID)
@@ -362,7 +352,7 @@ func loadExistingJudgeKey(
 	if existing == nil {
 		return nil, "", nil
 	}
-	plaintext, err := decryptAPIKey(ctx, kmsClient, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
+	plaintext, err := decryptAPIKey(ctx, vault, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
 	if err != nil {
 		return nil, "", errors.Join(ErrJudgeKeyDecrypt, fmt.Errorf("decrypt existing judge key: %w", err))
 	}
@@ -413,8 +403,7 @@ const (
 func (p *Provisioner) EnsureDevKey(
 	ctx context.Context,
 	devStore *DevStore,
-	kmsKeyARN string,
-	kmsClient envelope.KMSClient,
+	vault *envelope.Vault,
 	accountID, actorUserID string,
 ) (apiKey, baseURL string, expiresAt time.Time, err error) {
 	existing, err := devStore.Get(accountID, actorUserID)
@@ -422,7 +411,7 @@ func (p *Provisioner) EnsureDevKey(
 		return "", "", time.Time{}, fmt.Errorf("get dev key row: %w", err)
 	}
 	if existing.IsUsable() {
-		plaintext, err := decryptAPIKey(ctx, kmsClient, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
+		plaintext, err := decryptAPIKey(ctx, vault, existing.EncryptedAPIKey, existing.EncryptedDataKey, existing.Nonce)
 		if err != nil {
 			return "", "", time.Time{}, fmt.Errorf("decrypt existing dev key: %w", err)
 		}
@@ -449,7 +438,7 @@ func (p *Provisioner) EnsureDevKey(
 		return "", "", time.Time{}, fmt.Errorf("generate dev key: %w", err)
 	}
 
-	ciphertext, encDataKey, nonce, err := encryptAPIKey(ctx, kmsClient, kmsKeyARN, resp.Key)
+	ciphertext, encDataKey, nonce, err := encryptAPIKey(ctx, vault, resp.Key)
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("encrypt dev key: %w", err)
 	}
@@ -483,12 +472,8 @@ func (p *Provisioner) EnsureDevKey(
 	return resp.Key, p.client.URL(), expires, nil
 }
 
-func encryptAPIKey(ctx context.Context, kmsClient envelope.KMSClient, kmsKeyARN, plaintext string) (ciphertext string, encDataKey, nonce []byte, err error) {
-	if kmsKeyARN == "" || kmsClient == nil {
-		// No KMS — store plaintext (dev/test). Matches Langfuse's fallback.
-		return plaintext, nil, nil, nil
-	}
-	enc, err := envelope.NewEncryptor(ctx, kmsClient, kmsKeyARN)
+func encryptAPIKey(ctx context.Context, vault *envelope.Vault, plaintext string) (ciphertext string, encDataKey, nonce []byte, err error) {
+	enc, err := vault.Encryptor(ctx)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("new encryptor: %w", err)
 	}
@@ -499,14 +484,11 @@ func encryptAPIKey(ctx context.Context, kmsClient envelope.KMSClient, kmsKeyARN,
 	return base64.StdEncoding.EncodeToString(ct), enc.EncryptedDataKey, n, nil
 }
 
-func decryptAPIKey(ctx context.Context, kmsClient envelope.KMSClient, ciphertext string, encDataKey, nonce []byte) (string, error) {
+func decryptAPIKey(ctx context.Context, vault *envelope.Vault, ciphertext string, encDataKey, nonce []byte) (string, error) {
 	if len(encDataKey) == 0 || len(nonce) == 0 {
 		return ciphertext, nil
 	}
-	if kmsClient == nil {
-		return "", fmt.Errorf("KMS client required to decrypt AI gateway key")
-	}
-	dec, err := envelope.NewDecryptor(ctx, kmsClient, encDataKey)
+	dec, err := vault.Decryptor(ctx, encDataKey)
 	if err != nil {
 		return "", fmt.Errorf("new decryptor: %w", err)
 	}

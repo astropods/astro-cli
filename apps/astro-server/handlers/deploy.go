@@ -45,8 +45,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/astropods/astro/apps/astro-server/internal/specsign"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 
@@ -371,7 +369,7 @@ func hydratePreservedInlineSecrets(
 	ds *deployment.AstroDeploymentSpec,
 	existing *deploymentstore.Deployment,
 	store *deploymentstore.Store,
-	cfg *config.Config,
+	vault *envelope.Vault,
 	mode configuredSecretMode,
 ) error {
 	preserved := make([]string, 0)
@@ -405,11 +403,7 @@ func hydratePreservedInlineSecrets(
 		}
 	}
 
-	dec, err := deploymentstore.NewDeploymentDecryptor(
-		ctx,
-		existing.EncryptedDataKey,
-		cfg.Deployment.KMSKeyARN,
-	)
+	dec, err := deploymentstore.NewDeploymentDecryptor(ctx, vault, existing.EncryptedDataKey)
 	if err != nil {
 		return fmt.Errorf("initialize deployment secret decryptor: %w", err)
 	}
@@ -438,6 +432,7 @@ func prepareDeployment(
 	accountStore *account.AccountStore,
 	agentIndex *agentindex.Index,
 	cfg *config.Config,
+	vault *envelope.Vault,
 	deployStore *deploymentstore.Store,
 	varsStore *accountvars.Store,
 	configuredSecrets configuredSecretMode,
@@ -596,7 +591,7 @@ func prepareDeployment(
 
 	displayName := submittedSpec.Target.DisplayName
 
-	if err := hydratePreservedInlineSecrets(c.Request.Context(), submittedSpec, existing, deployStore, cfg, configuredSecrets); err != nil {
+	if err := hydratePreservedInlineSecrets(c.Request.Context(), submittedSpec, existing, deployStore, vault, configuredSecrets); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   "failed to preserve configured secret",
 			"details": err.Error(),
@@ -609,7 +604,7 @@ func prepareDeployment(
 	var varRefs map[string]string
 	if varsStore != nil {
 		var refErr error
-		varRefs, refErr = resolveVarReferences(c, log, submittedSpec, targetAcct.ID, varsStore, cfg)
+		varRefs, refErr = resolveVarReferences(c, log, submittedSpec, targetAcct.ID, varsStore, vault)
 		if refErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to resolve variable references",
@@ -735,7 +730,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, fgaSync *authz.DeploymentFGASyncStore, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, fgaSync *authz.DeploymentFGASyncStore, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -767,7 +762,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			}
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, deployStore, varsStore, restoreConfiguredSecrets)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, vault, deployStore, varsStore, restoreConfiguredSecrets)
 		if !ok {
 			return
 		}
@@ -858,19 +853,11 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
-		// Create encryptor if KMS is configured
-		var enc *envelope.Encryptor
-		if cfg.Deployment.KMSKeyARN != "" {
-			awsCfg, awsErr := awsconfig.LoadDefaultConfig(c.Request.Context())
-			if awsErr != nil {
-				log.Error("Failed to load AWS config for KMS", "error", awsErr)
-			} else {
-				kmsClient := kms.NewFromConfig(awsCfg)
-				enc, awsErr = envelope.NewEncryptor(c.Request.Context(), kmsClient, cfg.Deployment.KMSKeyARN)
-				if awsErr != nil {
-					log.Error("Failed to create KMS encryptor", "error", awsErr)
-				}
-			}
+		enc, encErr := vault.Encryptor(c.Request.Context())
+		if encErr != nil {
+			log.Error("Failed to create encryptor", "error", encErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store deployment secrets"})
+			return
 		}
 
 		params := deploymentstore.SaveDeploymentParams{
@@ -1042,7 +1029,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 // POST /api/v1/deploy/validate
 // Content-Type: application/yaml (or application/json)
 // Body: fulfilled deployment spec (spec: deployment/v1)
-func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config) gin.HandlerFunc {
+func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -1053,7 +1040,7 @@ func ValidateDeployment(log *logger.Logger, agentIndex *agentindex.Index, accoun
 			return
 		}
 
-		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, nil, nil, validateConfiguredSecrets)
+		dctx, ok := prepareDeployment(c, log, submittedSpec, accountStore, agentIndex, cfg, vault, nil, nil, validateConfiguredSecrets)
 		if !ok {
 			return
 		}
@@ -2267,7 +2254,7 @@ func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, acco
 // If you find yourself wanting a K8s field here, that field belongs in the
 // runtime endpoint instead — extend DeploymentRuntime, not DeploymentRecord.
 // GET /api/v1/deployments/:id
-func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
+func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, agentIdx *agentindex.Index, avatarStore *avatar.Store, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -2343,11 +2330,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		// the runtime endpoint intentionally carries none. Reading from the
 		// DB avoids the per-poll K8s Secret/ConfigMap GET-storm and surfaces
 		// the deployed spec immediately, with no rolling-update lag.
-		kmsKeyARN := ""
-		if cfg != nil {
-			kmsKeyARN = cfg.Deployment.KMSKeyARN
-		}
-		envByRole, envErr := deployStore.LoadDecryptedBuildEnv(c.Request.Context(), dbDep, kmsKeyARN)
+		envByRole, envErr := deployStore.LoadDecryptedBuildEnv(c.Request.Context(), dbDep, vault)
 		if envErr != nil {
 			log.Warn("LoadDecryptedBuildEnv failed", "error", envErr, "deployment_id", dbDep.ID)
 		}

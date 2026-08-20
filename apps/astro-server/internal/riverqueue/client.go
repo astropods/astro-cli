@@ -56,7 +56,7 @@ type Config struct {
 	Logger               *logger.Logger
 	WorkOSClient         *auth.WorkOSClient
 	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
-	KMSClient            envelope.KMSClient
+	Vault                *envelope.Vault
 	// LangfuseStore is used by the DeployWorker to provision per-deployment
 	// Langfuse datasets at deploy time. Optional — when nil, dataset
 	// provisioning is skipped.

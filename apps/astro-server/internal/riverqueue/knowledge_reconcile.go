@@ -35,23 +35,7 @@ type KnowledgeReconcileWorker struct {
 	ksStore *knowledgestore.Store
 	log     *logger.Logger
 
-	// localMode selects the credential KMS backend: the local dev backend when
-	// ENVIRONMENT == "local", real AWS KMS otherwise. Same choice as the handlers.
-	localMode bool
-
-	// kmsClient is a test-only override; when nil the backend is chosen from
-	// localMode. Tests inject a fake to exercise credential rewriting.
-	kmsClient envelope.KMSClient
-}
-
-// kmsClientFor returns the injected KMS client (tests) or the env-selected
-// backend (local dev vs real AWS KMS). Selection is by environment, never by
-// the stored key ARN.
-func (w *KnowledgeReconcileWorker) kmsClientFor(ctx context.Context) (envelope.KMSClient, error) {
-	if w.kmsClient != nil {
-		return w.kmsClient, nil
-	}
-	return knowledgestore.KMSBackend(ctx, w.localMode)
+	vault *envelope.Vault
 }
 
 func (w *KnowledgeReconcileWorker) Work(ctx context.Context, _ *river.Job[KnowledgeReconcileArgs]) error {
@@ -177,11 +161,7 @@ func (w *KnowledgeReconcileWorker) persistResolvedHost(ctx context.Context, stor
 		return nil
 	}
 
-	kmsClient, err := w.kmsClientFor(ctx)
-	if err != nil {
-		return err
-	}
-	return w.ksStore.RewriteHostCredential(ctx, kmsClient, store, dns)
+	return w.ksStore.RewriteHostCredential(ctx, w.vault, store, dns)
 }
 
 func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg string) {

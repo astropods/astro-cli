@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	goredis "github.com/redis/go-redis/v9"
 
@@ -241,14 +240,20 @@ func main() {
 	var adminSrv *admingrpc.Server
 	var apiQueue *riverqueue.Queue
 
+	vault, vaultErr := envelope.Open(context.Background(), cfg.Deployment.IsLocal(), cfg.Deployment.KMSKeyARN)
+	if vaultErr != nil {
+		log.Error("Failed to open the envelope vault", "error", vaultErr)
+		os.Exit(1)
+	}
+
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, vault)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA, vault)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -381,6 +386,7 @@ func runAPI(
 	deploymentFGASync *authz.DeploymentFGASyncStore,
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	deploymentFGA authz.FGA,
+	vault *envelope.Vault,
 ) (*http.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
 	gin.SetMode(cfg.Server.Mode)
@@ -538,6 +544,7 @@ func runAPI(
 		Log:   log,
 		Cfg:   cfg,
 		DB:    db,
+		Vault: vault,
 		Ent:   ent,
 		Quota: quotaChecker,
 		Probe: probeHandler,
@@ -590,6 +597,7 @@ func runAPI(
 		Cfg:          cfg,
 		Store:        deploymentStore,
 		Log:          log,
+		Vault:        vault,
 	}
 	adminSrv.SetEvaluators(deployeval.NewStore(db), deployeval.BuildAll(deployeval.Deps{Deployer: evalDeployer}))
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
@@ -683,17 +691,6 @@ func newImagePreflighter(cfg *config.Config) *k8s.ImagePreflighter {
 	return k8s.NewImagePreflighter(localMode)
 }
 
-func loadConfiguredKMSClient(ctx context.Context, keyARN string) (envelope.KMSClient, error) {
-	if keyARN == "" {
-		return nil, nil
-	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return kms.NewFromConfig(awsCfg), nil
-}
-
 // runWorker starts the River queue for all background job processing and returns a cancel func.
 func runWorker(
 	log *logger.Logger,
@@ -712,6 +709,7 @@ func runWorker(
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	accessReconciler *authz.AccessReconciler,
 	deploymentFGA authz.FGA,
+	vault *envelope.Vault,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
 
@@ -809,11 +807,6 @@ func runWorker(
 		log.Warn("Notification provider: no-op (NOVU_API_URL/NOVU_SECRET_KEY unset); notifications will be dropped")
 	}
 
-	// Start River queue (handles all periodic workers)
-	workerKMSClient, err := loadConfiguredKMSClient(workerCtx, cfg.Deployment.KMSKeyARN)
-	if err != nil {
-		log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
-	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
 		DB:                 db,
 		NotifyProvider:     notifyProvider,
@@ -860,7 +853,7 @@ func runWorker(
 			Classifications: classification.NewStore(db),
 		},
 		ReconcileDeployment: reconcileDeployment,
-		KMSClient:           workerKMSClient,
+		Vault:               vault,
 	})
 	if rqErr != nil {
 		log.Error("Failed to create River queue", "error", rqErr)
@@ -1579,14 +1572,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountVarsWrite.Use(middleware.ResolveAccount(accountStore))
 			accountVarsWrite.Use(middleware.RequireAccountPermission(accountStore, "variable:write"))
 			{
-				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, cfg),
+				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, deps.Vault),
 					oapispec.Tags("Variables"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Body(&handlers.CreateAccountVariablesRequest{}),
 					oapispec.Response(200, &handlers.CreateAccountVariablesResponse{}),
 				)
-				api.PUT(accountVarsWrite, "/variables/:varName", "Update account variable", handlers.UpdateAccountVariable(log, accountVarsStore, cfg),
+				api.PUT(accountVarsWrite, "/variables/:varName", "Update account variable", handlers.UpdateAccountVariable(log, accountVarsStore, deps.Vault),
 					oapispec.Tags("Variables"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1623,7 +1616,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				// LiteLLM-side TTL is the only lifecycle mechanism, so the CLI
 				// has no cleanup responsibility.
 				api.POST(accountMember, "/ai-gateway-keys", "Issue an ephemeral AI Gateway key for local dev",
-					handlers.IssueAIGatewayDevKey(log, aiGatewayProvisioner, aiGatewayDevStore, cfg),
+					handlers.IssueAIGatewayDevKey(log, aiGatewayProvisioner, aiGatewayDevStore, deps.Vault),
 					oapispec.Tags("AI Gateway"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1643,7 +1636,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 
 				// Knowledge store routes
-				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, pipesClient, cfg, queue, db, quotaChecker), "knowledge_stores")),
+				api.POST(accountMember, "/knowledge/connect", "Connect an external knowledge store", ent.Wrap(quotaChecker.Wrap(handlers.ConnectKnowledgeStore(log, ksStore, pipesClient, cfg, deps.Vault, queue, db, quotaChecker), "knowledge_stores")),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1666,7 +1659,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.POST(accountMember, "/knowledge/:name/recheck", "Recheck a connected knowledge store and fix its host", handlers.RecheckKnowledgeStore(log, ksStore, nil, nil),
+				api.POST(accountMember, "/knowledge/:name/recheck", "Recheck a connected knowledge store and fix its host", handlers.RecheckKnowledgeStore(log, ksStore, nil, deps.Vault),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1682,7 +1675,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, cfg.Deployment.IsLocal()),
+				api.GET(accountMember, "/knowledge/:name/credentials", "Retrieve knowledge store credentials", handlers.GetKnowledgeStoreCredentials(log, ksStore, deps.Vault),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1690,7 +1683,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.KnowledgeCredentialsResponse{}),
 					oapispec.Response(404, &handlers.ErrorResponse{}),
 				)
-				api.PUT(accountMember, "/knowledge/:name/credentials", "Update connected knowledge store credentials", handlers.UpdateKnowledgeStoreCredentials(log, ksStore, pipesClient, cfg),
+				api.PUT(accountMember, "/knowledge/:name/credentials", "Update connected knowledge store credentials", handlers.UpdateKnowledgeStoreCredentials(log, ksStore, pipesClient, cfg, deps.Vault),
 					oapispec.Tags("Knowledge"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1911,13 +1904,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, deploymentFGASync, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deps.Vault, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, deploymentFGASync, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
 				oapispec.Response(202, &handlers.DeployResponseAlias{}),
 			)
-			api.POST(protected, "/deploy/validate", "Validate a deployment spec", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg),
+			api.POST(protected, "/deploy/validate", "Validate a deployment spec", handlers.ValidateDeployment(log, agentIndex, accountStore, cfg, deps.Vault),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Validates a fulfilled deployment spec without applying it."),
@@ -2060,7 +2053,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 			// The detail record includes deployed env names and non-secret values. Secret
 			// values are redacted, but the route remains configuration-sensitive.
-			deploymentRoutes.ObservedGET(authz.ActionDeploymentRead, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, deploymentStore, agentIndex, avatarStore, auditStore),
+			deploymentRoutes.ObservedGET(authz.ActionDeploymentRead, "/deployments/:id", "Get deployment", handlers.GetDeployment(log, accountStore, cfg, deps.Vault, deploymentStore, agentIndex, avatarStore, auditStore),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

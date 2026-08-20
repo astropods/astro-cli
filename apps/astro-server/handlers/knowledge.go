@@ -24,35 +24,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/astropods/astro/apps/astro-server/internal/riverqueue"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
 )
 
-// encryptedCredentials holds the result of encrypting credentials with KMS.
 type encryptedCredentials struct {
 	Credentials []knowledgestore.Credential
 	DataKey     []byte
 	KMSKeyARN   string
 }
 
-// encryptKnowledgeCreds encrypts a set of plaintext credentials using KMS
-// envelope encryption. The backend is chosen by environment (local dev backend
-// when localMode, real AWS KMS otherwise) — the same code path runs everywhere.
-// Returns nil only when there's nothing to encrypt with: non-local and no
-// KMS_KEY_ARN configured.
-func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN string, localMode bool, creds map[string]string) (*encryptedCredentials, error) {
-	if !localMode && kmsKeyARN == "" {
-		return nil, nil
-	}
-	kmsClient, err := knowledgestore.KMSBackend(ctx, localMode)
-	if err != nil {
-		log.Error("Failed to initialize KMS backend", "error", err)
-		return nil, fmt.Errorf("failed to initialize KMS")
-	}
-	enc, err := envelope.NewEncryptor(ctx, kmsClient, kmsKeyARN)
+func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, vault *envelope.Vault, creds map[string]string) (*encryptedCredentials, error) {
+	enc, err := vault.Encryptor(ctx)
 	if err != nil {
 		log.Error("Failed to create KMS encryptor", "error", err)
 		return nil, fmt.Errorf("failed to encrypt credentials")
@@ -65,7 +49,7 @@ func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, kmsKeyARN st
 	return &encryptedCredentials{
 		Credentials: encrypted,
 		DataKey:     enc.EncryptedDataKey,
-		KMSKeyARN:   kmsKeyARN,
+		KMSKeyARN:   enc.KMSKeyARN,
 	}, nil
 }
 
@@ -131,7 +115,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -237,7 +221,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 		storeID := deployid.New()
 		storeARN := arn.KnowledgeStore(acct.ID, req.Name)
 
-		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, cfg.Deployment.KMSKeyARN, cfg.Deployment.IsLocal(), creds)
+		enc, err := encryptKnowledgeCreds(c.Request.Context(), log, vault, creds)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -358,7 +342,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 // so a bad update can't leave the store with unusable credentials.
 // For Supabase-imported stores, HOST/PORT/USERNAME are server-managed (resolved
 // from the session pooler) and cannot be edited here.
-func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config) gin.HandlerFunc {
+func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -464,21 +448,13 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 			return
 		}
 
-		// Decrypt the current credentials so we can validate and health-check the
-		// full merged set, not just the changed fields.
-		kmsClient, err := knowledgestore.KMSBackend(c.Request.Context(), cfg.Deployment.IsLocal())
-		if err != nil {
-			log.Error("Failed to initialize KMS backend", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
-			return
-		}
 		dbCreds, err := ksStore.GetCredentials(ks.ID)
 		if err != nil {
 			log.Error("Failed to get credentials", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve credentials"})
 			return
 		}
-		merged, err := knowledgestore.ResolveCredentials(c.Request.Context(), ks, dbCreds, kmsClient)
+		merged, err := knowledgestore.ResolveCredentials(c.Request.Context(), ks, dbCreds, vault)
 		if err != nil {
 			log.Error("Failed to resolve credentials", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})
@@ -507,7 +483,7 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 
 		// Persist only the changed keys, re-encrypted under the store's existing
 		// data key.
-		if err := ksStore.RewriteCredentials(c.Request.Context(), kmsClient, ks, updates); err != nil {
+		if err := ksStore.RewriteCredentials(c.Request.Context(), vault, ks, updates); err != nil {
 			log.Error("Failed to update credentials", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update credentials"})
 			return
@@ -596,14 +572,11 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store) gin.Ha
 // stores whose HOST still holds the original "com.amazonaws.vpce.*" service
 // name — the reconciler only rewrites HOST on the available transition, so
 // stores that became ready before that logic existed never get corrected.
-//
-// newEC2 and kmsClient are injectable for tests; nil falls back to the real
-// AWS-backed clients.
 func RecheckKnowledgeStore(
 	log *logger.Logger,
 	ksStore *knowledgestore.Store,
 	newEC2 func(context.Context) (knowledgestore.EC2Client, error),
-	kmsClient envelope.KMSClient,
+	vault *envelope.Vault,
 ) gin.HandlerFunc {
 	if newEC2 == nil {
 		newEC2 = knowledgestore.NewEC2Client
@@ -658,13 +631,7 @@ func RecheckKnowledgeStore(
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update endpoint"})
 			return
 		}
-		kc, err := recheckKMSClient(c.Request.Context(), kmsClient)
-		if err != nil {
-			log.Error("Failed to build KMS client", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host"})
-			return
-		}
-		if err := ksStore.RewriteHostCredential(c.Request.Context(), kc, ks, dns); err != nil {
+		if err := ksStore.RewriteHostCredential(c.Request.Context(), vault, ks, dns); err != nil {
 			log.Error("Failed to rewrite host credential", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host"})
 			return
@@ -713,19 +680,6 @@ func resolveEndpointDNS(ctx context.Context, log *logger.Logger, newEC2 func(con
 		return ""
 	}
 	return aws.ToString(vpce.DnsEntries[0].DnsName)
-}
-
-// recheckKMSClient returns the injected client or builds one from the default
-// AWS config.
-func recheckKMSClient(ctx context.Context, injected envelope.KMSClient) (envelope.KMSClient, error) {
-	if injected != nil {
-		return injected, nil
-	}
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load aws config: %w", err)
-	}
-	return kms.NewFromConfig(awsCfg), nil
 }
 
 func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, queue *riverqueue.Queue) gin.HandlerFunc {
@@ -786,7 +740,7 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, que
 
 // GetKnowledgeStoreCredentials decrypts and returns the store's connection
 // credentials.
-func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, localMode bool) gin.HandlerFunc {
+func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.Store, vault *envelope.Vault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -807,18 +761,7 @@ func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.St
 			return
 		}
 
-		var kmsClient envelope.KMSClient
-		if len(ks.EncryptedDataKey) > 0 {
-			var kmsErr error
-			kmsClient, kmsErr = knowledgestore.KMSBackend(c.Request.Context(), localMode)
-			if kmsErr != nil {
-				log.Error("Failed to initialize KMS backend", "error", kmsErr)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize KMS"})
-				return
-			}
-		}
-
-		plainCreds, resolveErr := knowledgestore.ResolveCredentials(c.Request.Context(), ks, creds, kmsClient)
+		plainCreds, resolveErr := knowledgestore.ResolveCredentials(c.Request.Context(), ks, creds, vault)
 		if resolveErr != nil {
 			log.Error("Failed to resolve credentials", "error", resolveErr, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})

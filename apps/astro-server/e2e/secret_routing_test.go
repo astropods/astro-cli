@@ -192,12 +192,14 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 
 	// Save to DB
 	depID := fmt.Sprintf("sr%08d", time.Now().UnixMilli()%100000000)
+	enc := testEncryptor(t)
 	dep, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
 		ID: depID, AccountID: accountID, AgentName: "sr-agent",
 		DisplayName: t.Name(), BuildID: "srbuild01", Namespace: ns,
-		SpecJSON: secretRoutingSpec,
+		SpecJSON:         secretRoutingSpec,
+		EncryptedDataKey: enc.EncryptedDataKey, KMSKeyARN: enc.KMSKeyARN,
 	}, func(tx *sql.Tx, deploymentID string) error {
-		return ds.SaveNormalizedSpec(tx, deploymentID, &specObj, nil, &ds.NormalizedSpecConfig{
+		return ds.SaveNormalizedSpec(tx, deploymentID, &specObj, enc, &ds.NormalizedSpecConfig{
 			Namespace: ns,
 		})
 	})

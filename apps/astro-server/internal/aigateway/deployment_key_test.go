@@ -77,14 +77,14 @@ func TestEnsureDeploymentKey_MintsWhenAbsentAndStampsMetadata(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(deploymentKeyColumns))
 	// Save (insert).
 	mock.ExpectExec("INSERT INTO deployment_ai_gateway").
-		WithArgs("dep-1", "acct-1", "tok-fresh", "sk-bf-fresh", []byte(nil), []byte(nil), sqlmock.AnyArg()).
+		WithArgs("dep-1", "acct-1", "tok-fresh", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	provisioner := NewProvisioner(NewClient(srv.URL, "", ""), newFakeCustomerStore(), nil)
 	store := NewStore(db)
 
 	apiKey, baseURL, err := provisioner.EnsureDeploymentKey(
-		context.Background(), store, "", nil,
+		context.Background(), store, testVault(t),
 		DeploymentKeyParams{
 			AccountID:    "acct-1",
 			DeploymentID: "dep-1",
@@ -134,7 +134,7 @@ func TestEnsureDeploymentKey_IsIdempotentOnExistingRow(t *testing.T) {
 	store := NewStore(db)
 
 	apiKey, _, err := provisioner.EnsureDeploymentKey(
-		context.Background(), store, "", nil,
+		context.Background(), store, testVault(t),
 		DeploymentKeyParams{AccountID: "acct-1", DeploymentID: "dep-1"},
 	)
 	require.NoError(t, err)
@@ -150,13 +150,13 @@ func TestEnsureDeploymentKey_RequiresAccountAndDeployment(t *testing.T) {
 	store := NewStore(nil)
 
 	_, _, err := provisioner.EnsureDeploymentKey(
-		context.Background(), store, "", nil,
+		context.Background(), store, testVault(t),
 		DeploymentKeyParams{DeploymentID: "dep-1"},
 	)
 	assert.Error(t, err, "missing AccountID should fail")
 
 	_, _, err = provisioner.EnsureDeploymentKey(
-		context.Background(), store, "", nil,
+		context.Background(), store, testVault(t),
 		DeploymentKeyParams{AccountID: "acct-1"},
 	)
 	assert.Error(t, err, "missing DeploymentID should fail")

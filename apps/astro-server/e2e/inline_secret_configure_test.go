@@ -62,16 +62,19 @@ func saveInlineSecretDeployment(
 	if err != nil {
 		t.Fatalf("marshal stripped spec: %v", err)
 	}
+	enc := testEncryptor(t)
 	dep, err := store.SaveDeploymentPending(ds.SaveDeploymentParams{
-		ID:          deployid.New(),
-		AccountID:   accountID,
-		AgentName:   full.Source.Name,
-		DisplayName: "Inline Secret Bot",
-		BuildID:     full.Source.Build,
-		Namespace:   ns,
-		SpecJSON:    string(specJSON),
+		ID:               deployid.New(),
+		AccountID:        accountID,
+		AgentName:        full.Source.Name,
+		DisplayName:      "Inline Secret Bot",
+		BuildID:          full.Source.Build,
+		Namespace:        ns,
+		SpecJSON:         string(specJSON),
+		EncryptedDataKey: enc.EncryptedDataKey,
+		KMSKeyARN:        enc.KMSKeyARN,
 	}, func(tx *sql.Tx, depID string) error {
-		return ds.SaveNormalizedSpec(tx, depID, full, nil, nil)
+		return ds.SaveNormalizedSpec(tx, depID, full, enc, nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)

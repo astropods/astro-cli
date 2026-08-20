@@ -31,7 +31,7 @@ func TestEncryptCredentialsForStore_RoundTrip(t *testing.T) {
 	store := &KnowledgeStore{ID: "s1", Mode: ModeExternal, EncryptedDataKey: enc.EncryptedDataKey}
 
 	// Re-encrypt an update (password + host) under the same data key.
-	updated, err := EncryptCredentialsForStore(ctx, kms, store, map[string]string{
+	updated, err := EncryptCredentialsForStore(ctx, envelope.NewVault(kms, ""), store, map[string]string{
 		"PASSWORD": "newpw", "HOST": "new-host",
 	})
 	if err != nil {
@@ -51,7 +51,7 @@ func TestEncryptCredentialsForStore_RoundTrip(t *testing.T) {
 		all = append(all, c)
 	}
 
-	got, err := DecryptCredentials(ctx, kms, store.EncryptedDataKey, all)
+	got, err := DecryptCredentials(ctx, envelope.NewVault(kms, ""), store.EncryptedDataKey, all)
 	if err != nil {
 		t.Fatalf("DecryptCredentials: %v", err)
 	}
@@ -199,15 +199,15 @@ func TestValidateExternalCredentials_EmptyValueTreatedAsMissing(t *testing.T) {
 
 // --- ResolveCredentials ---
 
-func TestResolveCredentials_KMSRequired(t *testing.T) {
+func TestResolveCredentials_VaultRequired(t *testing.T) {
 	store := &KnowledgeStore{Name: "my-db", EncryptedDataKey: []byte("key")}
 	dbCreds := []Credential{{Key: "POSTGRES_USER", ValueEncrypted: []byte("enc"), Nonce: []byte("n")}}
 
 	_, err := ResolveCredentials(context.Background(), store, dbCreds, nil)
 	if err == nil {
-		t.Fatal("expected error when KMS required but nil")
+		t.Fatal("expected error when no vault is configured")
 	}
-	if !strings.Contains(err.Error(), "KMS") {
-		t.Errorf("error should mention KMS, got: %v", err)
+	if !strings.Contains(err.Error(), "no vault configured") {
+		t.Errorf("error should name the missing vault, got: %v", err)
 	}
 }

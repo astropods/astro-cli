@@ -3,6 +3,8 @@ package deploymentstore
 import (
 	"context"
 	"fmt"
+
+	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
 
 // RedactedSecretValue is the placeholder returned in place of a decrypted
@@ -32,7 +34,7 @@ type DecryptedEnvVar struct {
 // Decryption failures fall back to RedactedSecretValue rather than surfacing
 // raw ciphertext or aborting; the env panel stays usable even if a single key
 // can't be decrypted.
-func (s *Store) LoadDecryptedBuildEnv(ctx context.Context, dep *Deployment, kmsKeyARN string) (map[string][]DecryptedEnvVar, error) {
+func (s *Store) LoadDecryptedBuildEnv(ctx context.Context, dep *Deployment, vault *envelope.Vault) (map[string][]DecryptedEnvVar, error) {
 	rows, err := s.GetBuildEnv(dep.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get build env: %w", err)
@@ -41,11 +43,7 @@ func (s *Store) LoadDecryptedBuildEnv(ctx context.Context, dep *Deployment, kmsK
 		return nil, nil
 	}
 
-	// dec may be nil when KMS is off; envelope.Decrypt is nil-safe and
-	// passes ciphertext through when the row was stored plaintext (empty
-	// nonce) or when no decryptor is available, so there's no branching
-	// here on KMS state.
-	dec, _ := NewDeploymentDecryptor(ctx, dep.EncryptedDataKey, kmsKeyARN)
+	dec, _ := NewDeploymentDecryptor(ctx, vault, dep.EncryptedDataKey)
 
 	out := make(map[string][]DecryptedEnvVar, len(rows))
 	for _, r := range rows {

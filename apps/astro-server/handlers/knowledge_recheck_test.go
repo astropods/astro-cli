@@ -74,7 +74,7 @@ func externalStoreRowWithKey(id, name string, key []byte) *sqlmock.Rows {
 // an endpoint.
 func TestRecheckKnowledgeStore_NoEndpoint(t *testing.T) {
 	router, ksStore, mock := setupKS()
-	router.POST("/knowledge/:name/recheck", RecheckKnowledgeStore(logger.New("error", "json"), ksStore, nil, &recheckKMS{}))
+	router.POST("/knowledge/:name/recheck", RecheckKnowledgeStore(logger.New("error", "json"), ksStore, nil, envelope.NewVault(&recheckKMS{}, "")))
 
 	mock.ExpectQuery("SELECT .+ FROM knowledge_stores WHERE account_id").
 		WillReturnRows(externalKnowledgeRow("id1", testAccount().ID, "ext", "postgres", "ready"))
@@ -100,7 +100,7 @@ func TestRecheckKnowledgeStore_Success(t *testing.T) {
 	router.POST("/knowledge/:name/recheck", RecheckKnowledgeStore(
 		logger.New("error", "json"), ksStore,
 		func(context.Context) (knowledgestore.EC2Client, error) { return &recheckEC2{dns: resolvedDNS}, nil },
-		&recheckKMS{key: key},
+		envelope.NewVault(&recheckKMS{key: key}, ""),
 	))
 
 	now := time.Now()

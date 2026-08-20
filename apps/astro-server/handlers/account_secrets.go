@@ -9,13 +9,10 @@ import (
 
 	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
-	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/gin-gonic/gin"
 )
 
@@ -78,7 +75,7 @@ func ListAccountVariables(log *logger.Logger, store *accountvars.Store) gin.Hand
 // CreateAccountVariable stores one or more account variables (optionally encrypted).
 // The request body is { "variables": [ ... ] }. Each entry is saved via upsert.
 // POST /api/v1/accounts/:account/variables
-func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *config.Config) gin.HandlerFunc {
+func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -102,7 +99,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 		for _, e := range req.Variables {
 			if e.Secret {
 				var err error
-				enc, err = getAccountEncryptor(c, log, store, acct.ID, cfg)
+				enc, err = getAccountEncryptor(c, log, store, acct.ID, vault)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set up encryption"})
 					return
@@ -194,7 +191,7 @@ func GetAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Handle
 
 // UpdateAccountVariable updates an existing account variable.
 // PUT /api/v1/accounts/:account/variables/:varName
-func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *config.Config) gin.HandlerFunc {
+func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -238,7 +235,7 @@ func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, cfg *co
 		}
 
 		if req.Value != nil {
-			enc, err := getAccountEncryptor(c, log, store, acct.ID, cfg)
+			enc, err := getAccountEncryptor(c, log, store, acct.ID, vault)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set up encryption"})
 				return
@@ -288,20 +285,8 @@ func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Han
 	}
 }
 
-// getAccountEncryptor returns an Encryptor for the account, creating the data key via KMS if needed.
-// Returns nil if KMS is not configured.
-func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, cfg *config.Config) (*envelope.Encryptor, error) {
-	if cfg.Deployment.KMSKeyARN == "" {
-		return nil, nil
-	}
-
+func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.Store, accountID string, vault *envelope.Vault) (*envelope.Encryptor, error) {
 	ctx := c.Request.Context()
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
-	if err != nil {
-		log.Error("Failed to load AWS config for KMS", "error", err)
-		return nil, err
-	}
-	kmsClient := kms.NewFromConfig(awsCfg)
 
 	ek, err := store.GetEncryptionKey(accountID)
 	if err != nil {
@@ -310,7 +295,7 @@ func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.
 	}
 
 	if ek == nil {
-		enc, err := envelope.NewEncryptor(ctx, kmsClient, cfg.Deployment.KMSKeyARN)
+		enc, err := vault.Encryptor(ctx)
 		if err != nil {
 			log.Error("Failed to generate KMS data key", "error", err, "account_id", accountID)
 			return nil, err
@@ -322,20 +307,9 @@ func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.
 		return enc, nil
 	}
 
-	kmsOut, err := kmsClient.Decrypt(ctx, &kms.DecryptInput{
-		CiphertextBlob: ek.EncryptedDataKey,
-	})
+	enc, err := vault.EncryptorFor(ctx, ek.EncryptedDataKey)
 	if err != nil {
-		log.Error("Failed to KMS decrypt account data key", "error", err, "account_id", accountID)
-		return nil, err
-	}
-
-	enc, err := envelope.NewEncryptorFromPlaintext(kmsOut.Plaintext, ek.EncryptedDataKey, ek.KMSKeyARN)
-	for i := range kmsOut.Plaintext {
-		kmsOut.Plaintext[i] = 0
-	}
-	if err != nil {
-		log.Error("Failed to create encryptor from plaintext key", "error", err, "account_id", accountID)
+		log.Error("Failed to create encryptor from stored data key", "error", err, "account_id", accountID)
 		return nil, err
 	}
 
@@ -364,7 +338,7 @@ func applyValue(v *accountvars.AccountVariable, plaintext string, enc *envelope.
 // account variables and populating the value (decrypting secrets as needed).
 // It returns the original refs map (variable name → account variable name) so
 // callers can persist the refs for later use (e.g. prefilled deployment templates).
-func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *deployment.AstroDeploymentSpec, accountID string, store *accountvars.Store, cfg *config.Config) (map[string]string, error) {
+func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *deployment.AstroDeploymentSpec, accountID string, store *accountvars.Store, vault *envelope.Vault) (map[string]string, error) {
 	if len(submittedSpec.Variables) == 0 {
 		return nil, nil
 	}
@@ -460,15 +434,8 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *dep
 				log.Error("Failed to get account encryption key", "error", err, "account_id", accountID)
 				return nil, fmt.Errorf("failed to decrypt account variables")
 			}
-			if ek != nil && cfg.Deployment.KMSKeyARN != "" {
-				ctx := c.Request.Context()
-				awsCfg, awsErr := awsconfig.LoadDefaultConfig(ctx)
-				if awsErr != nil {
-					log.Error("Failed to load AWS config for variable resolution", "error", awsErr)
-					return nil, fmt.Errorf("failed to decrypt account variables")
-				}
-				kmsClient := kms.NewFromConfig(awsCfg)
-				decryptor, err = envelope.NewDecryptor(ctx, kmsClient, ek.EncryptedDataKey)
+			if ek != nil {
+				decryptor, err = vault.Decryptor(c.Request.Context(), ek.EncryptedDataKey)
 				if err != nil {
 					log.Error("Failed to create decryptor for account variables", "error", err, "account_id", accountID)
 					return nil, fmt.Errorf("failed to decrypt account variables")

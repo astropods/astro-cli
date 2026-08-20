@@ -55,17 +55,9 @@ func NewEncryptor(ctx context.Context, client KMSClient, keyARN string) (*Encryp
 	}, nil
 }
 
-// Encrypt encrypts a plaintext value, returning (ciphertext, nonce).
-//
-// Nil-safe: callers may invoke Encrypt on a nil receiver to express
-// "KMS is not configured / passthrough" without branching themselves.
-// In that case the returned ciphertext is the plaintext bytes and the
-// nonce is nil. Storing values that way is the local-dev convention
-// (also used by deployment_build_env for non-secret rows); the
-// corresponding Decrypt call below restores them as-is.
 func (e *Encryptor) Encrypt(plaintext []byte) (ciphertext, nonce []byte, err error) {
 	if e == nil || e.gcm == nil {
-		return plaintext, nil, nil
+		return nil, nil, fmt.Errorf("envelope: encryptor unavailable")
 	}
 	nonce = make([]byte, e.gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
