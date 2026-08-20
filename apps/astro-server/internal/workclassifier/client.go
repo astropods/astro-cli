@@ -42,8 +42,13 @@ var Fallback = map[Axis]string{
 }
 
 const (
-	// Single-item requests cost ~480ms; batched, ~9ms each.
-	maxBatch       = 256
+	// A call costs what its tokens cost, so the batch decides whether it fits in
+	// defaultTimeout. Claude Code prompts nearly all reach the classifier's
+	// truncation length, where a predictor scores about six a second: 256 took
+	// 82 seconds and the deadline cancelled a request the server went on to
+	// finish. 64 keeps a call near 11 seconds. Batching still pays below that,
+	// because a call under about 8 texts is dominated by its own overhead.
+	maxBatch       = 64
 	defaultTimeout = 60 * time.Second
 
 	readyTimeout = 5 * time.Second
