@@ -158,3 +158,35 @@ Common causes, most likely first:
 		composeBuilder.AgentCorePort, composeBuilder.AgentCorePort, hostPort, wait,
 		buildinfo.BinaryName, buildinfo.BinaryName)
 }
+
+func msgBillingUnavailable() string {
+	return "Billing is not configured for this account"
+}
+
+func errBillingUnavailable() error {
+	return fmt.Errorf("billing is not configured for this account")
+}
+
+func msgNoInvoices() string {
+	return "No invoices yet"
+}
+
+func errBillingSetConflict(name string) error {
+	return fmt.Errorf("--%s and --clear-%s cannot be used together", name, name)
+}
+
+func errBillingSetNoChange() error {
+	return fmt.Errorf("specify --warning, --limit, --clear-warning, or --clear-limit")
+}
+
+func msgSpendControlsSaved() string {
+	return "Spend controls saved"
+}
+
+func errUnknownUsageMetric(metric string) error {
+	return fmt.Errorf("--metric %q is not a metered quantity; use compute or gateway", metric)
+}
+
+func msgUsageControlsSaved(metric string) string {
+	return fmt.Sprintf("Usage controls saved for %s", metric)
+}
