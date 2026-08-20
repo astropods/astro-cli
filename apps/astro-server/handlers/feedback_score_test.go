@@ -144,13 +144,12 @@ func setupFeedbackScoreRouter(t *testing.T, deploymentID string, upstream http.H
 }
 
 var langfuseCredColumns = []string{
-	"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key",
-	"encrypted_data_key", "nonce", "created_at",
+	"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at",
 }
 
 func langfuseCredsRow() *sqlmock.Rows {
 	return sqlmock.NewRows(langfuseCredColumns).
-		AddRow("acct-1", "proj-1", "pk-lf", "sk-lf", []byte{}, []byte{}, time.Now())
+		AddRow("acct-1", "proj-1", "pk-lf", "sk-lf", time.Now())
 }
 
 func expectFeedbackCreds(f *traceDetailFixture) {

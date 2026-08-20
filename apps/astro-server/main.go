@@ -620,7 +620,7 @@ func runAPI(
 	// Wire the observability provisioners for the account detail view's recover
 	// actions (Langfuse project, Bifrost customer). Built in setupRoutes and
 	// stashed on deps; nil when their backends are unconfigured.
-	adminSrv.SetLangfuseProvisioner(deps.Clients.LangfuseProvisioner, deps.Clients.KMSClient, cfg.Deployment.KMSKeyARN)
+	adminSrv.SetLangfuseProvisioner(deps.Clients.LangfuseProvisioner)
 	adminSrv.SetAIGatewayProvisioner(deps.Clients.AIGateway)
 
 	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
@@ -1009,15 +1009,10 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	// OTel ingest keys (account-scoped telemetry credential for local coding
 	// tools). At key creation we best-effort ensure the account's Langfuse
 	// project exists so the trace leg has a destination. The provisioner is nil
-	// when its database isn't configured; the KMS client is shared by every API
-	// path that may read encrypted Langfuse credentials.
+	// when its database isn't configured.
 	ingestTokenStore := ingesttoken.NewStore(db)
 	var ingestLangfuseProvisioner *langfuse.Provisioner
 	var ingestLangfuseStore *langfuse.Store
-	langfuseKMSClient, err := loadConfiguredKMSClient(context.Background(), cfg.Deployment.KMSKeyARN)
-	if err != nil {
-		log.Warn("AWS config load failed for Langfuse KMS; encrypted credentials will be unavailable", "error", err)
-	}
 	if cfg.Deployment.LangfuseDBURL != "" {
 		if p, err := langfuse.NewProvisioner(cfg.Deployment.LangfuseDBURL, cfg.Deployment.LangfuseSalt, cfg.Deployment.LangfuseOrgID); err != nil {
 			log.Warn("Langfuse provisioner init failed; ingest-key creation will skip project ensure", "error", err)
@@ -1027,7 +1022,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		}
 	}
 	deps.Clients.LangfuseProvisioner = ingestLangfuseProvisioner
-	deps.Clients.KMSClient = langfuseKMSClient
 
 	// OpenAPI spec builder — routes registered via api.GET/POST/etc are
 	// both added to gin AND documented in the generated spec.
@@ -1387,7 +1381,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.ListOtelIngestTokensResponse{}),
 				)
-				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, langfuseKMSClient, cfg, queue),
+				api.POST(accountManage, "/otel-keys", "Create an OTel ingest key", handlers.CreateOtelIngestToken(log, ingestTokenStore, ingestLangfuseProvisioner, ingestLangfuseStore, cfg, queue),
 					oapispec.Tags("Observability"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2357,7 +2351,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetPredictionStatusResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, langfuseKMSClient, judgmentStore, queue),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, queue),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

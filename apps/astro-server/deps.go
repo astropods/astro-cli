@@ -15,7 +15,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -98,5 +97,4 @@ type Clients struct {
 	// detail view's recover actions. Nil when their backends are unconfigured.
 	AIGateway           *aigateway.Provisioner
 	LangfuseProvisioner *langfuse.Provisioner
-	KMSClient           envelope.KMSClient
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore/judgmentstoretest"
@@ -27,11 +26,7 @@ type fakeDatasetPredictionLangfuseStore struct {
 	calls       int
 }
 
-func (f *fakeDatasetPredictionLangfuseStore) GetDecrypted(
-	_ context.Context,
-	_ envelope.KMSClient,
-	_ string,
-) (*langfuse.AccountLangfuse, error) {
+func (f *fakeDatasetPredictionLangfuseStore) Get(_ string) (*langfuse.AccountLangfuse, error) {
 	f.calls++
 	return f.credentials, f.err
 }
@@ -149,7 +144,6 @@ func setupDatasetPredictionsRouter(
 			deploymentStore,
 			datasetStore,
 			credentials,
-			nil,
 			store,
 			queue,
 		),

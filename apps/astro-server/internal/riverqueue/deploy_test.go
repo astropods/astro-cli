@@ -27,17 +27,15 @@ func expectLangfuseCreds(mock *sqlmock.Sqlmock, accountID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM account_langfuse").
 		WithArgs(accountID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key",
-			"encrypted_data_key", "nonce", "created_at",
-		}).AddRow(accountID, "proj-1", "pk", "sk", []byte(nil), []byte(nil), time.Now()))
+			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at",
+		}).AddRow(accountID, "proj-1", "pk", "sk", time.Now()))
 }
 
 func expectNoCreds(mock *sqlmock.Sqlmock, accountID string) {
 	(*mock).ExpectQuery("SELECT .+ FROM account_langfuse").
 		WithArgs(accountID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key",
-			"encrypted_data_key", "nonce", "created_at",
+			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at",
 		}))
 }
 

@@ -237,9 +237,8 @@ func expectAuthorizedDeployment(f *traceDetailFixture) {
 	f.langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key",
-			"encrypted_data_key", "nonce", "created_at",
-		}).AddRow("acct-1", "proj-1", "pk-lf", "sk-lf", []byte{}, []byte{}, time.Now()))
+			"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at",
+		}).AddRow("acct-1", "proj-1", "pk-lf", "sk-lf", time.Now()))
 }
 
 func TestGetLangfuseTraceDetail_OK(t *testing.T) {

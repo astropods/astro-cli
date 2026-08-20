@@ -10,7 +10,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -41,7 +40,7 @@ type datasetPredictionStatusStore interface {
 }
 
 type datasetPredictionLangfuseStore interface {
-	GetDecrypted(context.Context, envelope.KMSClient, string) (*langfuse.AccountLangfuse, error)
+	Get(string) (*langfuse.AccountLangfuse, error)
 }
 
 type datasetPredictionStore interface {
@@ -108,7 +107,6 @@ func PostDatasetPredictions(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore datasetPredictionLangfuseStore,
-	kmsClient envelope.KMSClient,
 	predictionStore datasetPredictionStore,
 	queue datasetPredictionQueue,
 ) gin.HandlerFunc {
@@ -138,7 +136,7 @@ func PostDatasetPredictions(
 			FailedTraceIDs:   make([]string, 0),
 		}
 
-		credentials, err := langfuseStore.GetDecrypted(c.Request.Context(), kmsClient, dctx.Deployment.AccountID)
+		credentials, err := langfuseStore.Get(dctx.Deployment.AccountID)
 		if err != nil || credentials == nil {
 			log.Error("Failed to load Langfuse credentials for predictions", "error", err, "deployment_id", deploymentID)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset prediction generation is not configured"})

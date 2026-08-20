@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/config"
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/ingesttoken"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -176,7 +175,6 @@ func CreateOtelIngestToken(
 	store *ingesttoken.Store,
 	provisioner *langfuse.Provisioner,
 	lfStore *langfuse.Store,
-	kmsClient envelope.KMSClient,
 	cfg *config.Config,
 	queue notifyQueue,
 ) gin.HandlerFunc {
@@ -228,9 +226,7 @@ func CreateOtelIngestToken(
 		// and best-effort: a failure here must not fail key creation.
 		if provisioner != nil && lfStore != nil {
 			if _, _, lfErr := provisioner.EnsureProject(
-				c.Request.Context(), lfStore,
-				cfg.Deployment.KMSKeyARN, kmsClient,
-				acct.ID, acct.Name,
+				c.Request.Context(), lfStore, acct.ID, acct.Name,
 			); lfErr != nil {
 				log.Warn("Langfuse project ensure failed during ingest-key creation; continuing",
 					"error", lfErr, "account_id", acct.ID)

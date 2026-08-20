@@ -389,14 +389,6 @@ func TestEvalJudgePredictionWorkerPermanentTraceFailures(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "credentials cannot decrypt",
-			mutate: func(worker *EvalJudgePredictionWorker, _ *fakeEvalJudgeTraceClient) {
-				worker.loadLangfuse = func(context.Context, string) (*langfuse.AccountLangfuse, error) {
-					return nil, langfuse.ErrCredentialsDecrypt
-				}
-			},
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			worker, store, trace, predictor := newEvalJudgeWorkerFixture()

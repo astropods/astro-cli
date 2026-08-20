@@ -85,56 +85,6 @@ func TestGenerateCUID_Format(t *testing.T) {
 	})
 }
 
-func TestDecryptSecretKey(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("plaintext fallback when no encryption", func(t *testing.T) {
-		creds := &AccountLangfuse{
-			SecretKey:        "sk-lf-plaintext-key",
-			EncryptedDataKey: nil,
-			Nonce:            nil,
-		}
-		got, err := decryptSecretKey(ctx, nil, creds)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "sk-lf-plaintext-key" {
-			t.Fatalf("got %q, want plaintext key", got)
-		}
-	})
-
-	t.Run("plaintext fallback with empty slices", func(t *testing.T) {
-		creds := &AccountLangfuse{
-			SecretKey:        "sk-lf-another-key",
-			EncryptedDataKey: []byte{},
-			Nonce:            []byte{},
-		}
-		got, err := decryptSecretKey(ctx, nil, creds)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != "sk-lf-another-key" {
-			t.Fatalf("got %q, want plaintext key", got)
-		}
-	})
-
-	t.Run("error when encrypted but no kms client", func(t *testing.T) {
-		creds := &AccountLangfuse{
-			SecretKey:        "encrypted-blob",
-			EncryptedDataKey: []byte("some-encrypted-data-key"),
-			Nonce:            []byte("some-nonce"),
-		}
-		_, err := decryptSecretKey(ctx, nil, creds)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		want := "KMS client required to decrypt Langfuse secret key"
-		if err.Error() != want {
-			t.Fatalf("error = %q, want %q", err.Error(), want)
-		}
-	})
-}
-
 func newProvisionerMock(t *testing.T) (*Provisioner, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

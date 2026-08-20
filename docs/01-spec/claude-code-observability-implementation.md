@@ -3,8 +3,8 @@
 Companion to [claude-code-observability-spec.md](./claude-code-observability-spec.md). The spec sets intent; this document maps it onto Astro's actual infrastructure and code, and corrects the spec's assumptions that don't hold here:
 
 1. **No Mimir.** The metrics store is **VictoriaMetrics**, single-node on the **managed** cluster, no header/path multitenancy. Tenancy is a label.
-2. **Langfuse per-account provisioning already exists, reused as-is.** `apps/astro-server/internal/langfuse` (`Provisioner.EnsureProject`, `Store`, KMS envelope) already gives every account one Langfuse project. Claude Code traces land in **that same project**, distinguished by a `claude-code` tag — no separate project, no `account_langfuse` schema change.
-3. **A standalone service (`astro-otel`), not Envoy ext_authz.** Auth needs the token DB and per-account Langfuse credentials (KMS). Contour's external-auth is gRPC-only and requires a TLS vhost to scope, and a stock collector can't resolve per-account exporter credentials. Doing auth **in-process** in a small service is simpler than every Envoy/Contour variant and keeps the token/credential logic in one place, off astro-server's request path.
+2. **Langfuse per-account provisioning already exists, reused as-is.** `apps/astro-server/internal/langfuse` (`Provisioner.EnsureProject`, `Store`) already gives every account one Langfuse project. Claude Code traces land in **that same project**, distinguished by a `claude-code` tag — no separate project, no `account_langfuse` schema change.
+3. **A standalone service (`astro-otel`), not Envoy ext_authz.** Auth needs the token DB and per-account Langfuse credentials. Contour's external-auth is gRPC-only and requires a TLS vhost to scope, and a stock collector can't resolve per-account exporter credentials. Doing auth **in-process** in a small service is simpler than every Envoy/Contour variant and keeps the token/credential logic in one place, off astro-server's request path.
 
 ## Scope
 
@@ -12,7 +12,7 @@ Ingest keys (astro-server + client, shipped), the `astro-otel` ingest service (b
 
 ## Topology
 
-`astro-otel` runs on the **primary** cluster, because that is where almost everything it needs is local: astro-server's Postgres (`otel_ingest_tokens`, `account_langfuse`), the KMS key, and Langfuse. The only remote dependency is VictoriaMetrics (managed cluster), reached over the **existing observability PrivateLink VPCE** that astro-server already uses for metric queries. This means a plain internet-facing **ALB** fronts it — no Contour, no ext_authz, no NLB.
+`astro-otel` runs on the **primary** cluster, because that is where almost everything it needs is local: astro-server's Postgres (`otel_ingest_tokens`, `account_langfuse`) and Langfuse. The only remote dependency is VictoriaMetrics (managed cluster), reached over the **existing observability PrivateLink VPCE** that astro-server already uses for metric queries. This means a plain internet-facing **ALB** fronts it — no Contour, no ext_authz, no NLB.
 
 ```
 Developer laptop (Claude Code)
@@ -22,7 +22,7 @@ ALB (internet-facing, ACM TLS)  →  astro-otel  (primary cluster)
      auth: sha256(key) → otel_ingest_tokens → account   (direct DB, TTL-cached)
      stamp astro.account_id + astro.source (redaction optional, off by default)
         ├─ traces  → Langfuse (in-cluster) /api/public/otel/v1/traces
-        │            Basic pk:sk resolved from account_langfuse + KMS; tag "claude-code"
+        │            Basic pk:sk resolved from account_langfuse; tag "claude-code"
         └─ metrics → VictoriaMetrics (managed) /opentelemetry/api/v1/push
                      over the existing observability VPCE
 ```
@@ -49,7 +49,7 @@ Both legs are **OTLP pass-through** — unmarshal (`go.opentelemetry.io/proto/ot
 
 ## 3. Traces → Langfuse (account's existing project)
 
-`EnsureProject`/`Store` unchanged: one project per account, keyed `account_id`, secret KMS-encrypted in `account_langfuse`. astro-otel resolves the account's `Basic base64(pk:sk)` at request time (`internal/store` reads `account_langfuse` and KMS-decrypts, TTL-cached — the envelope decrypt is carried verbatim from astro-server's `internal/envelope`). It stamps `astro.account_id`/`astro.source` on the resource and `langfuse.tags=["claude-code"]` on spans, then POSTs OTLP to Langfuse `/api/public/otel/v1/traces` with that Basic auth. If the account has no project yet, traces are acked and dropped (provisioning happens at key creation, not here). Claude Code emits `gen_ai` spans, ingested natively.
+`EnsureProject`/`Store` unchanged: one project per account, keyed `account_id`, secret stored as issued in `account_langfuse`. astro-otel resolves the account's `Basic base64(pk:sk)` at request time (`internal/store` reads `account_langfuse`, TTL-cached). It stamps `astro.account_id`/`astro.source` on the resource and `langfuse.tags=["claude-code"]` on spans, then POSTs OTLP to Langfuse `/api/public/otel/v1/traces` with that Basic auth. If the account has no project yet, traces are acked and dropped (provisioning happens at key creation, not here). Claude Code emits `gen_ai` spans, ingested natively.
 
 ## 4. Metrics → VictoriaMetrics
 
@@ -69,11 +69,10 @@ A standard internet-facing **ALB Ingress** on the primary cluster, mirroring the
 | `LANGFUSE_OTLP_ENDPOINT` | Langfuse OTLP base (in-cluster on primary: `http://langfuse-web.langfuse.svc.cluster.local:3000/api/public/otel`) |
 | `VM_OTLP_ENDPOINT` | VictoriaMetrics OTLP push over the obs VPCE (`http://<obs-vpce>:8428/opentelemetry/api/v1/push`) |
 | `TOKEN_CACHE_TTL` | key→account / creds cache TTL (default 60s; also max revoked-key lifetime) |
-| AWS/IRSA | KMS `Decrypt` for Langfuse secret keys |
 
 **astro-server**: `OTEL_INGEST_ENDPOINT` surfaced to the key UI (shipped).
 
-**Terraform (astro-infra, preview)**: namespace + IRSA (DB + KMS); ECR repo `preview-astro-otel`; ExternalSecret for `DATABASE_URL`; Helm release + values; ACM cert + ALB Ingress + Route53 for the otel host; egress NetworkPolicy to the obs VPCE and Langfuse.
+**Terraform (astro-infra, preview)**: namespace + IRSA (DB); ECR repo `preview-astro-otel`; ExternalSecret for `DATABASE_URL`; Helm release + values; ACM cert + ALB Ingress + Route53 for the otel host; egress NetworkPolicy to the obs VPCE and Langfuse.
 
 **Developer machine** (Anthropic managed settings): unchanged from the spec's Rollout block, `OTEL_EXPORTER_OTLP_ENDPOINT` → the otel host.
 
@@ -90,4 +89,3 @@ A standard internet-facing **ALB Ingress** on the primary cluster, mirroring the
 - **Metric label surfacing** — VM's OTLP ingestion must promote `astro.account_id`/`astro.source` (resource attributes) to labels; confirm the VM flag or move them to datapoint attributes.
 - **VM OTLP endpoint over the VPCE** — confirm the observability VPCE/NLB forwards `/opentelemetry/api/v1/push` (not just the query/`/api/v1/write` paths).
 - **Redaction** — opt-in and off by default (`OTEL_REDACT_ATTRIBUTES`), since managed settings keep prompt content off at the source. If it's ever turned on broadly, the prompt-prefix list is duplicated in `astro-otel` and the `astro` collector processor — factor into a shared package then.
-- **Envelope duplication** — the KMS decrypt is copied from astro-server (internal packages can't cross modules); consolidate into a shared module if a third consumer appears.

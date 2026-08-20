@@ -178,9 +178,6 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 	// a new Langfuse project.
 	credentials, err := w.loadLangfuse(ctx, dataset.AccountID)
 	if err != nil {
-		if errors.Is(err, langfuse.ErrCredentialsDecrypt) {
-			return w.failPermanent(job, fmt.Errorf("load Langfuse credentials: %w", err), predictionFailureMessage)
-		}
 		return w.retryOrRecordFailure(job, fmt.Errorf("load Langfuse credentials: %w", err))
 	}
 	if credentials == nil {

@@ -15,13 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 
 	"github.com/astropods/astro/apps/astro-otel/internal/config"
-	"github.com/astropods/astro/apps/astro-otel/internal/envelope"
 	"github.com/astropods/astro/apps/astro-otel/internal/ingest"
 	"github.com/astropods/astro/apps/astro-otel/internal/store"
 )
@@ -53,17 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// KMS is used to decrypt per-account Langfuse secret keys. If AWS config
-	// isn't available (e.g. local dev without credentials), continue without
-	// it — only plaintext-stored creds resolve, which is the dev convention.
-	var kmsClient envelope.KMSClient
-	if awsCfg, err := awsconfig.LoadDefaultConfig(context.Background()); err != nil {
-		log.Warn("AWS config unavailable; KMS-encrypted Langfuse creds will not decrypt", "error", err)
-	} else {
-		kmsClient = kms.NewFromConfig(awsCfg)
-	}
-
-	st := store.New(db, kmsClient, cfg.TokenCacheTTL)
+	st := store.New(db, cfg.TokenCacheTTL)
 	h := ingest.New(st, cfg, log)
 
 	mux := http.NewServeMux()

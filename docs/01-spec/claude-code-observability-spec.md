@@ -199,7 +199,6 @@ Ordered by dependency; several phases run in parallel.
 |---|---|
 | `MIMIR_REMOTE_WRITE_URL` | Prometheus remote-write endpoint for metrics |
 | `LANGFUSE_DB_URL`, `LANGFUSE_SALT`, `LANGFUSE_ORG_ID`, `LANGFUSE_BASE_URL` | Reused for per-account Langfuse project provisioning & OTLP export |
-| (KMS config) | Reused for existing account Langfuse secret decryption |
 
 Tenancy for both sinks (`X-Scope-OrgID` for Mimir, per-account project keys for Langfuse) is resolved from the ingest key, not configured statically.
 

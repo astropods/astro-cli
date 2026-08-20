@@ -138,11 +138,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	// LiteLLM's Langfuse callback.
 	var langfuseAuthToken string
 	if d.LangfuseProvisioner != nil && d.LangfuseStore != nil {
-		pk, sk, lfErr := d.LangfuseProvisioner.EnsureProject(
-			ctx, d.LangfuseStore,
-			d.Cfg.Deployment.KMSKeyARN, d.KMSClient,
-			acct.ID, acct.Name,
-		)
+		pk, sk, lfErr := d.LangfuseProvisioner.EnsureProject(ctx, d.LangfuseStore, acct.ID, acct.Name)
 		if lfErr != nil {
 			d.Log.Warn("Langfuse provisioning failed, continuing without", "error", lfErr, "account", acct.Name)
 		} else {

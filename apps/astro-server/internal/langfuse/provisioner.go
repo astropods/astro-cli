@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,8 +16,6 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
-
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 )
 
 // Provisioner creates Langfuse projects and API keys by writing directly
@@ -52,13 +49,11 @@ func (p *Provisioner) Close() error {
 	return p.langfuseDB.Close()
 }
 
-// EnsureProject provisions a Langfuse project for the given account if not yet provisioned.
-// Returns the project's public key and plaintext secret key.
+// EnsureProject provisions a Langfuse project for the given account if not yet
+// provisioned. Returns the project's public and secret key.
 func (p *Provisioner) EnsureProject(
 	ctx context.Context,
 	store *Store,
-	kmsKeyARN string,
-	kmsClient envelope.KMSClient,
 	accountID, accountName string,
 ) (publicKey, secretKey string, err error) {
 	// Check if already provisioned
@@ -67,12 +62,7 @@ func (p *Provisioner) EnsureProject(
 		return "", "", fmt.Errorf("check existing: %w", err)
 	}
 	if existing != nil {
-		// Decrypt and return existing credentials
-		sk, err := decryptSecretKey(ctx, kmsClient, existing)
-		if err != nil {
-			return "", "", fmt.Errorf("decrypt existing key: %w", err)
-		}
-		return existing.PublicKey, sk, nil
+		return existing.PublicKey, existing.SecretKey, nil
 	}
 
 	// Generate keys
@@ -134,38 +124,13 @@ func (p *Provisioner) EnsureProject(
 		return "", "", fmt.Errorf("commit: %w", err)
 	}
 
-	// KMS-encrypt the secret key and store in astro's database
-	if kmsKeyARN != "" && kmsClient != nil {
-		enc, err := envelope.NewEncryptor(ctx, kmsClient, kmsKeyARN)
-		if err != nil {
-			return "", "", fmt.Errorf("create encryptor: %w", err)
-		}
-		ciphertext, nonce, err := enc.Encrypt([]byte(sk))
-		if err != nil {
-			return "", "", fmt.Errorf("encrypt secret key: %w", err)
-		}
-		err = store.Save(&AccountLangfuse{
-			AccountID:         accountID,
-			LangfuseProjectID: projectID,
-			PublicKey:         pk,
-			SecretKey:         base64.StdEncoding.EncodeToString(ciphertext),
-			EncryptedDataKey:  enc.EncryptedDataKey,
-			Nonce:             nonce,
-		})
-		if err != nil {
-			return "", "", fmt.Errorf("save credentials: %w", err)
-		}
-	} else {
-		// No KMS — store plaintext (dev/test environments)
-		err = store.Save(&AccountLangfuse{
-			AccountID:         accountID,
-			LangfuseProjectID: projectID,
-			PublicKey:         pk,
-			SecretKey:         sk,
-		})
-		if err != nil {
-			return "", "", fmt.Errorf("save credentials: %w", err)
-		}
+	if err := store.Save(&AccountLangfuse{
+		AccountID:         accountID,
+		LangfuseProjectID: projectID,
+		PublicKey:         pk,
+		SecretKey:         sk,
+	}); err != nil {
+		return "", "", fmt.Errorf("save credentials: %w", err)
 	}
 
 	return pk, sk, nil
@@ -199,34 +164,6 @@ func (p *Provisioner) DeleteProject(ctx context.Context, projectID string) error
 	}
 
 	return tx.Commit()
-}
-
-// decryptSecretKey decrypts the stored secret key using KMS envelope decryption.
-func decryptSecretKey(ctx context.Context, kmsClient envelope.KMSClient, al *AccountLangfuse) (string, error) {
-	if len(al.EncryptedDataKey) == 0 || len(al.Nonce) == 0 {
-		// No encryption — return as-is (dev/test)
-		return al.SecretKey, nil
-	}
-	if kmsClient == nil {
-		return "", fmt.Errorf("KMS client required to decrypt Langfuse secret key")
-	}
-
-	dec, err := envelope.NewDecryptor(ctx, kmsClient, al.EncryptedDataKey)
-	if err != nil {
-		return "", fmt.Errorf("create decryptor: %w", err)
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(al.SecretKey)
-	if err != nil {
-		return "", fmt.Errorf("decode ciphertext: %w", err)
-	}
-
-	plaintext, err := dec.Decrypt(ciphertext, al.Nonce)
-	if err != nil {
-		return "", fmt.Errorf("decrypt: %w", err)
-	}
-
-	return string(plaintext), nil
 }
 
 // computeFastHash computes Langfuse's fast_hashed_secret_key:

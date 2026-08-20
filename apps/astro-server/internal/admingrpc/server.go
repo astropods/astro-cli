@@ -29,7 +29,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
@@ -112,8 +111,6 @@ type Server struct {
 	// its setter is called; the corresponding recover RPC then reports "not
 	// configured" rather than failing.
 	langfuseProvisioner  *langfuse.Provisioner
-	kmsClient            envelope.KMSClient
-	kmsKeyARN            string
 	aiGatewayProvisioner *aigateway.Provisioner
 
 	riverMu        sync.Mutex
@@ -182,12 +179,10 @@ func (s *Server) SetBillingView(p payment.Provider, enforced bool, metronomeDash
 	s.metronomeDashboardEnv = metronomeDashboardEnv
 }
 
-// SetLangfuseProvisioner wires the Langfuse project provisioner (and the KMS
-// deps it needs) used by RecoverAccountLangfuse.
-func (s *Server) SetLangfuseProvisioner(p *langfuse.Provisioner, kmsClient envelope.KMSClient, kmsKeyARN string) {
+// SetLangfuseProvisioner wires the Langfuse project provisioner used by
+// RecoverAccountLangfuse.
+func (s *Server) SetLangfuseProvisioner(p *langfuse.Provisioner) {
 	s.langfuseProvisioner = p
-	s.kmsClient = kmsClient
-	s.kmsKeyARN = kmsKeyARN
 }
 
 // SetAIGatewayProvisioner wires the AI-gateway provisioner used by
@@ -1930,7 +1925,7 @@ func (s *Server) RecoverAccountLangfuse(ctx context.Context, req *adminv1.Recove
 	}
 
 	store := langfuse.NewStore(s.db)
-	if _, _, err := s.langfuseProvisioner.EnsureProject(ctx, store, s.kmsKeyARN, s.kmsClient, req.AccountID, accountName); err != nil {
+	if _, _, err := s.langfuseProvisioner.EnsureProject(ctx, store, req.AccountID, accountName); err != nil {
 		return nil, fmt.Errorf("ensure langfuse project: %w", err)
 	}
 

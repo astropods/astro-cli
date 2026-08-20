@@ -356,8 +356,8 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	if cfg.ServerConfig != nil {
 		langfuseStore := langfuse.NewStore(cfg.DB)
 		langfuseBaseURL := cfg.ServerConfig.Deployment.LangfuseBaseURL
-		evalJudgeWorker.loadLangfuse = func(ctx context.Context, accountID string) (*langfuse.AccountLangfuse, error) {
-			return langfuseStore.GetDecrypted(ctx, cfg.KMSClient, accountID)
+		evalJudgeWorker.loadLangfuse = func(_ context.Context, accountID string) (*langfuse.AccountLangfuse, error) {
+			return langfuseStore.Get(accountID)
 		}
 		if langfuseBaseURL != "" {
 			evalJudgeWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evalJudgeTraceClient {

@@ -1,8 +1,8 @@
 // Package store reads astro-server's Postgres for the two things astro-otel
 // needs at request time: resolving an ingest key to an account
 // (otel_ingest_tokens) and resolving an account to its Langfuse project
-// credentials (account_langfuse + KMS). Both are TTL-cached so the hot path
-// avoids a DB round-trip (and a KMS call) per OTLP batch.
+// credentials (account_langfuse). Both are TTL-cached so the hot path avoids a
+// DB round-trip per OTLP batch.
 package store
 
 import (
@@ -16,14 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/astropods/astro/apps/astro-otel/internal/envelope"
 	"github.com/lib/pq"
 )
 
 // Store resolves ingest keys and Langfuse credentials, with caching.
 type Store struct {
 	db  *sql.DB
-	kms envelope.KMSClient
 	ttl time.Duration
 
 	mu       sync.Mutex
@@ -45,12 +43,10 @@ type credEntry struct {
 	exp       time.Time
 }
 
-// New creates a Store. kms may be nil in dev (only plaintext-stored Langfuse
-// secret keys can be resolved without it).
-func New(db *sql.DB, kms envelope.KMSClient, ttl time.Duration) *Store {
+// New creates a Store.
+func New(db *sql.DB, ttl time.Duration) *Store {
 	return &Store{
 		db:       db,
-		kms:      kms,
 		ttl:      ttl,
 		accounts: make(map[string]accountEntry),
 		creds:    make(map[string]credEntry),
@@ -129,8 +125,7 @@ func (s *Store) TouchLastUsed(hash []byte) error {
 }
 
 // LangfuseBasicAuth returns base64("pk:sk") for the account's Langfuse project,
-// or "" if the account has no project provisioned. The secret key is decrypted
-// via KMS (or read as plaintext in dev, matching astro-server's storage).
+// or "" if the account has no project provisioned.
 func (s *Store) LangfuseBasicAuth(ctx context.Context, accountID string) (string, error) {
 	s.mu.Lock()
 	if e, ok := s.creds[accountID]; ok && time.Now().Before(e.exp) {
@@ -139,26 +134,16 @@ func (s *Store) LangfuseBasicAuth(ctx context.Context, accountID string) (string
 	}
 	s.mu.Unlock()
 
-	var (
-		pk         string
-		skStored   string
-		encDataKey []byte
-		nonce      []byte
-	)
+	var pk, sk string
 	row := s.db.QueryRowContext(ctx, `
-		SELECT langfuse_public_key, langfuse_secret_key, encrypted_data_key, nonce
+		SELECT langfuse_public_key, langfuse_secret_key
 		FROM account_langfuse WHERE account_id = $1`, accountID)
-	switch err := row.Scan(&pk, &skStored, &encDataKey, &nonce); {
+	switch err := row.Scan(&pk, &sk); {
 	case errors.Is(err, sql.ErrNoRows):
 		s.putCred(accountID, "")
 		return "", nil
 	case err != nil:
 		return "", fmt.Errorf("read langfuse creds: %w", err)
-	}
-
-	sk, err := s.decryptSecretKey(ctx, skStored, encDataKey, nonce)
-	if err != nil {
-		return "", fmt.Errorf("decrypt langfuse secret: %w", err)
 	}
 
 	basic := base64.StdEncoding.EncodeToString([]byte(pk + ":" + sk))
@@ -170,29 +155,4 @@ func (s *Store) putCred(accountID, basic string) {
 	s.mu.Lock()
 	s.creds[accountID] = credEntry{basicAuth: basic, exp: time.Now().Add(s.ttl)}
 	s.mu.Unlock()
-}
-
-// decryptSecretKey mirrors astro-server's storage: when there is no encrypted
-// data key / nonce the stored value is plaintext; otherwise it is a
-// base64-encoded AES-GCM ciphertext under the KMS-wrapped data key.
-func (s *Store) decryptSecretKey(ctx context.Context, stored string, encDataKey, nonce []byte) (string, error) {
-	if len(encDataKey) == 0 && len(nonce) == 0 {
-		return stored, nil // plaintext (dev)
-	}
-	if s.kms == nil {
-		return "", fmt.Errorf("KMS client required to decrypt Langfuse secret key")
-	}
-	dec, err := envelope.NewDecryptor(ctx, s.kms, encDataKey)
-	if err != nil {
-		return "", err
-	}
-	ciphertext, err := base64.StdEncoding.DecodeString(stored)
-	if err != nil {
-		return "", fmt.Errorf("decode ciphertext: %w", err)
-	}
-	plaintext, err := dec.Decrypt(ciphertext, nonce)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
 }

@@ -1,7 +1,6 @@
 package langfuse
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -10,7 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-func TestStoreGetDecryptedPlaintext(t *testing.T) {
+func TestStoreGet(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -22,19 +21,21 @@ func TestStoreGetDecryptedPlaintext(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"account_id", "langfuse_project_id", "langfuse_public_key",
-			"langfuse_secret_key", "encrypted_data_key", "nonce", "created_at",
-		}).AddRow("acct-1", "project-1", "pk", "sk", nil, nil, now))
+			"langfuse_secret_key", "created_at",
+		}).AddRow("acct-1", "project-1", "pk", "sk-lf-key", now))
 
-	got, err := NewStore(db).GetDecrypted(context.Background(), nil, "acct-1")
+	got, err := NewStore(db).Get("acct-1")
 	if err != nil {
-		t.Fatalf("GetDecrypted: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	if got == nil || got.PublicKey != "pk" || got.SecretKey != "sk" {
-		t.Fatalf("GetDecrypted = %+v", got)
+	if got == nil || got.PublicKey != "pk" || got.SecretKey != "sk-lf-key" {
+		t.Fatalf("Get = %+v", got)
 	}
 }
 
-func TestStoreGetDecryptedMissing(t *testing.T) {
+// An account without a Langfuse project is a normal state, not an error: the
+// callers read it as "nothing to fetch" rather than failing their job.
+func TestStoreGetMissing(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -44,12 +45,12 @@ func TestStoreGetDecryptedMissing(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"account_id", "langfuse_project_id", "langfuse_public_key",
-			"langfuse_secret_key", "encrypted_data_key", "nonce", "created_at",
+			"langfuse_secret_key", "created_at",
 		}))
 
-	got, err := NewStore(db).GetDecrypted(context.Background(), nil, "acct-1")
+	got, err := NewStore(db).Get("acct-1")
 	if err != nil || got != nil {
-		t.Fatalf("GetDecrypted = %+v, %v", got, err)
+		t.Fatalf("Get = %+v, %v", got, err)
 	}
 }
 
@@ -78,37 +79,43 @@ func TestListAccountIDsExcludesDeletedAccounts(t *testing.T) {
 	}
 }
 
-func TestStoreGetDecryptedErrors(t *testing.T) {
-	t.Run("query", func(t *testing.T) {
-		db, mock, err := sqlmock.New()
-		if err != nil {
-			t.Fatalf("sqlmock: %v", err)
-		}
-		t.Cleanup(func() { _ = db.Close() })
-		mock.ExpectQuery("FROM account_langfuse").
-			WillReturnError(errors.New("query failed"))
+func TestStoreGetQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectQuery("FROM account_langfuse").
+		WillReturnError(errors.New("query failed"))
 
-		_, err = NewStore(db).GetDecrypted(context.Background(), nil, "acct-1")
-		if err == nil || !strings.Contains(err.Error(), "query failed") {
-			t.Fatalf("GetDecrypted error = %v", err)
-		}
+	if _, err = NewStore(db).Get("acct-1"); err == nil || !strings.Contains(err.Error(), "query failed") {
+		t.Fatalf("Get error = %v", err)
+	}
+}
+
+// The secret key is the password half of Langfuse basic auth, so it has to
+// arrive at the client exactly as it was minted.
+func TestStoreSaveWritesTheKeyAsMinted(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectExec("INSERT INTO account_langfuse").
+		WithArgs("acct-1", "project-1", "pk-lf-1", "sk-lf-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = NewStore(db).Save(&AccountLangfuse{
+		AccountID:         "acct-1",
+		LangfuseProjectID: "project-1",
+		PublicKey:         "pk-lf-1",
+		SecretKey:         "sk-lf-1",
 	})
-
-	t.Run("encrypted without KMS", func(t *testing.T) {
-		db, mock, err := sqlmock.New()
-		if err != nil {
-			t.Fatalf("sqlmock: %v", err)
-		}
-		t.Cleanup(func() { _ = db.Close() })
-		mock.ExpectQuery("FROM account_langfuse").
-			WillReturnRows(sqlmock.NewRows([]string{
-				"account_id", "langfuse_project_id", "langfuse_public_key",
-				"langfuse_secret_key", "encrypted_data_key", "nonce", "created_at",
-			}).AddRow("acct-1", "project-1", "pk", "ciphertext", []byte("key"), []byte("nonce"), time.Now()))
-
-		_, err = NewStore(db).GetDecrypted(context.Background(), nil, "acct-1")
-		if err == nil || !strings.Contains(err.Error(), "KMS client required") {
-			t.Fatalf("GetDecrypted error = %v", err)
-		}
-	})
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
 }

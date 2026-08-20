@@ -477,7 +477,7 @@ func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at"}))
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
@@ -593,8 +593,8 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	langfuseMock.ExpectQuery("SELECT .+ FROM account_langfuse").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "encrypted_data_key", "nonce", "created_at"}).
-			AddRow("acct-1", "proj-1", "pk", "sk", nil, nil, now))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at"}).
+			AddRow("acct-1", "proj-1", "pk", "sk", now))
 
 	depCols := []string{
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",

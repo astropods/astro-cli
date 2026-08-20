@@ -74,15 +74,17 @@ CREATE TABLE public.account_langfuse (
     account_id uuid NOT NULL,
     langfuse_project_id text NOT NULL,
     langfuse_public_key text NOT NULL,
-    langfuse_secret_key text NOT NULL,   -- KMS-encrypted (same pattern as deployment_variables)
-    nonce bytea,
+    langfuse_secret_key text NOT NULL,   -- as issued by provisioning
     created_at timestamp NOT NULL DEFAULT now(),
     CONSTRAINT account_langfuse_pkey PRIMARY KEY (account_id),
     CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 ```
 
-We store the raw secret key (KMS-encrypted) so we can use it for both OTLP auth (collector) and REST API queries (proxy handlers). The hashed versions only live in Langfuse's DB.
+The secret key is stored as issued, because it is the password half of Langfuse
+basic auth and every consumer needs its exact bytes: OTLP auth for the
+collector, and REST API queries for the proxy handlers. The database volume is
+KMS-encrypted at rest. The hashed versions only live in Langfuse's DB.
 
 ### Provisioning flow
 
@@ -100,8 +102,7 @@ deployer.Apply(dep) for account "acme"
          - display: sk[:6] + "..." + sk[-4:]
       4. INSERT INTO langfuse_db.projects (id, org_id, name="astro-acme", ...)
       5. INSERT INTO langfuse_db.api_keys (id, public_key, hashed_secret_key, fast_hashed_secret_key, display_secret_key, project_id, scope="PROJECT")
-      6. KMS-encrypt sk
-      7. INSERT INTO astro_db.account_langfuse (account_id, project_id, public_key, encrypted_secret_key, nonce)
+      6. INSERT INTO astro_db.account_langfuse (account_id, project_id, public_key, secret_key)
   → compute auth token: base64(pk + ":" + sk)
   → inject LANGFUSE_AUTH_TOKEN into collector container
 ```
@@ -323,7 +324,7 @@ for _, key := range []string{"LANGFUSE_AUTH_TOKEN", "LANGFUSE_OTLP_ENDPOINT"} {
 
 ## 8. Implementation order
 
-1. **Schema + store** — Add `account_langfuse` table to astro DB. Build `Store` with KMS encryption for secret keys.
+1. **Schema + store** — Add `account_langfuse` table to astro DB. Build `Store` to read and write the account's credentials.
 2. **Provisioner** — Build the direct-DB provisioner: connect to Langfuse Postgres, generate keys, compute hashes, insert project + api_key rows.
 3. **Collector config** — Add the Langfuse exporter to `collector-config.yaml`.
 4. **Deploy-time wiring** — In `deployer.Apply()`, call `EnsureProject()`, compute auth token, pass through `ApplierConfig` → `CollectorDeploymentConfig` → collector env var. Traces start flowing.
@@ -351,7 +352,7 @@ After step 4, traces flow to both backends. Use the Langfuse UI at `langfuse.ast
 
 **Lazy provisioning** — Projects created on first deploy, not on account creation. Idempotent — if `account_langfuse` row exists, skip. Avoids orphan projects.
 
-**Dual secret storage** — The raw secret key is KMS-encrypted in astro's `account_langfuse` table (for runtime use). The hashed versions live only in Langfuse's `api_keys` table (for Langfuse's auth). This avoids needing to reverse hashes.
+**Dual secret storage** — The secret key is stored as issued in astro's `account_langfuse` table (for runtime use). The hashed versions live only in Langfuse's `api_keys` table (for Langfuse's auth). This avoids needing to reverse hashes. The key is the password half of basic auth, so every consumer needs its exact bytes; the database volume is KMS-encrypted at rest.
 
 **Two database connections** — The server connects to both astro's Postgres and Langfuse's Postgres. The Langfuse connection is only used by the provisioner (writes) and is idle otherwise. Reads go through Langfuse's REST API using the per-account project keys.
 

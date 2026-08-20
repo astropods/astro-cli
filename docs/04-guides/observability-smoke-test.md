@@ -60,8 +60,8 @@ At least one of `LANGFUSE_OTLP_ENDPOINT` / `VM_OTLP_ENDPOINT` must be set.
 ### Verifying locally
 
 1. `moon run astro-otel:build` → `apps/astro-otel/bin/astro-otel`.
-2. Run it with `DATABASE_URL` (astro-server Postgres) and `LANGFUSE_OTLP_ENDPOINT` and/or `VM_OTLP_ENDPOINT` (no AWS/KMS needed if the account's Langfuse creds are stored in plaintext). Check `GET /livez`.
-3. Get an ingest key: astro-client **Settings → API Keys** (mints the key and ensures the Langfuse project), or for a pure-local harness insert an `otel_ingest_tokens` row (`token_hash = sha256(key)`) plus a plaintext `account_langfuse` row.
+2. Run it with `DATABASE_URL` (astro-server Postgres) and `LANGFUSE_OTLP_ENDPOINT` and/or `VM_OTLP_ENDPOINT`. Check `GET /livez`.
+3. Get an ingest key: astro-client **Settings → API Keys** (mints the key and ensures the Langfuse project), or for a pure-local harness insert an `otel_ingest_tokens` row (`token_hash = sha256(key)`) plus an `account_langfuse` row.
 4. Point Claude Code at it via the managed-settings block (`OTEL_EXPORTER_OTLP_ENDPOINT=<astro-otel url>`, `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <key>`), or send a hand-built OTLP `POST /v1/traces` with the Bearer header.
 5. Confirm landing: HTTP 200; traces appear in the account's Langfuse project filtered to the `claude-code` tag; metrics appear in VictoriaMetrics. (There is no astro-client dashboard for this path yet.)
 
