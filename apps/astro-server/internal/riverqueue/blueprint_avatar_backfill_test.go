@@ -1,6 +1,7 @@
 package riverqueue
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
+	"github.com/astropods/astro/apps/astro-server/internal/identitygen"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -43,9 +45,9 @@ const blueprintQuery = `
 		`
 
 const deploymentQuery = `
-			SELECT d.id, d.agent_name, acc.name
+			SELECT d.id, d.agent_name, owner.name
 			FROM deployments d
-			JOIN accounts acc ON acc.id = d.account_id
+			JOIN accounts owner ON owner.id = COALESCE(d.source_account_id, d.account_id)
 			WHERE ($1 = '' OR d.id > $1)
 			ORDER BY d.id
 			LIMIT $2
@@ -167,5 +169,98 @@ func TestBlueprintAvatarBackfill_CopiesBlueprintAvatarToDeployment(t *testing.T)
 	}
 	if !exists {
 		t.Fatal("deployment avatar should exist after backfill")
+	}
+}
+
+// expectDeploymentBatch queues one batch holding a single deployment row plus
+// the empty batch that ends the cursor loop.
+func expectDeploymentBatch(mock sqlmock.Sqlmock, id, agentName, ownerName string) {
+	cols := []string{"id", "agent_name", "owner_name"}
+	mock.ExpectQuery(deploymentQuery).
+		WithArgs("", 100).
+		WillReturnRows(sqlmock.NewRows(cols).AddRow(id, agentName, ownerName))
+	mock.ExpectQuery(deploymentQuery).
+		WithArgs(id, 100).
+		WillReturnRows(sqlmock.NewRows(cols))
+}
+
+func TestBlueprintAvatarBackfill_CopiesFromBlueprintOwnerOnCrossAccountDeploy(t *testing.T) {
+	w, mock, store, _ := newBlueprintBackfillWorker(t)
+	ctx := context.Background()
+
+	// acme owns the blueprint; widgets deployed it. The query resolves the
+	// owner, so the avatar must come from acme's key, not the deployer's.
+	const blueprintAvatar = "acme-bot-a-bytes"
+	if err := store.WriteAgentAvatarJPEG(ctx, "acme", "bot-a", []byte(blueprintAvatar)); err != nil {
+		t.Fatalf("pre-seed: %v", err)
+	}
+	expectDeploymentBatch(mock, "deploy-x", "bot-a", "acme")
+
+	processed, _, failed := w.backfillDeployments(ctx)
+	if processed != 1 || failed != 0 {
+		t.Fatalf("backfillDeployments() = processed %d, failed %d; want 1, 0", processed, failed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+
+	got, err := store.ReadDeploymentAvatar(ctx, "deploy-x")
+	if err != nil {
+		t.Fatalf("read deployment avatar: %v", err)
+	}
+	if string(got) != blueprintAvatar {
+		t.Fatalf("deployment avatar = %q, want the blueprint owner's bytes", got)
+	}
+}
+
+func TestBlueprintAvatarBackfill_GeneratesWhenBlueprintAvatarGone(t *testing.T) {
+	w, mock, store, _ := newBlueprintBackfillWorker(t)
+	ctx := context.Background()
+
+	// No blueprint avatar exists, standing in for an archived or deleted
+	// blueprint whose deployments are still around.
+	expectDeploymentBatch(mock, "deploy-y", "retired", "acme")
+
+	processed, _, failed := w.backfillDeployments(ctx)
+	if processed != 1 || failed != 0 {
+		t.Fatalf("backfillDeployments() = processed %d, failed %d; want 1, 0", processed, failed)
+	}
+
+	got, err := store.ReadDeploymentAvatar(ctx, "deploy-y")
+	if err != nil {
+		t.Fatalf("read deployment avatar: %v", err)
+	}
+	want, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{Seed: "acme/retired"})
+	if err != nil {
+		t.Fatalf("generate reference image: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("deployment avatar (%d bytes) is not the blueprint seed image (%d bytes)", len(got), len(want))
+	}
+}
+
+func TestBlueprintAvatarBackfill_SkipsDeploymentThatAlreadyHasAvatar(t *testing.T) {
+	w, mock, store, _ := newBlueprintBackfillWorker(t)
+	ctx := context.Background()
+
+	// A filled deployment must not be touched again, so a run after the
+	// generate above stays quiet instead of rewriting every 24h.
+	const existing = "already-there"
+	if err := store.WriteDeploymentAvatarJPEG(ctx, "deploy-z", []byte(existing)); err != nil {
+		t.Fatalf("pre-seed: %v", err)
+	}
+	expectDeploymentBatch(mock, "deploy-z", "retired", "acme")
+
+	processed, skipped, failed := w.backfillDeployments(ctx)
+	if processed != 0 || skipped != 1 || failed != 0 {
+		t.Fatalf("backfillDeployments() = processed %d, skipped %d, failed %d; want 0, 1, 0", processed, skipped, failed)
+	}
+
+	got, err := store.ReadDeploymentAvatar(ctx, "deploy-z")
+	if err != nil {
+		t.Fatalf("read deployment avatar: %v", err)
+	}
+	if string(got) != existing {
+		t.Fatalf("deployment avatar was overwritten: got %d bytes", len(got))
 	}
 }

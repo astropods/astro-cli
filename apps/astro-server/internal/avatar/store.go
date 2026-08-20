@@ -273,6 +273,14 @@ func (s *Store) UploadDeployment(ctx context.Context, id string, imageBytes []by
 	return s.uploadToKey(ctx, deploymentAvatarKey(id), imageBytes)
 }
 
+// WriteDeploymentAvatarJPEG stores pre-rendered JPEG bytes for a deployment,
+// skipping the resize and re-encode that UploadDeployment applies to untrusted
+// input. Generated placeholders already match the output size at a higher
+// quality, so a second encode only degrades them.
+func (s *Store) WriteDeploymentAvatarJPEG(ctx context.Context, id string, jpegBytes []byte) error {
+	return s.backend.Write(ctx, deploymentAvatarKey(id), jpegBytes, "image/jpeg")
+}
+
 // DeleteDeployment removes a deployment's avatar.
 func (s *Store) DeleteDeployment(ctx context.Context, id string) error {
 	return s.backend.Delete(ctx, deploymentAvatarKey(id))

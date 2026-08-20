@@ -142,16 +142,20 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 }
 
 // backfillDeployments copies the blueprint's avatar to each deployment that
-// doesn't already have one. Assumes blueprints have been filled first so the
-// source avatar always exists.
+// doesn't already have one, generating a placeholder when the blueprint itself
+// no longer has one.
+//
+// The avatar is keyed by the account that owns the blueprint, which is
+// source_account_id on a cross-account deploy and account_id otherwise. This is
+// the same lineage rule the deploy path and deploymentstore use.
 func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context) (processed, skipped, failed int) {
 	const batchSize = 100
 	var lastID string
 	for {
 		rows, err := w.db.QueryContext(ctx, `
-			SELECT d.id, d.agent_name, acc.name
+			SELECT d.id, d.agent_name, owner.name
 			FROM deployments d
-			JOIN accounts acc ON acc.id = d.account_id
+			JOIN accounts owner ON owner.id = COALESCE(d.source_account_id, d.account_id)
 			WHERE ($1 = '' OR d.id > $1)
 			ORDER BY d.id
 			LIMIT $2
@@ -163,8 +167,8 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 
 		var batchCount int
 		for rows.Next() {
-			var id, agentName, accountName string
-			if err := rows.Scan(&id, &agentName, &accountName); err != nil {
+			var id, agentName, ownerName string
+			if err := rows.Scan(&id, &agentName, &ownerName); err != nil {
 				w.log.Error("Blueprint avatar backfill: scan deployment row", "error", err)
 				continue
 			}
@@ -182,23 +186,33 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 				continue
 			}
 
-			copied, err := w.avatarStore.CopyAgentToDeployment(ctx, accountName, agentName, id)
+			copied, err := w.avatarStore.CopyAgentToDeployment(ctx, ownerName, agentName, id)
 			if err != nil {
-				w.log.Error("Blueprint avatar backfill: copy to deployment", "deployment", id, "account", accountName, "name", agentName, "error", err)
+				w.log.Error("Blueprint avatar backfill: copy to deployment", "deployment", id, "account", ownerName, "name", agentName, "error", err)
 				failed++
 				continue
 			}
 			if !copied {
-				// Blueprint avatar missing — blueprint pass should've filled it.
-				// Treat as failed so it's visible in logs and re-attempted next run.
-				w.log.Warn("Blueprint avatar backfill: blueprint avatar missing for deployment", "deployment", id, "account", accountName, "name", agentName)
-				failed++
-				continue
+				// A deployment outlives its blueprint, so an archived or deleted
+				// one leaves nothing to copy. Render from the seed the blueprint
+				// pass uses to land the same image a copy would have produced.
+				jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
+					Seed: ownerName + "/" + agentName,
+				})
+				if err != nil {
+					w.log.Error("Blueprint avatar backfill: generate deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
+					failed++
+					continue
+				}
+				if err := w.avatarStore.WriteDeploymentAvatarJPEG(ctx, id, jpegBytes); err != nil {
+					w.log.Error("Blueprint avatar backfill: upload deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
+					failed++
+					continue
+				}
 			}
 			if _, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_updated_at = now() WHERE id = $1`, id); err != nil {
 				w.log.Warn("Blueprint avatar backfill: stamp deployment avatar_updated_at", "deployment", id, "error", err)
 			}
-			// Extract colors from the newly-copied avatar.
 			if jpegBytes, err := w.avatarStore.ReadDeploymentAvatar(ctx, id); err != nil {
 				w.log.Warn("Blueprint avatar backfill: read deployment avatar for colors", "deployment", id, "error", err)
 			} else if colors, err := colorextract.ExtractFromJPEG(jpegBytes); err != nil {
