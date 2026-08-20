@@ -171,7 +171,7 @@ func (p *Provisioner) EnsureProject(
 	return pk, sk, nil
 }
 
-// DeleteProject soft-deletes a Langfuse project and its API keys by setting deleted_at.
+// DeleteProject soft-deletes a Langfuse project and hard-deletes its API keys.
 // Treats already-deleted projects as success (idempotent).
 func (p *Provisioner) DeleteProject(ctx context.Context, projectID string) error {
 	now := time.Now().UTC()
@@ -181,10 +181,11 @@ func (p *Provisioner) DeleteProject(ctx context.Context, projectID string) error
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// Soft-delete API keys for this project
+	// api_keys carries no deleted_at, and Langfuse's auth path reads the table
+	// unfiltered, so removing the rows is what revokes the credentials.
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE api_keys SET deleted_at = $1 WHERE project_id = $2 AND deleted_at IS NULL`,
-		now, projectID,
+		`DELETE FROM api_keys WHERE project_id = $1`,
+		projectID,
 	); err != nil {
 		return fmt.Errorf("delete api keys: %w", err)
 	}
