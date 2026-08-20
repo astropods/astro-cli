@@ -160,7 +160,7 @@ CREATE TABLE public.account_limits (
 CREATE TABLE public.account_billing_status (
     account_id     uuid        NOT NULL,
     status         text        NOT NULL DEFAULT 'active', -- active | past_due | suspended
-    reason         text,                                  -- dunning | payment_failed | balance_alert | credits_exhausted | uncollectible
+    reason         text,                                  -- dunning | payment_failed | balance_alert | credits_exhausted | uncollectible | usage_limit | not_provisioned
     dunning_since  timestamptz,                           -- set on payment failure, cleared on recovery
     alert_active   boolean     NOT NULL DEFAULT false,    -- last Metronome hard alert, uncleared
     -- Terminal write-off flag: Stripe marked an invoice uncollectible after
@@ -173,6 +173,12 @@ CREATE TABLE public.account_billing_status (
     credits_exhausted  boolean NOT NULL DEFAULT false,
     -- A card is vaulted in Stripe and linked to the billing provider.
     has_payment_method boolean NOT NULL DEFAULT false,
+    -- A limit the account set for itself is crossed, on spend or on a metered
+    -- quantity. Separate from alert_active, which is an operator's alert that
+    -- the owner cannot lift.
+    usage_limit_active boolean NOT NULL DEFAULT false,
+    -- No billing contract covers the account, so its usage cannot be rated.
+    not_provisioned boolean NOT NULL DEFAULT false,
     -- Stripe's hosted invoice page for a charge that needs the customer to
     -- authenticate. Stripe does not email it for charge_automatically invoices,
     -- so the app is the only place it can be surfaced. Lives exactly as long as

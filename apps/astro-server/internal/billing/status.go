@@ -27,6 +27,8 @@ const (
 	// ReasonCreditsExhausted is the free tier running dry with no card on file.
 	// An account with a card never reaches it — it bills pay-as-you-go instead.
 	ReasonCreditsExhausted = "credits_exhausted"
+	ReasonUsageLimit       = "usage_limit"
+	ReasonNotProvisioned   = "not_provisioned"
 )
 
 // StatusRecord is the gating-relevant state for one account.
@@ -37,6 +39,8 @@ type StatusRecord struct {
 	AlertActive      bool
 	ForceSuspended   bool
 	CreditsExhausted bool
+	UsageLimitActive bool
+	NotProvisioned   bool
 	HasPaymentMethod bool
 	// PayLink is Stripe's hosted invoice page when a charge is waiting on the
 	// customer to authenticate. Empty otherwise.
@@ -50,6 +54,8 @@ func (r StatusRecord) signals() signals {
 		alertActive:      r.AlertActive,
 		forceSuspended:   r.ForceSuspended,
 		creditsExhausted: r.CreditsExhausted,
+		usageLimitActive: r.UsageLimitActive,
+		notProvisioned:   r.NotProvisioned,
 		hasPaymentMethod: r.HasPaymentMethod,
 	}
 }
@@ -77,27 +83,39 @@ type signals struct {
 	alertActive      bool
 	forceSuspended   bool
 	creditsExhausted bool
+	usageLimitActive bool
+	notProvisioned   bool
 	hasPaymentMethod bool
 }
 
 // anyFlagSet reports whether any collection flag is raised. hasPaymentMethod is
 // excluded: it is a fact about the account, not a reason to gate it.
 func (s signals) anyFlagSet() bool {
-	return s.dunningSince != nil || s.alertActive || s.forceSuspended || s.creditsExhausted
+	return s.dunningSince != nil || s.alertActive || s.forceSuspended || s.creditsExhausted ||
+		s.usageLimitActive || s.notProvisioned
 }
 
 // computeStatus is the pure state machine. First match wins:
-//  1. a terminal write-off       → suspended (uncollectible)
-//  2. an uncleared hard alert    → suspended (balance_alert)
-//  3. credits gone, no card      → suspended (credits_exhausted)
-//  4. dunning past the grace     → suspended (payment_failed)
-//  5. dunning within grace       → past_due  (dunning)
-//  6. otherwise                  → active
 //
-// Case 3 is the free tier's floor and is deliberately conditional on the card:
+// with one on file the account bills pay-as-you-go, so a spent balance is
+// expected rather than a reason to stop it.
+// computeStatus is the pure state machine. First match wins:
+//  1. no contract covers it     → suspended (not_provisioned)
+//  2. a terminal write-off      → suspended (uncollectible)
+//  3. an uncleared hard alert   → suspended (balance_alert)
+//  4. credits gone, no card     → suspended (credits_exhausted)
+//  5. a limit the account set   → suspended (usage_limit)
+//  6. dunning past the grace    → suspended (payment_failed)
+//  7. dunning within grace      → past_due  (dunning)
+//  8. otherwise                 → active
+//
+// Case 4 is the free tier's floor and is deliberately conditional on the card:
 // with one on file the account bills pay-as-you-go, so a spent balance is
 // expected rather than a reason to stop it.
 func computeStatus(s signals, grace time.Duration, now time.Time) (Status, string) {
+	if s.notProvisioned {
+		return StatusSuspended, ReasonNotProvisioned
+	}
 	if s.forceSuspended {
 		return StatusSuspended, ReasonUncollectible
 	}
@@ -106,6 +124,9 @@ func computeStatus(s signals, grace time.Duration, now time.Time) (Status, strin
 	}
 	if s.creditsExhausted && !s.hasPaymentMethod {
 		return StatusSuspended, ReasonCreditsExhausted
+	}
+	if s.usageLimitActive {
+		return StatusSuspended, ReasonUsageLimit
 	}
 	if s.dunningSince != nil {
 		if now.Sub(*s.dunningSince) > grace {
@@ -142,7 +163,7 @@ type rowQuerier interface {
 }
 
 const recordSelect = `
-	SELECT status, reason, dunning_since, alert_active, force_suspended, credits_exhausted, has_payment_method, pay_link
+	SELECT status, reason, dunning_since, alert_active, force_suspended, credits_exhausted, has_payment_method, pay_link, usage_limit_active, not_provisioned
 	FROM account_billing_status WHERE account_id = $1`
 
 // Record returns the full gating state for one account: the status machine's
@@ -157,7 +178,7 @@ func readRecord(ctx context.Context, q rowQuerier, accountID, query string) (Sta
 	var status, reason, payLink sql.NullString
 	rec := StatusRecord{Status: StatusActive}
 	err := q.QueryRowContext(ctx, query, accountID).
-		Scan(&status, &reason, &ds, &rec.AlertActive, &rec.ForceSuspended, &rec.CreditsExhausted, &rec.HasPaymentMethod, &payLink)
+		Scan(&status, &reason, &ds, &rec.AlertActive, &rec.ForceSuspended, &rec.CreditsExhausted, &rec.HasPaymentMethod, &payLink, &rec.UsageLimitActive, &rec.NotProvisioned)
 	if err == sql.ErrNoRows {
 		return StatusRecord{Status: StatusActive}, nil
 	}
@@ -230,6 +251,50 @@ func (s *StatusStore) ClearStalePayLink(ctx context.Context, accountID, currentI
 		WHERE account_id = $1 AND pay_link IS NOT NULL AND pay_link <> $2`, accountID, currentInvoiceURL)
 	if err != nil {
 		return fmt.Errorf("clear stale pay_link: %w", err)
+	}
+	return nil
+}
+
+func (s *StatusStore) SetUsageLimit(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, usage_limit_active, updated_at)
+		VALUES ($1, true, now())
+		ON CONFLICT (account_id) DO UPDATE
+		SET usage_limit_active = true, updated_at = now()`, accountID)
+	if err != nil {
+		return fmt.Errorf("set usage_limit_active: %w", err)
+	}
+	return nil
+}
+
+func (s *StatusStore) ClearUsageLimit(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE account_billing_status SET usage_limit_active = false, updated_at = now() WHERE account_id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("clear usage_limit_active: %w", err)
+	}
+	return nil
+}
+
+func (s *StatusStore) SetNotProvisioned(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO account_billing_status (account_id, not_provisioned, updated_at)
+		VALUES ($1, true, now())
+		ON CONFLICT (account_id) DO UPDATE
+		SET not_provisioned = true, updated_at = now()
+		WHERE account_billing_status.not_provisioned IS DISTINCT FROM true`, accountID)
+	if err != nil {
+		return fmt.Errorf("set not_provisioned: %w", err)
+	}
+	return nil
+}
+
+func (s *StatusStore) ClearNotProvisioned(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE account_billing_status SET not_provisioned = false, updated_at = now()
+		 WHERE account_id = $1 AND not_provisioned`, accountID)
+	if err != nil {
+		return fmt.Errorf("clear not_provisioned: %w", err)
 	}
 	return nil
 }

@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { BillingSpend } from "@/lib/api";
 import { SpendControls } from "./SpendControls";
 
 const mockSpend = vi.fn();
 const mockMutate = vi.fn();
+const mockUsageMutate = vi.fn();
 const mockToastError = vi.fn();
 
 vi.mock("@/api/queries/billing", () => ({
   useBillingSpend: () => mockSpend(),
-  useSetBillingSpendThresholds: () => ({ mutate: mockMutate, isPending: false }),
+  useSetBillingSpendThresholds: () => ({ mutateAsync: mockMutate, isPending: false }),
+  useSetBillingUsageThresholds: () => ({ mutateAsync: mockUsageMutate, isPending: false }),
 }));
 vi.mock("sonner", () => ({
   toast: { error: (m: string) => mockToastError(m), success: vi.fn() },
@@ -19,6 +21,9 @@ vi.mock("sonner", () => ({
 beforeEach(() => {
   mockSpend.mockReset();
   mockMutate.mockReset();
+  mockMutate.mockResolvedValue(undefined);
+  mockUsageMutate.mockReset();
+  mockUsageMutate.mockResolvedValue(undefined);
   mockToastError.mockReset();
 });
 
@@ -46,19 +51,16 @@ describe("SpendControls", () => {
   // real number and invite a limit set 100x too high.
   it("shows the provider's cents as dollars", () => {
     renderControls(spend({ limit: { amount: 5000, in_alarm: false } }));
-    expect(screen.getByLabelText("Stop agents at")).toHaveValue("50");
+    expect(screen.getByLabelText("Spend: stop agents at")).toHaveValue("50");
     expect(screen.getByText(/\$12\.34 used this period/)).toBeInTheDocument();
   });
 
   it("sends dollars back as cents", async () => {
     renderControls(spend());
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Stop agents at"), "75");
+    await user.type(screen.getByLabelText("Spend: stop agents at"), "75");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(mockMutate).toHaveBeenCalledWith(
-      { warning: null, limit: 7500 },
-      expect.anything(),
-    );
+    expect(mockMutate).toHaveBeenCalledWith({ warning: null, limit: 7500 });
   });
 
   // An empty field clears the threshold. Sending zero instead would cap the
@@ -66,12 +68,9 @@ describe("SpendControls", () => {
   it("clears a threshold rather than setting it to zero", async () => {
     renderControls(spend({ limit: { amount: 5000, in_alarm: false } }));
     const user = userEvent.setup();
-    await user.clear(screen.getByLabelText("Stop agents at"));
+    await user.clear(screen.getByLabelText("Spend: stop agents at"));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(mockMutate).toHaveBeenCalledWith(
-      { warning: null, limit: null },
-      expect.anything(),
-    );
+    expect(mockMutate).toHaveBeenCalledWith({ warning: null, limit: null });
   });
 
   // The limit suspends the account first, so a warning at or above it never
@@ -79,8 +78,8 @@ describe("SpendControls", () => {
   it("refuses a warning that the limit would pre-empt", async () => {
     renderControls(spend());
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Warn me at"), "80");
-    await user.type(screen.getByLabelText("Stop agents at"), "50");
+    await user.type(screen.getByLabelText("Spend: warn me at"), "80");
+    await user.type(screen.getByLabelText("Spend: stop agents at"), "50");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(mockMutate).not.toHaveBeenCalled();
     expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining("below the limit"));
@@ -89,9 +88,16 @@ describe("SpendControls", () => {
   it("refuses a negative amount", async () => {
     renderControls(spend());
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText("Stop agents at"), "-5");
+    await user.type(screen.getByLabelText("Spend: stop agents at"), "-5");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it("offers Save only once a field has changed", async () => {
+    renderControls(spend());
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    await userEvent.setup().type(screen.getByLabelText("Compute: stop agents at"), "5");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
   // in_alarm comes from the provider's own evaluation, and it is the only thing
@@ -115,7 +121,6 @@ describe("SpendControls", () => {
 // "50.999" disagrees with the threshold that actually fires.
 describe("SpendControls after a save", () => {
   it("shows the stored amount rather than the typed text", async () => {
-    mockMutate.mockImplementation((_input, opts) => opts?.onSuccess?.());
     mockSpend.mockReturnValue({
       data: { available: true, data: spend({ limit: { amount: 5000, in_alarm: false } }) },
       isLoading: false,
@@ -123,15 +128,12 @@ describe("SpendControls after a save", () => {
     const { rerender } = render(<SpendControls account="acme" />);
 
     const user = userEvent.setup();
-    const field = screen.getByLabelText("Stop agents at");
+    const field = screen.getByLabelText("Spend: stop agents at");
     await user.clear(field);
     await user.type(field, "50.999");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(mockMutate).toHaveBeenCalledWith(
-      { warning: null, limit: 5100 },
-      expect.anything(),
-    );
+    expect(mockMutate).toHaveBeenCalledWith({ warning: null, limit: 5100 });
 
     // What the query reports once the write has seeded the cache.
     mockSpend.mockReturnValue({
@@ -140,7 +142,7 @@ describe("SpendControls after a save", () => {
     });
     rerender(<SpendControls account="acme" />);
 
-    expect(screen.getByLabelText("Stop agents at")).toHaveValue("51");
+    expect(screen.getByLabelText("Spend: stop agents at")).toHaveValue("51");
   });
 });
 
@@ -157,10 +159,10 @@ describe("SpendControls across an account switch", () => {
     const { rerender } = render(<SpendControls account="acme" />);
 
     const user = userEvent.setup();
-    const field = screen.getByLabelText("Stop agents at");
+    const field = screen.getByLabelText("Spend: stop agents at");
     await user.clear(field);
     await user.type(field, "500");
-    expect(screen.getByLabelText("Stop agents at")).toHaveValue("500");
+    expect(screen.getByLabelText("Spend: stop agents at")).toHaveValue("500");
 
     // The other account's own limit, as the server reports it.
     mockSpend.mockReturnValue({
@@ -169,7 +171,7 @@ describe("SpendControls across an account switch", () => {
     });
     rerender(<SpendControls account="other-org" />);
 
-    expect(screen.getByLabelText("Stop agents at")).toHaveValue("20");
+    expect(screen.getByLabelText("Spend: stop agents at")).toHaveValue("20");
   });
 
   // The provider measures a threshold against usage before credit drawdown, so
@@ -189,6 +191,56 @@ describe("SpendControls across an account switch", () => {
       spend({ usage_spend: 50, has_usage_spend: true, limit: { amount: 5000, in_alarm: false } }),
     );
     expect(screen.getByText(/\$50\.00 used this period/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Stop agents at")).toHaveValue("50");
+    expect(screen.getByLabelText("Spend: stop agents at")).toHaveValue("50");
+  });
+});
+
+describe("SpendControls usage rows", () => {
+  it("sends a usage cap as typed, with no currency conversion", async () => {
+    renderControls(spend());
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Compute: stop agents at"), "500");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mockUsageMutate).toHaveBeenCalledWith({ metric: "compute", warning: null, limit: 500 });
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it("writes only the rows the owner edited", async () => {
+    renderControls(spend({ usage: { compute: { unit: "CU-hours", limit: { amount: 40, in_alarm: false } } } }));
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("AI Gateway: warn me at"), "25");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(mockUsageMutate).toHaveBeenCalledTimes(1);
+    expect(mockUsageMutate).toHaveBeenCalledWith({ metric: "gateway", warning: 25, limit: null });
+  });
+
+  it("hides the spend row on a plan that cannot fire it", () => {
+    renderControls(spend({ plan: "unlimited" }));
+    expect(screen.queryByLabelText("Spend: stop agents at")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Compute: stop agents at")).toBeInTheDocument();
+  });
+
+  it("keeps the edits for a row that failed and clears the ones that landed", async () => {
+    mockUsageMutate.mockImplementation(({ metric }: { metric: string }) =>
+      metric === "gateway" ? Promise.reject(new Error("provider unavailable")) : Promise.resolve(),
+    );
+    renderControls(spend());
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Compute: stop agents at"), "500");
+    await user.type(screen.getByLabelText("AI Gateway: stop agents at"), "25");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockToastError).toHaveBeenCalledWith(expect.stringContaining("AI Gateway"));
+    // Both fields fall back to what the server holds, which the stub reports as
+    // no cap on either metric.
+    expect(screen.getByLabelText("AI Gateway: stop agents at")).toHaveValue("");
+    expect(screen.getByLabelText("Compute: stop agents at")).toHaveValue("");
+  });
+
+  it("shows a usage cap the provider reports crossed", () => {
+    renderControls(spend({ usage: { gateway: { unit: "USD of model usage", limit: { amount: 10, in_alarm: true } } } }));
+    expect(screen.getByLabelText("AI Gateway: stop agents at")).toHaveValue("10");
+    expect(screen.getByText("Reached")).toBeInTheDocument();
   });
 });

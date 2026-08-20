@@ -25,6 +25,12 @@ const (
 	SignalCreditsGranted   Signal = "credits_granted"   // we granted credit → lift the exhaustion latch
 	SignalCardAdded        Signal = "card_added"        // card vaulted → pay-as-you-go, exhaustion stops gating
 	SignalCardRemoved      Signal = "card_removed"      // card removed → back to the free-tier floor
+
+	SignalUsageLimit         Signal = "usage_limit"          // a limit the account set for itself is crossed → suspend
+	SignalUsageLimitResolved Signal = "usage_limit_resolved" // the account fell back under its own limit → lift it
+
+	SignalNotProvisioned Signal = "not_provisioned" // no contract covers the account → stop consumption
+	SignalProvisioned    Signal = "provisioned"     // a contract now covers it → lift the stop
 )
 
 // AllSignals is every declared signal. Tests walk it to prove ApplySignal
@@ -34,6 +40,8 @@ var AllSignals = []Signal{
 	SignalPaymentFailed, SignalActionRequired, SignalAlert, SignalAlertResolved,
 	SignalUncollectible, SignalVoided, SignalRecovery, SignalCardUpdated,
 	SignalCreditsExhausted, SignalCreditsGranted, SignalCardAdded, SignalCardRemoved,
+	SignalUsageLimit, SignalUsageLimitResolved,
+	SignalNotProvisioned, SignalProvisioned,
 }
 
 // ApplySignal writes the collection flags for a signal and recomputes the cached
@@ -86,6 +94,14 @@ func ApplySignal(ctx context.Context, store *StatusStore, accountID string, sig 
 		err = store.SetPaymentMethod(ctx, accountID, true)
 	case SignalCardRemoved:
 		err = store.SetPaymentMethod(ctx, accountID, false)
+	case SignalUsageLimit:
+		err = store.SetUsageLimit(ctx, accountID)
+	case SignalUsageLimitResolved:
+		err = store.ClearUsageLimit(ctx, accountID)
+	case SignalNotProvisioned:
+		err = store.SetNotProvisioned(ctx, accountID)
+	case SignalProvisioned:
+		err = store.ClearNotProvisioned(ctx, accountID)
 	default:
 		return StatusActive, false, fmt.Errorf("unknown billing signal: %q", sig)
 	}

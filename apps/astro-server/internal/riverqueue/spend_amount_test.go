@@ -38,7 +38,7 @@ func TestSpentCents_StatesUsageNotTheCreditOffsetTotal(t *testing.T) {
 		HasUsageSpend:   true,
 	}}
 	// What the webhook reported: the credit-offset total, rounded to zero.
-	got, err := spendWorker(r).spentCents(context.Background(), "cust_1", 0)
+	got, _, err := spendWorker(r).spentCents(context.Background(), "cust_1", 0)
 	if err != nil {
 		t.Fatalf("spentCents: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestSpentCents_ConvertsCurrencyUnitsToMinorUnits(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &fakeSpendReader{spend: billing.Spend{UsageSpend: tc.usage, HasUsageSpend: true}}
-			got, err := spendWorker(r).spentCents(context.Background(), "cust_1", 999999)
+			got, _, err := spendWorker(r).spentCents(context.Background(), "cust_1", 999999)
 			if err != nil {
 				t.Fatalf("spentCents: %v", err)
 			}
@@ -80,7 +80,7 @@ func TestSpentCents_ConvertsCurrencyUnitsToMinorUnits(t *testing.T) {
 // is known to read zero.
 func TestSpentCents_AFailedReadRetries(t *testing.T) {
 	boom := errors.New("metronome unavailable")
-	_, err := spendWorker(&fakeSpendReader{err: boom}).spentCents(context.Background(), "cust_1", 8100)
+	_, _, err := spendWorker(&fakeSpendReader{err: boom}).spentCents(context.Background(), "cust_1", 8100)
 	if !errors.Is(err, boom) {
 		t.Fatalf("error = %v, want the read error", err)
 	}
@@ -90,7 +90,7 @@ func TestSpentCents_AFailedReadRetries(t *testing.T) {
 // figure is then all there is, and it is still better than inventing a zero.
 func TestSpentCents_FallsBackWhenThereIsNoUsageToState(t *testing.T) {
 	r := &fakeSpendReader{spend: billing.Spend{HasUsageSpend: false}}
-	got, err := spendWorker(r).spentCents(context.Background(), "cust_1", 8100)
+	got, _, err := spendWorker(r).spentCents(context.Background(), "cust_1", 8100)
 	if err != nil {
 		t.Fatalf("spentCents: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestSpentCents_FallsBackWhenThereIsNoUsageToState(t *testing.T) {
 // A backend that reports no spend keeps the behaviour it had. Without this the
 // nil reader would be dereferenced on every spend event.
 func TestSpentCents_NoReaderKeepsTheReportedAmount(t *testing.T) {
-	got, err := spendWorker(nil).spentCents(context.Background(), "cust_1", 8100)
+	got, _, err := spendWorker(nil).spentCents(context.Background(), "cust_1", 8100)
 	if err != nil {
 		t.Fatalf("spentCents: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestSpentCents_NoReaderKeepsTheReportedAmount(t *testing.T) {
 // wrong account or error. Neither belongs in a message about this one.
 func TestSpentCents_NoCustomerIsNotLookedUp(t *testing.T) {
 	r := &fakeSpendReader{spend: billing.Spend{UsageSpend: 50, HasUsageSpend: true}}
-	got, err := spendWorker(r).spentCents(context.Background(), "", 8100)
+	got, _, err := spendWorker(r).spentCents(context.Background(), "", 8100)
 	if err != nil {
 		t.Fatalf("spentCents: %v", err)
 	}

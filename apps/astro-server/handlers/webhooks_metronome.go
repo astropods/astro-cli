@@ -122,6 +122,7 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 				AlertName:    env.Properties.AlertName,
 				Threshold:    cents(env.Properties.Threshold),
 				CurrentSpend: cents(env.Properties.CurrentSpend),
+				Quantity:     env.Properties.Threshold,
 				Detail:       env.detail(),
 			}); err != nil {
 				// Return 500 so Metronome redelivers — the event is not yet tracked.

@@ -51,8 +51,9 @@ type Config struct {
 
 // Provider is the Metronome-backed billing provider.
 type Provider struct {
-	mc  metronome.Client
-	cfg Config
+	mc      metronome.Client
+	cfg     Config
+	metrics billableMetricIDs
 }
 
 // Compile-time assertions.
@@ -61,6 +62,8 @@ var (
 	_ billing.Provisioner          = (*Provider)(nil)
 	_ billing.ContractInspector    = (*Provider)(nil)
 	_ billing.PlanReporter         = (*Provider)(nil)
+	_ billing.UsageThresholdReader = (*Provider)(nil)
+	_ billing.UsageThresholdWriter = (*Provider)(nil)
 	_ billing.SpendReporter        = (*Provider)(nil)
 	_ billing.SpendThresholdReader = (*Provider)(nil)
 	_ billing.SpendThresholdWriter = (*Provider)(nil)
@@ -338,17 +341,17 @@ func (p *Provider) coveringContracts(ctx context.Context, customerID string, at 
 	return page.Data, nil
 }
 
-func (p *Provider) CustomerPlan(ctx context.Context, customerID string) (billing.Plan, error) {
+func (p *Provider) CustomerPlan(ctx context.Context, customerID string) (billing.Plan, bool, error) {
 	contracts, err := p.coveringContracts(ctx, customerID, time.Now().UTC().Truncate(time.Hour))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	for _, c := range contracts {
 		if plan, ok := p.planForPackage(contractPackageID(c)); ok {
-			return plan, nil
+			return plan, true, nil
 		}
 	}
-	return "", nil
+	return "", len(contracts) > 0, nil
 }
 
 func (p *Provider) planForPackage(packageID string) (billing.Plan, bool) {

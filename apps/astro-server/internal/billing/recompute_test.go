@@ -12,7 +12,8 @@ func recordRows(status Status, reason string, force, exhausted, hasPM bool) *sql
 	return sqlmock.NewRows([]string{
 		"status", "reason", "dunning_since", "alert_active",
 		"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
-	}).AddRow(string(status), reason, nil, false, force, exhausted, hasPM, nil)
+		"usage_limit_active", "not_provisioned",
+	}).AddRow(string(status), reason, nil, false, force, exhausted, hasPM, nil, false, false)
 }
 
 // A write-off on an account already suspended for spent credits keeps the
@@ -98,5 +99,59 @@ func TestRecompute_NoWriteWhenNothingChanged(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unexpected statements: %v", err)
+	}
+}
+
+func TestComputeStatus_UsageLimitRanksBelowProviderGatesAndAboveDunning(t *testing.T) {
+	past := time.Now().Add(-30 * 24 * time.Hour)
+	cases := []struct {
+		name       string
+		in         signals
+		wantStatus Status
+		wantReason string
+	}{
+		{name: "a usage cap alone suspends", in: signals{usageLimitActive: true},
+			wantStatus: StatusSuspended, wantReason: ReasonUsageLimit},
+		{name: "a write-off outranks it", in: signals{usageLimitActive: true, forceSuspended: true},
+			wantStatus: StatusSuspended, wantReason: ReasonUncollectible},
+		{name: "a provider alert outranks it", in: signals{usageLimitActive: true, alertActive: true},
+			wantStatus: StatusSuspended, wantReason: ReasonBalanceAlert},
+		{name: "spent credits outrank it", in: signals{usageLimitActive: true, creditsExhausted: true},
+			wantStatus: StatusSuspended, wantReason: ReasonCreditsExhausted},
+		{name: "it outranks dunning", in: signals{usageLimitActive: true, dunningSince: &past},
+			wantStatus: StatusSuspended, wantReason: ReasonUsageLimit},
+		{name: "cleared, the account is active", in: signals{}, wantStatus: StatusActive},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, reason := computeStatus(tc.in, 7*24*time.Hour, time.Now())
+			if status != tc.wantStatus || reason != tc.wantReason {
+				t.Errorf("computeStatus = (%s, %q), want (%s, %q)", status, reason, tc.wantStatus, tc.wantReason)
+			}
+		})
+	}
+}
+
+func TestComputeStatus_NoContractOutranksEveryOtherReason(t *testing.T) {
+	past := time.Now().Add(-30 * 24 * time.Hour)
+	cases := []struct {
+		name string
+		in   signals
+	}{
+		{name: "alone", in: signals{notProvisioned: true}},
+		{name: "with a write-off", in: signals{notProvisioned: true, forceSuspended: true}},
+		{name: "with a provider alert", in: signals{notProvisioned: true, alertActive: true}},
+		{name: "with spent credits", in: signals{notProvisioned: true, creditsExhausted: true}},
+		{name: "with the account's own limit", in: signals{notProvisioned: true, usageLimitActive: true}},
+		{name: "with dunning", in: signals{notProvisioned: true, dunningSince: &past}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, reason := computeStatus(tc.in, 7*24*time.Hour, time.Now())
+			if status != StatusSuspended || reason != ReasonNotProvisioned {
+				t.Errorf("computeStatus = (%s, %q), want (suspended, %q)", status, reason, ReasonNotProvisioned)
+			}
+		})
 	}
 }

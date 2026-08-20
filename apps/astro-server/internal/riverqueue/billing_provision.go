@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -121,6 +122,9 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 		}
 		provisioned, err := p.ProvisionCustomer(ctx, customerID, acct.ID, plan)
 		if err != nil {
+			if serr := w.syncCoverage(ctx, acct.ID, customerID); serr != nil {
+				w.log.Error("billing provision: coverage sync failed", "account_id", acct.ID, "error", serr)
+			}
 			return err
 		}
 		// Leaving it unmarked keeps it in the sweep, so it provisions once the
@@ -131,6 +135,9 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 		}
 	}
 	if err := w.accounts.MarkBillingProvisioned(acct.ID); err != nil {
+		return err
+	}
+	if err := w.syncCoverage(ctx, acct.ID, customerID); err != nil {
 		return err
 	}
 
@@ -153,6 +160,33 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
 	return nil
+}
+
+// syncCoverage gates the account on whether a contract covers it. Provisioning
+// reporting success is a different fact: a contract can be ended afterwards. It
+// asks the same method the billing read asks, so the two cannot disagree on what
+// covered means.
+func (w *BillingProvisionWorker) syncCoverage(ctx context.Context, accountID, customerID string) error {
+	planner, ok := w.provider.(billing.PlanReporter)
+	if !ok || w.status == nil || customerID == "" {
+		return nil
+	}
+	_, covered, err := planner.CustomerPlan(ctx, customerID)
+	if err != nil {
+		return fmt.Errorf("read billing coverage: %w", err)
+	}
+	sig := billing.SignalProvisioned
+	if !covered {
+		sig = billing.SignalNotProvisioned
+	}
+	newStatus, changed, err := billing.ApplySignal(ctx, w.status, accountID, sig, time.Now())
+	if err != nil {
+		return err
+	}
+	if changed {
+		w.log.Info("billing status changed", "source", "coverage", "account_id", accountID, "status", string(newStatus))
+	}
+	return reconcileWorkloads(ctx, w.queue, accountID, newStatus)
 }
 
 // plan resolves the rate treatment. An internal creator is answered before the

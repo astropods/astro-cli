@@ -41,15 +41,13 @@ describe("PlanSummary", () => {
     expect(screen.getByText(label)).toBeInTheDocument();
   });
 
-  it("says so when no contract covers the account", () => {
-    renderPlan(spend());
-    expect(screen.getByText("Not set up")).toBeInTheDocument();
-  });
-
-  it("treats an unknown plan as not set up", () => {
-    renderPlan(spend({ plan: "enterprise" }));
-    expect(screen.getByText("Not set up")).toBeInTheDocument();
-  });
+  it.each([["no plan", undefined], ["an unrecognised plan", "enterprise"]])(
+    "renders nothing for %s",
+    (_name, plan) => {
+      const { container } = renderPlan(spend(plan ? { plan } : {}));
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
 
   it("shows the remaining credit only on the credit plan", () => {
     renderPlan(spend({ plan: "credit", credit_remaining: 7.5, has_credit: true }));

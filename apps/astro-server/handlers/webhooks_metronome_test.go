@@ -211,11 +211,13 @@ func TestMetronomeWebhook_AcceptsFractionalAmounts(t *testing.T) {
 		threshold, spend string
 		wantThreshold    int64
 		wantCurrentSpend int64
+		wantQuantity     float64
 	}{
-		{"whole numbers", "2500", "2600", 2500, 2600},
-		{"fractional spend rounds down", "2500", "2600.4", 2500, 2600},
-		{"fractional spend rounds up", "2500", "2600.5", 2500, 2601},
-		{"a whole number written with a decimal point", "2500.0", "2600", 2500, 2600},
+		{"whole numbers", "2500", "2600", 2500, 2600, 2500},
+		{"fractional spend rounds down", "2500", "2600.4", 2500, 2600, 2500},
+		{"fractional spend rounds up", "2500", "2600.5", 2500, 2601, 2500},
+		{"a whole number written with a decimal point", "2500.0", "2600", 2500, 2600, 2500},
+		{"a fractional quantity cap keeps its precision", "25.5", "0", 26, 0, 25.5},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -241,6 +243,9 @@ func TestMetronomeWebhook_AcceptsFractionalAmounts(t *testing.T) {
 			}
 			if q.lastMetronome.CurrentSpend != tc.wantCurrentSpend {
 				t.Errorf("current_spend = %d, want %d", q.lastMetronome.CurrentSpend, tc.wantCurrentSpend)
+			}
+			if q.lastMetronome.Quantity != tc.wantQuantity {
+				t.Errorf("quantity = %v, want %v: a quantity cap is not money and does not round", q.lastMetronome.Quantity, tc.wantQuantity)
 			}
 		})
 	}

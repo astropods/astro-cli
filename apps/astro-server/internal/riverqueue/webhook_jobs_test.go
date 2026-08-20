@@ -211,91 +211,99 @@ func TestWebhookInsertOpts_DedupesOnlyWithAnEventID(t *testing.T) {
 
 // fakeThresholds reports one customer's spend controls.
 type fakeThresholds struct {
-	limitInAlarm    bool
-	operatorInAlarm bool
-	err             error
+	limitInAlarm bool
+	err          error
+}
+
+type fakeUsageCaps struct {
+	inAlarm map[billing.UsageMetric]bool
+	err     error
+}
+
+func (f fakeUsageCaps) CustomerUsageThresholds(context.Context, string) (map[billing.UsageMetric]billing.UsageThresholds, error) {
+	out := make(map[billing.UsageMetric]billing.UsageThresholds, len(billing.AllUsageMetrics))
+	for _, m := range billing.AllUsageMetrics {
+		out[m] = billing.UsageThresholds{
+			HasLimit: true,
+			Limit:    billing.UsageThreshold{Amount: 10, InAlarm: f.inAlarm[m]},
+		}
+	}
+	return out, f.err
 }
 
 func (f fakeThresholds) CustomerSpendThresholds(context.Context, string) (billing.SpendThresholds, error) {
 	return billing.SpendThresholds{
-		HasLimit:             true,
-		Limit:                billing.SpendThreshold{Amount: 5000, InAlarm: f.limitInAlarm},
-		OperatorSpendInAlarm: f.operatorInAlarm,
+		HasLimit: true,
+		Limit:    billing.SpendThreshold{Amount: 5000, InAlarm: f.limitInAlarm},
 	}, f.err
 }
 
-// An account can hold two spend alerts at once, its own limit and an operator's
-// org-wide backstop, and they share one latch. Clearing on the first to resolve
-// resumes an account the other still stops. Raising your own limit above current
-// spend reaches this: the write path resets that alert, it resolves, and the
-// backstop is untouched.
-func TestMetronomeWebhook_ResolvedDoesNotClearALatchAnotherAlertHolds(t *testing.T) {
+// An account can hold several limits of its own at once, on spend and on each
+// metered quantity, and they share one latch. Clearing on the first to resolve
+// restarts an account another limit still stops.
+func TestMetronomeWebhook_ResolvedDoesNotClearALatchAnotherLimitHolds(t *testing.T) {
 	cases := []struct {
 		name       string
 		resolved   string
 		thresholds fakeThresholds
+		caps       fakeUsageCaps
 		wantHeld   bool
 	}{
 		{
-			name:     "own limit resolves while the operator backstop is still over",
+			name:     "the spend limit resolves while a quantity cap is still over",
 			resolved: billing.SpendLimitAlertName,
-			// Raising the limit above current spend resolves it; the backstop is not
-			// reset and stays in alarm.
-			thresholds: fakeThresholds{operatorInAlarm: true},
-			wantHeld:   true,
+			caps:     fakeUsageCaps{inAlarm: map[billing.UsageMetric]bool{billing.UsageMetricCompute: true}},
+			wantHeld: true,
 		},
 		{
-			name:       "operator backstop resolves while the account's own limit is still over",
-			resolved:   "Hard spend threshold",
+			name:       "a quantity cap resolves while the spend limit is still over",
+			resolved:   billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdLimit),
 			thresholds: fakeThresholds{limitInAlarm: true},
 			wantHeld:   true,
 		},
 		{
-			name:       "nothing else is over, so the latch clears",
-			resolved:   billing.SpendLimitAlertName,
-			thresholds: fakeThresholds{},
-			wantHeld:   false,
+			name:     "one quantity cap resolves while the other metric is still over",
+			resolved: billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdLimit),
+			caps:     fakeUsageCaps{inAlarm: map[billing.UsageMetric]bool{billing.UsageMetricGateway: true}},
+			wantHeld: true,
 		},
 		{
-			// The reader collapses every operator alert into one bool, so a list
-			// read that still reports the just-resolved one as over would hold the
-			// latch against itself. The event is acked and nothing resumes the
-			// account, so the resolved side is trusted over the read.
-			name:       "a resolved operator alert does not hold the latch on its own account",
-			resolved:   "Hard spend threshold",
-			thresholds: fakeThresholds{operatorInAlarm: true},
-			wantHeld:   false,
+			name:     "nothing else is over, so the latch clears",
+			resolved: billing.SpendLimitAlertName,
+			wantHeld: false,
 		},
 		{
-			// The mirror: the customer's own limit is read by name, so a resolved
-			// limit still reported over must not hold its own latch either.
-			name:       "a resolved limit does not hold the latch on its own account",
+			name:       "a resolved spend limit does not hold the latch on its own account",
 			resolved:   billing.SpendLimitAlertName,
 			thresholds: fakeThresholds{limitInAlarm: true},
 			wantHeld:   false,
+		},
+		{
+			name:     "a resolved quantity cap does not hold the latch on its own account",
+			resolved: billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdLimit),
+			caps:     fakeUsageCaps{inAlarm: map[billing.UsageMetric]bool{billing.UsageMetricCompute: true}},
+			wantHeld: false,
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			w := &MetronomeWebhookWorker{thresholds: tc.thresholds, log: logger.New("error", "json")}
-			held, err := w.otherSpendAlertInAlarm(context.Background(), "cust_1", tc.resolved)
+			w := &MetronomeWebhookWorker{thresholds: tc.thresholds, usage: tc.caps, log: logger.New("error", "json")}
+			held, err := w.otherSelfLimitInAlarm(context.Background(), "cust_1", tc.resolved)
 			if err != nil {
-				t.Fatalf("otherSpendAlertInAlarm: %v", err)
+				t.Fatalf("otherSelfLimitInAlarm: %v", err)
 			}
 			if held != tc.wantHeld {
-				t.Errorf("held = %v, want %v: clearing here resumes an account another alert still stops", held, tc.wantHeld)
+				t.Errorf("held = %v, want %v: clearing here restarts an account another limit still stops", held, tc.wantHeld)
 			}
 		})
 	}
 }
 
-// A backend with no spend controls has one alert and one latch, which is how it
-// behaved before. Refusing to clear there would strand every gated account.
 func TestMetronomeWebhook_NoThresholdReaderStillClears(t *testing.T) {
 	w := &MetronomeWebhookWorker{log: logger.New("error", "json")}
-	held, err := w.otherSpendAlertInAlarm(context.Background(), "cust_1", "Hard spend threshold")
+	held, err := w.otherSelfLimitInAlarm(context.Background(), "cust_1", billing.SpendLimitAlertName)
 	if err != nil || held {
-		t.Fatalf("held = %v, err = %v: a backend without spend controls must still clear", held, err)
+		t.Fatalf("held = %v, err = %v: a backend without controls must still clear", held, err)
 	}
 }
 
@@ -518,5 +526,73 @@ func TestStripeWebhook_AFailureWithNoInvoiceURLClearsTheLink(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("a link that no event vouches for survived: %v", err)
+	}
+}
+
+func TestMetronomeWebhook_UsageLimitGatesAndWarningDoesNot(t *testing.T) {
+	cases := []struct {
+		name      string
+		eventType string
+		alertName string
+		wantSig   billing.Signal
+		wantSet   bool
+	}{
+		{
+			name:      "a usage limit gates",
+			eventType: "alerts.usage_threshold_reached",
+			alertName: billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdLimit),
+			wantSig:   billing.SignalUsageLimit, wantSet: true,
+		},
+		{
+			name:      "a usage warning never gates",
+			eventType: "alerts.usage_threshold_reached",
+			alertName: billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdWarning),
+			wantSet:   false,
+		},
+		{
+			name:      "the gateway metric gates too",
+			eventType: "alerts.usage_threshold_reached",
+			alertName: billing.UsageAlertName(billing.UsageMetricGateway, billing.SpendThresholdLimit),
+			wantSig:   billing.SignalUsageLimit, wantSet: true,
+		},
+		{
+			name:      "the resolved edge lifts it",
+			eventType: "alerts.usage_threshold_resolved",
+			alertName: billing.UsageAlertName(billing.UsageMetricGateway, billing.SpendThresholdLimit),
+			wantSig:   billing.SignalUsageLimitResolved, wantSet: true,
+		},
+		{
+			name:      "an alert this build does not own is ignored",
+			eventType: "alerts.usage_threshold_reached",
+			alertName: "someone-elses-alert",
+			wantSet:   false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sig, ok := metronomeSignal(tc.eventType, tc.alertName)
+			if ok != tc.wantSet {
+				t.Fatalf("metronomeSignal(%s, %s) ok = %v, want %v", tc.eventType, tc.alertName, ok, tc.wantSet)
+			}
+			if ok && sig != tc.wantSig {
+				t.Errorf("signal = %q, want %q", sig, tc.wantSig)
+			}
+		})
+	}
+}
+
+func TestMetronomeWebhook_UsageWarningIsNotifyOnly(t *testing.T) {
+	warning := billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdWarning)
+	limit := billing.UsageAlertName(billing.UsageMetricCompute, billing.SpendThresholdLimit)
+
+	if !isUsageWarning("alerts.usage_threshold_reached", warning) {
+		t.Error("the usage warning does not reach its notify-only branch")
+	}
+	if isUsageWarning("alerts.usage_threshold_reached", limit) {
+		t.Error("the usage limit reached the notify-only branch, so it would never gate")
+	}
+	if isUsageWarning("alerts.usage_threshold_resolved", warning) {
+		t.Error("the warning's resolved edge must not re-notify")
 	}
 }

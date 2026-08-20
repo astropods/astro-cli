@@ -2262,6 +2262,9 @@ export interface AccountUsageResponse {
 export interface BillingDataResponse<T> {
   available: boolean;
   data?: T;
+  /** A threshold write whose controls saved while the account stayed stopped
+   *  by its own cap. Nothing retries it. */
+  limit_lift_failed?: boolean;
 }
 
 export interface BillingCreditType {
@@ -2360,6 +2363,13 @@ export interface BillingSpend {
   has_credit: boolean;
   warning?: SpendThreshold;
   limit?: SpendThreshold;
+  usage?: Record<string, UsageThresholds>;
+}
+
+export interface UsageThresholds {
+  unit: string;
+  warning?: SpendThreshold;
+  limit?: SpendThreshold;
 }
 
 export interface SpendThreshold {
@@ -2370,6 +2380,12 @@ export interface SpendThreshold {
 
 /** Replaces both controls. A null clears that one. */
 export interface SpendThresholdsInput {
+  warning: number | null;
+  limit: number | null;
+}
+
+export interface UsageThresholdsInput {
+  metric: string;
   warning: number | null;
   limit: number | null;
 }
@@ -3991,6 +4007,16 @@ class ApiClient {
   ): Promise<BillingDataResponse<unknown>> {
     return this.request<BillingDataResponse<unknown>>(
       `/api/v1/accounts/${encodeURIComponent(account)}/billing/spend/thresholds`,
+      { method: 'PUT', body: JSON.stringify(thresholds) }
+    );
+  }
+
+  async setBillingUsageThresholds(
+    account: string,
+    thresholds: UsageThresholdsInput,
+  ): Promise<BillingDataResponse<unknown>> {
+    return this.request<BillingDataResponse<unknown>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/usage/thresholds`,
       { method: 'PUT', body: JSON.stringify(thresholds) }
     );
   }

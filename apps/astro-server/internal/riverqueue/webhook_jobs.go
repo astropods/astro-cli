@@ -24,7 +24,10 @@ type MetronomeWebhookArgs struct {
 	AlertName    string `json:"alert_name,omitempty"`
 	Threshold    int64  `json:"threshold,omitempty"`
 	CurrentSpend int64  `json:"current_spend,omitempty"`
-	Detail       string `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
+	// Quantity is Threshold unrounded, for a cap counted in something other than
+	// minor units. A CU-hour is legitimately fractional.
+	Quantity float64 `json:"quantity,omitempty"`
+	Detail   string  `json:"detail,omitempty"` // provider error text, set only for metronomeAlarm events
 }
 
 func (MetronomeWebhookArgs) Kind() string { return "webhook.metronome" }
@@ -59,15 +62,56 @@ func init() {
 	registerJobKind[StripeWebhookArgs]()
 }
 
-const spendThresholdReachedEvent = "alerts.spend_threshold_reached"
+const (
+	spendThresholdReachedEvent  = "alerts.spend_threshold_reached"
+	spendThresholdResolvedEvent = "alerts.spend_threshold_resolved"
+	usageThresholdReachedEvent  = "alerts.usage_threshold_reached"
+	usageThresholdResolvedEvent = "alerts.usage_threshold_resolved"
+)
+
+func isUsageWarning(eventType, alertName string) bool {
+	if eventType != usageThresholdReachedEvent {
+		return false
+	}
+	_, kind, ok := billing.UsageMetricForAlert(alertName)
+	return ok && kind == billing.SpendThresholdWarning
+}
 
 func isSpendWarning(eventType, alertName string) bool {
 	return eventType == spendThresholdReachedEvent && alertName == billing.SpendWarningAlertName
 }
 
+func isSelfLimit(alertName string) bool {
+	if alertName == billing.SpendLimitAlertName {
+		return true
+	}
+	_, kind, ok := billing.UsageMetricForAlert(alertName)
+	return ok && kind == billing.SpendThresholdLimit
+}
+
+// selfLimitSignal maps a limit the account set for itself to its signal. Spend
+// and quantity share one latch because the owner can lift either. An operator's
+// own alert is excluded: nothing the owner does lifts that one.
+func selfLimitSignal(eventType, alertName string) (billing.Signal, bool) {
+	if !isSelfLimit(alertName) {
+		return "", false
+	}
+	switch eventType {
+	case usageThresholdReachedEvent, spendThresholdReachedEvent:
+		return billing.SignalUsageLimit, true
+	case usageThresholdResolvedEvent, spendThresholdResolvedEvent:
+		return billing.SignalUsageLimitResolved, true
+	default:
+		return "", false
+	}
+}
+
 func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
 	if alertName == billing.SpendWarningAlertName {
 		return "", false
+	}
+	if sig, ok := selfLimitSignal(eventType, alertName); ok {
+		return sig, true
 	}
 	switch eventType {
 	case spendThresholdReachedEvent:
@@ -78,7 +122,7 @@ func metronomeSignal(eventType, alertName string) (billing.Signal, bool) {
 	case "alerts.low_remaining_contract_credit_balance_resolved",
 		"alerts.low_remaining_contract_credit_and_commit_balance_resolved":
 		return billing.SignalCreditsGranted, true
-	case "alerts.spend_threshold_resolved":
+	case spendThresholdResolvedEvent:
 		return billing.SignalAlertResolved, true
 	default:
 		return "", false
@@ -98,6 +142,9 @@ type notifyFacts struct {
 	HostedInvoiceURL string // Stripe's 3DS link, absolute
 	ThresholdCents   int64
 	SpentCents       int64
+	UsageMetric      billing.UsageMetric
+	UsageThreshold   float64
+	Period           string
 }
 
 func billingAlert(sig billing.Signal, accountID, accountName string, facts notifyFacts) (notify.Event, bool) {
@@ -107,9 +154,16 @@ func billingAlert(sig billing.Signal, accountID, accountName string, facts notif
 	case billing.SignalActionRequired:
 		return notify.BillingActionRequired(accountID, accountName, facts.HostedInvoiceURL), true
 	case billing.SignalAlert:
-		return notify.BillingSpendThreshold(accountID, accountName, facts.ThresholdCents, facts.SpentCents), true
+		return notify.BillingSpendThreshold(accountID, accountName, facts.ThresholdCents, facts.SpentCents, facts.Period), true
 	case billing.SignalCreditsExhausted:
 		return notify.BillingCreditsExhausted(accountID, accountName), true
+	case billing.SignalUsageLimit:
+		// One latch, two units. No metric is the spend limit, whose message states
+		// money rather than a count.
+		if facts.UsageMetric == "" {
+			return notify.BillingSpendThreshold(accountID, accountName, facts.ThresholdCents, facts.SpentCents, facts.Period), true
+		}
+		return notify.BillingUsageLimit(accountID, accountName, string(facts.UsageMetric), billing.UsageMetricUnit(facts.UsageMetric), facts.UsageThreshold), true
 	case billing.SignalRecovery:
 		return notify.BillingRecovered(accountID, accountName), true
 	default:
@@ -146,6 +200,7 @@ type MetronomeWebhookWorker struct {
 	status           *billing.StatusStore
 	cards            cardReader           // nil when payments aren't configured
 	thresholds       spendThresholdReader // nil when the backend reports no spend controls
+	usage            usageThresholdReader // nil when the backend reports no usage caps
 	spend            spendReader          // nil when the backend does not report spend
 	queue            *Queue               // set post-construction in New(); enqueues suspend/resume
 	unlimitedDomains []string
@@ -154,6 +209,10 @@ type MetronomeWebhookWorker struct {
 
 type spendThresholdReader interface {
 	CustomerSpendThresholds(ctx context.Context, customerID string) (billing.SpendThresholds, error)
+}
+
+type usageThresholdReader interface {
+	CustomerUsageThresholds(ctx context.Context, customerID string) (map[billing.UsageMetric]billing.UsageThresholds, error)
 }
 
 type spendReader interface {
@@ -168,6 +227,14 @@ func spendThresholds(p billing.BillingProvider) spendThresholdReader {
 	return r
 }
 
+func usageThresholds(p billing.BillingProvider) usageThresholdReader {
+	r, ok := p.(billing.UsageThresholdReader)
+	if !ok {
+		return nil
+	}
+	return r
+}
+
 func spendReports(p billing.BillingProvider) spendReader {
 	r, ok := p.(billing.SpendReporter)
 	if !ok {
@@ -176,20 +243,24 @@ func spendReports(p billing.BillingProvider) spendReader {
 	return r
 }
 
-func (w *MetronomeWebhookWorker) spentCents(ctx context.Context, customerID string, reported int64) (int64, error) {
+func (w *MetronomeWebhookWorker) spentCents(ctx context.Context, customerID string, reported int64) (int64, string, error) {
 	if w.spend == nil || customerID == "" {
-		return reported, nil
+		return reported, "", nil
 	}
 	s, err := w.spend.CustomerSpend(ctx, customerID)
 	if err != nil {
-		return 0, fmt.Errorf("read customer spend: %w", err)
+		return 0, "", fmt.Errorf("read customer spend: %w", err)
+	}
+	period := ""
+	if !s.CurrentPeriodEnd.IsZero() {
+		period = s.CurrentPeriodEnd.UTC().Format("2 January 2006")
 	}
 	if !s.HasUsageSpend {
 		w.log.Warn("metronome webhook: no usage spend to state in a spend message",
 			"customer_id", customerID)
-		return reported, nil
+		return reported, period, nil
 	}
-	return int64(math.Round(s.UsageSpend * centsPerUnit)), nil
+	return int64(math.Round(s.UsageSpend * centsPerUnit)), period, nil
 }
 
 const centsPerUnit = 100
@@ -198,11 +269,11 @@ func (w *MetronomeWebhookWorker) notifySpendWarning(ctx context.Context, args Me
 	if w.queue == nil {
 		return nil
 	}
-	spent, err := w.spentCents(ctx, args.CustomerID, args.CurrentSpend)
+	spent, period, err := w.spentCents(ctx, args.CustomerID, args.CurrentSpend)
 	if err != nil {
 		return err
 	}
-	return notifySpendWarning(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.queue, args, spent)
+	return notifySpendWarning(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.queue, args, spent, period)
 }
 
 type billingNotifier interface {
@@ -216,6 +287,7 @@ func notifySpendWarning(
 	queue billingNotifier,
 	args MetronomeWebhookArgs,
 	spentCents int64,
+	period string,
 ) error {
 	if args.CustomerID == "" {
 		return nil
@@ -228,10 +300,34 @@ func notifySpendWarning(
 	if err != nil {
 		return err
 	}
-	ev := notify.BillingSpendWarning(acct.ID, acct.Name, args.Threshold, spentCents)
+	ev := notify.BillingSpendWarning(acct.ID, acct.Name, args.Threshold, spentCents, period)
 	ev.DedupeKey = "billing:metronome:" + args.EventID
 	if emitErr := queue.EmitBillingNotify(ctx, ev); emitErr != nil {
 		log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", "spend_warning")
+	}
+	return nil
+}
+
+func (w *MetronomeWebhookWorker) notifyUsageWarning(ctx context.Context, args MetronomeWebhookArgs) error {
+	if w.queue == nil || args.CustomerID == "" {
+		return nil
+	}
+	metric, _, ok := billing.UsageMetricForAlert(args.AlertName)
+	if !ok {
+		return nil
+	}
+	acct, err := w.accounts.GetByMetronomeCustomerID(args.CustomerID)
+	if errors.Is(err, account.ErrAccountNotFound) {
+		w.log.Warn("metronome webhook: no account for customer", "customer_id", args.CustomerID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	ev := notify.BillingUsageWarning(acct.ID, acct.Name, string(metric), billing.UsageMetricUnit(metric), args.Quantity)
+	ev.DedupeKey = "billing:metronome:" + args.EventID
+	if emitErr := w.queue.EmitBillingNotify(ctx, ev); emitErr != nil {
+		w.log.Warn("billing: emit notification failed", "error", emitErr, "account_id", acct.ID, "signal", "usage_warning")
 	}
 	return nil
 }
@@ -247,6 +343,9 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 	}
 	if isSpendWarning(job.Args.EventType, job.Args.AlertName) {
 		return w.notifySpendWarning(ctx, job.Args)
+	}
+	if isUsageWarning(job.Args.EventType, job.Args.AlertName) {
+		return w.notifyUsageWarning(ctx, job.Args)
 	}
 	sig, ok := metronomeSignal(job.Args.EventType, job.Args.AlertName)
 	if !ok {
@@ -267,24 +366,29 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 			return err
 		}
 	}
-	if sig == billing.SignalAlertResolved {
-		stillOver, err := w.otherSpendAlertInAlarm(ctx, job.Args.CustomerID, job.Args.AlertName)
+	if sig == billing.SignalUsageLimitResolved {
+		stillOver, err := w.otherSelfLimitInAlarm(ctx, job.Args.CustomerID, job.Args.AlertName)
 		if err != nil {
 			return err
 		}
 		if stillOver {
-			w.log.Info("metronome webhook: spend alert resolved but another is still in alarm",
+			w.log.Info("metronome webhook: one limit resolved while another is still over",
 				"customer_id", job.Args.CustomerID, "resolved", job.Args.AlertName)
 			return nil
 		}
 	}
 	facts := notifyFacts{ThresholdCents: job.Args.Threshold, SpentCents: job.Args.CurrentSpend}
-	if sig == billing.SignalAlert {
-		spent, err := w.spentCents(ctx, job.Args.CustomerID, job.Args.CurrentSpend)
+	if sig == billing.SignalUsageLimit {
+		metric, _, _ := billing.UsageMetricForAlert(job.Args.AlertName)
+		facts.UsageMetric = metric
+		facts.UsageThreshold = job.Args.Quantity
+	}
+	if sig == billing.SignalAlert || (sig == billing.SignalUsageLimit && facts.UsageMetric == "") {
+		spent, period, err := w.spentCents(ctx, job.Args.CustomerID, job.Args.CurrentSpend)
 		if err != nil {
 			return err
 		}
-		facts.SpentCents = spent
+		facts.SpentCents, facts.Period = spent, period
 	}
 	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, facts)
 }
@@ -307,18 +411,36 @@ func (w *MetronomeWebhookWorker) unlimitedAccount(customerID string) (bool, erro
 	return hasEmailDomain(email, w.unlimitedDomains), nil
 }
 
-func (w *MetronomeWebhookWorker) otherSpendAlertInAlarm(ctx context.Context, customerID, resolved string) (bool, error) {
-	if w.thresholds == nil || customerID == "" {
+// otherSelfLimitInAlarm reports whether a limit other than the one that just
+// resolved is still crossed. The resolved limit is excluded because a read taken
+// on the edge can still report it over, which would hold the latch against
+// itself with nothing left to lift it.
+func (w *MetronomeWebhookWorker) otherSelfLimitInAlarm(ctx context.Context, customerID, resolved string) (bool, error) {
+	if customerID == "" {
 		return false, nil
 	}
-	th, err := w.thresholds.CustomerSpendThresholds(ctx, customerID)
+	if w.thresholds != nil && resolved != billing.SpendLimitAlertName {
+		th, err := w.thresholds.CustomerSpendThresholds(ctx, customerID)
+		if err != nil {
+			return false, fmt.Errorf("read spend thresholds: %w", err)
+		}
+		if th.HasLimit && th.Limit.InAlarm {
+			return true, nil
+		}
+	}
+	if w.usage == nil {
+		return false, nil
+	}
+	caps, err := w.usage.CustomerUsageThresholds(ctx, customerID)
 	if err != nil {
-		return false, fmt.Errorf("read spend thresholds: %w", err)
+		return false, fmt.Errorf("read usage thresholds: %w", err)
 	}
-	if resolved == billing.SpendLimitAlertName {
-		return th.OperatorSpendInAlarm, nil
+	for metric, c := range caps {
+		if c.HasLimit && c.Limit.InAlarm && billing.UsageAlertName(metric, billing.SpendThresholdLimit) != resolved {
+			return true, nil
+		}
 	}
-	return th.HasLimit && th.Limit.InAlarm, nil
+	return false, nil
 }
 
 func (w *MetronomeWebhookWorker) refreshCardFact(ctx context.Context, metronomeCustomerID string) error {

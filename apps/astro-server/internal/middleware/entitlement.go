@@ -102,10 +102,11 @@ func (e *Entitlements) Wrap(handler gin.HandlerFunc) gin.HandlerFunc {
 // so a terminal and a banner can phrase it differently without disagreeing on
 // what the user has to do.
 const (
-	ActionAddCard         = "add_card"         // free tier ran dry, no card on file
-	ActionUpdateCard      = "update_card"      // a card exists and collection failed
-	ActionContactSupport  = "contact_support"  // nothing the account holder can do
-	ActionCompletePayment = "complete_payment" // the bank wants the customer to authenticate
+	ActionAddCard         = "add_card"          // free tier ran dry, no card on file
+	ActionUpdateCard      = "update_card"       // a card exists and collection failed
+	ActionContactSupport  = "contact_support"   // nothing the account holder can do
+	ActionCompletePayment = "complete_payment"  // the bank wants the customer to authenticate
+	ActionRaiseUsageLimit = "raise_usage_limit" // the account's own cap stopped it
 )
 
 // BillingAction maps a gating reason to the one thing that resolves it. Only two
@@ -128,6 +129,8 @@ func BillingAction(reason string, hasPayLink bool) string {
 			return ActionCompletePayment
 		}
 		return ActionUpdateCard
+	case billing.ReasonUsageLimit:
+		return ActionRaiseUsageLimit
 	case billing.ReasonUncollectible:
 		// A write-off is terminal: only a void or an operator lifts it, and
 		// paying the old link would leave the account suspended anyway. Offering
@@ -146,6 +149,7 @@ var actionDetails = map[string]string{
 	ActionUpdateCard:      "A payment for this account could not be collected. Update the payment method to continue.",
 	ActionContactSupport:  "This account is suspended for a billing issue only support can resolve. Contact support to continue.",
 	ActionCompletePayment: "A payment for this account needs to be confirmed with your bank. Complete it to continue.",
+	ActionRaiseUsageLimit: "This account reached the usage limit it set. Raise or remove the limit to continue.",
 }
 
 // PaymentRequiredResponse is the 402 body for a billing-suspended account. It

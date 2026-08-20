@@ -10,10 +10,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 )
 
-// spendThresholdAlertType is Metronome's alert_type for a period-spend
-// threshold, the only kind that gates.
-const spendThresholdAlertType = "spend_threshold_reached"
-
 // The names come from internal/billing so the webhook path recognises the same
 // strings. The SDK's alert type carries no customer_id, so the name is the only
 // discriminator a read has.
@@ -27,13 +23,11 @@ const (
 // is a threshold a customer could legitimately set.
 func (p *Provider) CustomerSpendThresholds(ctx context.Context, customerID string) (billing.SpendThresholds, error) {
 	var out billing.SpendThresholds
-	page, err := p.mc.V1.Customers.Alerts.List(ctx, metronome.V1CustomerAlertListParams{
+	iter := p.mc.V1.Customers.Alerts.ListAutoPaging(ctx, metronome.V1CustomerAlertListParams{
 		CustomerID: customerID,
 	})
-	if err != nil {
-		return out, fmt.Errorf("metronome list customer alerts: %w", err)
-	}
-	for _, ca := range page.Data {
+	for iter.Next() {
+		ca := iter.Current()
 		t := billing.SpendThreshold{
 			Amount:  ca.Alert.Threshold,
 			InAlarm: string(ca.CustomerStatus) == "in_alarm",
@@ -43,13 +37,10 @@ func (p *Provider) CustomerSpendThresholds(ctx context.Context, customerID strin
 			out.Warning, out.HasWarning = t, true
 		case alertNameSpendLimit:
 			out.Limit, out.HasLimit = t, true
-		default:
-			// An operator's org-wide spend alert. It gates the same latch the
-			// customer's limit does, so whether it is over has to travel with them.
-			if t.InAlarm && ca.Alert.Type == spendThresholdAlertType {
-				out.OperatorSpendInAlarm = true
-			}
 		}
+	}
+	if err := iter.Err(); err != nil {
+		return billing.SpendThresholds{}, fmt.Errorf("metronome list customer alerts: %w", err)
 	}
 	return out, nil
 }
@@ -74,17 +65,17 @@ func alertUniquenessKey(kind billing.SpendThresholdKind, customerID string) stri
 // none. The threshold comes back too, so a caller can skip a write that would
 // set the number already in force.
 func (p *Provider) existingAlert(ctx context.Context, customerID string, kind billing.SpendThresholdKind) (id string, threshold float64, err error) {
-	page, err := p.mc.V1.Customers.Alerts.List(ctx, metronome.V1CustomerAlertListParams{
+	iter := p.mc.V1.Customers.Alerts.ListAutoPaging(ctx, metronome.V1CustomerAlertListParams{
 		CustomerID: customerID,
 	})
-	if err != nil {
-		return "", 0, fmt.Errorf("metronome list customer alerts: %w", err)
-	}
 	want := alertName(kind)
-	for _, ca := range page.Data {
-		if ca.Alert.Name == want {
+	for iter.Next() {
+		if ca := iter.Current(); ca.Alert.Name == want {
 			return ca.Alert.ID, ca.Alert.Threshold, nil
 		}
+	}
+	if err := iter.Err(); err != nil {
+		return "", 0, fmt.Errorf("metronome list customer alerts: %w", err)
 	}
 	return "", 0, nil
 }

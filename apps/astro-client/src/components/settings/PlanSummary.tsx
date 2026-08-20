@@ -17,11 +17,6 @@ const PLANS: Record<string, { label: string; detail: string }> = {
   },
 };
 
-const UNPROVISIONED = {
-  label: "Not set up",
-  detail: "No billing contract covers this account, so usage is not rated yet.",
-};
-
 function formatMoney(amount: number, currency?: string): string {
   const value = amount.toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -37,7 +32,10 @@ export function PlanSummary({ account }: { account: string }) {
   if (isLoading || !spend) return null;
 
   const plan = spend.plan ? PLANS[spend.plan] : undefined;
-  const { label, detail } = plan ?? UNPROVISIONED;
+  // An uncovered account cannot reach this: the spend endpoint reports it as an
+  // error rather than as data.
+  if (!plan) return null;
+  const { label, detail } = plan;
 
   return (
     <Card className="mb-6 flex flex-col gap-2 p-4">

@@ -12,11 +12,13 @@ import (
 // operator has to rescue by hand, which is how both the credits-exhaustion and
 // spend-alert latches shipped.
 const (
-	flagDunning = "dunning_since"
-	flagAlert   = "alert_active"
-	flagForce   = "force_suspended"
-	flagCredits = "credits_exhausted"
-	flagHasCard = "has_payment_method"
+	flagDunning    = "dunning_since"
+	flagAlert      = "alert_active"
+	flagForce      = "force_suspended"
+	flagCredits    = "credits_exhausted"
+	flagHasCard    = "has_payment_method"
+	flagUsageLimit = "usage_limit_active"
+	flagNoContract = "not_provisioned"
 )
 
 // write is one flag mutation a signal must perform. sql is matched against the
@@ -60,6 +62,12 @@ var signalWrites = map[Signal]spec{
 	SignalCreditsGranted:   {writes: []write{{flagCredits, false, "credits_exhausted = false"}}},
 	SignalCardAdded:        {writes: []write{{flagHasCard, true, "has_payment_method = EXCLUDED"}}, inverse: SignalCardRemoved},
 	SignalCardRemoved:      {writes: []write{{flagHasCard, false, "has_payment_method = EXCLUDED"}}},
+	SignalUsageLimit: {writes: []write{{flagUsageLimit, true, "usage_limit_active = true"}},
+		inverse: SignalUsageLimitResolved},
+	SignalUsageLimitResolved: {writes: []write{{flagUsageLimit, false, "usage_limit_active = false"}}},
+	SignalNotProvisioned: {writes: []write{{flagNoContract, true, "not_provisioned = true"}},
+		inverse: SignalProvisioned},
+	SignalProvisioned: {writes: []write{{flagNoContract, false, "not_provisioned = false"}}},
 }
 
 // A clear that only an operator can trigger is the other half of the latch bug.

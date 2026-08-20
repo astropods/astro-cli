@@ -634,6 +634,7 @@ other.
 | `dunning` / `payment_failed` | `invoice.paid`, or a card-network auto-update |
 | `balance_alert` | `alerts.spend_threshold_resolved`, the provider's own IN_ALARM to OK edge |
 | `uncollectible` | `invoice.voided` |
+| `usage_limit` | The quantity edge, or the owner changing the cap |
 
 **A payment does not lower period spend**, so `SignalRecovery` clears dunning and
 nothing else. **A void is not a payment**, so it clears the write-off without
@@ -696,6 +697,13 @@ zero. One response carries two money units on purpose: spend and credit are
 converted to their named currency for astro-queen, and the thresholds stay in the
 provider's raw cents, which is what the write path sends.
 
+**A usage cap is the only control the unlimited plan can carry.** Every product
+on that plan is overridden to a zero multiplier, so priced spend never moves and
+a spend threshold can never fire. `usage_threshold_reached` evaluates a billable
+metric's quantity over the current billing period and is rated by nothing, so it
+still does. The cap therefore gates every plan: it is the owner's own number, not
+a provider verdict, and the credit exemption does not extend to it.
+
 **The two are the same provider alert type at different amounts**, told apart by
 the alert name. That makes the name load-bearing:
 
@@ -727,6 +735,8 @@ Seven billing workflows, all triggered through `notify.Deliverer.Deliver` →
 | `billing.action_required` | `invoice.payment_action_required` (3DS) |
 | `billing.spend_threshold` | The account's own limit |
 | `billing.spend_warning` | The account's own warning |
+| `billing.usage_limit` | The account's own cap on a metered quantity |
+| `billing.usage_warning` | The account's own warning on a metered quantity |
 | `billing.credits_exhausted` | Credit balance reaches zero |
 | `billing.dunning_suspended` | The sweep suspends the account |
 | `billing.recovered` | `invoice.paid` |
@@ -931,10 +941,6 @@ now cancels its job and logs at error level.
 
 **`SignalUncollectible` notifies nobody.** `billingAlert` has no case for it, so
 an account written off learns about it by discovering it is suspended.
-
-**One unsourced template variable.** `billing.spend_threshold`'s email references
-`{{payload.period}}`, which no event carries, so that line renders blank. Either
-the template drops it or the payload grows to carry it. This is a copy decision.
 
 **Organizations per user are still uncapped.** The credit-farming loop is closed by
 the per-person grant, but `CreateAccount` still caps only personal accounts

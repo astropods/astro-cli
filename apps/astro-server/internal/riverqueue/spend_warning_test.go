@@ -41,7 +41,7 @@ func TestNotifySpendWarningEmitsTheEvent(t *testing.T) {
 		CurrentSpend: 8100,
 	}
 
-	if err := notifySpendWarning(context.Background(), logger.New("error", "json"), lookupOne(acct, nil), q, args, args.CurrentSpend); err != nil {
+	if err := notifySpendWarning(context.Background(), logger.New("error", "json"), lookupOne(acct, nil), q, args, args.CurrentSpend, "1 September 2026"); err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
 	if len(q.events) != 1 {
@@ -70,7 +70,7 @@ func TestNotifySpendWarningEmitsTheEvent(t *testing.T) {
 func TestNotifySpendWarningSkipsAnUnknownCustomer(t *testing.T) {
 	q := &fakeNotifier{}
 	err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(nil, account.ErrAccountNotFound), q, MetronomeWebhookArgs{CustomerID: "cust_gone"}, 0)
+		lookupOne(nil, account.ErrAccountNotFound), q, MetronomeWebhookArgs{CustomerID: "cust_gone"}, 0, "1 September 2026")
 	if err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestNotifySpendWarningReturnsATransientLookupError(t *testing.T) {
 	q := &fakeNotifier{}
 	boom := errors.New("connection refused")
 	err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(nil, boom), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0)
+		lookupOne(nil, boom), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0, "1 September 2026")
 	if !errors.Is(err, boom) {
 		t.Fatalf("error = %v, want the lookup error", err)
 	}
@@ -97,7 +97,7 @@ func TestNotifySpendWarningSurvivesAFailedEmit(t *testing.T) {
 	q := &fakeNotifier{err: errors.New("queue down")}
 	acct := &account.Account{ID: "acct_1", Name: "acme"}
 	if err := notifySpendWarning(context.Background(), logger.New("error", "json"),
-		lookupOne(acct, nil), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0); err != nil {
+		lookupOne(acct, nil), q, MetronomeWebhookArgs{CustomerID: "cust_1"}, 0, "1 September 2026"); err != nil {
 		t.Fatalf("notifySpendWarning: %v", err)
 	}
 }
@@ -138,9 +138,13 @@ func TestASpendWarningNeverProducesAGatingSignal(t *testing.T) {
 			t.Errorf("metronomeSignal(%q, warning) returned %q; a warning must not gate", event, sig)
 		}
 	}
-	// The limit still gates, or the control that stops agents stops nothing.
-	if sig, handled := metronomeSignal(spendThresholdReachedEvent, billing.SpendLimitAlertName); !handled || sig != billing.SignalAlert {
-		t.Errorf("metronomeSignal(reached, limit) = %q/%v, want alert/true", sig, handled)
+	// The limit still gates, on the latch the owner can lift rather than the
+	// operator one only support clears.
+	if sig, handled := metronomeSignal(spendThresholdReachedEvent, billing.SpendLimitAlertName); !handled || sig != billing.SignalUsageLimit {
+		t.Errorf("metronomeSignal(reached, limit) = %q/%v, want usage_limit/true", sig, handled)
+	}
+	if sig, handled := metronomeSignal(spendThresholdReachedEvent, "Platform backstop"); !handled || sig != billing.SignalAlert {
+		t.Errorf("metronomeSignal(reached, operator alert) = %q/%v, want alert/true", sig, handled)
 	}
 }
 

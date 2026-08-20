@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { BillingDataResponse, BillingSpend, SpendThresholdsInput } from '../../lib/api';
+import type { BillingDataResponse, BillingSpend, SpendThresholdsInput, UsageThresholds, UsageThresholdsInput } from '../../lib/api';
 import { billingKeys } from './keys';
 
 export function useBillingUsage(account: string, params?: { from?: string; to?: string }) {
@@ -66,11 +66,23 @@ export function useBillingSpend(account: string) {
   });
 }
 
+/** A backend that does not hold these controls answers 200 with available:false.
+ *  Reporting that as a save would show a success toast and a seeded number over
+ *  a write that never happened. */
+function assertWritten(result: BillingDataResponse<unknown>): void {
+  if (!result.available) {
+    throw new Error("Billing controls are not available for this account.");
+  }
+}
+
 export function useSetBillingSpendThresholds(account: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (thresholds: SpendThresholdsInput) =>
-      api.setBillingSpendThresholds(account, thresholds),
+    mutationFn: async (thresholds: SpendThresholdsInput) => {
+      const result = await api.setBillingSpendThresholds(account, thresholds);
+      assertWritten(result);
+      return result;
+    },
     onSuccess: (_result, thresholds) => {
       // Seed what was just written so the form keeps reading through the cache.
       // Holding the typed text locally instead would leave "50.999" on screen
@@ -79,11 +91,58 @@ export function useSetBillingSpendThresholds(account: string) {
         billingKeys.spend(account),
         (prev) => (prev?.available && prev.data ? seedThresholds(prev, thresholds) : prev),
       );
+    },
+    // A refused write can still have landed one of the two controls, so the
+    // read is invalidated either way. The provider is the only store for these.
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: billingKeys.spend(account) });
-      // A limit change can lift or impose a suspension, so the banner must refetch.
+      // A limit change can lift or impose a suspension, so the banner refetches.
       qc.invalidateQueries({ queryKey: billingKeys.status(account) });
     },
   });
+}
+
+export function useSetBillingUsageThresholds(account: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (thresholds: UsageThresholdsInput) => {
+      const result = await api.setBillingUsageThresholds(account, thresholds);
+      assertWritten(result);
+      return result;
+    },
+    onSuccess: (_result, thresholds) => {
+      qc.setQueryData<BillingDataResponse<BillingSpend>>(
+        billingKeys.spend(account),
+        (prev) => (prev?.available && prev.data ? seedUsageThresholds(prev, thresholds) : prev),
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: billingKeys.spend(account) });
+      qc.invalidateQueries({ queryKey: billingKeys.status(account) });
+    },
+  });
+}
+
+/** The saved cap, seeded per metric so the row keeps its number while the
+ *  refetch is in flight. The spend row does the same; a row that only
+ *  invalidates shows the previous value until the read lands. */
+function seedUsageThresholds(
+  prev: BillingDataResponse<BillingSpend>,
+  thresholds: UsageThresholdsInput,
+): BillingDataResponse<BillingSpend> {
+  const data = prev.data as BillingSpend;
+  const seed = (amount: number | null) =>
+    amount == null ? undefined : { amount, in_alarm: false };
+  const held = data.usage?.[thresholds.metric];
+  const seeded: UsageThresholds = {
+    unit: held?.unit ?? "",
+    warning: seed(thresholds.warning),
+    limit: seed(thresholds.limit),
+  };
+  return {
+    ...prev,
+    data: { ...data, usage: { ...data.usage, [thresholds.metric]: seeded } },
+  };
 }
 
 /** A cleared threshold is absent, not zero: zero is a cap at nothing. in_alarm is

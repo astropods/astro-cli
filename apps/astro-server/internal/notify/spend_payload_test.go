@@ -28,8 +28,8 @@ func TestMoneyFormatsMinorUnits(t *testing.T) {
 // the account stopped. One type for both would tell an owner still under their
 // limit that their agents are down.
 func TestSpendWarningAndLimitAreDistinctTypes(t *testing.T) {
-	warning := BillingSpendWarning("acct_1", "acme", 8000, 8100)
-	limit := BillingSpendThreshold("acct_1", "acme", 10000, 10100)
+	warning := BillingSpendWarning("acct_1", "acme", 8000, 8100, "1 September 2026")
+	limit := BillingSpendThreshold("acct_1", "acme", 10000, 10100, "1 September 2026")
 
 	if warning.Type == limit.Type {
 		t.Fatalf("both events use %q", warning.Type)
@@ -54,8 +54,8 @@ func TestSpendWarningAndLimitAreDistinctTypes(t *testing.T) {
 // builder sends but the contract omits is a variable nobody knows exists.
 func TestSpendPayloadContractMatchesTheBuilders(t *testing.T) {
 	built := map[Type]Event{
-		TypeBillingSpendWarning:   BillingSpendWarning("acct_1", "acme", 8000, 8100),
-		TypeBillingSpendThreshold: BillingSpendThreshold("acct_1", "acme", 10000, 10100),
+		TypeBillingSpendWarning:   BillingSpendWarning("acct_1", "acme", 8000, 8100, "1 September 2026"),
+		TypeBillingSpendThreshold: BillingSpendThreshold("acct_1", "acme", 10000, 10100, "1 September 2026"),
 	}
 	for typ, ev := range built {
 		declared := map[string]bool{}
@@ -75,5 +75,20 @@ func TestSpendPayloadContractMatchesTheBuilders(t *testing.T) {
 				t.Errorf("%s declares %q but the builder never sets it", typ, key)
 			}
 		}
+	}
+}
+
+func TestSpendEventsCarryThePeriod(t *testing.T) {
+	for _, ev := range []Event{
+		BillingSpendWarning("acct_1", "acme", 8000, 8100, "1 September 2026"),
+		BillingSpendThreshold("acct_1", "acme", 10000, 10100, "1 September 2026"),
+	} {
+		if got := ev.Payload[PayloadPeriod]; got != "1 September 2026" {
+			t.Errorf("%s period = %v, want the formatted date", ev.Type, got)
+		}
+	}
+	ev := BillingSpendWarning("acct_1", "acme", 8000, 8100, "")
+	if _, ok := ev.Payload[PayloadPeriod]; ok {
+		t.Error("an absent period was sent as a key, so the template renders a blank")
 	}
 }

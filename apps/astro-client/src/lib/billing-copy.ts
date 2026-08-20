@@ -20,6 +20,7 @@ const ACTION_LABEL: Record<string, string> = {
   add_card: "Add payment method",
   complete_payment: "Complete payment",
   update_card: "Update payment method",
+  raise_usage_limit: "Change usage limit",
   // No support route exists, so the button opens billing and the instruction
   // rides in the body copy. Also the label for an action this build predates.
   contact_support: "View billing",
@@ -68,10 +69,24 @@ export function billingBannerCopy(
       cta,
     };
   }
+  if (reason === "usage_limit") {
+    return {
+      title: "Limit reached",
+      body: "Your agents are stopped because this account reached a limit it set. Raise or remove the limit to start them again.",
+      cta,
+    };
+  }
   if (reason === "balance_alert") {
     return {
       title: "Spending limit reached",
-      body: "Your agents are stopped because the account hit its spend threshold. Contact support to raise it.",
+      body: "Your agents are stopped because the account hit a spend threshold. Contact support to raise it.",
+      cta,
+    };
+  }
+  if (reason === "not_provisioned") {
+    return {
+      title: "Billing is not set up",
+      body: "Your agents are stopped because no billing plan covers this account. Contact support to finish setting it up.",
       cta,
     };
   }
@@ -100,6 +115,7 @@ const ACTION_HINT: Record<string, string> = {
   add_card: "Stopped by billing. Add a payment method to start it again.",
   complete_payment: "Stopped by billing. Confirm the pending payment with your bank to start it again.",
   update_card: "Stopped by billing. Update your payment method to start it again.",
+  raise_usage_limit: "Stopped by a limit this account set. Raise or remove the limit to start it again.",
   contact_support: "Stopped by billing. Contact support to start it again.",
 };
 

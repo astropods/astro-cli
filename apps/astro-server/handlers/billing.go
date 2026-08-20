@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
 
@@ -23,6 +24,10 @@ import (
 type BillingDataResponse struct {
 	Available bool `json:"available"`
 	Data      any  `json:"data,omitempty"`
+	// LimitLiftFailed reports that the controls saved but the account stayed
+	// stopped by its own cap. Nothing retries it, so a client that reports a
+	// plain success strands the owner.
+	LimitLiftFailed bool `json:"limit_lift_failed,omitempty"`
 }
 
 // BillingStatusResponse is the account's gating state, for the client's banner.
@@ -148,7 +153,7 @@ func billingData(
 	billingProvider billing.BillingProvider,
 	billingBackend string,
 	label string,
-	fetch func(ctx context.Context, customerID string) (any, error),
+	fetch func(ctx context.Context, acct *account.Account, customerID string) (any, error),
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
@@ -163,10 +168,15 @@ func billingData(
 			return
 		}
 
-		data, err := fetch(c.Request.Context(), customerID)
+		data, err := fetch(c.Request.Context(), acct, customerID)
 		if err != nil {
 			if errors.Is(err, billing.ErrBillingUnavailable) {
 				c.JSON(http.StatusOK, BillingDataResponse{Available: false})
+				return
+			}
+			if errors.Is(err, errNoBillingContract) {
+				log.Error("No billing contract covers the account", "account_id", acct.ID, "customer_id", customerID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "no billing contract covers this account"})
 				return
 			}
 			log.Error("Failed to load billing "+label, "error", err, "account_id", acct.ID)
@@ -177,6 +187,8 @@ func billingData(
 		c.JSON(http.StatusOK, BillingDataResponse{Available: true, Data: data})
 	}
 }
+
+var errNoBillingContract = errors.New("no billing contract covers this account")
 
 // utcMidnight truncates t to UTC midnight (Metronome requires window bounds to
 // be UTC midnight).
@@ -210,7 +222,7 @@ func GetBillingUsage(log *logger.Logger, accountStore *account.AccountStore, bil
 		}
 
 		billingData(log, accountStore, billingProvider, billingBackend, "usage",
-			func(ctx context.Context, customerID string) (any, error) {
+			func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
 				return billingProvider.UsageData(ctx, customerID, from, to)
 			})(c)
 	}
@@ -220,7 +232,7 @@ func GetBillingUsage(log *logger.Logger, accountStore *account.AccountStore, bil
 // returns the customer's invoices (with line items) for the client to render.
 func GetBillingInvoices(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "invoices",
-		func(ctx context.Context, customerID string) (any, error) {
+		func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
 			return billingProvider.Invoices(ctx, customerID)
 		})
 }
@@ -299,6 +311,14 @@ type BillingSpendResponse struct {
 	// threshold a customer could legitimately set.
 	Warning *SpendThresholdResponse `json:"warning,omitempty"`
 	Limit   *SpendThresholdResponse `json:"limit,omitempty"`
+
+	Usage map[string]UsageThresholdsResponse `json:"usage,omitempty"`
+}
+
+type UsageThresholdsResponse struct {
+	Unit    string                  `json:"unit"`
+	Warning *SpendThresholdResponse `json:"warning,omitempty"`
+	Limit   *SpendThresholdResponse `json:"limit,omitempty"`
 }
 
 // SpendThresholdResponse is one customer-set number and whether it is crossed.
@@ -312,7 +332,7 @@ type SpendThresholdResponse struct {
 // through rather than from a mirror that could disagree with what fires.
 func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "spend",
-		func(ctx context.Context, customerID string) (any, error) {
+		func(ctx context.Context, acct *account.Account, customerID string) (any, error) {
 			reporter, ok := billingProvider.(billing.SpendReporter)
 			if !ok {
 				return nil, billing.ErrBillingUnavailable
@@ -332,11 +352,26 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 				HasCredit:        spend.HasCredit,
 			}
 			if planner, ok := billingProvider.(billing.PlanReporter); ok {
-				plan, perr := planner.CustomerPlan(ctx, customerID)
+				plan, covered, perr := planner.CustomerPlan(ctx, customerID)
 				if perr != nil {
 					log.Warn("Failed to load billing plan", "error", perr, "customer_id", customerID)
 				} else {
 					resp.Plan = string(plan)
+					if plan == "" && covered {
+						log.Warn("Billing contract sits on a package this build does not recognise",
+							"account_id", acct.ID, "customer_id", customerID)
+					}
+					if !covered {
+						return nil, errNoBillingContract
+					}
+				}
+			}
+			if reader, ok := billingProvider.(billing.UsageThresholdReader); ok {
+				usage, uerr := reader.CustomerUsageThresholds(ctx, customerID)
+				if uerr != nil {
+					log.Warn("Failed to load usage thresholds", "error", uerr, "customer_id", customerID)
+				} else {
+					resp.Usage = usageThresholdsResponse(usage)
 				}
 			}
 			// Best-effort: a threshold read that fails must not hide the spend,
@@ -401,7 +436,7 @@ type SetSpendThresholdsRequest struct {
 
 // SetBillingSpendThresholds handles
 // PUT /api/v1/accounts/:account/billing/spend/thresholds.
-func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string, status *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -453,13 +488,208 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 			})
 			return
 		}
-		c.JSON(http.StatusOK, BillingDataResponse{Available: true})
+		resp := BillingDataResponse{Available: true}
+		if err := liftSelfLimit(c.Request.Context(), status, queue, billingProvider, acct.ID, customerID); err != nil {
+			log.Error("Failed to lift the self-limit latch", "error", err, "account_id", acct.ID)
+			resp.LimitLiftFailed = true
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
 func GetBillingBalances(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "balances",
-		func(ctx context.Context, customerID string) (any, error) {
+		func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
 			return billingProvider.Balances(ctx, customerID)
 		})
+}
+
+func usageThresholdsResponse(in map[billing.UsageMetric]billing.UsageThresholds) map[string]UsageThresholdsResponse {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]UsageThresholdsResponse, len(in))
+	for metric, t := range in {
+		if !t.HasWarning && !t.HasLimit {
+			continue
+		}
+		entry := UsageThresholdsResponse{Unit: billing.UsageMetricUnit(metric)}
+		if t.HasWarning {
+			entry.Warning = &SpendThresholdResponse{Amount: t.Warning.Amount, InAlarm: t.Warning.InAlarm}
+		}
+		if t.HasLimit {
+			entry.Limit = &SpendThresholdResponse{Amount: t.Limit.Amount, InAlarm: t.Limit.InAlarm}
+		}
+		out[string(metric)] = entry
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+type SetUsageThresholdsRequest struct {
+	Metric  string   `json:"metric"`
+	Warning *float64 `json:"warning"`
+	Limit   *float64 `json:"limit"`
+}
+
+func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string, status *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		acct, ok := middleware.GetAccountFromContext(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+		var req SetUsageThresholdsRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+		metric, ok := parseUsageMetric(req.Metric)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown usage metric", "details": req.Metric})
+			return
+		}
+		for _, v := range []*float64{req.Warning, req.Limit} {
+			if v != nil && *v < 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "a usage threshold cannot be negative"})
+				return
+			}
+		}
+		if req.Warning != nil && req.Limit != nil && *req.Warning >= *req.Limit {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "the warning must be below the limit"})
+			return
+		}
+
+		writer, ok := billingProvider.(billing.UsageThresholdWriter)
+		if !ok {
+			c.JSON(http.StatusOK, BillingDataResponse{Available: false})
+			return
+		}
+		customerID, ok := resolveBillingCustomer(c, log, accountStore, billingProvider, billingBackend, acct)
+		if !ok {
+			c.JSON(http.StatusOK, BillingDataResponse{Available: false})
+			return
+		}
+
+		ctx := c.Request.Context()
+		for _, w := range []struct {
+			kind   billing.SpendThresholdKind
+			amount *float64
+		}{
+			{billing.SpendThresholdLimit, req.Limit},
+			{billing.SpendThresholdWarning, req.Warning},
+		} {
+			var err error
+			if w.amount == nil {
+				err = writer.ClearCustomerUsageThreshold(ctx, customerID, metric, w.kind)
+			} else {
+				err = writer.SetCustomerUsageThreshold(ctx, customerID, metric, w.kind, *w.amount)
+			}
+			if err != nil {
+				log.Error("Failed to write usage threshold", "error", err, "account_id", acct.ID, "kind", string(w.kind))
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error":   "failed to save usage controls",
+					"details": fmt.Sprintf("the %s may now be unset; re-save to restore it", w.kind),
+				})
+				return
+			}
+		}
+
+		resp := BillingDataResponse{Available: true}
+		if err := liftSelfLimit(ctx, status, queue, billingProvider, acct.ID, customerID); err != nil {
+			log.Error("Failed to lift the self-limit latch", "error", err, "account_id", acct.ID)
+			resp.LimitLiftFailed = true
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
+const centsPerUnit = 100
+
+// selfLimitReached measures each limit the account set against what the period
+// counted. It cannot read the provider's in_alarm instead: a cap written moments
+// ago was archived and recreated, so that flag still answers for the number it
+// replaced. Spend is measured before credit drawdown, which is what the spend
+// alert itself evaluates.
+func selfLimitReached(ctx context.Context, provider any, customerID string) (bool, error) {
+	if reader, ok := provider.(billing.SpendThresholdReader); ok {
+		th, err := reader.CustomerSpendThresholds(ctx, customerID)
+		if err != nil {
+			return false, err
+		}
+		reporter, hasSpend := provider.(billing.SpendReporter)
+		if th.HasLimit && hasSpend {
+			spend, err := reporter.CustomerSpend(ctx, customerID)
+			if err != nil {
+				return false, err
+			}
+			// Rounded before the comparison, as the webhook's own spend read is:
+			// scaling dollars back to cents in float can land a hair under a limit
+			// the account is exactly at.
+			if spend.HasUsageSpend && math.Round(spend.UsageSpend*centsPerUnit) >= th.Limit.Amount {
+				return true, nil
+			}
+		}
+	}
+	reader, ok := provider.(billing.UsageThresholdReader)
+	quantities, hasQuantities := provider.(billing.UsageQuantityReader)
+	if !ok || !hasQuantities {
+		return false, nil
+	}
+	caps, err := reader.CustomerUsageThresholds(ctx, customerID)
+	if err != nil {
+		return false, err
+	}
+	for metric, c := range caps {
+		if !c.HasLimit {
+			continue
+		}
+		used, err := quantities.CustomerMetricUsage(ctx, customerID, metric)
+		if err != nil {
+			return false, err
+		}
+		if used >= c.Limit.Amount {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func liftSelfLimit(
+	ctx context.Context,
+	status *billing.StatusStore,
+	queue billingReconcileQueue,
+	provider billing.BillingProvider,
+	accountID, customerID string,
+) error {
+	if status == nil {
+		return nil
+	}
+	rec, err := status.Record(ctx, accountID)
+	if err != nil || !rec.UsageLimitActive {
+		return err
+	}
+	reached, err := selfLimitReached(ctx, provider, customerID)
+	if err != nil || reached {
+		return err
+	}
+	newStatus, _, err := billing.ApplySignal(ctx, status, accountID, billing.SignalUsageLimitResolved, time.Now())
+	if err != nil {
+		return err
+	}
+	if queue != nil && newStatus == billing.StatusActive {
+		return queue.InsertBillingResume(ctx, accountID)
+	}
+	return nil
+}
+
+func parseUsageMetric(s string) (billing.UsageMetric, bool) {
+	for _, m := range billing.AllUsageMetrics {
+		if string(m) == s {
+			return m, true
+		}
+	}
+	return "", false
 }

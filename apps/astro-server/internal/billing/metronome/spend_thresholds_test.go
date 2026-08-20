@@ -40,62 +40,6 @@ func TestCustomerSpendThresholds_ReadsOnlyTheCustomersOwn(t *testing.T) {
 	}
 }
 
-// An alert that is neither of the customer's own gates the same latch, so whether
-// it is over has to reach the caller. The only other coverage uses a fake reader,
-// which never runs this parse: a renamed alert type would go unnoticed.
-func TestCustomerSpendThresholds_ReportsAnOperatorAlertInAlarm(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-		want bool
-	}{
-		{
-			name: "an operator spend alert over its threshold",
-			body: `{"data":[
-				{"customer_status":"in_alarm","alert":{"id":"a1","name":"Hard spend threshold","status":"enabled","threshold":10000,"type":"spend_threshold_reached","updated_at":"2026-08-12T00:00:00Z"}}
-			],"next_page":null}`,
-			want: true,
-		},
-		{
-			name: "the same alert under its threshold",
-			body: `{"data":[
-				{"customer_status":"ok","alert":{"id":"a1","name":"Hard spend threshold","status":"enabled","threshold":10000,"type":"spend_threshold_reached","updated_at":"2026-08-12T00:00:00Z"}}
-			],"next_page":null}`,
-			want: false,
-		},
-		{
-			// A credit alert gates through its own latch, not this one, so an
-			// exhausted account must not read as over its spend.
-			name: "a credit alert in alarm is not a spend alert",
-			body: `{"data":[
-				{"customer_status":"in_alarm","alert":{"id":"a2","name":"Low Remaining Contract Credit Balance Reached","status":"enabled","threshold":0,"type":"low_remaining_contract_credit_balance_reached","updated_at":"2026-08-12T00:00:00Z"}}
-			],"next_page":null}`,
-			want: false,
-		},
-		{
-			// The customer's own limit is reported by name. Counting it here too
-			// would make it hold its own latch after it resolved.
-			name: "the customer's own limit is not an operator alert",
-			body: `{"data":[
-				{"customer_status":"in_alarm","alert":{"id":"a3","name":"astro:spend_limit","status":"enabled","threshold":5000,"type":"spend_threshold_reached","updated_at":"2026-08-12T00:00:00Z"}}
-			],"next_page":null}`,
-			want: false,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			p, _ := newStub(t, map[string]string{pathCustomerAlerts: tc.body})
-			got, err := p.CustomerSpendThresholds(context.Background(), "cust_1")
-			if err != nil {
-				t.Fatalf("CustomerSpendThresholds: %v", err)
-			}
-			if got.OperatorSpendInAlarm != tc.want {
-				t.Errorf("OperatorSpendInAlarm = %v, want %v", got.OperatorSpendInAlarm, tc.want)
-			}
-		})
-	}
-}
-
 // A customer that set nothing must report absence, not zero. Zero is a
 // threshold someone could choose, and rendering it as one would tell an
 // unconfigured account it had capped itself at nothing.

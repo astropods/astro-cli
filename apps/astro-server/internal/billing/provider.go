@@ -146,10 +146,6 @@ type SpendThresholds struct {
 	HasWarning bool
 	Limit      SpendThreshold
 	HasLimit   bool
-	// OperatorSpendInAlarm is an org-wide spend alert, not the customer's, that
-	// is currently over. It shares the gating latch with the customer's limit, so
-	// clearing on one while the other is over would resume a stopped account.
-	OperatorSpendInAlarm bool
 }
 
 // Alert names for the two controls a customer sets. The provider is the only
@@ -185,10 +181,68 @@ type SpendThresholdWriter interface {
 	ClearCustomerSpendThreshold(ctx context.Context, customerID string, kind SpendThresholdKind) error
 }
 
-// PlanReporter reports the plan the customer's live contract puts them on, or
-// "" when none covers it.
+type UsageMetric string
+
+const (
+	UsageMetricCompute UsageMetric = "compute" // CU-hours
+	UsageMetricGateway UsageMetric = "gateway" // US dollars of upstream model cost
+)
+
+var AllUsageMetrics = []UsageMetric{UsageMetricCompute, UsageMetricGateway}
+
+type UsageThreshold struct {
+	Amount  float64
+	InAlarm bool
+}
+
+type UsageThresholds struct {
+	Warning    UsageThreshold
+	HasWarning bool
+	Limit      UsageThreshold
+	HasLimit   bool
+}
+
+func UsageMetricUnit(m UsageMetric) string {
+	if m == UsageMetricGateway {
+		return "USD of model usage"
+	}
+	return "CU-hours"
+}
+
+func UsageAlertName(metric UsageMetric, kind SpendThresholdKind) string {
+	return "astro:usage_" + string(kind) + ":" + string(metric)
+}
+
+func UsageMetricForAlert(name string) (UsageMetric, SpendThresholdKind, bool) {
+	for _, m := range AllUsageMetrics {
+		for _, k := range []SpendThresholdKind{SpendThresholdWarning, SpendThresholdLimit} {
+			if name == UsageAlertName(m, k) {
+				return m, k, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+type UsageThresholdReader interface {
+	CustomerUsageThresholds(ctx context.Context, customerID string) (map[UsageMetric]UsageThresholds, error)
+}
+
+type UsageThresholdWriter interface {
+	SetCustomerUsageThreshold(ctx context.Context, customerID string, metric UsageMetric, kind SpendThresholdKind, amount float64) error
+	ClearCustomerUsageThreshold(ctx context.Context, customerID string, metric UsageMetric, kind SpendThresholdKind) error
+}
+
+type UsageQuantityReader interface {
+	CustomerMetricUsage(ctx context.Context, customerID string, metric UsageMetric) (float64, error)
+}
+
+// PlanReporter reports the plan the customer's live contract puts them on, and
+// whether any contract covers them at all. A contract on a package this build
+// does not know reports covered with no plan, and only the uncovered case is a
+// reason to stop an account.
 type PlanReporter interface {
-	CustomerPlan(ctx context.Context, customerID string) (Plan, error)
+	CustomerPlan(ctx context.Context, customerID string) (plan Plan, covered bool, err error)
 }
 
 // ContractInspector exposes the same coverage check provisioning makes, so the

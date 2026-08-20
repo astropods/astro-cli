@@ -66,6 +66,21 @@ describe("billingBannerCopy", () => {
     );
   });
 
+  it("separates a limit the account set from an alert only support can lift", () => {
+    const own = billingBannerCopy("usage_limit", "raise_usage_limit", true);
+    expect(own?.body).toContain("a limit it set");
+    expect(own?.cta).toBe("Change usage limit");
+    expect(billingBannerCopy("balance_alert", "contact_support", true)?.body).toContain(
+      "Contact support",
+    );
+  });
+
+  it("names a missing plan rather than blaming a payment method", () => {
+    const copy = billingBannerCopy("not_provisioned", "contact_support", true);
+    expect(copy?.title).toBe("Billing is not set up");
+    expect(copy?.body).toContain("no billing plan covers this account");
+  });
+
   it("returns null for an unrecognised reason so the caller can fall back", () => {
     expect(billingBannerCopy("some_future_reason", "view_billing", true)).toBeNull();
   });

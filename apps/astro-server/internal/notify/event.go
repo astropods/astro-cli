@@ -31,6 +31,8 @@ const (
 	// stopped, and reusing it would tell an owner their agents stopped while they
 	// are still running.
 	TypeBillingSpendWarning Type = "billing.spend_warning"
+	TypeBillingUsageWarning Type = "billing.usage_warning"
+	TypeBillingUsageLimit   Type = "billing.usage_limit"
 	// TypeBillingCreditsExhausted is the free signup credit running out. Only
 	// reached without a card on file; with one the account rolls to
 	// pay-as-you-go silently.

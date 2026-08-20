@@ -1,0 +1,46 @@
+---
+title: Usage limits
+subtitle: Warn yourself before an account spends too much, and stop it before it spends more
+slug: usage-limits
+---
+
+Every account can cap what it uses. Set the caps on the billing page of your account settings, under **Limits**.
+
+Each row is one thing you can cap, and each has two numbers:
+
+- **Warn me at** sends a notification and changes nothing else.
+- **Stop agents at** stops every agent in the account.
+
+Leave a field empty for no limit. A warning has to be below its limit, because the limit stops the account first.
+
+## What you can cap
+
+| Row | Counts |
+|-----|--------|
+| Spend | Money, before any credit is applied |
+| Compute | CU-hours across every deployed agent |
+| AI Gateway | US dollars of model usage through the gateway |
+
+Spend counts money before credit, so a warning can arrive while your bill is still zero. Compute and AI Gateway count usage itself, so they apply on any plan, including one that is billed nothing.
+
+<Note>
+The spend row appears only on plans where usage is priced. On a plan rated at zero, cap Compute and AI Gateway instead.
+</Note>
+
+## When a limit stops your agents
+
+Every agent in the account stops, and the billing page names the limit that stopped it. Deploying, restarting, and waking an agent are refused until the account starts again.
+
+Three things start it again:
+
+- Raise the limit above what the period has already used.
+- Remove the limit.
+- Wait for the next billing period, which resets what the period has counted.
+
+Raising a limit takes effect immediately. Raising it to a number the period has already passed leaves the account stopped, because the account is still over the new limit.
+
+## Next steps
+
+- [Working with accounts](/accounts)
+- [AI Gateway](/ai-gateway)
+- [Monitor your agents](/monitor-agents)

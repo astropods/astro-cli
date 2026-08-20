@@ -1,6 +1,9 @@
 package notify
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Payload property keys pushed to Novu. The backend pushes structured DATA
 // only — the message wording (subject, body) lives in the Novu workflow
@@ -22,6 +25,9 @@ const (
 	// raw integer would render cents as dollars.
 	PayloadThreshold = "threshold"
 	PayloadSpent     = "spent"
+	PayloadMetric    = "metric"
+	PayloadUnit      = "unit"
+	PayloadPeriod    = "period"
 
 	// PayloadTimestamp is RFC 3339 UTC (e.g. 2026-08-04T21:37:02Z) marking when
 	// the event occurred, not when it was delivered — a retried job can trigger
@@ -43,8 +49,10 @@ var payloadProps = map[Type][]string{
 
 	TypeBillingPaymentFailed:    {PayloadAccount, PayloadCTAURL},
 	TypeBillingActionRequired:   {PayloadAccount, PayloadCTAURL},
-	TypeBillingSpendThreshold:   {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent},
-	TypeBillingSpendWarning:     {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent},
+	TypeBillingUsageWarning:     {PayloadAccount, PayloadCTAURL, PayloadMetric, PayloadUnit, PayloadThreshold},
+	TypeBillingUsageLimit:       {PayloadAccount, PayloadCTAURL, PayloadMetric, PayloadUnit, PayloadThreshold},
+	TypeBillingSpendThreshold:   {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent, PayloadPeriod},
+	TypeBillingSpendWarning:     {PayloadAccount, PayloadCTAURL, PayloadThreshold, PayloadSpent, PayloadPeriod},
 	TypeBillingCreditsExhausted: {PayloadAccount, PayloadCTAURL},
 	TypeBillingRecovered:        {PayloadAccount},
 	TypeBillingSuspended:        {PayloadAccount, PayloadCTAURL},
@@ -137,24 +145,45 @@ func BillingActionRequired(accountID, accountName, hostedInvoiceURL string) Even
 }
 
 // BillingSpendThreshold builds the billing.spend_threshold event.
-func BillingSpendThreshold(accountID, accountName string, thresholdCents, spentCents int64) Event {
-	return billingEvent(TypeBillingSpendThreshold, accountID, map[string]any{
-		PayloadAccount:   accountName,
-		PayloadCTAURL:    "/settings/billing",
-		PayloadThreshold: money(thresholdCents),
-		PayloadSpent:     money(spentCents),
-	})
+func BillingSpendThreshold(accountID, accountName string, thresholdCents, spentCents int64, period string) Event {
+	return spendEvent(TypeBillingSpendThreshold, accountID, accountName, thresholdCents, spentCents, period)
 }
 
 // BillingSpendWarning builds the billing.spend_warning event. The warning does
 // not gate, so this is the only notice an owner gets that they are approaching
 // the limit they set.
-func BillingSpendWarning(accountID, accountName string, thresholdCents, spentCents int64) Event {
-	return billingEvent(TypeBillingSpendWarning, accountID, map[string]any{
+func BillingSpendWarning(accountID, accountName string, thresholdCents, spentCents int64, period string) Event {
+	return spendEvent(TypeBillingSpendWarning, accountID, accountName, thresholdCents, spentCents, period)
+}
+
+func spendEvent(t Type, accountID, accountName string, thresholdCents, spentCents int64, period string) Event {
+	props := map[string]any{
 		PayloadAccount:   accountName,
 		PayloadCTAURL:    "/settings/billing",
 		PayloadThreshold: money(thresholdCents),
 		PayloadSpent:     money(spentCents),
+	}
+	if period != "" {
+		props[PayloadPeriod] = period
+	}
+	return billingEvent(t, accountID, props)
+}
+
+func BillingUsageWarning(accountID, accountName, metric, unit string, threshold float64) Event {
+	return usageEvent(TypeBillingUsageWarning, accountID, accountName, metric, unit, threshold)
+}
+
+func BillingUsageLimit(accountID, accountName, metric, unit string, threshold float64) Event {
+	return usageEvent(TypeBillingUsageLimit, accountID, accountName, metric, unit, threshold)
+}
+
+func usageEvent(t Type, accountID, accountName, metric, unit string, threshold float64) Event {
+	return billingEvent(t, accountID, map[string]any{
+		PayloadAccount:   accountName,
+		PayloadCTAURL:    "/settings/billing",
+		PayloadMetric:    metric,
+		PayloadUnit:      unit,
+		PayloadThreshold: strconv.FormatFloat(threshold, 'f', -1, 64),
 	})
 }
 

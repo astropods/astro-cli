@@ -97,7 +97,8 @@ func statusRow(status, reason string, payLink any) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"status", "reason", "dunning_since", "alert_active",
 		"force_suspended", "credits_exhausted", "has_payment_method", "pay_link",
-	}).AddRow(status, reason, nil, false, false, false, true, payLink)
+		"usage_limit_active", "not_provisioned",
+	}).AddRow(status, reason, nil, false, false, false, true, payLink, false, false)
 }
 
 // A bank asking for authentication is not a broken card. The gate has to hand
