@@ -244,14 +244,16 @@ func TestGetStateNoRowsIsZeroValue(t *testing.T) {
 }
 
 // A failed day must be retried, so the watermark must not advance on failure.
-func TestMarkFailureLeavesWatermark(t *testing.T) {
+func TestFailureWithNoProgressLeavesWatermark(t *testing.T) {
 	store, mock := newMockStore(t)
 	mock.ExpectExec(`INSERT INTO classification_state`).
-		WithArgs("acct", SourceClaudeCode, "boom").
+		WithArgs("acct", SourceClaudeCode, nil, nil, false, "boom", true).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	if err := store.MarkFailure(context.Background(), "acct", SourceClaudeCode, "boom"); err != nil {
-		t.Fatalf("MarkFailure: %v", err)
+	err := store.SetCursorsPartial(
+		context.Background(), "acct", SourceClaudeCode, nil, nil, false, "boom", true)
+	if err != nil {
+		t.Fatalf("SetCursorsPartial: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)
@@ -261,7 +263,7 @@ func TestMarkFailureLeavesWatermark(t *testing.T) {
 func TestSetCursorsTruncatesToDay(t *testing.T) {
 	store, mock := newMockStore(t)
 	mock.ExpectExec(`INSERT INTO classification_state`).
-		WithArgs("acct", SourceClaudeCode, testDay, testDay, false).
+		WithArgs("acct", SourceClaudeCode, testDay, testDay, false, "", false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.SetCursors(context.Background(), "acct", SourceClaudeCode, &testTime, &testTime, false); err != nil {
@@ -276,11 +278,30 @@ func TestSetCursorsTruncatesToDay(t *testing.T) {
 func TestSetCursorsNilLeavesEdgeUntouched(t *testing.T) {
 	store, mock := newMockStore(t)
 	mock.ExpectExec(`INSERT INTO classification_state`).
-		WithArgs("acct", SourceClaudeCode, nil, testDay, true).
+		WithArgs("acct", SourceClaudeCode, nil, testDay, true, "", false).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := store.SetCursors(context.Background(), "acct", SourceClaudeCode, nil, &testTime, true); err != nil {
 		t.Fatalf("SetCursors: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// A pass that covered some days and failed on others keeps its cursor and its
+// error text, but not the backoff: one stuck day must not throttle the days
+// around it that complete.
+func TestSetCursorsPartialKeepsCadenceWhenThePassMoved(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectExec(`INSERT INTO classification_state`).
+		WithArgs("acct", SourceClaudeCode, testDay, nil, false, "boom", false).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := store.SetCursorsPartial(
+		context.Background(), "acct", SourceClaudeCode, &testTime, nil, false, "boom", false)
+	if err != nil {
+		t.Fatalf("SetCursorsPartial: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("expectations: %v", err)

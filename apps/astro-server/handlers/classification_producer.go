@@ -55,7 +55,8 @@ func backoffActive(state classification.State) bool {
 }
 
 // Advances one account by at most a tick's budget. Failure is quiet and leaves
-// the watermark alone, so the day retries.
+// the failed day outside the watermark, so that day retries while the days
+// around it keep their progress.
 func (p *ClassificationProducer) ClassifyAccount(ctx context.Context, accountID string) error {
 	if p.Classifier == nil || p.Classifications == nil {
 		return nil
@@ -67,7 +68,6 @@ func (p *ClassificationProducer) ClassifyAccount(ctx context.Context, accountID 
 	}
 	creds, err := p.LangfuseStore.Get(accountID)
 	if err != nil || creds == nil {
-		// No Langfuse project — nothing to read, and not an error.
 		return nil
 	}
 	source := classification.SourceClaudeCode
@@ -109,39 +109,95 @@ func (p *ClassificationProducer) ClassifyAccount(ctx context.Context, accountID 
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	plan := planDays(state, today, *floor)
 
-	var budget = maxTracesPerTick
-	for _, day := range plan.days {
+	// A day's fault is rarely the next day's, so the pass carries on and each
+	// edge records only the contiguous ground behind it.
+	budget := maxTracesPerTick
+	covered := coverage{plan: &plan}
+	var lastErr error
+	for i, day := range plan.days {
 		n, err := p.processDay(ctx, client, accountID, source, day, budget, emailToUserID)
-		if err != nil {
-			if markErr := p.Classifications.MarkFailure(ctx, accountID, source, err.Error()); markErr != nil {
-				p.Log.Warn("classification: mark failure", "account_id", accountID, "error", markErr)
-			}
-			p.Log.Warn("classification: day failed", "account_id", accountID, "day", day.Format(time.DateOnly), "error", err)
-			return nil
-		}
 		budget -= n
-		if budget <= 0 {
-			plan.truncateAt(day)
+		// A day the tick budget capped is only partly labelled, so it counts as
+		// uncovered and gets re-planned.
+		exhausted := budget <= 0
+
+		switch {
+		case err != nil:
+			lastErr = err
+			p.Log.Warn("classification: day failed",
+				"account_id", accountID, "day", day.Format(time.DateOnly), "error", err)
+		case !exhausted:
+			covered.record(i)
+		}
+
+		if err != nil && langfuse.IsAuthFailure(err) {
+			p.Log.Error("classification: langfuse rejected the account's credentials; no day can be read until they are re-provisioned",
+				"account_id", accountID, "error", err)
+			break
+		}
+		if exhausted || ctx.Err() != nil {
 			break
 		}
 	}
 
+	plan.narrow(covered.forward, covered.backfill)
+	if lastErr != nil {
+		// Only a pass that covered nothing arms the backoff. One stuck day must
+		// not throttle the days around it that do complete.
+		stuck := covered.forward+covered.backfill == 0
+		return p.Classifications.SetCursorsPartial(
+			ctx, accountID, source, plan.through, plan.from, plan.complete, lastErr.Error(), stuck)
+	}
 	return p.Classifications.SetCursors(ctx, accountID, source, plan.through, plan.from, plan.complete)
 }
 
 type dayPlan struct {
-	days     []time.Time
+	days []time.Time
+	// Count of leading forward days in days; the remainder walk backward.
+	forward  int
 	through  *time.Time
 	from     *time.Time
 	complete bool
 }
 
-// Excludes the exhausted day so it is re-planned, not sealed behind the floor.
-func (pl *dayPlan) truncateAt(exhausted time.Time) {
-	lastComplete := exhausted.AddDate(0, 0, 1)
-	if pl.from != nil && lastComplete.After(*pl.from) {
-		pl.from = &lastComplete
+// coverage counts the completed days on each edge of a plan. Only a run that
+// starts at its edge counts: a day completed after a gap cannot pull a cursor
+// over the gap, because the cursor would then claim the day inside it.
+type coverage struct {
+	plan     *dayPlan
+	forward  int
+	backfill int
+}
+
+func (c *coverage) record(i int) {
+	if i < c.plan.forward {
+		if c.forward == i {
+			c.forward++
+		}
+		return
+	}
+	if c.backfill == i-c.plan.forward {
+		c.backfill++
+	}
+}
+
+// narrow pulls each edge back to the days that actually completed. A day that
+// failed, was capped, or was never reached has to stay outside the window:
+// the forward walk starts at the high-water mark and the backward walk stops at
+// the low one, so a day sealed inside is a day no later tick revisits.
+func (pl *dayPlan) narrow(forwardDone, backfillDone int) {
+	if forwardDone < pl.forward {
+		pl.through = nil
+		if forwardDone > 0 {
+			pl.through = &pl.days[forwardDone-1]
+		}
+	}
+	if backfillDone < len(pl.days)-pl.forward {
 		pl.complete = false
+		pl.from = nil
+		if backfillDone > 0 {
+			pl.from = &pl.days[pl.forward+backfillDone-1]
+		}
 	}
 }
 
@@ -164,6 +220,7 @@ func planDays(state classification.State, today, floor time.Time) dayPlan {
 		plan.days = append(plan.days, d)
 		lastForward = d
 	}
+	plan.forward = len(plan.days)
 	// Only ground actually covered: SetCursors takes GREATEST, so advancing past
 	// a truncated walk would strand the skipped days.
 	if !lastForward.IsZero() {
@@ -211,15 +268,19 @@ func (p *ClassificationProducer) processDay(
 	ctx, cancel := context.WithTimeout(ctx, classifyDayTimeout)
 	defer cancel()
 
-	traces, err := fetchDayTraces(ctx, client, source, day, budget)
-	if err != nil {
-		return 0, err
-	}
+	// The pages that did arrive are still worth labelling. The day is reported
+	// failed either way, so its cursor holds and the rest arrives next tick,
+	// but the prompts already read are not read and inferred twice.
+	traces, fetchErr := fetchDayTraces(ctx, client, source, day, budget)
 
 	sent, err := p.classifyTraces(ctx, accountID, source, traces, budget)
 	if err != nil {
 		return sent, err
 	}
+	if fetchErr != nil {
+		return sent, fetchErr
+	}
+	// Aggregation is a full replace, so it runs only over a complete day.
 	if err := p.aggregateDay(ctx, client, accountID, source, day, emailToUserID); err != nil {
 		return sent, err
 	}
@@ -248,7 +309,7 @@ func fetchDayTraces(
 	for offset := 0; ; offset += tracePageSize {
 		resp, err := client.GetDevtoolTraces(ctx, source, from, to, tracePageSize, offset)
 		if err != nil {
-			return nil, fmt.Errorf("classification: fetch traces: %w", err)
+			return out, fmt.Errorf("classification: fetch traces: %w", err)
 		}
 		for _, tr := range resp.Data {
 			text := promptText(tr.Input)
@@ -296,8 +357,10 @@ func (p *ClassificationProducer) classifyTraces(
 	// Per-axis, so a capped day covers the same prefix on every axis.
 	perAxis := budget / len(workclassifier.Axes)
 
+	// Each axis persists before the next one runs. Holding both until the end
+	// meant a second-axis failure threw away inference the first axis had
+	// already been billed for.
 	var sent int
-	var results []classification.Result
 	for _, axis := range workclassifier.Axes {
 		pending := make([]promptTrace, 0, min(len(traces), perAxis))
 		for _, t := range traces {
@@ -316,35 +379,53 @@ func (p *ClassificationProducer) classifyTraces(
 		for i, t := range pending {
 			texts[i] = t.prompt
 		}
+		// Predictions are positional, and a partial batch returns a prefix, so
+		// pending is trimmed to what came back.
 		preds, err := p.Classifier.Classify(ctx, axis, texts)
+		sent += len(preds)
+		if saveErr := p.saveAxis(ctx, accountID, source, axis, pending[:len(preds)], preds); saveErr != nil {
+			return sent, saveErr
+		}
 		if err != nil {
 			return sent, err
 		}
-		sent += len(pending)
-		known := knownLabels(axis)
-		for i, pr := range preds {
-			label := pr.Label
-			if !known[label] {
-				// Skipping would re-send the trace to inference every tick.
-				p.Log.Warn("classification: unknown label from classifier",
-					"axis", axis, "label", pr.Label, "account_id", accountID)
-				label = workclassifier.Fallback[axis]
-			}
-			results = append(results, classification.Result{
-				UnitKind:   classification.UnitTurn,
-				UnitID:     pending[i].id,
-				Axis:       classification.Axis(axis),
-				Label:      label,
-				Score:      pr.Score,
-				OccurredAt: pending[i].at,
-				UserEmail:  pending[i].userEmail,
-			})
+	}
+	return sent, nil
+}
+
+func (p *ClassificationProducer) saveAxis(
+	ctx context.Context,
+	accountID, source string,
+	axis workclassifier.Axis,
+	pending []promptTrace,
+	preds []workclassifier.Prediction,
+) error {
+	if len(preds) == 0 {
+		return nil
+	}
+	known := knownLabels(axis)
+	results := make([]classification.Result, 0, len(preds))
+	for i, pr := range preds {
+		label := pr.Label
+		if !known[label] {
+			// A prompt the predictor refused arrives with no label at all.
+			// Both cases record the axis fallback, because skipping the row
+			// re-sends the prompt to inference every tick.
+			p.Log.Warn("classification: unusable label from classifier",
+				"axis", axis, "label", pr.Label, "account_id", accountID)
+			label = workclassifier.Fallback[axis]
 		}
+		results = append(results, classification.Result{
+			UnitKind:   classification.UnitTurn,
+			UnitID:     pending[i].id,
+			Axis:       classification.Axis(axis),
+			Label:      label,
+			Score:      pr.Score,
+			OccurredAt: pending[i].at,
+			UserEmail:  pending[i].userEmail,
+		})
 	}
-	if len(results) == 0 {
-		return sent, nil
-	}
-	return sent, p.Classifications.SaveResults(ctx, accountID, source, p.Classifier.ModelVersion(), results)
+	return p.Classifications.SaveResults(ctx, accountID, source, p.Classifier.ModelVersion(), results)
 }
 
 // Partitions the spend figure Insights reports, so segments sum to that page.

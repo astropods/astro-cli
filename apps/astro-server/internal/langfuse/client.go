@@ -35,6 +35,18 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("langfuse: unexpected status %d: %s", e.StatusCode, e.Body)
 }
 
+// IsAuthFailure reports whether Langfuse rejected the account's credentials
+// rather than failing transiently. The two need opposite handling: a transient
+// error is worth retrying, and a rejected key fails identically until the
+// account is re-provisioned.
+func IsAuthFailure(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden
+}
+
 // transport is the shared low-level HTTP layer: Basic-auth request building
 // and response decoding. Used directly by Client for endpoints that don't
 // differ between Langfuse versions (scores, datasets), and embedded in both

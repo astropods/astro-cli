@@ -402,11 +402,40 @@ func (s *Store) SetCursors(
 	through, from *time.Time,
 	backfillComplete bool,
 ) error {
+	return s.setCursors(ctx, accountID, source, through, from, backfillComplete, "", false)
+}
+
+// SetCursorsPartial records the ground a partly failed pass did cover, along
+// with the fault that stopped it. countError arms the backoff, and belongs to a
+// pass that covered nothing: that pass spends the same inference again next
+// tick for the same nothing, where one that moved is worth its cadence.
+func (s *Store) SetCursorsPartial(
+	ctx context.Context,
+	accountID, source string,
+	through, from *time.Time,
+	backfillComplete bool,
+	lastError string,
+	countError bool,
+) error {
+	if lastError == "" {
+		lastError = "classification: pass incomplete"
+	}
+	return s.setCursors(ctx, accountID, source, through, from, backfillComplete, lastError, countError)
+}
+
+func (s *Store) setCursors(
+	ctx context.Context,
+	accountID, source string,
+	through, from *time.Time,
+	backfillComplete bool,
+	lastError string,
+	countError bool,
+) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO classification_state
 			(account_id, source, classified_through, backfilled_from, backfill_complete,
 			 last_run_at, last_error, consecutive_errors)
-		VALUES ($1, $2, $3, $4, $5, now(), '', 0)
+		VALUES ($1, $2, $3, $4, $5, now(), $6, CASE WHEN $7::bool THEN 1 ELSE 0 END)
 		ON CONFLICT (account_id, source) DO UPDATE SET
 			classified_through = GREATEST(
 				COALESCE(EXCLUDED.classified_through, classification_state.classified_through),
@@ -415,8 +444,11 @@ func (s *Store) SetCursors(
 				COALESCE(EXCLUDED.backfilled_from, classification_state.backfilled_from),
 				COALESCE(classification_state.backfilled_from, EXCLUDED.backfilled_from)),
 			backfill_complete = classification_state.backfill_complete OR EXCLUDED.backfill_complete,
-			last_run_at = now(), last_error = '', consecutive_errors = 0`,
-		accountID, source, truncDay(through), truncDay(from), backfillComplete)
+			last_run_at = now(), last_error = $6,
+			consecutive_errors = CASE WHEN $7::bool
+				THEN classification_state.consecutive_errors + 1 ELSE 0 END`,
+		accountID, source, truncDay(through), truncDay(from), backfillComplete,
+		truncateErr(lastError), countError)
 	if err != nil {
 		return fmt.Errorf("classification: set cursors: %w", err)
 	}
@@ -428,21 +460,6 @@ func truncDay(t *time.Time) any {
 		return nil
 	}
 	return t.UTC().Truncate(24 * time.Hour)
-}
-
-// MarkFailure leaves the watermark alone so the day is retried next tick.
-func (s *Store) MarkFailure(ctx context.Context, accountID, source, msg string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO classification_state (account_id, source, last_run_at, last_error, consecutive_errors)
-		VALUES ($1, $2, now(), $3, 1)
-		ON CONFLICT (account_id, source) DO UPDATE SET
-			last_run_at = now(), last_error = $3,
-			consecutive_errors = classification_state.consecutive_errors + 1`,
-		accountID, source, truncateErr(msg))
-	if err != nil {
-		return fmt.Errorf("classification: mark failure: %w", err)
-	}
-	return nil
 }
 
 func truncateErr(s string) string {

@@ -126,17 +126,72 @@ func TestPlanDaysNeverExceedsTickBudget(t *testing.T) {
 	}
 }
 
-// The exhausted day is only partly labelled, so the floor must stop above it —
-// planDays never walks back over anything at or below backfilled_from.
-func TestTruncateAtExcludesTheExhaustedDay(t *testing.T) {
-	plan := dayPlan{from: ptrDay("2026-08-05"), complete: true}
-	plan.truncateAt(*ptrDay("2026-08-08"))
+// A day the budget cut short is only partly labelled, so the floor must stop
+// above it — planDays never walks back over anything at or below
+// backfilled_from.
+func TestNarrowExcludesTheUncoveredDays(t *testing.T) {
+	plan := planDays(classification.State{}, clsToday, clsFloor)
+	plan.complete = true
+	plan.narrow(plan.forward, 2)
 
-	if got := plan.from.Format(time.DateOnly); got != "2026-08-09" {
-		t.Errorf("from = %s, want 2026-08-09 (the last fully complete day)", got)
+	want := plan.days[plan.forward+1].Format(time.DateOnly)
+	if plan.from == nil || plan.from.Format(time.DateOnly) != want {
+		t.Errorf("from = %v, want %s (the oldest day fully covered)", plan.from, want)
 	}
 	if plan.complete {
 		t.Error("a truncated tick cannot claim the backfill is complete")
+	}
+}
+
+// A failed day at the forward edge must not be sealed by the high-water mark,
+// and it must not drag the backfill edge with it.
+func TestNarrowHoldsTheForwardEdgeAtTheFailure(t *testing.T) {
+	plan := planDays(classification.State{}, clsToday, clsFloor)
+	backfill := len(plan.days) - plan.forward
+	plan.narrow(1, backfill)
+
+	if plan.through == nil || !plan.through.Equal(plan.days[0]) {
+		t.Errorf("through = %v, want %v (the last forward day covered)", plan.through, plan.days[0])
+	}
+	oldest := plan.days[len(plan.days)-1]
+	if plan.from == nil || !plan.from.Equal(oldest) {
+		t.Errorf("from = %v, want %v: a forward failure does not undo the backfill", plan.from, oldest)
+	}
+}
+
+// The day after a failure is still worth running, but it cannot pull the cursor
+// over the day that failed — that day would then be sealed and never revisited.
+func TestCoverageStopsAtTheFirstGap(t *testing.T) {
+	plan := planDays(classification.State{}, clsToday, clsFloor)
+	covered := coverage{plan: &plan}
+
+	// Both forward days complete; the first backfill day fails; the next two
+	// complete anyway.
+	for i := 0; i < plan.forward; i++ {
+		covered.record(i)
+	}
+	covered.record(plan.forward + 1)
+	covered.record(plan.forward + 2)
+
+	if covered.forward != plan.forward {
+		t.Errorf("forward = %d, want %d", covered.forward, plan.forward)
+	}
+	if covered.backfill != 0 {
+		t.Errorf("backfill = %d, want 0: days behind the gap cannot count", covered.backfill)
+	}
+}
+
+// Nothing covered means nothing claimed: an account that fails on its first day
+// must leave both edges where they were.
+func TestNarrowClaimsNothingWhenNoDayCompletes(t *testing.T) {
+	plan := planDays(classification.State{}, clsToday, clsFloor)
+	plan.narrow(0, 0)
+
+	if plan.through != nil || plan.from != nil {
+		t.Errorf("cursors = (%v, %v), want both nil", plan.through, plan.from)
+	}
+	if plan.complete {
+		t.Error("a pass that covered nothing cannot complete the backfill")
 	}
 }
 
@@ -231,9 +286,10 @@ func TestPromptText(t *testing.T) {
 
 // A capped day must not be sealed behind the backfill floor while only one axis
 // was labelled — planDays never revisits anything at or below backfilled_from.
-func TestPlanDaysDoesNotResealATruncatedDay(t *testing.T) {
+func TestPlanDaysRePlansAnUncoveredDay(t *testing.T) {
 	plan := planDays(classification.State{BackfilledFrom: ptrDay("2026-08-05")}, clsToday, clsFloor)
-	plan.truncateAt(*ptrDay("2026-08-07"))
+	uncovered := plan.days[plan.forward+2]
+	plan.narrow(plan.forward, 2)
 
 	next := planDays(classification.State{
 		ClassifiedThrough: plan.through,
@@ -242,11 +298,12 @@ func TestPlanDaysDoesNotResealATruncatedDay(t *testing.T) {
 	}, clsToday, clsFloor)
 
 	for _, d := range next.days {
-		if d.Format(time.DateOnly) == "2026-08-07" {
-			return // the partial day is re-planned
+		if d.Equal(uncovered) {
+			return // the day the pass never reached is re-planned
 		}
 	}
-	t.Errorf("2026-08-07 was truncated but never re-planned; got %v", dayStrs(next.days))
+	t.Errorf("%s was never covered but is not re-planned; got %v",
+		uncovered.Format(time.DateOnly), dayStrs(next.days))
 }
 
 // After a long outage the forward edge must stay inside the tick budget, or one

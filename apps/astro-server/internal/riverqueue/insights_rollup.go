@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -210,14 +209,6 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 	return nil
 }
 
-// isUpstreamAuthFailure reports whether an error is Langfuse rejecting the
-// account's credentials rather than a transient fault. Distinguished by status
-// because the two need opposite handling: a transient error should be retried,
-// and a permanent one should not.
 func isUpstreamAuthFailure(err error) bool {
-	var apiErr *langfuse.APIError
-	if !errors.As(err, &apiErr) {
-		return false
-	}
-	return apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden
+	return langfuse.IsAuthFailure(err)
 }
