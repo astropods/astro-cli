@@ -7,7 +7,6 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  Legend,
 } from "recharts";
 import { Loader2 } from "lucide-react";
 import {
@@ -56,18 +55,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "invoices", label: "Invoices" },
   { key: "balances", label: "Credits & Commits" },
   { key: "quotas", label: "Quotas" },
-];
-
-// Distinct series colors for the usage chart, drawn from the theme palette.
-const SERIES_COLORS = [
-  "var(--color-indigo-500)",
-  "var(--color-sky-500)",
-  "var(--color-emerald-500)",
-  "var(--color-amber-500)",
-  "var(--color-rose-500)",
-  "var(--color-violet-500)",
-  "var(--color-teal-500)",
-  "var(--color-orange-500)",
 ];
 
 const statusBadgeColor: Record<string, StatusBadgeColor> = {
@@ -144,34 +131,27 @@ function TabLoading() {
 
 function buildUsageChart(rows: BillingUsageRow[]) {
   const metrics: string[] = [];
-  const metricSeen = new Set<string>();
-  const byDate = new Map<string, Record<string, number | string>>();
+  const byMetric = new Map<string, Map<string, { ts: string; label: string; day: string; value: number }>>();
 
   for (const row of rows) {
     const metric = row.billable_metric_name ?? "Usage";
-    if (!metricSeen.has(metric)) {
-      metricSeen.add(metric);
+    if (!byMetric.has(metric)) {
       metrics.push(metric);
+      byMetric.set(metric, new Map());
     }
     const ts = row.start_timestamp ?? "";
-    let bucket = byDate.get(ts);
-    if (!bucket) {
-      bucket = { ts, label: formatDay(ts) };
-      byDate.set(ts, bucket);
-    }
-    bucket[metric] = ((bucket[metric] as number) ?? 0) + (row.value ?? 0);
+    const days = byMetric.get(metric)!;
+    const point = days.get(ts) ?? { ts, label: formatDay(ts), day: formatDayTick(ts), value: 0 };
+    point.value += row.value ?? 0;
+    days.set(ts, point);
   }
 
-  const data = Array.from(byDate.values()).sort((a, b) =>
-    String(a.ts).localeCompare(String(b.ts)),
-  );
-  const totals = metrics.map((metric) => ({
-    metric,
-    total: rows
-      .filter((r) => (r.billable_metric_name ?? "Usage") === metric)
-      .reduce((sum, r) => sum + (r.value ?? 0), 0),
-  }));
-  return { metrics, data, totals };
+  return {
+    series: metrics.map((metric) => {
+      const data = Array.from(byMetric.get(metric)!.values()).sort((a, b) => a.ts.localeCompare(b.ts));
+      return { metric, data, total: data.reduce((sum, p) => sum + p.value, 0) };
+    }),
+  };
 }
 
 const METRIC_UNITS: Record<string, { unit: string; money: boolean }> = {
@@ -191,6 +171,11 @@ function formatDay(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatDayTick(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : String(d.getUTCDate());
+}
+
 function UsageTab({ account }: { account: string }) {
   const { data, isLoading } = useBillingUsage(account);
   const rows = data?.data ?? [];
@@ -201,73 +186,53 @@ function UsageTab({ account }: { account: string }) {
   if (!rows.length) return <EmptyState message="No usage recorded for this period." />;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chart.data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
-            <XAxis
-              dataKey="label"
-              tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={8}
-              minTickGap={24}
-            />
-            <YAxis
-              tickFormatter={(v: number) => formatNumber(v, 2)}
-              tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={4}
-              width={56}
-            />
-            <Tooltip
-              cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }}
-              contentStyle={{
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-border)",
-                borderRadius: 8,
-                fontSize: 12,
-              }}
-              formatter={(value) => formatNumber(Number(value ?? 0), 2)}
-            />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            {chart.metrics.map((metric, i) => (
-              <Bar
-                key={metric}
-                dataKey={metric}
-                stackId="usage"
-                fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-                fillOpacity={0.85}
-                radius={i === chart.metrics.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
-              />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        <h3 className="text-heading-4 text-foreground">Totals this period</h3>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Metric</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {chart.totals.map(({ metric, total }) => (
-              <TableRow key={metric}>
-                <TableCell className="font-medium">{metric}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatMetricTotal(metric, total)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+    <div className="flex flex-col gap-8">
+      {chart.series.map(({ metric, data: days, total }) => (
+        <div key={metric} className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-heading-4 text-foreground">{metric}</h3>
+            <span className="text-body-sm text-muted-foreground tabular-nums">
+              {formatMetricTotal(metric, total)} this period
+            </span>
+          </div>
+          <div className="rounded-lg border border-border/60 bg-card dark:bg-surface p-5">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={days} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
+                <XAxis
+                  dataKey="day"
+                  interval={0}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={8}
+                />
+                <YAxis
+                  tickFormatter={(v: number) => formatNumber(v, 2)}
+                  tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={4}
+                  width={56}
+                />
+                <Tooltip
+                  cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }}
+                  contentStyle={{
+                    background: "var(--color-popover)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: "var(--color-popover-foreground)",
+                  }}
+                  labelFormatter={(_label, payload) => payload?.[0]?.payload?.label ?? ""}
+                  formatter={(value) => [formatMetricTotal(metric, Number(value ?? 0)), metric]}
+                />
+                <Bar dataKey="value" name={metric} fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
