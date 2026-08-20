@@ -364,17 +364,20 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
 
   const dateLabel = resolveInsightsDateLabel(resolvedWindow, range);
 
-  // Header right side packs three controls onto one row: date label (left),
-  // range chips (middle), scope switcher (right). The date label tracks the
-  // range chip so the user sees the resolved window without scanning back to
-  // a separate sub-bar.
+  // The resolved window rides inside the range selector's own track, so the
+  // dates read as that control's output rather than as a separate figure the
+  // user has to connect back to the chip they clicked. The readout stays put at
+  // every width: a range picker that hides which range it resolved to is the
+  // problem this pairing exists to fix. The row wraps instead, so the Sources
+  // filter drops to its own line before anything is dropped or clipped.
   const headerAction = (
-    <div className="flex items-center gap-3">
-      {dateLabel && (
-        <span className="hidden text-body-sm text-muted-foreground @md:inline">
-          {dateLabel}
-        </span>
-      )}
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <TimeRangeSelector
+        value={range}
+        onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}
+        leading={dateLabel || undefined}
+        size="lg"
+      />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -425,10 +428,6 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      <TimeRangeSelector
-        value={range}
-        onChange={(r) => setSearchParams((prev) => { prev.set("range", r); return prev; }, { replace: true })}
-      />
     </div>
   );
 

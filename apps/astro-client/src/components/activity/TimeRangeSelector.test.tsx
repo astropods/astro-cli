@@ -58,6 +58,29 @@ describe("TimeRangeSelector", () => {
     expect(handleChange).toHaveBeenCalledWith("90d");
   });
 
+  it("renders a leading readout inside the same track as the chips", () => {
+    render(<TimeRangeSelector value="7d" onChange={() => {}} leading="Jun 2 – Jun 8" />);
+
+    const readout = screen.getByText("Jun 2 – Jun 8");
+    expect(readout).toBeInTheDocument();
+    expect(readout).toBe(screen.getByRole("button", { name: "7D" }).parentElement?.firstChild);
+  });
+
+  it("does not expose the leading readout as an option", () => {
+    render(<TimeRangeSelector value="7d" onChange={() => {}} leading="Jun 2 – Jun 8" />);
+
+    expect(screen.queryByRole("button", { name: "Jun 2 – Jun 8" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(ACTIVITY_RANGES.length);
+  });
+
+  it("still changes range when a leading readout is present", () => {
+    const handleChange = vi.fn();
+    render(<TimeRangeSelector value="7d" onChange={handleChange} leading="Jun 2 – Jun 8" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "30D" }));
+    expect(handleChange).toHaveBeenCalledWith("30d");
+  });
+
   it("accepts custom ranges prop and renders those labels", () => {
     const customRanges = [
       { key: "1h", label: "1H" },

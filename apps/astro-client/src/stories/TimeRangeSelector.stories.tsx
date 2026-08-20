@@ -22,9 +22,32 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function Controlled({ defaultValue, ranges }: { defaultValue: string; ranges?: { key: string; label: string }[] }) {
+const READOUTS: Record<string, string> = {
+  "7d": "Jun 2 – Jun 8",
+  "14d": "May 26 – Jun 8",
+  "30d": "May 10 – Jun 8",
+  "90d": "Mar 11 – Jun 8",
+};
+
+function Controlled({
+  defaultValue,
+  ranges,
+  withReadout = false,
+}: {
+  defaultValue: string;
+  ranges?: { key: string; label: string }[];
+  withReadout?: boolean;
+}) {
   const [value, setValue] = useState(defaultValue);
-  return <TimeRangeSelector value={value} ranges={ranges} onChange={setValue} />;
+  return (
+    <TimeRangeSelector
+      value={value}
+      ranges={ranges}
+      onChange={setValue}
+      leading={withReadout ? READOUTS[value] : undefined}
+      size={withReadout ? "lg" : undefined}
+    />
+  );
 }
 
 export const InsightsVariant: Story = {
@@ -37,6 +60,11 @@ export const MonitorVariant: Story = {
   name: "Monitor (7D / 14D / 30D)",
 };
 
+export const WithReadout: Story = {
+  render: () => <Controlled defaultValue="30d" ranges={ACTIVITY_RANGES} withReadout />,
+  name: "With resolved-window readout",
+};
+
 export const AllVariants: Story = {
   render: () => (
     <div className="flex flex-col gap-6 items-start">
@@ -47,6 +75,10 @@ export const AllVariants: Story = {
       <div>
         <p className="mb-2 font-mono text-xs text-muted-foreground">Monitor</p>
         <Controlled defaultValue="7d" ranges={MONITOR_RANGES} />
+      </div>
+      <div>
+        <p className="mb-2 font-mono text-xs text-muted-foreground">Insights with readout</p>
+        <Controlled defaultValue="30d" ranges={ACTIVITY_RANGES} withReadout />
       </div>
     </div>
   ),

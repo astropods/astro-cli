@@ -12,7 +12,8 @@ export interface PillOption<K extends string> {
   count?: number;
 }
 
-type PillSize = "sm" | "md";
+type PillSize = "sm" | "md" | "lg";
+export type PillToggleSize = PillSize;
 
 interface PillToggleChromeProps {
   children: ReactNode;
@@ -30,21 +31,40 @@ interface PillToggleProps<K extends string> {
   layoutId: string;
   /** `sm` (default) = compact mono caps used for the date-range pill.
    *  `md` = roomier with body text + tighter radius, used for view toggles
-   *  that sit inside a panel header. */
+   *  that sit inside a panel header.
+   *  `lg` = `sm` type on a 32px track, for a page header where the pill sits in
+   *  a row of form controls and has to match their height. */
   size?: PillSize;
+  /** Non-interactive readout rendered inside the track, ahead of the options.
+   *  Use it when a value the options resolve to should read as part of the same
+   *  control rather than as loose text beside it. */
+  leading?: ReactNode;
   className?: string;
 }
 
-const PILL_SIZE: Record<PillSize, { container: string; item: string; indicator: string }> = {
+const PILL_SIZE: Record<
+  PillSize,
+  { container: string; item: string; indicator: string; leading: string }
+> = {
   sm: {
     container: "p-0.5 rounded-sm",
     item: "rounded-sm px-2.5 py-0.5 text-mono-xs font-medium",
     indicator: "rounded-sm",
+    leading: "px-2.5 text-mono-xs font-medium",
   },
   md: {
     container: "p-[2px] rounded-[7px]",
     item: "rounded-[5px] px-3 py-1 text-body-sm",
     indicator: "rounded-[5px]",
+    leading: "px-3 text-body-sm",
+  },
+  // Height comes from the track, so the options stretch to fill it and the
+  // active indicator covers the full 28px rather than floating in the middle.
+  lg: {
+    container: "h-8 items-stretch p-0.5 rounded-[8px]",
+    item: "rounded-[5px] px-2.5 text-mono-xs font-medium",
+    indicator: "rounded-[5px]",
+    leading: "px-2.5 text-mono-xs font-medium",
   },
 };
 
@@ -78,11 +98,27 @@ export function PillToggle<K extends string>({
   onChange,
   layoutId,
   size = "sm",
+  leading,
   className,
 }: PillToggleProps<K>) {
   const s = PILL_SIZE[size];
+  // A readout and the options share one track with no rule between them, so
+  // color carries the split: the readout takes the darkest step and the options
+  // drop one below their usual weight. Without a readout there is nothing to
+  // rank against, and the options keep the standard contrast.
+  const hasReadout = leading !== undefined && leading !== null;
   return (
     <PillToggleChrome size={size} className={className}>
+      {hasReadout && (
+        <span
+          className={cn(
+            "inline-flex items-center whitespace-nowrap text-foreground",
+            s.leading,
+          )}
+        >
+          {leading}
+        </span>
+      )}
       {options.map(({ key, label, ariaLabel, icon, count }) => {
         const isActive = key === value;
         return (
@@ -96,8 +132,13 @@ export function PillToggle<K extends string>({
               "relative inline-flex items-center gap-1.5 transition-colors",
               s.item,
               isActive
-                ? "font-semibold text-foreground"
-                : "font-medium text-muted-foreground hover:text-foreground",
+                ? cn("font-semibold", hasReadout ? "text-muted-foreground" : "text-foreground")
+                : cn(
+                    "font-medium",
+                    hasReadout
+                      ? "text-faint-foreground hover:text-muted-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  ),
             )}
           >
             {isActive && (

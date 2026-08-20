@@ -1,5 +1,7 @@
+import { type ReactNode } from "react";
+
 import { ACTIVITY_RANGES } from "./ranges";
-import { PillToggle, type PillOption } from "./PillToggle";
+import { PillToggle, type PillOption, type PillToggleSize } from "./PillToggle";
 import { cn } from "@/lib/utils";
 
 interface RangeOption {
@@ -13,6 +15,9 @@ interface TimeRangeSelectorProps {
   ranges?: RangeOption[];
   onChange: (r: string) => void;
   layoutId?: string;
+  /** Readout shown inside the track ahead of the chips. See `PillToggle`. */
+  leading?: ReactNode;
+  size?: PillToggleSize;
   className?: string;
 }
 
@@ -21,6 +26,8 @@ export function TimeRangeSelector({
   ranges = ACTIVITY_RANGES,
   onChange,
   layoutId = "range-pill",
+  leading,
+  size,
   className,
 }: TimeRangeSelectorProps) {
   const options: PillOption<string>[] = ranges.map((r) => ({
@@ -34,6 +41,8 @@ export function TimeRangeSelector({
       options={options}
       onChange={onChange}
       layoutId={layoutId}
+      leading={leading}
+      size={size}
       className={cn("w-fit", className)}
     />
   );
