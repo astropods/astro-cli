@@ -56,22 +56,23 @@ type Deps struct {
 }
 
 type Stores struct {
-	Account           *account.AccountStore
-	Deployment        *deploymentstore.Store
-	AccountVars       *accountvars.Store
-	Heart             *heartstore.Store
-	AgentMetrics      *metricsstore.Store
-	Cluster           *clusterstore.Store
-	Audit             *auditlog.Store
-	Avatar            *avatar.Store
-	ReadmeAssets      *readmeassets.Store
-	Knowledge         *knowledgestore.Store
-	GH                *githubconnection.Store
-	Webhook           *githubwebhook.Store
-	SlackID           *slackidentity.Store
-	Watcher           *watcher.Store
-	DeploymentFGASync *authz.DeploymentFGASyncStore
-	Experiment        *experiment.Store
+	Account            *account.AccountStore
+	Deployment         *deploymentstore.Store
+	AccountVars        *accountvars.Store
+	Heart              *heartstore.Store
+	AgentMetrics       *metricsstore.Store
+	Cluster            *clusterstore.Store
+	Audit              *auditlog.Store
+	Avatar             *avatar.Store
+	ReadmeAssets       *readmeassets.Store
+	Knowledge          *knowledgestore.Store
+	GH                 *githubconnection.Store
+	Webhook            *githubwebhook.Store
+	SlackID            *slackidentity.Store
+	Watcher            *watcher.Store
+	DeploymentFGASync  *authz.DeploymentFGASyncStore
+	ResourceAccessSync *authz.ResourceAccessSyncStore
+	Experiment         *experiment.Store
 	// BillingStatus is nil for non-metronome backends; handlers treat that as
 	// "every account active".
 	BillingStatus *billing.StatusStore

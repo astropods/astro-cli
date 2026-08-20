@@ -38,6 +38,8 @@ const (
 	DeploymentDelete           = "deployment.delete"
 	DeploymentRestart          = "deployment.restart"
 	DeploymentTriggerIngestion = "deployment.trigger_ingestion"
+	DeploymentGrantAccess      = "deployment.grant_access"
+	DeploymentRevokeAccess     = "deployment.revoke_access"
 
 	AvatarUpload = "avatar.upload"
 	AvatarPreset = "avatar.preset"

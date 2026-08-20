@@ -120,6 +120,16 @@ func (r *DeploymentRoutes) DeferredGET(action authz.Action, path, summary string
 	r.api.GET(r.group, path, summary, handler, opts...)
 }
 
+func (r *DeploymentRoutes) DeferredPUT(action authz.Action, path, summary string, handler gin.HandlerFunc, opts ...oapispec.Option) {
+	r.catalog.add(http.MethodPut, r.group.BasePath()+path, deferredDeploymentRoute(action))
+	r.api.PUT(r.group, path, summary, handler, opts...)
+}
+
+func (r *DeploymentRoutes) DeferredDELETE(action authz.Action, path, summary string, handler gin.HandlerFunc, opts ...oapispec.Option) {
+	r.catalog.add(http.MethodDelete, r.group.BasePath()+path, deferredDeploymentRoute(action))
+	r.api.DELETE(r.group, path, summary, handler, opts...)
+}
+
 // ModelDeferred routes are deployment-addressed, but their authorization
 // resource and permissions have not been established yet.
 func (r *DeploymentRoutes) ModelDeferredGET(path, summary string, handler gin.HandlerFunc, opts ...oapispec.Option) {

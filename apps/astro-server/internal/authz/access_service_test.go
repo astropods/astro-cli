@@ -115,6 +115,43 @@ func TestAccessServiceListBatchesMembershipResolution(t *testing.T) {
 	}
 }
 
+func TestAccessServiceListAccessResolvesScopeOnce(t *testing.T) {
+	t.Parallel()
+
+	resource := authz.DeploymentResource("dep_123")
+	gateCalls, accountCalls, organizationCalls := 0, 0, 0
+	intents := []authz.AccessIntent{{AccountID: "acct_123", OrganizationID: "org_123", Resource: resource}}
+	service := authz.NewAccessService(
+		&authz.FakeFGA{ListRoleAssignmentsFunc: func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) {
+			return nil, nil
+		}},
+		resourceGateFunc(func(context.Context, authz.ResourceRef) (bool, error) {
+			gateCalls++
+			return true, nil
+		}),
+		accountResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) {
+			accountCalls++
+			return "acct_123", false, nil
+		}),
+		organizationResolverFunc(func(context.Context, authz.ResourceRef) (string, bool, error) {
+			organizationCalls++
+			return "org_123", false, nil
+		}),
+		fakeAccessMembers{},
+		&fakeAccessIntents{list: func(string, authz.ResourceRef) ([]authz.AccessIntent, error) {
+			return intents, nil
+		}},
+	)
+
+	assignments, gotIntents, err := service.ListAccess(context.Background(), resource)
+	if err != nil || len(assignments) != 0 || !reflect.DeepEqual(gotIntents, intents) {
+		t.Fatalf("ListAccess() = (%#v, %#v, %v)", assignments, gotIntents, err)
+	}
+	if gateCalls != 1 || accountCalls != 1 || organizationCalls != 1 {
+		t.Fatalf("scope calls = gate:%d account:%d organization:%d, want 1 each", gateCalls, accountCalls, organizationCalls)
+	}
+}
+
 func TestAccessServiceListReturnsMemberLookupFailure(t *testing.T) {
 	t.Parallel()
 
@@ -182,6 +219,20 @@ func TestAccessServiceMutationPreservesMemberLookupFailure(t *testing.T) {
 	_, _, err := service.Assign(context.Background(), authz.DeploymentResource("dep_123"), authz.AssignmentSubjectMembership, "user_123", authz.AccessLevelViewer)
 	if errors.Is(err, authz.ErrResourceNotVisible) || !errors.Is(err, lookupErr) {
 		t.Fatalf("Assign() error = %v, want lookup error", err)
+	}
+}
+
+func TestAccessServiceMutationRejectsUnprovisionedMember(t *testing.T) {
+	t.Parallel()
+
+	service := newAccessServiceWithIntents(t, &authz.FakeFGA{}, fakeAccessMembers{
+		byUser: func(accountID, userID string) (*account.AccountMember, error) {
+			return &account.AccountMember{AccountID: accountID, UserID: userID}, nil
+		},
+	}, &fakeAccessIntents{})
+	_, _, err := service.Assign(context.Background(), authz.DeploymentResource("dep_123"), authz.AssignmentSubjectMembership, "user_123", authz.AccessLevelViewer)
+	if !errors.Is(err, authz.ErrAccessSubjectNotProvisioned) {
+		t.Fatalf("Assign() error = %v, want ErrAccessSubjectNotProvisioned", err)
 	}
 }
 

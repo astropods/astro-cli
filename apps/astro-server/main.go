@@ -127,6 +127,13 @@ func main() {
 	if deploymentFGASync.Enabled() {
 		deploymentFGA = authz.NewWorkOSFGA(cfg.Auth.WorkOSAPIKey)
 	}
+	accessAssignments, _ := deploymentFGA.(authz.AccessAssignments)
+	var resourceAccessSync *authz.ResourceAccessSyncStore
+	var accessReconciler *authz.AccessReconciler
+	if accessAssignments != nil {
+		resourceAccessSync = authz.NewResourceAccessSyncStore(db)
+		accessReconciler = authz.NewAccessReconciler(accessAssignments, resourceAccessSync)
+	}
 
 	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
 	sharedS3Client, sharedS3Err := newS3Client(cfg)
@@ -236,12 +243,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, deploymentFGA)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, deploymentFGA)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -372,6 +379,7 @@ func runAPI(
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
+	resourceAccessSync *authz.ResourceAccessSyncStore,
 	deploymentFGA authz.FGA,
 ) (*http.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
@@ -534,23 +542,24 @@ func runAPI(
 		Quota: quotaChecker,
 		Probe: probeHandler,
 		Stores: Stores{
-			Account:           accountStore,
-			Deployment:        deploymentStore,
-			AccountVars:       accountVarsStore,
-			Heart:             heartStore,
-			AgentMetrics:      agentMetricsStore,
-			Cluster:           clusterStore,
-			Audit:             auditStore,
-			Avatar:            avatarStore,
-			ReadmeAssets:      readmeAssetStore,
-			Knowledge:         ksStore,
-			GH:                ghStore,
-			Webhook:           webhookStore,
-			SlackID:           slackIdentityStore,
-			Watcher:           watcherStore,
-			DeploymentFGASync: deploymentFGASync,
-			Experiment:        experimentStore,
-			BillingStatus:     billingStatus,
+			Account:            accountStore,
+			Deployment:         deploymentStore,
+			AccountVars:        accountVarsStore,
+			Heart:              heartStore,
+			AgentMetrics:       agentMetricsStore,
+			Cluster:            clusterStore,
+			Audit:              auditStore,
+			Avatar:             avatarStore,
+			ReadmeAssets:       readmeAssetStore,
+			Knowledge:          ksStore,
+			GH:                 ghStore,
+			Webhook:            webhookStore,
+			SlackID:            slackIdentityStore,
+			Watcher:            watcherStore,
+			DeploymentFGASync:  deploymentFGASync,
+			ResourceAccessSync: resourceAccessSync,
+			Experiment:         experimentStore,
+			BillingStatus:      billingStatus,
 		},
 		Clients: Clients{
 			AgentIndex: agentIndex,
@@ -700,6 +709,8 @@ func runWorker(
 	k8sCache k8scache.Cache,
 	imagePreflighter *k8s.ImagePreflighter,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
+	resourceAccessSync *authz.ResourceAccessSyncStore,
+	accessReconciler *authz.AccessReconciler,
 	deploymentFGA authz.FGA,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
@@ -804,28 +815,30 @@ func runWorker(
 		log.Warn("Worker: AWS config unavailable for KMS-encrypted credentials", "error", err)
 	}
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:                db,
-		NotifyProvider:    notifyProvider,
-		Billing:           billingProvider,
-		BillingBackend:    cfg.BillingBackend(),
-		PaymentProvider:   paymentProvider,
-		AccountStore:      accountStore,
-		AgentIndex:        agentIndex,
-		AvatarStore:       avatarStore,
-		ReadmeAssetStore:  readmeAssetStore,
-		K8sRegistry:       k8sReg,
-		K8sCache:          k8sCache,
-		ServerConfig:      cfg,
-		DeploymentFGASync: deploymentFGASync,
-		FGA:               deploymentFGA,
-		WorkOSClient:      workosClient,
-		OrgClient:         orgClient,
-		PromClient:        promClient,
-		Logger:            log,
-		LangfuseStore:     workerLangfuseStore,
-		PipesClient:       pipesClient,
-		GitHubStore:       ghStore,
-		ImagePreflighter:  imagePreflighter,
+		DB:                 db,
+		NotifyProvider:     notifyProvider,
+		Billing:            billingProvider,
+		BillingBackend:     cfg.BillingBackend(),
+		PaymentProvider:    paymentProvider,
+		AccountStore:       accountStore,
+		AgentIndex:         agentIndex,
+		AvatarStore:        avatarStore,
+		ReadmeAssetStore:   readmeAssetStore,
+		K8sRegistry:        k8sReg,
+		K8sCache:           k8sCache,
+		ServerConfig:       cfg,
+		DeploymentFGASync:  deploymentFGASync,
+		ResourceAccessSync: resourceAccessSync,
+		AccessReconciler:   accessReconciler,
+		FGA:                deploymentFGA,
+		WorkOSClient:       workosClient,
+		OrgClient:          orgClient,
+		PromClient:         promClient,
+		Logger:             log,
+		LangfuseStore:      workerLangfuseStore,
+		PipesClient:        pipesClient,
+		GitHubStore:        ghStore,
+		ImagePreflighter:   imagePreflighter,
 		InsightsRollupProducer: &handlers.InsightsRollupProducer{
 			Log:           log,
 			Cfg:           cfg,
@@ -896,6 +909,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	queue := deps.Clients.Queue
 	deploymentFGA := deps.Clients.FGA
 	deploymentFGASync := deps.Stores.DeploymentFGASync
+	resourceAccessSync := deps.Stores.ResourceAccessSync
 	experimentStore := deps.Stores.Experiment
 
 	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
@@ -924,6 +938,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		resourceAccounts,
 		fgaExperiment,
 	)
+	deploymentAccessRollout := authz.NewAccountExperimentResourceGate(
+		authz.NewConditionalResourceGate(
+			deploymentFGA != nil && cfg.FGAEnforcementEnabled,
+			resourceAccounts,
+		),
+		resourceAccounts,
+		fgaExperiment,
+	)
 	deploymentResourceDiscovery, _ := deploymentFGA.(authz.ResourceDiscovery)
 	deploymentDiscovery := authz.NewDeploymentDiscovery(
 		log,
@@ -942,6 +964,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		membershipChecker,
 		deploymentFGALiveChecker,
 		authz.ActionDeploymentRead,
+	)
+	accessAssignments, _ := deploymentFGA.(authz.AccessAssignments)
+	deploymentAccess := authz.NewAccessService(
+		accessAssignments,
+		deploymentAccessRollout,
+		resourceAccounts,
+		resourceAccounts,
+		accountStore,
+		resourceAccessSync,
 	)
 	alertStore := observation.NewStore(db)
 	accountVarsStore := deps.Stores.AccountVars
@@ -2041,6 +2072,37 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DeploymentCapabilitiesResponse{}),
 				oapispec.Response(404, &handlers.ErrorResponse{}),
+				oapispec.Response(503, &handlers.ErrorResponse{}),
+			)
+			deploymentRoutes.DeferredGET(authz.ActionDeploymentManageAccess, "/deployments/:id/access", "List deployment access", handlers.ListDeploymentAccess(log, deploymentAccess),
+				oapispec.Tags("Deployments", "Authorization"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(200, &handlers.DeploymentAccessResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+				oapispec.Response(503, &handlers.ErrorResponse{}),
+			)
+			deploymentRoutes.DeferredPUT(authz.ActionDeploymentManageAccess, "/deployments/:id/access", "Set deployment access", handlers.SetDeploymentAccess(log, deploymentAccess, queue, auditStore),
+				oapispec.Tags("Deployments", "Authorization"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Body(&handlers.SetDeploymentAccessRequest{}),
+				oapispec.Response(202, &handlers.DeploymentAccessMutationResponse{}),
+				oapispec.Response(400, &handlers.ErrorResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+				oapispec.Response(409, &handlers.ErrorResponse{}),
+				oapispec.Response(503, &handlers.ErrorResponse{}),
+			)
+			deploymentRoutes.DeferredDELETE(authz.ActionDeploymentManageAccess, "/deployments/:id/access/:subject_type/:subject_id", "Remove deployment access", handlers.RemoveDeploymentAccess(log, deploymentAccess, queue, auditStore),
+				oapispec.Tags("Deployments", "Authorization"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("subject_type", "Subject type: member"),
+				oapispec.PathParam("subject_id", "Astro user ID"),
+				oapispec.Response(202, &handlers.DeploymentAccessMutationResponse{}),
+				oapispec.Response(400, &handlers.ErrorResponse{}),
+				oapispec.Response(404, &handlers.ErrorResponse{}),
+				oapispec.Response(409, &handlers.ErrorResponse{}),
 				oapispec.Response(503, &handlers.ErrorResponse{}),
 			)
 			deploymentRoutes.DeferredGET(authz.ActionDeploymentRead, "/deployments/:id/runtime", "Get deployment runtime", handlers.GetDeploymentRuntime(log, accountStore, cfg, deploymentStore, promClient, k8sReg),

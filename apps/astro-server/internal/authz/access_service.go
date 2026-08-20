@@ -11,7 +11,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 )
 
-var ErrAccessManagementUnavailable = errors.New("resource access management is unavailable")
+var (
+	ErrAccessManagementUnavailable = errors.New("resource access management is unavailable")
+	ErrAccessSubjectNotProvisioned = errors.New("access subject is not provisioned")
+)
 
 type AccessAssignment struct {
 	ID                    string
@@ -56,6 +59,30 @@ func (s *AccessService) List(ctx context.Context, resource ResourceRef) ([]Acces
 	if err != nil {
 		return nil, err
 	}
+	return s.listAssignments(ctx, resource, accountID, organizationID)
+}
+
+func (s *AccessService) ListAccess(ctx context.Context, resource ResourceRef) ([]AccessAssignment, []AccessIntent, error) {
+	accountID, organizationID, err := s.resourceScope(ctx, resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	assignments, err := s.listAssignments(ctx, resource, accountID, organizationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	intents, err := s.listIntents(ctx, resource, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return assignments, intents, nil
+}
+
+func (s *AccessService) listAssignments(
+	ctx context.Context,
+	resource ResourceRef,
+	accountID, organizationID string,
+) ([]AccessAssignment, error) {
 	assignments, err := s.assignments.ListRoleAssignments(ctx, organizationID, resource)
 	if err != nil {
 		return nil, fmt.Errorf("list resource assignments: %w", err)
@@ -158,11 +185,7 @@ func (s *AccessService) Remove(
 	return s.recordIntent(ctx, accountID, organizationID, resource, subjectType, subjectID, "")
 }
 
-func (s *AccessService) ListIntents(ctx context.Context, resource ResourceRef) ([]AccessIntent, error) {
-	accountID, _, err := s.resourceScope(ctx, resource)
-	if err != nil {
-		return nil, err
-	}
+func (s *AccessService) listIntents(ctx context.Context, resource ResourceRef, accountID string) ([]AccessIntent, error) {
 	if s.intents == nil {
 		return nil, errors.New("resource access intent store is not configured")
 	}
@@ -240,7 +263,7 @@ func (s *AccessService) resolveSubject(
 			return AssignmentSubject{}, ErrResourceNotVisible
 		}
 		if member.WorkOSMembershipID == "" {
-			return AssignmentSubject{}, ErrWorkOSMembershipUnavailable
+			return AssignmentSubject{}, ErrAccessSubjectNotProvisioned
 		}
 		return MembershipAssignmentSubject(member.WorkOSMembershipID), nil
 	default:
