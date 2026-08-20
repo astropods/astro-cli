@@ -327,3 +327,21 @@ func TestProvisionWorker_UnverifiedCreatorDoesNotEarnUnlimited(t *testing.T) {
 		t.Errorf("plan = %q, want %q", p.plan, billing.PlanCredit)
 	}
 }
+
+// The no-credit plan is the one the provider will never signal about: it starts
+// with no balance, so no low-balance alert can fire, so provisioning is the only
+// place the latch is ever raised. An account that keeps the granted signal here
+// runs with neither credit nor a card behind it.
+func TestCreditSignal_OnlyTheNoCreditPlanLatches(t *testing.T) {
+	cases := map[billing.Plan]billing.Signal{
+		billing.PlanNoCredit:  billing.SignalCreditsExhausted,
+		billing.PlanCredit:    billing.SignalCreditsGranted,
+		billing.PlanUnlimited: billing.SignalCreditsGranted,
+		"":                    billing.SignalCreditsGranted,
+	}
+	for plan, want := range cases {
+		if got := creditSignal(plan); got != want {
+			t.Errorf("creditSignal(%q) = %q, want %q", plan, got, want)
+		}
+	}
+}

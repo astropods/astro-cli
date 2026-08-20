@@ -115,8 +115,12 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 	}
 
 	// Provisioning is optional on the seam; backends without it are done here.
+	// The plan escapes the branch because it decides the credit latch below, and
+	// it stays empty for a backend that chooses no plan.
+	var plan billing.Plan
 	if p, ok := w.provider.(billing.Provisioner); ok {
-		plan, err := w.plan(acct.ID)
+		var err error
+		plan, err = w.plan(acct.ID)
 		if err != nil {
 			return err
 		}
@@ -141,12 +145,14 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 		return err
 	}
 
-	// The account now holds credit, so lift any exhaustion latch and reconcile.
-	// Metronome's resolved alert clears it too; this tail is what an operator
-	// credit grant re-runs the job for, and the backstop when the alert stays
-	// IN_ALARM because the balance never crossed back.
+	// Set the credit latch from the plan the account was just put on. A plan
+	// that grants no credit has no balance for the provider's low-balance alert
+	// to fire on, so nothing else would ever raise it, and the account would run
+	// with neither credit nor a card. Lifting it here instead is what an
+	// operator credit grant re-runs this job for, and the backstop when the
+	// alert stays IN_ALARM because the balance never crossed back.
 	if w.status != nil {
-		newStatus, changed, err := billing.ApplySignal(ctx, w.status, acct.ID, billing.SignalCreditsGranted, time.Now())
+		newStatus, changed, err := billing.ApplySignal(ctx, w.status, acct.ID, creditSignal(plan), time.Now())
 		if err != nil {
 			return err
 		}
@@ -160,6 +166,16 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
 	return nil
+}
+
+// creditSignal is the latch a freshly provisioned account takes. Only the
+// no-credit plan starts without a balance, and only it has no low-balance alert
+// coming to raise the latch later.
+func creditSignal(plan billing.Plan) billing.Signal {
+	if plan == billing.PlanNoCredit {
+		return billing.SignalCreditsExhausted
+	}
+	return billing.SignalCreditsGranted
 }
 
 // syncCoverage gates the account on whether a contract covers it. Provisioning
