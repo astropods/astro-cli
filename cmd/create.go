@@ -196,11 +196,7 @@ func printSuccess(name, targetDir string, aiGateway bool) {
 	lines = append(lines, "")
 	lines = append(lines, dim.Render("Ready to ship? ")+boldPrimary.Render(buildinfo.BinaryName+" push "+name)+dim.Render(" then ")+boldPrimary.Render(buildinfo.BinaryName+" deploy "+name)+dim.Render("."))
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(theme.Primary).
-		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
+	box := theme.Box(lines)
 
 	fmt.Println()
 	fmt.Println(box)
