@@ -168,6 +168,14 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 
 	for _, day := range days {
 		if err := w.producer.RollUpDay(ctx, accountID, day); err != nil {
+			if errors.Is(err, insightsrollup.ErrAccountGone) {
+				// Deleted after discovery enqueued this. Return before touching the
+				// state table: there is no coverage to claim, and after a hard delete
+				// the row the watermark and the failure would go into is gone.
+				w.log.Info("Insights rollup: account deleted; skipping",
+					"account_id", accountID)
+				return nil
+			}
 			// Stop at the first failure rather than pressing on: advancing past a
 			// gap would leave a hole no later tick revisits, because the
 			// watermark would claim the day was done.

@@ -16,10 +16,22 @@ package insightsrollup
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// ErrAccountGone reports that the account a roll-up job names is deleted,
+// whether soft or hard. Producers return it wrapped; the worker treats it as a
+// terminal skip rather than a failure to hold the watermark against.
+//
+// It needs its own sentinel because a hard delete leaves nowhere to record it.
+// Both insights_rollup_state and insights_usage_daily are FK'd to accounts with
+// ON DELETE CASCADE, so the state row is gone too, and writing the failure back
+// violates the constraint. The job would then retry on an error it can never
+// write down, for an account that will never come back.
+var ErrAccountGone = errors.New("insightsrollup: account no longer exists")
 
 // Grain discriminates the two descriptions of the same spend stored in
 // insights_usage_daily. It is a distinct type rather than a string so a caller

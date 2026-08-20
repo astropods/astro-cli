@@ -15,8 +15,9 @@ import (
 // already soft-deleted (or does not exist).
 var ErrAlreadyDeleted = errors.New("account not found or already deleted")
 
-// ErrAccountNotFound is returned by provider-ID reverse lookups when no account
-// is linked. Callers use errors.Is to distinguish it from transient DB errors.
+// ErrAccountNotFound is returned by GetByID and by provider-ID reverse lookups
+// when no live account matches. Callers use errors.Is to distinguish a deleted
+// account, which no retry can resurrect, from a transient DB error.
 var ErrAccountNotFound = errors.New("account not found")
 
 // AccountStore manages account persistence in PostgreSQL
@@ -197,7 +198,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 		WHERE a.id = $1 AND a.deleted_at IS NULL
 	`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("account not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, id)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query account: %w", err)

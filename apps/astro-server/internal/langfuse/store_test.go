@@ -53,6 +53,31 @@ func TestStoreGetDecryptedMissing(t *testing.T) {
 	}
 }
 
+// The credential row outlives a soft delete, so listing account_langfuse alone
+// hands the discovery workers accounts that every downstream lookup then
+// refuses to load. Each one becomes a fan-out job that fails and retries daily.
+func TestListAccountIDsExcludesDeletedAccounts(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery(`JOIN accounts a ON a\.id = al\.account_id AND a\.deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow("acct-live"))
+
+	got, err := NewStore(db).ListAccountIDs()
+	if err != nil {
+		t.Fatalf("ListAccountIDs: %v", err)
+	}
+	if len(got) != 1 || got[0] != "acct-live" {
+		t.Fatalf("ListAccountIDs = %v, want [acct-live]", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("query did not filter deleted accounts: %v", err)
+	}
+}
+
 func TestStoreGetDecryptedErrors(t *testing.T) {
 	t.Run("query", func(t *testing.T) {
 		db, mock, err := sqlmock.New()

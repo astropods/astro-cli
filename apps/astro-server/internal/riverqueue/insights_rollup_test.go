@@ -1,6 +1,8 @@
 package riverqueue
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,8 +10,12 @@ import (
 	"testing"
 	"time"
 
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/riverqueue/river"
+
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // The classification has to survive the wrapping the producer applies, which is
@@ -45,6 +51,51 @@ func TestIsUpstreamAuthFailure(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A deleted account must end the job, not retry it. Discovery can enqueue an
+// account that is purged before the job runs, and every attempt then fails the
+// same way. Worse, the state row cascaded away with the account, so recording
+// the failure violates its foreign key and the job retries on an error it can
+// never write down.
+func TestDeletedAccountEndsTheJobWithoutWritingState(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	// No watermark yet, so the worker has days to roll and reaches the producer.
+	mock.ExpectQuery("SELECT rolled_up_through").
+		WithArgs("acct_gone", insightsrollup.SourceAgents).
+		WillReturnError(sql.ErrNoRows)
+
+	w := &InsightsRollupAccountWorker{
+		producer: producerFunc(func(_ context.Context, accountID string, _ time.Time) error {
+			// Exactly what the producer returns when GetByID reports the account
+			// is gone; the wrapping is the part errors.Is has to see through.
+			return fmt.Errorf("%w: %s", insightsrollup.ErrAccountGone, accountID)
+		}),
+		rollups: insightsrollup.NewStore(db),
+		log:     logger.New("error", "json"),
+	}
+
+	if err := w.Work(t.Context(), &river.Job[InsightsRollupAccountArgs]{
+		Args: InsightsRollupAccountArgs{AccountID: "acct_gone"},
+	}); err != nil {
+		t.Fatalf("Work() = %v, want nil so River stops retrying", err)
+	}
+	// No RecordFailure and no Advance: an unexpected write here is the foreign
+	// key violation this guards against.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected database calls: %v", err)
+	}
+}
+
+type producerFunc func(ctx context.Context, accountID string, day time.Time) error
+
+func (f producerFunc) RollUpDay(ctx context.Context, accountID string, day time.Time) error {
+	return f(ctx, accountID, day)
 }
 
 // A reconcile re-reads the full retention window. The watermark exists to skip

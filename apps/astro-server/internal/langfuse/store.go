@@ -93,13 +93,21 @@ func (s *Store) Save(al *AccountLangfuse) error {
 	return nil
 }
 
-// ListAccountIDs returns every account that has Langfuse provisioned. Used
+// ListAccountIDs returns every live account that has Langfuse provisioned. Used
 // by the Insights refresh worker as the canonical "accounts to refresh"
 // set: enumerating through this table (vs through active deployments)
 // means an account that *used to* have deployments still gets its cache
 // surfaced/cleared once the inner compute returns a zero response.
+//
+// Soft-deleted accounts are excluded. Their credential row outlives the delete
+// (only a hard delete cascades), so without the join every tick fans out work
+// for accounts every downstream lookup then refuses to load.
 func (s *Store) ListAccountIDs() ([]string, error) {
-	rows, err := s.db.Query(`SELECT account_id FROM account_langfuse ORDER BY account_id`)
+	rows, err := s.db.Query(`
+		SELECT al.account_id
+		FROM account_langfuse al
+		JOIN accounts a ON a.id = al.account_id AND a.deleted_at IS NULL
+		ORDER BY al.account_id`)
 	if err != nil {
 		return nil, fmt.Errorf("langfuse store list account ids: %w", err)
 	}

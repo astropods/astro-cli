@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -43,13 +44,14 @@ type InsightsRollupProducer struct {
 // one leaves the other's rows for that day intact and correct.
 func (p *InsightsRollupProducer) RollUpDay(ctx context.Context, accountID string, day time.Time) error {
 	acct, err := p.AccountStore.GetByID(accountID)
+	if errors.Is(err, account.ErrAccountNotFound) {
+		// Deleted between discovery and this job. Reported as ErrAccountGone so
+		// the worker stops the whole account rather than retrying a lookup that
+		// can only keep failing.
+		return fmt.Errorf("%w: %s", insightsrollup.ErrAccountGone, accountID)
+	}
 	if err != nil {
 		return fmt.Errorf("insights rollup: load account %s: %w", accountID, err)
-	}
-	if acct == nil {
-		// Account went away between discovery and this job. Not an error; the
-		// facts are removed by the account_id FK cascade.
-		return nil
 	}
 	if err := p.RollUpAgentsDay(ctx, acct, day); err != nil {
 		return err
