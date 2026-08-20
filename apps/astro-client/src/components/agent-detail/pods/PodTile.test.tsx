@@ -69,6 +69,17 @@ describe("derivePodStatus", () => {
     });
     expect(derivePodStatus(workload)).toEqual({ status: "unhealthy", label: "Error" });
   });
+
+  it("reports Starting, not Error, for a container that is still starting up", () => {
+    const workload = makeWorkload({
+      kind: "StatefulSet",
+      containers: [
+        { name: "app", state: "Waiting", ready: false, restart_count: 0, message: "Starting up" },
+        { name: "messaging", state: "Running", ready: true, restart_count: 0 },
+      ],
+    });
+    expect(derivePodStatus(workload)).toEqual({ status: "pending", label: "Starting" });
+  });
 });
 
 describe("PodTile rendering — null-containers regression", () => {

@@ -28,32 +28,39 @@ interface PanelToneConfig {
   backgroundColor: string;
   borderColor: string;
   buttonColor: string;
+  buttonTextColor: string;
 }
 
+// Every tone derives from its semantic token so the panels flip with the theme.
+// The bright warning button takes dark text; the darker tones take white.
 const PANEL_TONES: Record<"neutral" | "error" | "success" | "warning", PanelToneConfig> = {
   neutral: {
-    textColor: "var(--color-blue-700)",
-    backgroundColor: "color-mix(in oklch, var(--color-blue-700) 12%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-blue-700) 28%, transparent)",
-    buttonColor: "var(--color-blue-700)",
+    textColor: "var(--info)",
+    backgroundColor: "color-mix(in oklch, var(--info) 12%, transparent)",
+    borderColor: "color-mix(in oklch, var(--info) 28%, transparent)",
+    buttonColor: "var(--info)",
+    buttonTextColor: "#fff",
   },
   error: {
     textColor: "var(--error)",
     backgroundColor: "color-mix(in oklch, var(--error) 12%, transparent)",
     borderColor: "color-mix(in oklch, var(--error) 28%, transparent)",
-    buttonColor: "var(--color-coral-700)",
+    buttonColor: "var(--error)",
+    buttonTextColor: "#fff",
   },
   success: {
-    textColor: "var(--color-green-700)",
-    backgroundColor: "color-mix(in oklch, var(--color-green-700) 12%, transparent)",
-    borderColor: "color-mix(in oklch, var(--color-green-700) 28%, transparent)",
-    buttonColor: "var(--color-green-700)",
+    textColor: "var(--success)",
+    backgroundColor: "color-mix(in oklch, var(--success) 12%, transparent)",
+    borderColor: "color-mix(in oklch, var(--success) 28%, transparent)",
+    buttonColor: "var(--success)",
+    buttonTextColor: "#fff",
   },
   warning: {
     textColor: "var(--warning)",
     backgroundColor: "color-mix(in oklch, var(--warning) 16%, transparent)",
     borderColor: "color-mix(in oklch, var(--warning) 32%, transparent)",
-    buttonColor: "var(--color-yellow-700)",
+    buttonColor: "var(--warning)",
+    buttonTextColor: "var(--color-yellow-950)",
   },
 };
 
@@ -247,7 +254,7 @@ export function ActionPanel({
     : tone === "error" ? AlertCircle
     : Info;
 
-  const buttonStyle: CSSProperties = { backgroundColor: toneConfig.buttonColor, color: "white", border: "none" };
+  const buttonStyle: CSSProperties = { backgroundColor: toneConfig.buttonColor, color: toneConfig.buttonTextColor, border: "none" };
 
   if (dismissed) return null;
 

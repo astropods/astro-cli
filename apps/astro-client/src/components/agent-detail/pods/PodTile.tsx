@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { WorkloadDetail } from "@/lib/api";
+import type { WorkloadDetail, ContainerStatus } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AlertCircle, Bot, Activity, Database, Brain, Box, Download, TriangleAlert } from "lucide-react";
 import { useLastErrorLog } from "@/api/queries/deployments";
@@ -26,11 +26,16 @@ export interface PodStatusInfo {
   label: string;
 }
 
-// The server emits capitalized container states ("Running", "Waiting",
-// "Terminated"); normalize so the check is casing-independent.
-function isProblemState(state: string | undefined): boolean {
-  const s = state?.toLowerCase();
-  return s === "waiting" || s === "terminated";
+// The server humanizes a benignly-starting container (ContainerCreating /
+// PodInitializing) to this message, so it is not a failure.
+export const STARTING_UP_MESSAGE = "Starting up";
+
+// A "Waiting"/"Terminated" container is a real problem unless it is just
+// starting up, so normal startup does not render as an error.
+export function isContainerProblem(container: ContainerStatus): boolean {
+  const s = container.state?.toLowerCase();
+  if (s !== "waiting" && s !== "terminated") return false;
+  return container.message !== STARTING_UP_MESSAGE;
 }
 
 export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatusInfo {
@@ -40,7 +45,7 @@ export function derivePodStatus(workload: WorkloadDetail | undefined): PodStatus
   if (workload.kind === "CronJob") return deriveCronJobStatus(workload.status);
 
   if (!workload.containers || workload.containers.length === 0) return { status: "pending", label: "Starting" };
-  if (workload.containers.some((c) => isProblemState(c.state))) return { status: "unhealthy", label: "Error" };
+  if (workload.containers.some(isContainerProblem)) return { status: "unhealthy", label: "Error" };
   if (workload.containers.every((c) => c.ready)) {
     if (isFlapping(workload)) return { status: "warning", label: "Degraded" };
     return { status: "healthy", label: "Online" };
@@ -102,7 +107,7 @@ function parseAgeToHours(age?: string): number {
 function findUnhealthyContainer(workload: WorkloadDetail): string {
   const containers = workload.containers ?? [];
   const unhealthy = containers.find(
-    (c) => !c.ready || isProblemState(c.state),
+    (c) => !c.ready || isContainerProblem(c),
   );
   return unhealthy?.name ?? containers[0]?.name ?? "";
 }

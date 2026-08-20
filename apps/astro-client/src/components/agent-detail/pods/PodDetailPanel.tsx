@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import type { WorkloadDetail, ServiceEndpointInfo, K8sEvent, ContainerStatus, DeploymentAlert } from "@/lib/api";
 import { useDeploymentAlerts, useDeploymentEvents, useRestartPod } from "@/api/queries/deployments";
-import { POD_STATUS_STYLES, resolvePodStatus } from "./PodTile";
+import { POD_STATUS_STYLES, resolvePodStatus, isContainerProblem } from "./PodTile";
 import { PanelSection } from "../PanelSection";
 import { PodLogsTab } from "./PodLogsTab";
 import { PodMetricsTab } from "./PodMetricsTab";
@@ -277,8 +277,7 @@ function GeneralTab({ workload, deploymentId, externalUrls }: GeneralTabProps) {
 interface EnvVar { name: string; value: string; secret: boolean }
 
 function ContainerCard({ container, vars }: { container: ContainerStatus; vars: EnvVar[] }) {
-  const state = container.state?.toLowerCase();
-  const problem = !container.ready && (state === "waiting" || state === "terminated");
+  const problem = !container.ready && isContainerProblem(container);
   const square = container.ready
     ? "bg-green-500 dark:bg-green-400"
     : problem
