@@ -623,6 +623,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
   );
   // Advanced provisioning overrides — all optional; empty strings let the
   // server fall back to astropods.yml declarations and tier defaults.
+  const [clusterId, setClusterId] = useState<string>("");
   const [agentCpu, setAgentCpu] = useState<string>(computedDefaults.agentCpu ?? "");
   const [agentMemory, setAgentMemory] = useState<string>(computedDefaults.agentMemory ?? "");
   const [agentVolumeMount, setAgentVolumeMount] = useState<string>(computedDefaults.agentVolumeMount ?? "");
@@ -1163,6 +1164,7 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
       responseTimeout: agentResponseTimeout,
     });
     if (provisioning) req.provisioning = provisioning;
+    if (clusterId) req.cluster_id = clusterId;
     req.finalize = true;
 
     let resp: TemplateResponse;
@@ -1377,6 +1379,8 @@ export function useDeployForm(account: string, name: string, opts?: UseDeployFor
     knowledgeEntries: template?.knowledge as Record<string, { provider?: string; binding?: string }> | undefined,
 
     // Advanced provisioning overrides
+    clusterId,
+    setClusterId,
     agentCpu,
     setAgentCpu,
     agentMemory,

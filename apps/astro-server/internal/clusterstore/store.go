@@ -362,7 +362,6 @@ func (s *Store) EnsurePullCredential(ctx context.Context, id string) (generated 
 	return n > 0, nil
 }
 
-// Deregister deletes a cluster row. Both accounts.cluster_id and
 // deployments.cluster_id are ON DELETE RESTRICT, so it returns
 // ErrInUseByAccounts or ErrInUseByDeployments depending on which FK actually
 // blocked the delete (ErrInUse if Postgres doesn't report the constraint
@@ -371,9 +370,6 @@ func (s *Store) EnsurePullCredential(ctx context.Context, id string) (generated 
 // If the delete is blocked by a deployments row, it self-heals once: rows
 // that are already undeployed don't need cluster_id anymore (updateStatusTx
 // clears it going forward; this catches rows undeployed before that fix)
-// and are safe to clear here too, then the delete is retried. Accounts are
-// never auto-cleared — a cluster_id pin there is a live routing decision,
-// not stale history.
 func (s *Store) Deregister(ctx context.Context, id string) error {
 	err := s.tryDeleteCluster(ctx, id)
 	if !errors.Is(err, ErrInUseByDeployments) {
@@ -392,7 +388,7 @@ func (s *Store) tryDeleteCluster(ctx context.Context, id string) error {
 	if err != nil {
 		if pgCode(err) == pgForeignKeyViolation {
 			switch pgConstraint(err) {
-			case "account_clusters_cluster_id_fkey", "accounts_cluster_id_fkey":
+			case "account_clusters_cluster_id_fkey":
 				return ErrInUseByAccounts
 			case "deployments_cluster_id_fkey":
 				return ErrInUseByDeployments
@@ -519,7 +515,6 @@ func pgCode(err error) string {
 }
 
 // pgConstraint returns the violated constraint name from a Postgres error
-// (e.g. "accounts_cluster_id_fkey"), or "" if err is not a *pq.Error.
 func pgConstraint(err error) string {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {

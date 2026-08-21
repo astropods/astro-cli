@@ -183,6 +183,7 @@ ast deploy <name> [flags]
 | `--var KEY=VALUE` | Inline variable; `KEY=@SECRET_NAME` resolves from the vault; `KEY=@` uses the key name as the secret name |
 | `--vars-file <file>` | Load variables from a `.env` file |
 | `--build <id>` | Pin to a specific build ID |
+| `--cluster <id>` | Cluster to deploy to. Defaults to your account's default cluster. Only accounts with more than one available cluster need this |
 | `--dry-run` | Validate inputs without deploying |
 | `--wait` | Wait until the public Launch URL is ready before returning |
 | `--json` | Print JSON output on success |

@@ -16,7 +16,7 @@ func TestValidateID(t *testing.T) {
 		valid bool
 	}{
 		{"us-east-1-managed", true},
-		{"eu", true},
+		{"cluster-a", true},
 		{"prod-us-east-1-managed", true},
 		{"a1", true},
 		{"", false},
@@ -391,19 +391,15 @@ func TestDeregister_SelfHealsStaleUndeployedRows(t *testing.T) {
 }
 
 func TestDeregister_InUseByAccounts(t *testing.T) {
-	for _, constraint := range []string{"account_clusters_cluster_id_fkey", "accounts_cluster_id_fkey"} {
-		t.Run(constraint, func(t *testing.T) {
-			db, mock, _ := sqlmock.New()
-			store := New(db)
+	db, mock, _ := sqlmock.New()
+	store := New(db)
 
-			mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
-				WithArgs("us-east-1-managed").
-				WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: constraint})
+	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+		WithArgs("us-east-1-managed").
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "account_clusters_cluster_id_fkey"})
 
-			if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByAccounts) {
-				t.Errorf("expected ErrInUseByAccounts, got %v", err)
-			}
-		})
+	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByAccounts) {
+		t.Errorf("expected ErrInUseByAccounts, got %v", err)
 	}
 }
 
@@ -461,7 +457,7 @@ func TestDeleteRemoved_DeletesAndReportsBlocked(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
 		WithArgs("in-use-cluster").
-		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "accounts_cluster_id_fkey"})
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "account_clusters_cluster_id_fkey"})
 
 	deleted, blocked, err := store.DeleteRemoved(context.Background(), []string{"eu-west-1-a"})
 	if err != nil {

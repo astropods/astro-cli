@@ -487,7 +487,7 @@ export interface DeploymentIngestion {
 export interface DeploymentTemplate {
   spec: 'deployment-template/v1';
   source: { account: string; name: string; build: string; registry: string };
-  target: { runtime: string; account?: string; display_name?: string; deployment_id?: string };
+  target: { runtime: string; account?: string; display_name?: string; deployment_id?: string; cluster_id?: string };
   agent: Record<string, unknown>;
   models?: Record<string, unknown>;
   knowledge?: Record<string, unknown>;
@@ -527,6 +527,7 @@ export interface TemplateRequest {
   };
   provisioning?: TemplateProvisioning;
   finalize?: boolean;
+  cluster_id?: string;
 }
 
 export interface KnowledgeBindingInfo {

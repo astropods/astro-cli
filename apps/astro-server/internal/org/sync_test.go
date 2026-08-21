@@ -62,14 +62,9 @@ func TestAddMember_RejectsUserWithNoPersonalAccount(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM accounts a").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
-			"display_name", "avatar_colors", "avatar_updated_at", "cluster_id",
-			"account_number", "bio", "location", "local_timezone", "pronouns", "website",
-			"social_links", "blueprint_order",
-		}).AddRow(
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).AddRow(
 			"acct-1", "myorg", "organization", "wos-org-1", nil, time.Now(), time.Now(),
-			"My Org", nil, nil, nil,
+			"My Org", nil, nil,
 			nil, nil, nil, nil, nil, nil,
 			"{}", "{}",
 		))

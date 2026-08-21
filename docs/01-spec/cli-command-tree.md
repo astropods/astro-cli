@@ -50,7 +50,7 @@ Manages agent blueprints — the registered, versioned definitions of an agent o
 
 Top-level aliases: `ast build <name>`, `ast push <name>`, `ast deploy <name>`.
 
-**Deploy / redeploy flags** (shared by `blueprint deploy`, `deploy`, and `agent redeploy`): `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, `--json`. Deploy also supports `--wait` (block until the public Launch URL is ready). Blueprint deploy also supports `--name` / `-n` for display name.
+**Deploy / redeploy flags** (shared by `blueprint deploy`, `deploy`, and `agent redeploy`): `--adapter`, `--var`, `--vars-file`, `--build`, `--dry-run`, `--json`. Deploy also supports `--cluster` (target cluster; prompts when the account has more than one and the shell is interactive) and `--wait` (block until the public Launch URL is ready). Blueprint deploy also supports `--name` / `-n` for display name.
 
 ---
 

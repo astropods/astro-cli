@@ -89,7 +89,7 @@ func TestWork_ParsesAgentLabel(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("INSERT INTO agent_message_counts").
 		WithArgs("uuid-acct-1", "bot", 42.0).
@@ -127,7 +127,7 @@ func TestWork_SkipsMalformedAgentLabels(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id").
 		WithArgs("good-acct").
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("uuid-good-acct", "good-acct", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("uuid-good-acct", "good-acct", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("INSERT INTO agent_message_counts").
 		WithArgs("uuid-good-acct", "agent", 30.0).
@@ -190,7 +190,7 @@ func TestWork_ClusterFilter(t *testing.T) {
 	mock.ExpectQuery("SELECT a.id").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	mock.ExpectExec("INSERT INTO agent_message_counts").
 		WithArgs("uuid-acct-1", "bot", 10.0).
@@ -257,14 +257,14 @@ func TestWork_QueriesAllRegisteredClusters(t *testing.T) {
 	accountMock.ExpectQuery("SELECT a.id").
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("uuid-acct-1", "acct-1", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectExec("INSERT INTO agent_message_counts").
 		WithArgs("uuid-acct-1", "bot", 10.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	accountMock.ExpectQuery("SELECT a.id").
 		WithArgs("acct-2").
 		WillReturnRows(sqlmock.NewRows(accountColumns).
-			AddRow("uuid-acct-2", "acct-2", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("uuid-acct-2", "acct-2", "personal", nil, nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectExec("INSERT INTO agent_message_counts").
 		WithArgs("uuid-acct-2", "bot", 20.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))

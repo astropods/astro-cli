@@ -26,6 +26,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterplacement"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -253,17 +255,67 @@ func parseDeploySpec(c *gin.Context) (*deployment.AstroDeploymentSpec, error) {
 	return deployment.ParseDeploymentSpec(body)
 }
 
-// applyAccountClusterPlacement sets target.cluster_id from the target account's
-// placement binding. Empty binding clears cluster_id (primary cluster).
-func applyAccountClusterPlacement(ds *deployment.AstroDeploymentSpec, targetAcct *account.Account) {
-	if ds == nil || targetAcct == nil {
-		return
+var ErrClusterNotAllowed = errors.New("cluster is not allowed for this account")
+
+type ClusterNotAvailableError struct {
+	Requested string
+	Available []string
+}
+
+func (e *ClusterNotAvailableError) Error() string {
+	available := "none"
+	if len(e.Available) > 0 {
+		available = strings.Join(e.Available, ", ")
 	}
-	if targetAcct.ClusterID != nil && *targetAcct.ClusterID != "" {
-		ds.Target.ClusterID = *targetAcct.ClusterID
-	} else {
-		ds.Target.ClusterID = ""
+	return fmt.Sprintf("cluster %q is not available to this account (available: %s)", e.Requested, available)
+}
+
+func (e *ClusterNotAvailableError) Unwrap() error { return ErrClusterNotAllowed }
+
+func errClusterNotAvailable(requested string, allowed []account.ClusterBinding) error {
+	available := make([]string, 0, len(allowed))
+	for _, b := range allowed {
+		available = append(available, b.ClusterID)
 	}
+	return &ClusterNotAvailableError{Requested: requested, Available: available}
+}
+
+func resolveTemplateClusterID(
+	ds *deployment.AstroDeploymentSpec,
+	requested string,
+	allowed []account.ClusterBinding,
+	current *deploymentstore.Deployment,
+	clusters clusterid.Resolver,
+) error {
+	if ds == nil {
+		return nil
+	}
+
+	target := requested
+	switch {
+	case requested != "":
+		if !account.IsAllowed(requested, allowed) {
+			return errClusterNotAvailable(requested, allowed)
+		}
+	case current != nil:
+		target = current.EffectiveClusterID()
+	default:
+		target = account.DefaultClusterID(allowed)
+	}
+
+	target = clusters.Canonical(target)
+	ds.Target.ClusterID = target
+	return nil
+}
+
+func enforceAccountClusterPlacement(ds *deployment.AstroDeploymentSpec, allowed []account.ClusterBinding) error {
+	if ds == nil {
+		return nil
+	}
+	if !account.IsAllowed(ds.Target.ClusterID, allowed) {
+		return errClusterNotAvailable(ds.Target.ClusterID, allowed)
+	}
+	return nil
 }
 
 // validateDeployTargetCluster rejects deploys to unknown, disabled, or unhealthy
@@ -321,16 +373,45 @@ func validateDeployTargetCluster(
 
 func respondDeploymentTemplate(
 	c *gin.Context,
+	log *logger.Logger,
 	cfg *config.Config,
+	bindings *account.ClusterBindings,
 	resp *deployment.TemplateResponse,
 	targetAcct *account.Account,
+	requestedClusterID string,
+	current *deploymentstore.Deployment,
 	finalize bool,
 ) {
-	applyAccountClusterPlacement(&resp.Template, targetAcct)
+	allowed, err := bindings.List(targetAcct.ID)
+	if err != nil {
+		log.Error("Failed to list account clusters", "error", err, "account_id", targetAcct.ID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve cluster placement"})
+		return
+	}
+	if err := resolveTemplateClusterID(&resp.Template, requestedClusterID, allowed, current, bindings.Clusters()); err != nil {
+		respondClusterPlacementError(c, err)
+		return
+	}
 	if finalize {
 		resp.Signature = specsign.Sign(cfg.Deployment.TemplateSigningKey, &resp.Template)
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+func respondClusterPlacementError(c *gin.Context, err error) {
+	var notAvailable *ClusterNotAvailableError
+	switch {
+	case errors.As(err, &notAvailable):
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":              notAvailable.Error(),
+			"cluster_id":         notAvailable.Requested,
+			"available_clusters": notAvailable.Available,
+		})
+	case errors.Is(err, ErrClusterNotAllowed):
+		c.JSON(http.StatusForbidden, gin.H{"error": "cluster is not allowed for this account", "details": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve cluster placement"})
+	}
 }
 
 // prepareDeployment parses the submitted spec, authenticates the caller, looks up
@@ -346,7 +427,8 @@ type deployContext struct {
 	deploymentID        string
 	buildID             string
 	k8sNS               string
-	isUpdate            bool // true when deployment_id was provided (in-place update)
+	isUpdate            bool
+	priorClusterID      string
 	resolveResult       *deployment.ResolveResult
 	varRefs             map[string]string // variable name → original account variable ref (before resolution)
 }
@@ -497,7 +579,18 @@ func prepareDeployment(
 		return nil, false
 	}
 
-	applyAccountClusterPlacement(submittedSpec, targetAcct)
+	if submittedSpec.Target.ClusterID != "" {
+		allowed, err := accountStore.Clusters(clusterid.New(cfg.Deployment.DefaultClusterID)).List(targetAcct.ID)
+		if err != nil {
+			log.Error("Failed to list account clusters", "error", err, "account_id", targetAcct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve cluster placement"})
+			return nil, false
+		}
+		if err := enforceAccountClusterPlacement(submittedSpec, allowed); err != nil {
+			respondClusterPlacementError(c, err)
+			return nil, false
+		}
+	}
 
 	// Auth: user must have deployment visibility on the source agent.
 	// Same-account deploys may use private blueprints. Cross-account deploys
@@ -552,6 +645,7 @@ func prepareDeployment(
 	var k8sNamespace, deploymentID string
 	var existing *deploymentstore.Deployment
 	var isUpdate bool
+	var priorClusterID string
 	if submittedSpec.Target.DeploymentID != "" && deployStore != nil {
 		existing, _ = deployStore.GetDeploymentByID(submittedSpec.Target.DeploymentID)
 		if existing == nil {
@@ -566,8 +660,18 @@ func prepareDeployment(
 			c.JSON(http.StatusForbidden, gin.H{"error": "deployment does not belong to target account"})
 			return nil, false
 		}
+		clusters := clusterid.New(cfg.Deployment.DefaultClusterID)
+		if inFlight := clusterplacement.InFlightMove(existing, clusters); inFlight != "" &&
+			!clusters.Same(inFlight, submittedSpec.Target.ClusterID) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      ErrMigrationInFlight.Error(),
+				"cluster_id": inFlight,
+			})
+			return nil, false
+		}
 		deploymentID = existing.ID
 		k8sNamespace = existing.Namespace
+		priorClusterID = existing.EffectiveClusterID()
 		isUpdate = true
 	}
 
@@ -662,6 +766,7 @@ func prepareDeployment(
 		buildID:             buildID,
 		k8sNS:               k8sNamespace,
 		isUpdate:            isUpdate,
+		priorClusterID:      priorClusterID,
 		resolveResult:       resolveResult,
 		varRefs:             varRefs,
 	}, true
@@ -706,6 +811,31 @@ type DeployQueue interface {
 	InsertDeployJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error
 	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
+	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
+}
+
+type deployEnqueue struct {
+	DeploymentID    string
+	ClusterID       string
+	TargetClusterID string
+	SourceClusterID string
+	Migrating       bool
+}
+
+func enqueueDeployOrMigrate(ctx context.Context, q DeployQueue, in deployEnqueue) error {
+	if in.Migrating {
+		return q.InsertMigrateDeploymentClusterJob(ctx, in.DeploymentID, in.TargetClusterID, in.SourceClusterID)
+	}
+	return q.InsertDeployJob(ctx, in.DeploymentID, in.ClusterID)
+}
+
+var ErrMigrationInFlight = errors.New("a cluster migration is already in flight for this deployment")
+
+func resolveUpdatePlacement(isUpdate bool, priorClusterID, targetClusterID string, clusters clusterid.Resolver) (string, bool) {
+	if isUpdate && !clusters.Same(targetClusterID, priorClusterID) {
+		return priorClusterID, true
+	}
+	return targetClusterID, false
 }
 
 type deploymentFGAQueue interface {
@@ -860,6 +990,8 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			return
 		}
 
+		persistedClusterID, migrating := resolveUpdatePlacement(dctx.isUpdate, dctx.priorClusterID, submittedSpec.Target.ClusterID, clusterid.New(cfg.Deployment.DefaultClusterID))
+
 		params := deploymentstore.SaveDeploymentParams{
 			ID: dctx.deploymentID, AccountID: dctx.acct.ID,
 			SourceAccountID: dctx.sourceAccountID,
@@ -867,7 +999,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			AgentName:       dctx.agentName, DisplayName: dctx.displayName,
 			BuildID: dctx.buildID, Namespace: dctx.k8sNS,
 			SpecJSON:  string(specJSON),
-			ClusterID: submittedSpec.Target.ClusterID,
+			ClusterID: persistedClusterID,
 		}
 		if enc != nil {
 			params.EncryptedDataKey = enc.EncryptedDataKey
@@ -978,7 +1110,13 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
-		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID, params.ClusterID); err != nil {
+		if err := enqueueDeployOrMigrate(c.Request.Context(), queue, deployEnqueue{
+			DeploymentID:    dctx.deploymentID,
+			ClusterID:       params.ClusterID,
+			TargetClusterID: submittedSpec.Target.ClusterID,
+			SourceClusterID: dctx.priorClusterID,
+			Migrating:       migrating,
+		}); err != nil {
 			log.Error("deploy: enqueue deploy job failed", "error", err, "deployment_id", dctx.deploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
@@ -3806,6 +3944,7 @@ func generateTemplate(
 // PostDeploymentTemplate returns a handler for the interactive POST deployment-template endpoint.
 // POST /api/v1/agents/:account/:name/deployment-template
 func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, deployStore *deploymentstore.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, cache *TemplateCache) gin.HandlerFunc {
+	bindings := accountStore.Clusters(clusterid.New(cfg.Deployment.DefaultClusterID))
 
 	return func(c *gin.Context) {
 		var req deployment.TemplateRequest
@@ -3926,7 +4065,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 				// Display name is mutable outside the deploy flow — always
 				// apply the current value from the DB, not the cached one.
 				resp.Template.Target.DisplayName = prefillExisting.DisplayName
-				respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
+				respondDeploymentTemplate(c, log, cfg, bindings, resp, targetAcct, req.ClusterID, existing, req.Finalize)
 				return
 			}
 
@@ -3961,7 +4100,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			shapeOpts = shapeOptsWithConfiguredInlineSecrets(shapeOpts, storedVars)
 			shapeOpts = shapeOptsWithModels(shapeOpts, models)
 			resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOpts)
-			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
+			respondDeploymentTemplate(c, log, cfg, bindings, resp, targetAcct, req.ClusterID, existing, req.Finalize)
 			return
 		}
 
@@ -3975,7 +4114,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		cacheKey := accountName + ":" + agentName + ":" + buildIDOverride
 		if base, models, ok := cache.get(cacheKey); ok {
 			resp := deployment.ShapeTemplate(c.Request.Context(), base, &req, shapeOptsWithModels(shapeOpts, models))
-			respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
+			respondDeploymentTemplate(c, log, cfg, bindings, resp, targetAcct, req.ClusterID, nil, req.Finalize)
 			return
 		}
 
@@ -4003,7 +4142,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 		cache.set(cacheKey, template, models)
 		resp := deployment.ShapeTemplate(c.Request.Context(), template, &req, shapeOptsWithModels(shapeOpts, models))
-		respondDeploymentTemplate(c, cfg, resp, targetAcct, req.Finalize)
+		respondDeploymentTemplate(c, log, cfg, bindings, resp, targetAcct, req.ClusterID, nil, req.Finalize)
 	}
 }
 

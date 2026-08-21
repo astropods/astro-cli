@@ -180,6 +180,9 @@ type mockQueue struct{}
 func (q *mockQueue) InsertDeployJob(_ context.Context, _, _ string) error   { return nil }
 func (q *mockQueue) InsertUndeployJob(_ context.Context, _, _ string) error { return nil }
 func (q *mockQueue) InsertWakeUpJob(_ context.Context, _, _ string) error   { return nil }
+func (q *mockQueue) InsertMigrateDeploymentClusterJob(_ context.Context, _, _, _ string) error {
+	return nil
+}
 
 type deploymentFGATestQueue struct {
 	mockQueue
@@ -681,8 +684,8 @@ func TestListDeployments_DBFirst_ReturnsID(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// IsMember
 	accountMock.ExpectQuery(`SELECT`).
@@ -748,8 +751,8 @@ func TestListDeployments_AgentLabelNotLeaked(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myaccount", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myaccount", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -947,8 +950,8 @@ func TestListDeployments_NoDBRecord_ReturnsEmpty(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// IsMember
 	accountMock.ExpectQuery(`SELECT`).
@@ -1206,8 +1209,8 @@ func TestListDeployments_BuildIDFilter_SingleAccount(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -1375,8 +1378,8 @@ func TestListDeployments_NotMember(t *testing.T) {
 	// accountStore.GetByName
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// IsMember returns 0
 	accountMock.ExpectQuery(`SELECT`).
@@ -1465,8 +1468,8 @@ func TestListDeployments_MultipleDeployments(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -1533,8 +1536,8 @@ func TestListDeployments_PerDeploymentClusterRouting(t *testing.T) {
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -1612,8 +1615,8 @@ func TestListDeployments_FailedStatusMapsToError(t *testing.T) {
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	deployMock.ExpectQuery(`SELECT`).
@@ -1667,8 +1670,8 @@ func TestListDeployments_NilDeployStore(t *testing.T) {
 	now := time.Now()
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
-		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order",
+		}).AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
@@ -2043,15 +2046,15 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("source-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// Target account lookup (different from source)
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("target-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("tgt-acct", "target-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("tgt-acct", "target-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// IsMember(target, user) → member of target account
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -2090,14 +2093,14 @@ func TestDeploy_PublicSourceAgent_CrossAccount_Allowed(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("source-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("src-acct", "source-org", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("target-org").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("tgt-acct", "target-org", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("tgt-acct", "target-org", "personal", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("tgt-acct", "user-target").
@@ -2147,8 +2150,8 @@ func TestDeploy_SourceAgentNotFound_Rejected(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	// IsMember(target=source, user) → member
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -2192,8 +2195,8 @@ func TestDeploy_OrgScopedSourceName_Rejected(t *testing.T) {
 			accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 				WithArgs("myorg").
 				WillReturnRows(sqlmock.NewRows(
-					[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-					AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+					[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+					AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 			// IsMember
 			accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
@@ -2366,12 +2369,15 @@ func expectDeployPrepWithCluster(accountMock, indexMock sqlmock.Sqlmock, cluster
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
-			AddRow(account.SQLMockScanRowWithCluster("acct-1", "myorg", "organization", nil, nil, now, now, clusterID)...))
+			AddRow(account.SQLMockScanRow("acct-1", "myorg", "organization", nil, nil, now, now)...))
 
 	// IsMember(target=source, user) → yes
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	expectClusterPlacement(accountMock, "acct-1",
+		account.ClusterBinding{ClusterID: clusterID, Region: "region-a", IsDefault: true})
 
 	// agentIndex.Get (visibility check)
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
@@ -3512,8 +3518,8 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(
-			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			[]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	accountMock.ExpectQuery("SELECT COUNT.+ FROM account_members").
 		WithArgs("acct-1", "user-1").
@@ -4832,6 +4838,16 @@ func TestGetDeploymentEvents_NoAuth(t *testing.T) {
 
 // --- Shared test helpers for template handler tests ---
 
+func expectClusterPlacement(mock sqlmock.Sqlmock, accountID string, bindings ...account.ClusterBinding) {
+	rows := sqlmock.NewRows([]string{"cluster_id", "region", "is_default"})
+	for _, b := range bindings {
+		rows.AddRow(b.ClusterID, b.Region, b.IsDefault)
+	}
+	mock.ExpectQuery("SELECT ac.cluster_id, c.region, ac.is_default").
+		WithArgs(accountID).
+		WillReturnRows(rows)
+}
+
 func expectAccountLookup(mock sqlmock.Sqlmock) {
 	now := time.Now()
 	accountRow := func() *sqlmock.Rows {
@@ -4873,6 +4889,8 @@ func setupPostTemplateRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock, sqlmoc
 	accountDB, accountMock, _ := sqlmock.New()
 	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 
+	accountMock.MatchExpectationsInOrder(false)
+
 	index := agentindex.NewIndexWithDB(indexDB)
 	accountStore := account.NewAccountStore(accountDB)
 	deployStore := deploymentstore.NewStore(deployDB)
@@ -4906,6 +4924,7 @@ func expectGenerateTemplateLatest(indexMock, accountMock sqlmock.Sqlmock, specJS
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
 			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+	expectClusterPlacement(accountMock, "acct-1")
 }
 
 // expectGenerateTemplatePinned sets up mock expectations for generateTemplate
@@ -4919,6 +4938,7 @@ func expectGenerateTemplatePinned(indexMock, accountMock sqlmock.Sqlmock, specJS
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
 			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
+	expectClusterPlacement(accountMock, "acct-1")
 }
 
 // postTemplate sends a POST to the deployment-template endpoint and returns the response.
@@ -5760,6 +5780,7 @@ func TestPostTemplate_CrossAccountPrefill_UsesSourceAccount(t *testing.T) {
 		}))
 	// URL uses "myorg" (target) while the deployment spec points at
 	// "publisher" (source).
+	expectClusterPlacement(accountMock, targetAcctID)
 	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
 
 	if rec.Code != http.StatusOK {
@@ -5825,6 +5846,7 @@ func TestPostTemplate_SameAccountPrefill(t *testing.T) {
 			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
+	expectClusterPlacement(accountMock, acctID)
 	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
 
 	if rec.Code != http.StatusOK {
@@ -5934,6 +5956,7 @@ func TestPostTemplate_CrossAccountPrefill_AuthStaysOnDeploymentAccount(t *testin
 			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
+	expectClusterPlacement(accountMock, targetAcctID)
 	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
 
 	if rec.Code != http.StatusOK {
@@ -6000,6 +6023,7 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 			"deployment_id", "name", "value", "ref", "secret", "optional", "targets", "nonce",
 		}))
 
+	expectClusterPlacement(accountMock, targetAcctID)
 	rec := postTemplateFor(t, router, "myorg", "my-agent", `{"deployment_id":"`+depID+`"}`)
 
 	if rec.Code != http.StatusOK {

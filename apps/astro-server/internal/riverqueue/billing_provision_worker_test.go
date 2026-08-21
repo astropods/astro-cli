@@ -111,14 +111,14 @@ func provisionWorker(t *testing.T, p *fakeProvisioner) (*BillingProvisionWorker,
 func expectAccount(mock sqlmock.Sqlmock) {
 	cols := []string{
 		"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
-		"display_name", "avatar_colors", "avatar_updated_at", "cluster_id",
+		"display_name", "avatar_colors", "avatar_updated_at",
 		"account_number", "bio", "location", "local_timezone", "pronouns", "website",
 		"social_links", "blueprint_order",
 	}
 	now := time.Unix(0, 0)
 	row := sqlmock.NewRows(cols).AddRow(
 		"acct_1", "acme", "org", nil, nil, now, now,
-		"", nil, nil, nil,
+		"", nil, nil,
 		nil, nil, nil, nil, nil, nil, "{}", "{}",
 	)
 	mock.ExpectQuery(acctRe).WillReturnRows(row)

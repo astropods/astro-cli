@@ -4,8 +4,7 @@
 
 -- Managed workload clusters. astro-server reconciles agent deployments into
 -- one of these. `id` is a stable string (e.g. "us-east-1-managed") referenced
--- by `deployments.cluster_id`, `accounts.cluster_id`, `account_clusters.cluster_id`,
--- and River job payloads.
+-- by `deployments.cluster_id`, `account_clusters.cluster_id`, and River job payloads.
 -- Every row present here is usable; a cluster removed from config is deleted
 -- by DeleteRemoved (or left in place if still referenced), never disabled.
 CREATE TABLE public.clusters (
@@ -84,7 +83,6 @@ CREATE TABLE public.accounts (
     -- cache-busting token appended to its CDN avatar URL. NULL means unknown
     -- (no token emitted); set to now() on the next avatar write.
     avatar_updated_at timestamptz,
-    cluster_id varchar(64),
     -- The single user who owns this account. Astro is the source of truth for
     -- ownership; the WorkOS `owner` role slug is a projection of this column, so
     -- an org can never acquire a second owner or lose its only one. Nullable
@@ -93,8 +91,7 @@ CREATE TABLE public.accounts (
     -- invariant rather than a guard.
     owner_user_id text,
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
-    CONSTRAINT accounts_name_key UNIQUE (name),
-    CONSTRAINT accounts_cluster_id_fkey FOREIGN KEY (cluster_id) REFERENCES public.clusters(id) ON DELETE RESTRICT
+    CONSTRAINT accounts_name_key UNIQUE (name)
 );
 
 CREATE INDEX idx_accounts_owner ON public.accounts(owner_user_id);

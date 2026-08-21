@@ -104,18 +104,12 @@ type DeploymentSource struct {
 	Registry string `json:"registry" yaml:"registry"`
 }
 
-// DeploymentTarget describes where to deploy.
-//
-// ClusterID is an optional pin to a specific additional cluster registered
-// in the `clusters` table. Empty means the deployment routes to the
-// primary cluster (the one astro-server is configured against via env
-// vars / kubeconfig).
 type DeploymentTarget struct {
 	Runtime      string `json:"runtime" yaml:"runtime"`
 	Account      string `json:"account,omitempty" yaml:"account,omitempty"`
 	DisplayName  string `json:"display_name,omitempty" yaml:"display_name,omitempty"`
 	DeploymentID string `json:"deployment_id,omitempty" yaml:"deployment_id,omitempty"`
-	ClusterID    string `json:"cluster_id,omitempty" yaml:"cluster_id,omitempty"`
+	ClusterID    string `json:"cluster_id" yaml:"cluster_id"`
 }
 
 // DeploymentAgent describes the main agent container.
@@ -448,6 +442,7 @@ type TemplateRequest struct {
 	Bindings     *TemplateBindings        `json:"bindings,omitempty"`
 	Provisioning *TemplateProvisioning    `json:"provisioning,omitempty"` // per-component compute/volume overrides
 	Finalize     bool                     `json:"finalize,omitempty"`     // when true, response includes an HMAC signature for deploy
+	ClusterID    string                   `json:"cluster_id,omitempty"`
 }
 
 // TemplateProvisioning carries per-component compute and storage overrides.

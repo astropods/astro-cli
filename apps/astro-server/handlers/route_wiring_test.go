@@ -120,8 +120,8 @@ func TestRoutePermissionWiring(t *testing.T) {
 			// ResolveAccount: return org account
 			mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 				WithArgs("myorg").
-				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 			router := gin.New()
 			sessionOrgID := tt.sessionOrgID
@@ -221,8 +221,8 @@ func TestAccountDeleteAsksTheOwnerColumn(t *testing.T) {
 
 			mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 				WithArgs("myorg").
-				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
-					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+				WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+					AddRow(account.SQLMockScanRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now())...))
 			mock.ExpectQuery("SELECT owner_user_id FROM accounts").
 				WithArgs("acct-1").
 				WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(tc.owner))

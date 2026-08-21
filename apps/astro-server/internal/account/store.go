@@ -131,7 +131,6 @@ func (s *AccountStore) ReplaceOwner(accountID, previousUserID, userID string) er
 func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var acct Account
 	var workosOrgID sql.NullString
-	var clusterID sql.NullString
 	var deletedAt sql.NullTime
 	var avatarUpdatedAt sql.NullTime
 	var accountNumber sql.NullInt32
@@ -139,7 +138,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	var socialLinks, blueprintOrder pq.StringArray
 	err := row.Scan(
 		&acct.ID, &acct.Name, &acct.Type, &workosOrgID, &deletedAt,
-		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &avatarUpdatedAt, &clusterID,
+		&acct.CreatedAt, &acct.UpdatedAt, &acct.DisplayName, &acct.AvatarColors, &avatarUpdatedAt,
 		&accountNumber, &bio, &location, &localTimezone, &pronouns, &website, &socialLinks, &blueprintOrder,
 	)
 	if err != nil {
@@ -150,10 +149,6 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 	}
 	if workosOrgID.Valid {
 		acct.WorkOSOrganizationID = workosOrgID.String
-	}
-	if clusterID.Valid {
-		cid := clusterID.String
-		acct.ClusterID = &cid
 	}
 	if deletedAt.Valid {
 		acct.DeletedAt = &deletedAt.Time
@@ -183,7 +178,7 @@ func scanAccount(row interface{ Scan(...any) error }) (*Account, error) {
 // GetByName retrieves an account by its unique name
 func (s *AccountStore) GetByName(name string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at,
 		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -202,7 +197,7 @@ func (s *AccountStore) GetByName(name string) (*Account, error) {
 // GetByID retrieves an account by its UUID
 func (s *AccountStore) GetByID(id string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at,
 		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -221,7 +216,7 @@ func (s *AccountStore) GetByID(id string) (*Account, error) {
 // GetByWorkOSOrganizationID retrieves an account linked to a WorkOS organization.
 func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error) {
 	acct, err := scanAccount(s.db.QueryRow(`
-		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
+		SELECT a.id, a.name, a.type, ao.workos_org_id, a.deleted_at, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at,
 		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_organizations ao ON ao.account_id = a.id
@@ -509,7 +504,7 @@ func nullablePtrStr(s *string) sql.NullString {
 // GetOrgAccountsForUser returns all organization accounts the given user belongs to.
 func (s *AccountStore) GetOrgAccountsForUser(userID string) ([]Account, error) {
 	rows, err := s.db.Query(`
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at, a.cluster_id,
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), NULL, a.created_at, a.updated_at, a.display_name, a.avatar_colors, a.avatar_updated_at,
 		       ap.account_number, ap.bio, ap.location, ap.local_timezone, ap.pronouns, ap.website, COALESCE(ap.social_links, '{}'), COALESCE(ap.blueprint_order, '{}')
 		FROM accounts a
 		JOIN account_members am ON am.account_id = a.id

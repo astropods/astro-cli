@@ -133,11 +133,11 @@ func TestGetAccountInsightsSource_GateFailureIsNot404(t *testing.T) {
 			mock.ExpectQuery(`FROM accounts a`).WillReturnRows(
 				sqlmock.NewRows([]string{
 					"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at",
-					"display_name", "avatar_colors", "avatar_updated_at", "cluster_id",
+					"display_name", "avatar_colors", "avatar_updated_at",
 					"account_number", "bio", "location", "local_timezone", "pronouns", "website",
 					"social_links", "blueprint_order",
 				}).AddRow("acct-1", "acme", "organization", "org_1", nil, time.Now(), time.Now(),
-					"Acme", nil, nil, nil, nil, nil, nil, nil, nil, nil, "{}", "{}"))
+					"Acme", nil, nil, nil, nil, nil, nil, nil, nil, "{}", "{}"))
 			mock.ExpectQuery(`FROM account_members`).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 			tc.gate(mock)

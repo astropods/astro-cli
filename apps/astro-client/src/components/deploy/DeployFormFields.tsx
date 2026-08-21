@@ -19,6 +19,7 @@ import { ImportVariables } from "./ImportVariables";
 import { SchedulePicker } from "./SchedulePicker";
 import { KnowledgeBindingPicker } from "./KnowledgeBindingPicker";
 import { AdvancedProvisioningFields } from "./AdvancedProvisioningFields";
+import { ClusterPicker } from "./ClusterPicker";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { AvatarUploadDialog } from "@/components/settings/AvatarUploadDialog";
 import { useKnowledgeStores } from "@/api/queries/knowledge";
@@ -146,6 +147,14 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
             </div>
           </div>
 
+          <ClusterPicker
+            account={form.targetAccount}
+            value={form.clusterId}
+            onChange={form.setClusterId}
+            currentClusterId={form.template.target.cluster_id}
+            deployed={!!form.template.target.deployment_id}
+          />
+
           {!hideAccountPicker && form.accounts.length > 1 && (
             <div>
               <Label size="md">Deploy to</Label>
@@ -156,6 +165,7 @@ export function DeployFormFields({ form, hideTemplateError, hideAccountPicker, i
               />
             </div>
           )}
+
         </div>
       </FormSection>
 

@@ -471,7 +471,7 @@ func TestGetAccountDeploymentsSummary_NotConfigured(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -523,7 +523,7 @@ func TestGetAccountDeploymentsSummary_InvalidPeriod(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
@@ -587,7 +587,7 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 	accountMock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
 		WithArgs("myorg").
 		WillReturnRows(sqlmock.NewRows(accountCols).
-			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("acct-1", "myorg", "organization", nil, nil, now, now, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	accountMock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
