@@ -84,24 +84,31 @@ func (b *ClusterBindings) materializePrimary(db execer, accountID string) error 
 	return BindPrimary(db, accountID, b.clusters.Primary())
 }
 
+const backfillPrimaryBindingsSQL = `
+	INSERT INTO account_clusters (account_id, cluster_id, is_default)
+	SELECT a.id, $1::varchar, true
+	FROM accounts a
+	WHERE a.deleted_at IS NULL
+	  AND EXISTS (SELECT 1 FROM clusters WHERE id = $1::varchar)
+	  AND NOT EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id)
+	FOR KEY SHARE OF a
+	ON CONFLICT (account_id, cluster_id) DO NOTHING`
+
 // BackfillPrimaryBindings gives every account with no bindings its primary one, so a
 // reader that cannot write does not have to decide what an empty set means. It
 // is idempotent: the NOT EXISTS filter empties out and later passes do nothing.
 // It no-ops when the primary has no clusters row, which is the local mode with
 // no cluster config.
+//
+// FOR KEY SHARE holds each account it selects until the insert commits.
+// Without it a hard delete landing between the read and the foreign key check
+// aborts the whole pass, so one account going away would leave every other
+// account unbound.
 func (b *ClusterBindings) BackfillPrimaryBindings(ctx context.Context) (int64, error) {
 	if b.clusters.Primary() == "" {
 		return 0, nil
 	}
-	res, err := b.db.ExecContext(ctx, `
-		INSERT INTO account_clusters (account_id, cluster_id, is_default)
-		SELECT a.id, $1::varchar, true
-		FROM accounts a
-		WHERE a.deleted_at IS NULL
-		  AND EXISTS (SELECT 1 FROM clusters WHERE id = $1::varchar)
-		  AND NOT EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id)
-		ON CONFLICT (account_id, cluster_id) DO NOTHING
-	`, b.clusters.Primary())
+	res, err := b.db.ExecContext(ctx, backfillPrimaryBindingsSQL, b.clusters.Primary())
 	if err != nil {
 		return 0, fmt.Errorf("backfill primary cluster bindings: %w", err)
 	}
