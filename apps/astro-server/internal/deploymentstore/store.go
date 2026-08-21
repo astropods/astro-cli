@@ -591,28 +591,37 @@ func (s *Store) ListAccountIDsWithLineageAgent(ctx context.Context, lineageAccou
 	return ids, nil
 }
 
-// ListActiveNamespacesForCluster returns the distinct namespace of every
-// non-undeployed deployment routed to clusterID. Empty clusterID means the
-// default cluster (deployments.cluster_id IS NULL), handled internally here
-// rather than pushing the NULL-vs-equality distinction onto callers. Used to
-// re-push a cluster's pull Secret to every namespace already running there
-// after its credential changes.
-func (s *Store) ListActiveNamespacesForCluster(ctx context.Context, clusterID string) ([]string, error) {
-	var rows *sql.Rows
-	var err error
-	if clusterID == "" {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT DISTINCT namespace
-			FROM deployments
-			WHERE cluster_id IS NULL AND status <> 'undeployed'
-		`)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			SELECT DISTINCT namespace
-			FROM deployments
-			WHERE cluster_id = $1 AND status <> 'undeployed'
-		`, clusterID)
+type PrimaryPlacementBackfillResult struct {
+	Recorded int64
+}
+
+func (s *Store) BackfillPrimaryClusterID(ctx context.Context, defaultClusterID string) (PrimaryPlacementBackfillResult, error) {
+	var res PrimaryPlacementBackfillResult
+	if defaultClusterID == "" {
+		return res, nil
 	}
+	out, err := s.db.ExecContext(ctx, `
+		UPDATE deployments SET cluster_id = $1
+		WHERE cluster_id IS NULL AND status <> 'undeployed'
+		  AND EXISTS (SELECT 1 FROM clusters WHERE id = $1)
+	`, defaultClusterID)
+	if err != nil {
+		return res, fmt.Errorf("backfill primary cluster_id: %w", err)
+	}
+	res.Recorded, err = out.RowsAffected()
+	if err != nil {
+		return res, fmt.Errorf("backfill primary cluster_id rows affected: %w", err)
+	}
+	return res, nil
+}
+
+// ListActiveNamespacesForCluster returns the distinct namespace of every
+func (s *Store) ListActiveNamespacesForCluster(ctx context.Context, clusterID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT namespace
+		FROM deployments
+		WHERE status <> 'undeployed' AND cluster_id = $1
+	`, clusterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cluster namespaces: %w", err)
 	}

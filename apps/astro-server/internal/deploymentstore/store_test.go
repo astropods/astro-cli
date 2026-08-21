@@ -1,6 +1,7 @@
 package deploymentstore
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -797,5 +798,75 @@ func TestFailStaleDeployments(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Errorf("second sweep failed IDs = %v, want none", ids)
+	}
+}
+
+func TestBackfillPrimaryClusterID(t *testing.T) {
+	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
+
+	unrecorded, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "unrecorded-placement",
+		DisplayName: "Unrecorded", BuildID: "build-1", Namespace: "ns-unrecorded",
+		SpecJSON: `{}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending unrecorded failed: %v", err)
+	}
+	undeployed, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "undeployed-placement",
+		DisplayName: "Undeployed", BuildID: "build-1", Namespace: "ns-undeployed",
+		SpecJSON: `{}`,
+	}, nil)
+	if err != nil {
+		t.Fatalf("SaveDeploymentPending undeployed failed: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE deployments SET status = 'undeployed', cluster_id = NULL WHERE id = $1`, undeployed.ID); err != nil {
+		t.Fatalf("mark undeployed: %v", err)
+	}
+
+	unregistered, err := store.BackfillPrimaryClusterID(context.Background(), "itest-unregistered")
+	if err != nil {
+		t.Fatalf("unregistered primary should be a no-op, got %v", err)
+	}
+	if unregistered.Recorded != 0 {
+		t.Errorf("recorded = %d against an unregistered primary, want 0", unregistered.Recorded)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO clusters (id, region, eks_cluster_name, eks_cluster_endpoint)
+		VALUES ('cluster-primary', 'region-a', 'cluster-primary', 'https://eks.example')
+		ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatalf("register primary: %v", err)
+	}
+
+	res, err := store.BackfillPrimaryClusterID(context.Background(), "cluster-primary")
+	if err != nil {
+		t.Fatalf("BackfillPrimaryClusterID failed: %v", err)
+	}
+	if res.Recorded < 1 {
+		t.Fatalf("recorded = %d, want at least the one unrecorded deployment", res.Recorded)
+	}
+
+	got, _ := store.GetDeploymentByID(unrecorded.ID)
+	if got.EffectiveClusterID() != "cluster-primary" {
+		t.Errorf("cluster_id = %q, want cluster-primary", got.EffectiveClusterID())
+	}
+	gotUndeployed, _ := store.GetDeploymentByID(undeployed.ID)
+	if gotUndeployed.EffectiveClusterID() != "" {
+		t.Errorf("undeployed cluster_id = %q, want it left cleared", gotUndeployed.EffectiveClusterID())
+	}
+
+	again, err := store.BackfillPrimaryClusterID(context.Background(), "cluster-primary")
+	if err != nil {
+		t.Fatalf("second pass failed: %v", err)
+	}
+	if again.Recorded != 0 {
+		t.Errorf("second pass recorded = %d, want 0", again.Recorded)
+	}
+
+	if res, err := store.BackfillPrimaryClusterID(context.Background(), ""); err != nil || res.Recorded != 0 {
+		t.Errorf("unconfigured primary: res = %+v, err = %v", res, err)
 	}
 }

@@ -40,6 +40,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
 	"github.com/astropods/astro/apps/astro-server/internal/classification"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterconfig"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
@@ -655,6 +656,17 @@ func runAPI(
 	return srv, grpcServer, probeHandler, adminSrv, rq
 }
 
+func backfillPrimaryPlacement(ctx context.Context, store *deploymentstore.Store, clusters clusterid.Resolver, log *logger.Logger) {
+	res, err := store.BackfillPrimaryClusterID(ctx, clusters.Primary())
+	if err != nil {
+		log.Warn("cluster placement backfill failed", "error", err)
+		return
+	}
+	if res.Recorded > 0 {
+		log.Info("cluster placement backfill complete", "recorded", res.Recorded, "cluster_id", clusters.Primary())
+	}
+}
+
 // backfillClusterPullCredentials is safe to run from every process/replica —
 // EnsurePullCredential is a guarded, no-op-once-issued UPDATE. Refreshes the
 // registry's cached entry for anything it backfills, since GetEntry caches
@@ -790,6 +802,7 @@ func runWorker(
 			Name:    "deploy-controller",
 			Logger:  log,
 		}, func(leaderCtx context.Context) {
+			backfillPrimaryPlacement(leaderCtx, workerDeploymentStore, clusterid.New(cfg.Deployment.DefaultClusterID), log)
 			// Feed leader-received nudges into the controller queue; the listener's
 			// lifetime is tied to leadership via leaderCtx.
 			go pgnotify.Listen(leaderCtx, dsn, pgnotify.DeployReconcileChannel, log, controller.EnqueueNamespace)
