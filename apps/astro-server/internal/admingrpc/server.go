@@ -668,7 +668,7 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 		if d.CurrentRevision != nil {
 			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
 		}
-		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID, d.Status)
+		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID, d.Status, s.clusters())
 
 		results = append(results, ad)
 	}
@@ -748,7 +748,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if dep.CurrentRevision != nil {
 		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
 	}
-	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID, dep.Status)
+	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID, dep.Status, s.clusters())
 
 	// Fetch events
 	var protoEvents []*adminv1.AdminDeploymentEvent
@@ -856,7 +856,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		Workloads:         protoWorkloads,
 		ExpectedServices:  protoServices,
 		ExpectedIngresses: protoIngresses,
-		PlacementHint:     placementHintMessage(accountClusterID, dep.EffectiveClusterID()),
+		PlacementHint:     placementHintMessage(accountClusterID, dep.EffectiveClusterID(), s.clusters()),
 	}
 
 	// Include adapters from the stored deployment spec (default to empty list)
@@ -2355,14 +2355,14 @@ func (s *Server) ReapplyDeployment(ctx context.Context, req *adminv1.ReapplyDepl
 
 	routingClusterID := dep.EffectiveClusterID()
 
-	if placementMismatch(accountClusterID, routingClusterID) {
+	if !s.clusters().Same(accountClusterID, routingClusterID) {
 		if s.queue == nil {
 			return nil, fmt.Errorf("queue not configured; cannot migrate cluster placement")
 		}
 		if err := s.queue.InsertMigrateDeploymentClusterJob(ctx, dep.ID, accountClusterID, routingClusterID); err != nil {
 			return nil, fmt.Errorf("enqueue cluster migration: %w", err)
 		}
-		msg := placementUpdateMessage(routingClusterID, accountClusterID)
+		msg := s.placementUpdateMessage(routingClusterID, accountClusterID)
 		return &adminv1.ReapplyDeploymentResponse{
 			Status:                  "reapplying",
 			ClusterPlacementUpdated: true,

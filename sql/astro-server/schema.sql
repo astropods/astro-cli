@@ -4,7 +4,8 @@
 
 -- Managed workload clusters. astro-server reconciles agent deployments into
 -- one of these. `id` is a stable string (e.g. "us-east-1-managed") referenced
--- by `deployments.cluster_id`, `accounts.cluster_id`, and River job payloads.
+-- by `deployments.cluster_id`, `accounts.cluster_id`, `account_clusters.cluster_id`,
+-- and River job payloads.
 -- Every row present here is usable; a cluster removed from config is deleted
 -- by DeleteRemoved (or left in place if still referenced), never disabled.
 CREATE TABLE public.clusters (
@@ -111,6 +112,21 @@ CREATE INDEX idx_accounts_name_prefix ON public.accounts(name text_pattern_ops);
 CREATE INDEX idx_accounts_pending_billing_provision
     ON public.accounts(created_at)
     WHERE billing_provisioned_at IS NULL AND deleted_at IS NULL;
+
+-- Clusters an account may deploy to. No rows means the primary cluster.
+CREATE TABLE public.account_clusters (
+    account_id uuid        NOT NULL,
+    cluster_id varchar(64) NOT NULL,
+    is_default boolean     NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT account_clusters_pkey PRIMARY KEY (account_id, cluster_id),
+    CONSTRAINT account_clusters_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT account_clusters_cluster_id_fkey FOREIGN KEY (cluster_id) REFERENCES public.clusters(id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX account_clusters_one_default
+    ON public.account_clusters(account_id)
+    WHERE is_default;
 
 -- Server-owned organization experiments are explicit tenant choices. Missing
 -- rows are disabled so new experiments always fail back to current behavior.

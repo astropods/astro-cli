@@ -9,6 +9,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -47,7 +48,7 @@ func TestListDeploymentsNeedingMigration(t *testing.T) {
 				time.Now(), nil, nil, nil,
 			))
 
-	got, err := ListDeploymentsNeedingMigration(store, "acct-1", "eu")
+	got, err := ListDeploymentsNeedingMigration(store, "acct-1", "eu", clusterid.Resolver{})
 	if err != nil {
 		t.Fatalf("ListDeploymentsNeedingMigration: %v", err)
 	}

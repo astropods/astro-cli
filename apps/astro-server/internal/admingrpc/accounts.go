@@ -101,7 +101,7 @@ func (s *Server) MigrateAccountDeployments(ctx context.Context, req *adminv1.Mig
 		clusterID = *acct.ClusterID
 	}
 
-	toMigrate, err := clusterplacement.ListDeploymentsNeedingMigration(s.deployStore, req.AccountID, clusterID)
+	toMigrate, err := clusterplacement.ListDeploymentsNeedingMigration(s.deployStore, req.AccountID, clusterID, s.clusters())
 	if err != nil {
 		return nil, fmt.Errorf("list deployments for migration: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -29,6 +30,7 @@ type Migrator struct {
 	Store    *deploymentstore.Store
 	Queue    DeployJobEnqueuer
 	Cache    k8scache.Cache
+	Clusters clusterid.Resolver
 }
 
 // MigrateInput identifies one deployment cluster move.
@@ -50,14 +52,14 @@ func isMigratableStatus(status string) bool {
 
 // ListDeploymentsNeedingMigration returns migratable deployments whose routing
 // cluster differs from the target account cluster.
-func ListDeploymentsNeedingMigration(store *deploymentstore.Store, accountID, targetClusterID string) ([]*deploymentstore.Deployment, error) {
+func ListDeploymentsNeedingMigration(store *deploymentstore.Store, accountID, targetClusterID string, clusters clusterid.Resolver) ([]*deploymentstore.Deployment, error) {
 	deps, err := store.GetDeploymentsByAccountInStatuses(accountID, MigratableStatuses...)
 	if err != nil {
 		return nil, err
 	}
 	var out []*deploymentstore.Deployment
 	for _, d := range deps {
-		if PlacementMismatch(targetClusterID, d.EffectiveClusterID()) {
+		if !clusters.Same(targetClusterID, d.EffectiveClusterID()) {
 			out = append(out, d)
 		}
 	}
@@ -94,13 +96,13 @@ func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (skip
 	}
 
 	sourceClusterID := dep.EffectiveClusterID()
-	if !PlacementMismatch(in.TargetClusterID, sourceClusterID) {
+	if m.Clusters.Same(in.TargetClusterID, sourceClusterID) {
 		if dep.Status == deploymentstore.StatusPending {
 			return m.finishDeployEnqueue(ctx, dep, in.TargetClusterID)
 		}
 		return true, nil
 	}
-	if in.SourceClusterID != "" && NormalizedClusterID(sourceClusterID) != NormalizedClusterID(in.SourceClusterID) {
+	if in.SourceClusterID != "" && !m.Clusters.Same(sourceClusterID, in.SourceClusterID) {
 		return true, nil
 	}
 
@@ -114,14 +116,14 @@ func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (skip
 		}
 	}
 
-	patchedSpec, err := PatchDeploymentSpecClusterID(dep.DeploymentSpecJSON, in.TargetClusterID)
+	patchedSpec, err := PatchDeploymentSpecClusterID(dep.DeploymentSpecJSON, in.TargetClusterID, m.Clusters)
 	if err != nil {
 		return false, err
 	}
 
 	eventMsg := in.EventMessage
 	if eventMsg == "" {
-		eventMsg = AccountMigrationEventMessage(sourceClusterID, in.TargetClusterID)
+		eventMsg = AccountMigrationEventMessage(sourceClusterID, in.TargetClusterID, m.Clusters)
 	}
 
 	if err := m.Store.ApplyClusterMigration(deploymentstore.ClusterMigrationParams{

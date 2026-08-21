@@ -5,19 +5,19 @@ import (
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterplacement"
 )
 
-func placementMismatch(accountClusterID, deploymentClusterID string) bool {
-	return clusterplacement.PlacementMismatch(accountClusterID, deploymentClusterID)
-}
-
-func clusterIDLabel(id string) string {
-	return clusterplacement.ClusterIDLabel(id)
+func (s *Server) clusters() clusterid.Resolver {
+	if s.k8sRegistry == nil {
+		return clusterid.Resolver{}
+	}
+	return clusterid.New(s.k8sRegistry.DefaultClusterID())
 }
 
 // populateAdminDeploymentPlacement sets cluster placement fields on an admin deployment row.
-func populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, deploymentClusterID, accountClusterID, status string) {
+func populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, deploymentClusterID, accountClusterID, status string, clusters clusterid.Resolver) {
 	if ad == nil {
 		return
 	}
@@ -27,26 +27,26 @@ func populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, deploymentClu
 	// anymore, nothing to redeploy) and would otherwise spuriously mismatch
 	// against whatever cluster the account is currently pinned to.
 	if status != "undeployed" {
-		ad.PlacementMismatch = placementMismatch(accountClusterID, deploymentClusterID)
+		ad.PlacementMismatch = !clusters.Same(accountClusterID, deploymentClusterID)
 	}
 }
 
 // placementHintMessage returns guidance when account and deployment clusters differ.
-func placementHintMessage(accountClusterID, deploymentClusterID string) string {
-	if !placementMismatch(accountClusterID, deploymentClusterID) {
+func placementHintMessage(accountClusterID, deploymentClusterID string, clusters clusterid.Resolver) string {
+	if clusters.Same(accountClusterID, deploymentClusterID) {
 		return ""
 	}
 	return fmt.Sprintf(
 		"Account is pinned to %q but this deployment routes to %q. Queen Redeploy queues teardown on the source cluster, then redeploys to the account cluster.",
-		clusterIDLabel(accountClusterID),
-		clusterIDLabel(deploymentClusterID),
+		clusters.Label(accountClusterID),
+		clusters.Label(deploymentClusterID),
 	)
 }
 
-func patchDeploymentSpecClusterID(specJSON, clusterID string) (string, error) {
-	return clusterplacement.PatchDeploymentSpecClusterID(specJSON, clusterID)
+func (s *Server) patchDeploymentSpecClusterID(specJSON, clusterID string) (string, error) {
+	return clusterplacement.PatchDeploymentSpecClusterID(specJSON, clusterID, s.clusters())
 }
 
-func placementUpdateMessage(fromClusterID, toClusterID string) string {
-	return "Admin re-apply: " + clusterplacement.MigrationEventMessage(fromClusterID, toClusterID)
+func (s *Server) placementUpdateMessage(fromClusterID, toClusterID string) string {
+	return "Admin re-apply: " + clusterplacement.MigrationEventMessage(fromClusterID, toClusterID, s.clusters())
 }
