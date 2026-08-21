@@ -85,10 +85,19 @@ CREATE TABLE public.accounts (
     -- (no token emitted); set to now() on the next avatar write.
     avatar_updated_at timestamptz,
     cluster_id varchar(64),
+    -- The single user who owns this account. Astro is the source of truth for
+    -- ownership; the WorkOS `owner` role slug is a projection of this column, so
+    -- an org can never acquire a second owner or lose its only one. Nullable
+    -- until every writer populates it, at which point a composite FK to
+    -- account_members and NOT NULL make "the owner is one of the members" an
+    -- invariant rather than a guard.
+    owner_user_id text,
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name),
     CONSTRAINT accounts_cluster_id_fkey FOREIGN KEY (cluster_id) REFERENCES public.clusters(id) ON DELETE RESTRICT
 );
+
+CREATE INDEX idx_accounts_owner ON public.accounts(owner_user_id);
 
 CREATE TABLE public.account_profile (
     account_id uuid NOT NULL,
