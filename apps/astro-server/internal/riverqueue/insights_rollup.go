@@ -13,16 +13,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// InsightsRollupProducer is the contract for rolling one account-day of
-// upstream telemetry into insights_usage_daily. main wires it to the handlers
-// implementation, which owns the Langfuse query helpers and the dev-tool
-// adapter registry. An interface here keeps the handlers package out of
-// riverqueue's import graph.
+// InsightsRollupProducer is the contract for rolling a window of account-days
+// of upstream telemetry into insights_usage_daily. main wires it to the
+// handlers implementation, which owns the Langfuse query helpers and the
+// dev-tool adapter registry. An interface here keeps the handlers package out
+// of riverqueue's import graph.
+//
+// The window is a slice of days rather than a pair of bounds because every day
+// in it must be replaced, including the days upstream reports nothing for.
 //
 // nil → the roll-up workers become no-ops, so a deployment without the producer
 // wired behaves exactly as it did before this existed.
 type InsightsRollupProducer interface {
-	RollUpDay(ctx context.Context, accountID string, day time.Time) error
+	RollUpRange(ctx context.Context, accountID string, days []time.Time) error
 }
 
 // InsightsRollupArgs is the discovery half: a daily periodic job that enumerates
@@ -130,14 +133,14 @@ func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[Insights
 // InsightsRollupAccountWorker rolls up one account: every complete day from the
 // watermark (minus the trailing re-roll window) through yesterday.
 //
-// The watermark advances one day at a time, after that day's facts commit, so it
-// can never claim coverage the facts don't support. A failure holds it in place
-// and is recorded — a stalled watermark is a visible state that surfaces to the
-// page as `as_of`, rather than a silently stale cache entry.
+// Days are rolled a window at a time, because one range query answers every day
+// in a window. The watermark advances after each window's facts commit, so it
+// can never claim coverage the facts don't support, and a run that dies partway
+// keeps the windows it finished instead of repeating them on the next attempt.
 //
-// Advancing per day is also what makes a run resumable. A run that dies partway
-// keeps the days it finished, so the next attempt starts where it stopped
-// instead of repeating the same opening days until it expires again.
+// A failure holds the watermark in place and is recorded — a stalled watermark
+// is a visible state that surfaces to the page as `as_of`, rather than a
+// silently stale cache entry.
 type InsightsRollupAccountWorker struct {
 	river.WorkerDefaults[InsightsRollupAccountArgs]
 	producer InsightsRollupProducer
@@ -146,13 +149,12 @@ type InsightsRollupAccountWorker struct {
 }
 
 // Timeout sizes the deadline to the work. A cold account backfills
-// MaxBackfillDays days, each a few upstream round trips, so the job is minutes
-// long by construction; River's one-minute default expires around day 28 of 90
-// and every attempt dies in the same place. Nothing waits on a roll-up, so the
-// budget can be generous.
-//
-// The bound that stops a wedged run is per day, not per job: RollUpAgentsDay
-// caps one day's fetch, which only means anything while it is shorter than this.
+// MaxBackfillDays days as a few windowed range queries, each bounded by the
+// producer's own per-window timeout, so the worst case scales with the window
+// count rather than the day count. Nothing waits on a roll-up, so the budget
+// sits well above that worst case instead of being tuned to it: River's
+// one-minute default is below it, and a job that expires mid-window repeats
+// that window on the next attempt.
 func (w *InsightsRollupAccountWorker) Timeout(*river.Job[InsightsRollupAccountArgs]) time.Duration {
 	return 15 * time.Minute
 }
@@ -199,9 +201,11 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 		"budget", budgetLabel(ctx))
 
 	runStart := time.Now()
-	for i, day := range days {
-		dayStart := time.Now()
-		err := w.producer.RollUpDay(ctx, accountID, day)
+	windows := insightsrollup.Windows(days)
+	for i, window := range windows {
+		windowStart := time.Now()
+		last := window[len(window)-1]
+		err := w.producer.RollUpRange(ctx, accountID, window)
 		if err != nil {
 			if errors.Is(err, insightsrollup.ErrAccountGone) {
 				// Deleted after discovery enqueued this. Return before touching the
@@ -213,11 +217,13 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 			}
 			// Stop at the first failure rather than pressing on: advancing past a
 			// gap would leave a hole no later tick revisits, because the
-			// watermark would claim the day was done.
-			w.log.Warn("insights rollup: day failed, holding watermark",
-				"account_id", accountID, "day", day.Format(time.DateOnly),
+			// watermark would claim the days were done.
+			w.log.Warn("insights rollup: window failed, holding watermark",
+				"account_id", accountID,
+				"first_day", window[0].Format(time.DateOnly),
+				"last_day", last.Format(time.DateOnly),
 				"attempt", job.Attempt,
-				"day_index", i+1, "day_count", len(days),
+				"window_index", i+1, "window_count", len(windows),
 				"elapsed", time.Since(runStart).Round(time.Millisecond).String(),
 				"budget_left", budgetLabel(ctx),
 				"error", err)
@@ -238,17 +244,19 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 					"account_id", accountID, "error", err)
 				return nil
 			}
-			return fmt.Errorf("roll up %s for %s: %w", day.Format(time.DateOnly), accountID, err)
+			return fmt.Errorf("roll up %s..%s for %s: %w",
+				window[0].Format(time.DateOnly), last.Format(time.DateOnly), accountID, err)
 		}
-		if err := w.rollups.RecordProgress(ctx, accountID, insightsrollup.SourceAgents, day); err != nil {
+		if err := w.rollups.RecordProgress(ctx, accountID, insightsrollup.SourceAgents, last); err != nil {
 			return fmt.Errorf("record progress for %s: %w", accountID, err)
 		}
-		w.log.Debug("insights rollup: day completed",
+		w.log.Debug("insights rollup: window completed",
 			"account_id", accountID,
-			"day", day.Format(time.DateOnly),
-			"day_index", i+1,
-			"day_count", len(days),
-			"duration", time.Since(dayStart).Round(time.Millisecond).String(),
+			"first_day", window[0].Format(time.DateOnly),
+			"last_day", last.Format(time.DateOnly),
+			"window_index", i+1,
+			"window_count", len(windows),
+			"duration", time.Since(windowStart).Round(time.Millisecond).String(),
 			"elapsed", time.Since(runStart).Round(time.Millisecond).String(),
 			"budget_left", budgetLabel(ctx))
 	}

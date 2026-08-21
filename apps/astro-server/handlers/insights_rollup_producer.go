@@ -23,9 +23,10 @@ import (
 // registry, and identity classification. main injects it through an interface so
 // riverqueue never imports handlers.
 //
-// The unit of work is a single day, which is the whole point: a completed day is
-// fetched once, ever, rather than re-aggregated inside a 90-day window on every
-// refresh.
+// The unit of storage is a single day, which is the whole point: a completed
+// day is fetched once, ever, rather than re-aggregated inside a 90-day window
+// on every refresh. The unit of *fetch* is a window of days, because Langfuse
+// buckets a range query by day and one request answers all of them.
 type InsightsRollupProducer struct {
 	Log           *logger.Logger
 	Cfg           *config.Config
@@ -36,13 +37,26 @@ type InsightsRollupProducer struct {
 	Rollups       *insightsrollup.Store
 }
 
-// RollUpDay rolls every source for one account-day. It satisfies
-// riverqueue.InsightsRollupProducer.
+// RollUpRange rolls every source for a consecutive run of account-days. It
+// satisfies riverqueue.InsightsRollupProducer.
+//
+// The window is the unit of *fetch*, not of storage: Langfuse buckets a range
+// query by day, so one request answers every day in it and the day stays the
+// unit written. Asking per day instead costs a round trip per day, which is
+// what made a 90-day backfill minutes long.
+//
+// Days are passed explicitly rather than as bounds because every one of them
+// must be replaced, including the days the response has no rows for. Writing
+// only the days that came back would leave stale facts on a day whose spend
+// went to zero.
 //
 // Agent and dev-tool spend are rolled together because they share a day
 // boundary and each is a full replace scoped to its own source, so a failure in
-// one leaves the other's rows for that day intact and correct.
-func (p *InsightsRollupProducer) RollUpDay(ctx context.Context, accountID string, day time.Time) error {
+// one leaves the other's rows for those days intact and correct.
+func (p *InsightsRollupProducer) RollUpRange(ctx context.Context, accountID string, days []time.Time) error {
+	if len(days) == 0 {
+		return nil
+	}
 	acct, err := p.AccountStore.GetByID(accountID)
 	if errors.Is(err, account.ErrAccountNotFound) {
 		// Deleted between discovery and this job. Reported as ErrAccountGone so
@@ -54,23 +68,25 @@ func (p *InsightsRollupProducer) RollUpDay(ctx context.Context, accountID string
 		return fmt.Errorf("insights rollup: load account %s: %w", accountID, err)
 	}
 	agentsStart := time.Now()
-	if err := p.RollUpAgentsDay(ctx, acct, day); err != nil {
+	if err := p.RollUpAgentsRange(ctx, acct, days); err != nil {
 		return err
 	}
 	agentsDuration := time.Since(agentsStart)
 
 	devtoolsStart := time.Now()
-	err = p.RollUpDevtoolsDay(ctx, accountID, day)
-	p.Log.Debug("insights rollup: day sources rolled",
+	err = p.RollUpDevtoolsRange(ctx, accountID, days)
+	p.Log.Debug("insights rollup: window sources rolled",
 		"account_id", accountID,
-		"day", day.UTC().Format(time.DateOnly),
+		"first_day", days[0].UTC().Format(time.DateOnly),
+		"last_day", days[len(days)-1].UTC().Format(time.DateOnly),
+		"day_count", len(days),
 		"agents_duration", agentsDuration.Round(time.Millisecond).String(),
 		"devtools_duration", time.Since(devtoolsStart).Round(time.Millisecond).String())
 	return err
 }
 
-// rollupQueryTimeout bounds one day's upstream fetch. Generous compared to the
-// read path's 30s because nothing is waiting on it.
+// rollupQueryTimeout bounds one window's upstream fetch. Generous compared to
+// the read path's 30s because nothing is waiting on it.
 const rollupQueryTimeout = 60 * time.Second
 
 // timedMetrics reports what one upstream query cost. A roll-up is almost
@@ -98,9 +114,9 @@ func (p *InsightsRollupProducer) timedMetrics(
 	return resp, err
 }
 
-// RollUpAgentsDay writes the 'usage' and 'model' grain rows for one account-day
-// of agent spend, then returns. It does not touch the watermark — the caller
-// owns that, because a watermark may only advance once every day behind it has
+// RollUpAgentsRange writes the 'usage' and 'model' grain rows for a window of
+// agent spend, then returns. It does not touch the watermark — the caller owns
+// that, because a watermark may only advance once every day behind it has
 // committed.
 //
 // No deployment-tag filter is applied, deliberately. v1 filters to visible
@@ -109,11 +125,11 @@ func (p *InsightsRollupProducer) timedMetrics(
 // deleted deployments can be stored and the read path decides what to show by
 // LEFT JOINing deployments. That is what lets usage history outlive the agent
 // that produced it.
-func (p *InsightsRollupProducer) RollUpAgentsDay(ctx context.Context, acct *account.Account, day time.Time) error {
+func (p *InsightsRollupProducer) RollUpAgentsRange(ctx context.Context, acct *account.Account, days []time.Time) error {
 	creds, err := p.LangfuseStore.Get(acct.ID)
 	if err != nil || creds == nil {
 		// No Langfuse project for this account — nothing to roll up, and not an
-		// error. Writing an empty day would be wrong: it would claim coverage.
+		// error. Writing empty days would be wrong: it would claim coverage.
 		return nil
 	}
 
@@ -121,36 +137,48 @@ func (p *InsightsRollupProducer) RollUpAgentsDay(ctx context.Context, acct *acco
 	ctx, cancel := context.WithTimeout(ctx, rollupQueryTimeout)
 	defer cancel()
 
-	from, to := rollupDayBounds(day)
+	from, to := rollupRangeBounds(days)
 
-	usage, err := p.fetchUsageGrain(ctx, client, acct, day, from, to)
+	usage, err := p.fetchUsageGrain(ctx, client, acct, from, to)
 	if err != nil {
 		return err
 	}
-	if err := p.Rollups.ReplaceDay(ctx, acct.ID, insightsrollup.GrainUsage, day, insightsrollup.SourceAgents, usage); err != nil {
-		return err
-	}
-
 	models, err := p.fetchModelGrain(ctx, client, from, to)
 	if err != nil {
 		return err
 	}
-	return p.Rollups.ReplaceDay(ctx, acct.ID, insightsrollup.GrainModel, day, insightsrollup.SourceAgents, models)
+
+	for _, day := range days {
+		d := day.UTC().Format(time.DateOnly)
+		if err := p.Rollups.ReplaceDay(ctx, acct.ID, insightsrollup.GrainUsage, day, insightsrollup.SourceAgents, usage[d]); err != nil {
+			return err
+		}
+		if err := p.Rollups.ReplaceDay(ctx, acct.ID, insightsrollup.GrainModel, day, insightsrollup.SourceAgents, models[d]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *InsightsRollupProducer) fetchUsageGrain(
 	ctx context.Context,
 	client *langfuse.Client,
 	acct *account.Account,
-	day time.Time,
 	from, to string,
-) ([]insightsrollup.Fact, error) {
+) (map[string][]insightsrollup.Fact, error) {
+	// A day time-dimension makes each row one (day, tags, userId) cell, so one
+	// request covers the whole window. Day is the finest bucket worth asking
+	// for: last_seen resolves to the day itself, matching v1, which already
+	// dropped to day granularity because hourly buckets cost 24x for no product
+	// gain.
 	dims := []langfuse.MetricsDimension{{Field: "tags"}, {Field: "userId"}}
+	byDay := &langfuse.TimeDimension{Granularity: "day"}
 
 	countResp, err := p.timedMetrics(ctx, client, "usage:count", langfuse.MetricsQuery{
 		View:          "traces",
 		Metrics:       []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
 		Dimensions:    dims,
+		TimeDimension: byDay,
 		FromTimestamp: from,
 		ToTimestamp:   to,
 	})
@@ -164,6 +192,7 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 			{Measure: "totalTokens", Aggregation: "sum"},
 		},
 		Dimensions:    dims,
+		TimeDimension: byDay,
 		FromTimestamp: from,
 		ToTimestamp:   to,
 	})
@@ -178,8 +207,7 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 		usageByGroup[usageGroupKey(row)] = row
 	}
 
-	lastSeen := day.UTC()
-	facts := make([]insightsrollup.Fact, 0, len(countResp.Data))
+	byDate := make(map[string][]insightsrollup.Fact)
 	seen := make(map[string]bool, len(countResp.Data))
 	for _, row := range countResp.Data {
 		group := usageGroupKey(row)
@@ -199,6 +227,7 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 			continue
 		}
 
+		date := dateFromTimeDim(row[langfuseTimeDimensionKey])
 		kind, key := rollupActorFor(row["userId"])
 		fact := insightsrollup.Fact{
 			DeploymentID: p.deploymentIDFromTags(acct, row["tags"]),
@@ -209,9 +238,9 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 			CostUSD:      cost,
 		}
 		if requests > 0 {
-			fact.LastSeenAt = lastSeen
+			fact.LastSeenAt = dayInstant(date)
 		}
-		facts = append(facts, fact)
+		byDate[date] = append(byDate[date], fact)
 	}
 
 	for _, row := range usageResp.Data {
@@ -224,8 +253,9 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 		if cost == 0 && tokens == 0 {
 			continue
 		}
+		date := dateFromTimeDim(row[langfuseTimeDimensionKey])
 		kind, key := rollupActorFor(row["userId"])
-		facts = append(facts, insightsrollup.Fact{
+		byDate[date] = append(byDate[date], insightsrollup.Fact{
 			DeploymentID: p.deploymentIDFromTags(acct, row["tags"]),
 			ActorKind:    kind,
 			ActorKey:     key,
@@ -233,18 +263,34 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 			CostUSD:      cost,
 		})
 	}
-	return facts, nil
+	return byDate, nil
 }
 
-// usageGroupKey identifies a [tags, userId] group so rows from the count and
-// cost/tokens queries in fetchUsageGrain can be joined back together. Tags
-// are sorted before joining since group identity shouldn't depend on the
+// usageGroupKey identifies a [day, tags, userId] group so rows from the count
+// and cost/tokens queries in fetchUsageGrain can be joined back together. The
+// day is part of the key because a range query returns one row per day per
+// group; without it the two responses would join across days and every group
+// would collapse onto whichever day happened to be last.
+//
+// Tags are sorted before joining since group identity shouldn't depend on the
 // order Langfuse happened to return them in.
 func usageGroupKey(row map[string]any) string {
 	tags := append([]string{}, tagStrings(row["tags"])...)
 	sort.Strings(tags)
 	userID, _ := row["userId"].(string)
-	return strings.Join(tags, "\x1f") + "\x1e" + userID
+	return dateFromTimeDim(row[langfuseTimeDimensionKey]) + "\x1e" +
+		strings.Join(tags, "\x1f") + "\x1e" + userID
+}
+
+// dayInstant parses a YYYY-MM-DD bucket back to the UTC midnight the fact table
+// stores. An unparseable bucket yields the zero time, which ReplaceDay writes
+// as a NULL last_seen rather than a wrong date.
+func dayInstant(date string) time.Time {
+	t, err := time.ParseInLocation(time.DateOnly, date, time.UTC)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 // deploymentIDFromTags extracts the deployment a tag array belongs to.
@@ -287,7 +333,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 	ctx context.Context,
 	client *langfuse.Client,
 	from, to string,
-) ([]insightsrollup.Fact, error) {
+) (map[string][]insightsrollup.Fact, error) {
 	resp, err := p.timedMetrics(ctx, client, "model", langfuse.MetricsQuery{
 		View: "observations",
 		Metrics: []langfuse.MetricsQueryField{
@@ -297,6 +343,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 			{Measure: "count", Aggregation: "count"},
 		},
 		Dimensions:    []langfuse.MetricsDimension{{Field: "providedModelName"}},
+		TimeDimension: &langfuse.TimeDimension{Granularity: "day"},
 		FromTimestamp: from,
 		ToTimestamp:   to,
 	})
@@ -304,7 +351,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 		return nil, fmt.Errorf("insights rollup: model grain: %w", err)
 	}
 
-	facts := make([]insightsrollup.Fact, 0, len(resp.Data))
+	byDate := make(map[string][]insightsrollup.Fact)
 	for _, row := range resp.Data {
 		model, _ := row["providedModelName"].(string)
 		if model == "" {
@@ -314,7 +361,8 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 		}
 		in := int64(toInt(row["sum_inputTokens"]))
 		out := int64(toInt(row["sum_outputTokens"]))
-		facts = append(facts, insightsrollup.Fact{
+		date := dateFromTimeDim(row[langfuseTimeDimensionKey])
+		byDate[date] = append(byDate[date], insightsrollup.Fact{
 			Model:        model,
 			Requests:     int64(toInt(row["count_count"])),
 			InputTokens:  in,
@@ -323,7 +371,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 			CostUSD:      toFloat(row["sum_totalCost"]),
 		})
 	}
-	return facts, nil
+	return byDate, nil
 }
 
 // RollUpDevtoolsDay writes 'usage' grain rows for each dev-tool source for one
@@ -334,7 +382,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 // Dev-tool rows never populate deployment_id — there is no deployment — and
 // their `requests` stays zero because no such metric is emitted. That zero is
 // real data, which is why the read path guards per-request denominators.
-func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountID string, day time.Time) error {
+func (p *InsightsRollupProducer) RollUpDevtoolsRange(ctx context.Context, accountID string, days []time.Time) error {
 	creds, err := p.LangfuseStore.Get(accountID)
 	if err != nil || creds == nil {
 		// No Langfuse project — nothing to roll up, and not an error.
@@ -357,48 +405,52 @@ func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountI
 	ctx, cancel := context.WithTimeout(ctx, rollupQueryTimeout)
 	defer cancel()
 
+	windowStart := days[0].UTC().Truncate(24 * time.Hour)
+	windowEnd := days[len(days)-1].UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+
 	for _, ad := range devtoolAdapters {
 		start := time.Now()
-		facts, err := p.fetchDevtoolGrain(ctx, client, ad, accountID, day, emailToUserID)
+		usage, err := fetchDevtoolUsage(ctx, client, ad.Key, windowStart, windowEnd)
 		p.Log.Debug("insights rollup: devtool source fetched",
 			"account_id", accountID,
 			"source", ad.Key,
-			"day", day.UTC().Format(time.DateOnly),
-			"facts", len(facts),
+			"first_day", windowStart.Format(time.DateOnly),
+			"day_count", len(days),
+			"cells", len(usage.Cells),
 			"duration", time.Since(start).Round(time.Millisecond).String(),
 			"failed", err != nil)
 		if err != nil {
 			return err
 		}
-		if err := p.Rollups.ReplaceDay(ctx, accountID, insightsrollup.GrainUsage, day, ad.Key, facts); err != nil {
-			return err
+		byDate := usage.byDate()
+		for _, day := range days {
+			d := day.UTC().Format(time.DateOnly)
+			facts := p.devtoolFactsFor(byDate[d], ad, accountID, d, emailToUserID)
+			if err := p.Rollups.ReplaceDay(ctx, accountID, insightsrollup.GrainUsage, day, ad.Key, facts); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (p *InsightsRollupProducer) fetchDevtoolGrain(
-	ctx context.Context,
-	client *langfuse.Client,
+func (p *InsightsRollupProducer) devtoolFactsFor(
+	usage devtoolUsage,
 	ad devtoolAdapter,
 	accountID string,
-	day time.Time,
+	date string,
 	emailToUserID map[string]string,
-) ([]insightsrollup.Fact, error) {
-	start := day.UTC().Truncate(24 * time.Hour)
-	usage, err := fetchDevtoolUsage(ctx, client, ad.Key, start, start.AddDate(0, 0, 1))
-	if err != nil {
-		return nil, err
-	}
+) []insightsrollup.Fact {
 	total := usage.totals()
 	if total.empty() {
 		// Presence gate: the source wasn't used that day, so it contributes no rows.
-		return nil, nil
+		return nil
 	}
 	if usage.costUnavailable() {
 		p.Log.Warn("insights rollup: dev-tool tokens reported but cost is zero, model is likely unpriced upstream",
-			"source", ad.Key, "account_id", accountID, "day", day.UTC().Format(time.DateOnly))
+			"source", ad.Key, "account_id", accountID, "day", date)
 	}
+	day := dayInstant(date)
 
 	byUser := usage.byUser()
 	facts := make([]insightsrollup.Fact, 0, len(byUser)+1)
@@ -437,7 +489,7 @@ func (p *InsightsRollupProducer) fetchDevtoolGrain(
 			LastSeenAt:  day.UTC(),
 		})
 	}
-	return facts, nil
+	return facts
 }
 
 // rollupActorFor maps a raw (already Slack-translated) Langfuse userId onto the
@@ -465,9 +517,12 @@ func rollupActorFor(raw any) (kind, key string) {
 	}
 }
 
-// rollupDayBounds returns the [start, end) UTC instants of a day in the format
-// the Langfuse metrics API expects.
-func rollupDayBounds(day time.Time) (from, to string) {
-	start := day.UTC().Truncate(24 * time.Hour)
-	return metricsTimeRange(start.Format(time.RFC3339), start.Add(24*time.Hour).Format(time.RFC3339))
+// rollupRangeBounds returns the [start, end) UTC instants spanning a window of
+// days, in the format the Langfuse metrics API expects. Days are consecutive
+// and oldest-first, so the bounds are the first day's midnight and the last
+// day's midnight plus one.
+func rollupRangeBounds(days []time.Time) (from, to string) {
+	start := days[0].UTC().Truncate(24 * time.Hour)
+	end := days[len(days)-1].UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+	return metricsTimeRange(start.Format(time.RFC3339), end.Format(time.RFC3339))
 }

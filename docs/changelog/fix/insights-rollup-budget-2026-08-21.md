@@ -2,47 +2,66 @@
 
 ## Summary
 
-A cold account never completed its roll-up. The job planned the full 90-day
-backfill, got about 28 days in, hit River's one-minute default job timeout, and
-retried from the beginning. It repeated that until the retry budget ran out,
-having stored nothing.
+**The problem, plainly:** the Insights page never filled in for a new account.
 
-Two things combined to cause it. The job's deadline was never sized for its
-work: rolling one day costs a few upstream round trips, so 90 days is minutes
-long, and nothing had set a timeout. And the watermark advanced only after every
-planned day committed, so a run that expired partway discarded the days it had
-already paid for.
+The job that builds the page had to process 90 days of history. It asked
+Langfuse for one day at a time, which meant about 360 separate network requests,
+which took about three minutes. The job was only allowed to run for one minute.
 
-The failure was also invisible. The write that records why a run failed reused
-the job context, which is the context whose deadline had just expired, so it
-failed too. `consecutive_errors` stayed at zero and `last_error` stayed empty
-for exactly the accounts that were stuck.
+So it got about 28 days in and ran out of time. And because it only saved its
+place at the very end, those 28 days of finished work were not recorded. The
+next attempt started at day 1 again, did the same 28 days, and ran out of time
+in the same spot. Forever. It is a download with no resume that never finishes.
+
+**The fix, plainly:** stop asking day by day. Langfuse can return a whole date
+range broken down by day in a single request, so the job now asks once per
+month-sized chunk instead of once per day. 360 requests become 12. Three minutes
+becomes seconds, and the job finishes comfortably inside its time limit.
+
+Two smaller changes make sure a slow run can never get stuck the same way again:
+the job now saves its place as it goes, and it gets a time limit sized to its
+actual work instead of the framework default.
 
 ## Design
 
-**The deadline matches the work.** The per-account worker declares a 15-minute
-timeout. A roll-up is a batch job with no reader waiting on it, so the budget
-can be generous. This also makes the existing per-day fetch cap meaningful: a
-60-second bound on one day's upstream queries does nothing while the whole job
-gets 60 seconds, and bounds a wedged day once the job gets minutes.
+**Fetch by range, write by day.** The producer's unit of *fetch* is now a window
+of up to `MaxDaysPerWindow` (30) days; the unit of *storage* is still one day.
+Langfuse's metrics API takes a `timeDimension` of `day`, so a range query
+returns one row per day per group and the producer splits the response back
+apart before writing. The read path already worked this way; the roll-up was the
+only caller asking per day.
 
-**Progress is durable per day.** The store gains `RecordProgress`, which moves
-the watermark and leaves the error columns alone. The worker calls it after each
-day's facts commit, so a run that dies keeps what it finished and the next
-attempt starts where it stopped.
+Two consequences worth knowing:
 
-`RecordProgress` is separate from `Advance` rather than a flag on it, because
-they mean different things. `Advance` also clears `last_error` and resets
-`consecutive_errors`, and partial progress has not earned that reset. Folding
-them together would pin the error counter at zero for an account that fails on
-the same day every run, which is the case the counter exists to surface.
+- The count and cost/tokens queries are joined back together by a group key, and
+  that key now includes the day. Without it the same `(tags, userId)` on
+  different days collides and every day's request count pairs with one arbitrary
+  day's cost.
+- `RollUpRange` takes an explicit list of days, not a pair of bounds. A range
+  query only returns days that had activity, so writing just those would leave
+  stale rows on a day whose spend dropped to zero. Every requested day gets its
+  full replace either way.
 
-The watermark stays monotonic. `RecordProgress` upserts through `GREATEST`, so a
-reconcile walking the window from below cannot rewind the stored value.
+**Progress is durable.** The store gains `RecordProgress`, which moves the
+watermark and leaves the error columns alone. The worker calls it after each
+window commits, so a run that dies keeps its finished windows.
 
-**Failures are recorded off the job deadline.** The state write after a failure
-runs on a context detached from the job's, with its own short timeout. The most
-common failure is the deadline itself, so the bookkeeping write cannot share it.
+It is separate from `Advance` rather than a flag on it because `Advance` also
+clears `last_error` and resets `consecutive_errors`. Partial progress has not
+earned that reset: folding them together would pin the error counter at zero for
+an account that fails on the same day every run, which is the case the counter
+exists to surface. The watermark stays monotonic either way, since
+`RecordProgress` upserts through `GREATEST`.
+
+**The deadline matches the work.** The worker declares a 15-minute timeout. A
+roll-up is a batch job with no reader waiting on it, so the budget sits well
+above the worst case rather than being tuned to it. This also makes the existing
+per-window fetch cap meaningful: a 60-second bound does nothing while the whole
+job gets 60 seconds.
+
+**Failures get written down.** The state write after a failure runs on a context
+detached from the job's, with its own short timeout. The most common failure is
+the deadline itself, so the bookkeeping write cannot share it.
 
 **Retries are bounded.** The per-account job caps at five attempts instead of
 River's default 25. A roll-up that has not succeeded in five tries is waiting on
@@ -50,6 +69,5 @@ a fix, and the daily tick re-enqueues it anyway.
 
 ## Migration
 
-None. The fact table and the state table are unchanged, and every write is
-already a full replace, so stalled accounts converge on their next scheduled
-tick without operator action.
+None. Both tables are unchanged and every write is already a full replace, so
+stalled accounts converge on their next scheduled tick without operator action.

@@ -93,6 +93,19 @@ func (u devtoolUsage) totals() devtoolBucket {
 	return t
 }
 
+// byDate splits a multi-day fetch back into one usage per day. Cells already
+// carry the day they fall in, so a range query answers every day in the window
+// and the caller still writes each day separately.
+func (u devtoolUsage) byDate() map[string]devtoolUsage {
+	out := map[string]devtoolUsage{}
+	for _, c := range u.Cells {
+		day := out[c.Date]
+		day.Cells = append(day.Cells, c)
+		out[c.Date] = day
+	}
+	return out
+}
+
 func (u devtoolUsage) byUser() map[string]devtoolBucket {
 	out := map[string]devtoolBucket{}
 	for _, c := range u.Cells {

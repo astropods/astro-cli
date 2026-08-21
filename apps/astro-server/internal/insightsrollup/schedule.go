@@ -19,7 +19,23 @@ const (
 	// the 90-day window the page has always shown. History accumulates forward
 	// from here; it is not a retention limit.
 	MaxBackfillDays = 90
+
+	// MaxDaysPerWindow bounds how many days one upstream query covers. Days come
+	// back as buckets of a single range query, so this trades round trips against
+	// response size: the whole backfill in one request would be three round trips
+	// but an unbounded payload on a busy account.
+	MaxDaysPerWindow = 30
 )
+
+// Windows splits days into consecutive slices of at most MaxDaysPerWindow, the
+// unit one range query and one watermark advance cover.
+func Windows(days []time.Time) [][]time.Time {
+	var out [][]time.Time
+	for start := 0; start < len(days); start += MaxDaysPerWindow {
+		out = append(out, days[start:min(start+MaxDaysPerWindow, len(days))])
+	}
+	return out
+}
 
 // DaysToRoll returns the UTC days a tick should roll up, oldest first, given the
 // current watermark and the wall clock.

@@ -81,13 +81,17 @@ func TestLocalSeed(t *testing.T) {
 
 	ctx := context.Background()
 	lastComplete := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
+	window := make([]time.Time, 0, days)
 	for i := days - 1; i >= 0; i-- {
-		day := lastComplete.AddDate(0, 0, -i)
-		if err := rollup.RollUpDay(ctx, acct.ID, day); err != nil {
-			t.Logf("roll-up %s: %v", day.Format(time.DateOnly), err)
+		window = append(window, lastComplete.AddDate(0, 0, -i))
+	}
+	for _, w := range insightsrollup.Windows(window) {
+		if err := rollup.RollUpRange(ctx, acct.ID, w); err != nil {
+			t.Logf("roll-up %s..%s: %v",
+				w[0].Format(time.DateOnly), w[len(w)-1].Format(time.DateOnly), err)
 			continue
 		}
-		t.Logf("rolled up %s", day.Format(time.DateOnly))
+		t.Logf("rolled up %s..%s", w[0].Format(time.DateOnly), w[len(w)-1].Format(time.DateOnly))
 	}
 
 	// One pass advances by at most a tick's budget, so loop until the cursors

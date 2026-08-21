@@ -72,7 +72,7 @@ func TestDeletedAccountEndsTheJobWithoutWritingState(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 
 	w := &InsightsRollupAccountWorker{
-		producer: producerFunc(func(_ context.Context, accountID string, _ time.Time) error {
+		producer: producerFunc(func(_ context.Context, accountID string, _ []time.Time) error {
 			// Exactly what the producer returns when GetByID reports the account
 			// is gone; the wrapping is the part errors.Is has to see through.
 			return fmt.Errorf("%w: %s", insightsrollup.ErrAccountGone, accountID)
@@ -94,10 +94,10 @@ func TestDeletedAccountEndsTheJobWithoutWritingState(t *testing.T) {
 	}
 }
 
-type producerFunc func(ctx context.Context, accountID string, day time.Time) error
+type producerFunc func(ctx context.Context, accountID string, days []time.Time) error
 
-func (f producerFunc) RollUpDay(ctx context.Context, accountID string, day time.Time) error {
-	return f(ctx, accountID, day)
+func (f producerFunc) RollUpRange(ctx context.Context, accountID string, days []time.Time) error {
+	return f(ctx, accountID, days)
 }
 
 // A reconcile re-reads the full retention window. The watermark exists to skip
@@ -117,11 +117,11 @@ func TestReconcileIgnoresTheWatermark(t *testing.T) {
 	}
 }
 
-// A run that dies partway must keep the days it finished. Without a per-day
-// watermark write, a backfill longer than the job timeout redoes the same
-// opening days on every attempt and never reaches the end: the watermark only
-// moved after all 90 days, which is the point the run never got to.
-func TestPartialRunKeepsTheDaysItFinished(t *testing.T) {
+// A run that dies partway must keep the windows it finished. Without a
+// watermark write per window, a backfill longer than the job timeout redoes the
+// same opening days on every attempt and never reaches the end: the watermark
+// only moved after all 90 days, which is the point the run never got to.
+func TestPartialRunKeepsTheWindowsItFinished(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -132,23 +132,22 @@ func TestPartialRunKeepsTheDaysItFinished(t *testing.T) {
 		WithArgs("acct_1", insightsrollup.SourceAgents).
 		WillReturnError(sql.ErrNoRows)
 
-	// Two days commit, the third fails. Each committed day writes its own
-	// watermark; the failure records itself and stops the run.
-	const committed = 2
-	for i := range committed {
-		mock.ExpectExec("INSERT INTO insights_rollup_state").
-			WithArgs("acct_1", insightsrollup.SourceAgents, dayOffsetFromBackfillStart(i)).
-			WillReturnResult(sqlmock.NewResult(0, 1))
-	}
+	// The first window commits and writes its watermark; the second fails and
+	// records itself. The watermark must land on the first window's *last* day,
+	// which is the whole claim being made about coverage.
+	mock.ExpectExec("INSERT INTO insights_rollup_state").
+		WithArgs("acct_1", insightsrollup.SourceAgents,
+			backfillDay(insightsrollup.MaxDaysPerWindow-1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO insights_rollup_state").
 		WithArgs("acct_1", insightsrollup.SourceAgents, "upstream is down").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	var seen int
+	var windows int
 	w := &InsightsRollupAccountWorker{
-		producer: producerFunc(func(_ context.Context, _ string, _ time.Time) error {
-			seen++
-			if seen > committed {
+		producer: producerFunc(func(_ context.Context, _ string, _ []time.Time) error {
+			windows++
+			if windows > 1 {
 				return errors.New("upstream is down")
 			}
 			return nil
@@ -168,13 +167,69 @@ func TestPartialRunKeepsTheDaysItFinished(t *testing.T) {
 	}
 }
 
-// dayOffsetFromBackfillStart returns the nth day a cold account rolls, formatted
-// the way the store binds it. A cold run starts MaxBackfillDays back from
-// yesterday, which is what DaysToRoll plans when there is no watermark.
-func dayOffsetFromBackfillStart(n int) string {
+// backfillDay returns the nth day a cold account rolls, formatted the way the
+// store binds it. A cold run starts MaxBackfillDays back from yesterday, which
+// is what DaysToRoll plans when there is no watermark.
+func backfillDay(n int) string {
 	yesterday := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
 	start := yesterday.AddDate(0, 0, -(insightsrollup.MaxBackfillDays - 1))
 	return start.AddDate(0, 0, n).Format(time.DateOnly)
+}
+
+// Windowing changes how days are grouped, not which days are rolled. Every
+// planned day must reach the producer exactly once and in order: a boundary
+// that dropped a day would leave a permanent hole the watermark then claims as
+// covered, and one that repeated a day would double the upstream cost.
+func TestEveryPlannedDayIsRolledExactlyOnceInOrder(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("SELECT rolled_up_through").
+		WithArgs("acct_1", insightsrollup.SourceAgents).
+		WillReturnError(sql.ErrNoRows)
+	// One watermark write per window, plus the Advance that clears the error
+	// state once the last window lands.
+	windowCount := len(insightsrollup.Windows(
+		insightsrollup.DaysToRoll(insightsrollup.State{}, time.Now())))
+	for range windowCount + 1 {
+		mock.ExpectExec("INSERT INTO insights_rollup_state").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+
+	var got []time.Time
+	w := &InsightsRollupAccountWorker{
+		producer: producerFunc(func(_ context.Context, _ string, days []time.Time) error {
+			if len(days) > insightsrollup.MaxDaysPerWindow {
+				t.Errorf("window carries %d days, want at most %d",
+					len(days), insightsrollup.MaxDaysPerWindow)
+			}
+			got = append(got, days...)
+			return nil
+		}),
+		rollups: insightsrollup.NewStore(db),
+		log:     logger.New("error", "json"),
+	}
+
+	if err := w.Work(t.Context(), &river.Job[InsightsRollupAccountArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 1},
+		Args:   InsightsRollupAccountArgs{AccountID: "acct_1"},
+	}); err != nil {
+		t.Fatalf("Work() = %v", err)
+	}
+
+	want := insightsrollup.DaysToRoll(insightsrollup.State{}, time.Now())
+	if len(got) != len(want) {
+		t.Fatalf("rolled %d days, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Fatalf("day %d = %s, want %s",
+				i, got[i].Format(time.DateOnly), want[i].Format(time.DateOnly))
+		}
+	}
 }
 
 // The failure write must outlive the deadline that caused the failure. Reusing
@@ -196,12 +251,12 @@ func TestFailureIsRecordedAfterTheJobDeadlinePasses(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// The deadline has to expire *during* the run, the way it does in production:
-	// the state read succeeds, then the first day burns what is left.
+	// the state read succeeds, then the first window burns what is left.
 	budgeted, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
 	w := &InsightsRollupAccountWorker{
-		producer: producerFunc(func(ctx context.Context, _ string, _ time.Time) error {
+		producer: producerFunc(func(ctx context.Context, _ string, _ []time.Time) error {
 			<-ctx.Done()
 			return ctx.Err()
 		}),

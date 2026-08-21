@@ -91,3 +91,65 @@ func TestDaysToRollIsContiguousAndAscending(t *testing.T) {
 		}
 	}
 }
+
+// Windowing groups the planned days for fetching; it must not change which days
+// get rolled. A boundary that dropped a day would leave a hole the watermark
+// then claims as covered, and one that repeated a day would double the upstream
+// cost for no gain.
+func TestWindowsCoverEveryDayExactlyOnceInOrder(t *testing.T) {
+	for _, count := range []int{
+		0, 1,
+		MaxDaysPerWindow - 1, MaxDaysPerWindow, MaxDaysPerWindow + 1,
+		2 * MaxDaysPerWindow, 2*MaxDaysPerWindow + 1,
+		MaxBackfillDays,
+	} {
+		days := make([]time.Time, count)
+		for i := range days {
+			days[i] = day(2026, time.January, 1).AddDate(0, 0, i)
+		}
+
+		var flat []time.Time
+		for _, w := range Windows(days) {
+			if len(w) == 0 {
+				t.Fatalf("count %d: empty window", count)
+			}
+			if len(w) > MaxDaysPerWindow {
+				t.Fatalf("count %d: window of %d days exceeds %d", count, len(w), MaxDaysPerWindow)
+			}
+			flat = append(flat, w...)
+		}
+		if len(flat) != count {
+			t.Fatalf("count %d: windows carry %d days", count, len(flat))
+		}
+		for i := range days {
+			if !flat[i].Equal(days[i]) {
+				t.Fatalf("count %d: day %d = %s, want %s", count, i,
+					flat[i].Format(time.DateOnly), days[i].Format(time.DateOnly))
+			}
+		}
+	}
+}
+
+// A window has to be a consecutive run, because the producer turns it into a
+// single [first, last+1) range query. A gap inside one would silently pull in
+// days the caller never asked to roll.
+func TestWindowsAreConsecutiveRuns(t *testing.T) {
+	days := DaysToRoll(State{}, now)
+	for _, w := range Windows(days) {
+		for i := 1; i < len(w); i++ {
+			if got := w[i].Sub(w[i-1]); got != 24*time.Hour {
+				t.Fatalf("gap of %v between %s and %s", got,
+					w[i-1].Format(time.DateOnly), w[i].Format(time.DateOnly))
+			}
+		}
+	}
+}
+
+// The steady-state tick is a handful of days, so it must stay a single window
+// and therefore a single round trip per query.
+func TestSteadyStateTickIsOneWindow(t *testing.T) {
+	state := State{RolledUpThrough: day(2026, time.August, 3)}
+	if got := len(Windows(DaysToRoll(state, now))); got != 1 {
+		t.Errorf("steady-state windows = %d, want 1", got)
+	}
+}
