@@ -3,6 +3,7 @@ module github.com/astropods/astro/apps/astro-registry
 go 1.25.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.55.1
 	github.com/gin-gonic/gin v1.11.0

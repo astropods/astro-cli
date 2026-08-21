@@ -3,8 +3,11 @@ package clusterpull
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"testing"
+
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
 
 func hashHex(secret string) string {
@@ -59,6 +62,101 @@ func TestIsPrimary(t *testing.T) {
 	}
 }
 
-// ResolveHomedAccount is DB-backed (name/id lookup + homing) and is exercised
-// via the /token isolation tests (handlers) and preview integration; there is
-// no sqlmock in this module to unit-test the query here.
+func TestResolveHomedAccount(t *testing.T) {
+	const defaultCluster = "preview-managed-eks"
+
+	tests := []struct {
+		name       string
+		namespace  string
+		clusterID  string
+		wantColumn string
+		bound      bool
+		found      bool
+		wantID     string
+		wantHomed  bool
+	}{
+		{
+			name:       "the default cluster needs no binding",
+			namespace:  "acme",
+			clusterID:  defaultCluster,
+			wantColumn: "name",
+			found:      true,
+			wantID:     "acct-1",
+			wantHomed:  true,
+		},
+		{
+			name:       "the primary sentinel needs no binding",
+			namespace:  "acme",
+			clusterID:  PrimaryClusterID,
+			wantColumn: "name",
+			found:      true,
+			wantID:     "acct-1",
+			wantHomed:  true,
+		},
+		{
+			name:       "an additional cluster the account is bound to",
+			namespace:  "acme",
+			clusterID:  "cluster-a",
+			wantColumn: "name",
+			found:      true,
+			bound:      true,
+			wantID:     "acct-1",
+			wantHomed:  true,
+		},
+		{
+			name:       "an additional cluster the account is not bound to",
+			namespace:  "acme",
+			clusterID:  "cluster-b",
+			wantColumn: "name",
+			found:      true,
+			wantID:     "acct-1",
+			wantHomed:  false,
+		},
+		{
+			name:       "a uuid namespace looks up by id",
+			namespace:  "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			clusterID:  "cluster-a",
+			wantColumn: "id",
+			found:      true,
+			bound:      true,
+			wantID:     "acct-1",
+			wantHomed:  true,
+		},
+		{
+			name:       "unknown account",
+			namespace:  "nope",
+			clusterID:  "cluster-a",
+			wantColumn: "name",
+			found:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close() //nolint:errcheck
+
+			q := mock.ExpectQuery(`WHERE a\.`+tc.wantColumn+` = \$1`).WithArgs(tc.namespace, tc.clusterID)
+			if tc.found {
+				q.WillReturnRows(sqlmock.NewRows([]string{"id", "exists"}).AddRow("acct-1", tc.bound))
+			} else {
+				q.WillReturnError(sql.ErrNoRows)
+			}
+
+			az := NewAuthorizer(db, "", defaultCluster)
+			id, homed, err := az.ResolveHomedAccount(context.Background(), tc.namespace, tc.clusterID)
+			if err != nil {
+				t.Fatalf("ResolveHomedAccount: %v", err)
+			}
+			if id != tc.wantID || homed != tc.wantHomed {
+				t.Fatalf("got (%q, %v), want (%q, %v)", id, homed, tc.wantID, tc.wantHomed)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("expected a lookup by %s: %v", tc.wantColumn, err)
+			}
+		})
+	}
+}

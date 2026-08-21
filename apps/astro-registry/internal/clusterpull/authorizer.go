@@ -18,8 +18,6 @@ import (
 
 // PrimaryClusterID is the reserved cluster identifier for the primary cluster,
 // which has no row in the clusters table. Its hash is configured out-of-band
-// (PRIMARY_PULL_KEY_HASH) and its tenants are those with accounts.cluster_id
-// IS NULL.
 const PrimaryClusterID = "primary"
 
 // Authorizer authenticates CPCs and resolves tenant-to-cluster homing.
@@ -94,22 +92,25 @@ func (a *Authorizer) Authenticate(ctx context.Context, clusterID, secret string)
 // through untouched.
 //
 // Returns the resolved account id (used to rewrite the request to the ECR
-// {env}-tenant-{id} repo) and whether it is homed here: for the primary,
-// accounts.cluster_id IS NULL; for an additional cluster, it must equal
-// clusterID. Unknown or soft-deleted accounts return ("", false, nil).
 func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, clusterID string) (accountID string, homed bool, err error) {
 	// A uuid-shaped namespace is an account id (transitional refs); otherwise it
 	// is an account name. Either way the lookup hits a unique index.
-	query := `SELECT id, cluster_id FROM accounts WHERE name = $1 AND deleted_at IS NULL`
+	column := "name"
 	if uuid.Validate(namespace) == nil {
-		query = `SELECT id, cluster_id FROM accounts WHERE id = $1 AND deleted_at IS NULL`
+		column = "id"
 	}
+	query := fmt.Sprintf(`
+		SELECT a.id, EXISTS(
+			SELECT 1 FROM account_clusters ac
+			WHERE ac.account_id = a.id AND ac.cluster_id = $2
+		)
+		FROM accounts a WHERE a.%s = $1 AND a.deleted_at IS NULL`, column)
 
 	var (
-		id          string
-		homeCluster sql.NullString
+		id    string
+		bound bool
 	)
-	if err := a.db.QueryRowContext(ctx, query, namespace).Scan(&id, &homeCluster); err != nil {
+	if err := a.db.QueryRowContext(ctx, query, namespace, clusterID).Scan(&id, &bound); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", false, nil
 		}
@@ -117,7 +118,7 @@ func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, cluster
 	}
 
 	if a.isPrimary(clusterID) {
-		return id, !homeCluster.Valid, nil
+		return id, true, nil
 	}
-	return id, homeCluster.Valid && homeCluster.String == clusterID, nil
+	return id, bound, nil
 }
