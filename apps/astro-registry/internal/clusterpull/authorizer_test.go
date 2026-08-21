@@ -37,28 +37,27 @@ func TestAuthenticate_Primary_Unconfigured(t *testing.T) {
 	}
 }
 
-// isPrimary must treat the literal "primary" sentinel (no cluster-config: the
-// primary cluster has no clusters row) and the configured default cluster's
-// real id (cluster-config boot sync: the primary is just another row, and its
-// CPCs carry that real id, never the sentinel) as the same thing — this is
-// exactly the case that broke ResolveHomedAccount for every unbound account
-// once boot sync started routing the default cluster under its real id.
-func TestIsPrimary(t *testing.T) {
+// The literal "primary" sentinel (no cluster-config: the primary cluster has no
+// clusters row) and the configured default cluster's real id (cluster-config
+// boot sync: the primary is just another row, and its CPCs carry that real id)
+// name the same cluster. account_clusters records the real id, so homing must
+// resolve one to the other rather than treating them as different clusters.
+func TestCanonicalClusterID(t *testing.T) {
 	az := NewAuthorizer(nil, "", "preview-managed-eks")
 
-	if !az.isPrimary(PrimaryClusterID) {
-		t.Error("literal primary sentinel: want isPrimary=true")
+	if got := az.canonicalClusterID(PrimaryClusterID); got != "preview-managed-eks" {
+		t.Errorf("sentinel resolved to %q, want the configured default cluster", got)
 	}
-	if !az.isPrimary("preview-managed-eks") {
-		t.Error("configured default cluster id: want isPrimary=true")
+	if got := az.canonicalClusterID("preview-managed-eks"); got != "preview-managed-eks" {
+		t.Errorf("configured default cluster resolved to %q, want it unchanged", got)
 	}
-	if az.isPrimary("some-other-cluster") {
-		t.Error("unrelated additional cluster: want isPrimary=false")
+	if got := az.canonicalClusterID("some-other-cluster"); got != "some-other-cluster" {
+		t.Errorf("additional cluster resolved to %q, want it unchanged", got)
 	}
 
 	azNoDefault := NewAuthorizer(nil, "", "")
-	if azNoDefault.isPrimary("preview-managed-eks") {
-		t.Error("no DEFAULT_CLUSTER_ID configured: want isPrimary=false for any non-sentinel id")
+	if got := azNoDefault.canonicalClusterID(PrimaryClusterID); got != PrimaryClusterID {
+		t.Errorf("unregistered primary resolved to %q, want the sentinel unchanged", got)
 	}
 }
 
@@ -66,68 +65,76 @@ func TestResolveHomedAccount(t *testing.T) {
 	const defaultCluster = "preview-managed-eks"
 
 	tests := []struct {
-		name       string
-		namespace  string
-		clusterID  string
-		wantColumn string
-		bound      bool
-		found      bool
-		wantID     string
-		wantHomed  bool
+		name         string
+		namespace    string
+		clusterID    string
+		wantColumn   string
+		wantLookupID string
+		allowed      bool
+		found        bool
+		wantID       string
+		wantHomed    bool
 	}{
 		{
-			name:       "the default cluster needs no binding",
-			namespace:  "acme",
-			clusterID:  defaultCluster,
-			wantColumn: "name",
-			found:      true,
-			wantID:     "acct-1",
-			wantHomed:  true,
+			name:         "a cluster the account is bound to",
+			namespace:    "acme",
+			clusterID:    "cluster-a",
+			wantColumn:   "name",
+			wantLookupID: "cluster-a",
+			found:        true,
+			allowed:      true,
+			wantID:       "acct-1",
+			wantHomed:    true,
 		},
 		{
-			name:       "the primary sentinel needs no binding",
-			namespace:  "acme",
-			clusterID:  PrimaryClusterID,
-			wantColumn: "name",
-			found:      true,
-			wantID:     "acct-1",
-			wantHomed:  true,
+			name:         "a cluster the account is not bound to",
+			namespace:    "acme",
+			clusterID:    "cluster-b",
+			wantColumn:   "name",
+			wantLookupID: "cluster-b",
+			found:        true,
+			wantID:       "acct-1",
+			wantHomed:    false,
 		},
 		{
-			name:       "an additional cluster the account is bound to",
-			namespace:  "acme",
-			clusterID:  "cluster-a",
-			wantColumn: "name",
-			found:      true,
-			bound:      true,
-			wantID:     "acct-1",
-			wantHomed:  true,
+			name:         "the default cluster is checked like any other",
+			namespace:    "acme",
+			clusterID:    defaultCluster,
+			wantColumn:   "name",
+			wantLookupID: defaultCluster,
+			found:        true,
+			wantID:       "acct-1",
+			wantHomed:    false,
 		},
 		{
-			name:       "an additional cluster the account is not bound to",
-			namespace:  "acme",
-			clusterID:  "cluster-b",
-			wantColumn: "name",
-			found:      true,
-			wantID:     "acct-1",
-			wantHomed:  false,
+			name:         "the sentinel resolves to the configured default cluster",
+			namespace:    "acme",
+			clusterID:    PrimaryClusterID,
+			wantColumn:   "name",
+			wantLookupID: defaultCluster,
+			found:        true,
+			allowed:      true,
+			wantID:       "acct-1",
+			wantHomed:    true,
 		},
 		{
-			name:       "a uuid namespace looks up by id",
-			namespace:  "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-			clusterID:  "cluster-a",
-			wantColumn: "id",
-			found:      true,
-			bound:      true,
-			wantID:     "acct-1",
-			wantHomed:  true,
+			name:         "a uuid namespace looks up by id",
+			namespace:    "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+			clusterID:    "cluster-a",
+			wantColumn:   "id",
+			wantLookupID: "cluster-a",
+			found:        true,
+			allowed:      true,
+			wantID:       "acct-1",
+			wantHomed:    true,
 		},
 		{
-			name:       "unknown account",
-			namespace:  "nope",
-			clusterID:  "cluster-a",
-			wantColumn: "name",
-			found:      false,
+			name:         "unknown account",
+			namespace:    "nope",
+			clusterID:    "cluster-a",
+			wantColumn:   "name",
+			wantLookupID: "cluster-a",
+			found:        false,
 		},
 	}
 
@@ -139,9 +146,9 @@ func TestResolveHomedAccount(t *testing.T) {
 			}
 			defer db.Close() //nolint:errcheck
 
-			q := mock.ExpectQuery(`WHERE a\.`+tc.wantColumn+` = \$1`).WithArgs(tc.namespace, tc.clusterID)
+			q := mock.ExpectQuery(`WHERE a\.`+tc.wantColumn+` = \$1`).WithArgs(tc.namespace, tc.wantLookupID)
 			if tc.found {
-				q.WillReturnRows(sqlmock.NewRows([]string{"id", "exists"}).AddRow("acct-1", tc.bound))
+				q.WillReturnRows(sqlmock.NewRows([]string{"id", "allowed"}).AddRow("acct-1", tc.allowed))
 			} else {
 				q.WillReturnError(sql.ErrNoRows)
 			}
@@ -158,5 +165,53 @@ func TestResolveHomedAccount(t *testing.T) {
 				t.Errorf("expected a lookup by %s: %v", tc.wantColumn, err)
 			}
 		})
+	}
+}
+
+// An unregistered primary has no clusters row, so it cannot appear in
+// account_clusters and the binding check is skipped entirely.
+func TestResolveHomedAccount_UnregisteredPrimarySkipsBindings(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery(`SELECT a\.id FROM accounts a WHERE a\.name = \$1`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("acct-1"))
+
+	az := NewAuthorizer(db, "", "")
+	id, homed, err := az.ResolveHomedAccount(context.Background(), "acme", PrimaryClusterID)
+	if err != nil {
+		t.Fatalf("ResolveHomedAccount: %v", err)
+	}
+	if id != "acct-1" || !homed {
+		t.Fatalf("got (%q, %v), want (acct-1, true)", id, homed)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+// "No bindings means unrestricted" is decided in SQL, so a stubbed boolean
+// cannot show it holds. Assert the predicate the database actually receives.
+func TestResolveHomedAccountQueryMirrorsIsAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery(`NOT EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id\)\s+OR EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id AND ac\.cluster_id = \$2\)`).
+		WithArgs("acme", "cluster-a").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "allowed"}).AddRow("acct-1", true))
+
+	az := NewAuthorizer(db, "", "preview-managed-eks")
+	if _, _, err := az.ResolveHomedAccount(context.Background(), "acme", "cluster-a"); err != nil {
+		t.Fatalf("ResolveHomedAccount: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("query did not carry both branches of the allowed rule: %v", err)
 	}
 }

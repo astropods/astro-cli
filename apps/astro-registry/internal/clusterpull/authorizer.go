@@ -42,14 +42,15 @@ func NewAuthorizer(db *sql.DB, primaryHashHex, defaultClusterID string) *Authori
 	return &Authorizer{db: db, primaryHash: h, defaultClusterID: defaultClusterID}
 }
 
-// isPrimary reports whether clusterID identifies the primary/default cluster
-// for homing purposes — either the reserved "primary" sentinel (no
-// cluster-config: the primary has no clusters row, so it can't have a real
-// id) or the configured default cluster's real id (cluster-config boot sync:
-// the primary is just another row, and CPCs issued there carry its real id,
-// never the literal sentinel).
-func (a *Authorizer) isPrimary(clusterID string) bool {
-	return clusterID == PrimaryClusterID || (a.defaultClusterID != "" && clusterID == a.defaultClusterID)
+// canonicalClusterID resolves the "primary" sentinel to the configured default
+// cluster's real id, which is what account_clusters records. A CPC issued
+// before boot sync carries the sentinel for the same cluster a bound account
+// names by id.
+func (a *Authorizer) canonicalClusterID(clusterID string) string {
+	if clusterID == PrimaryClusterID && a.defaultClusterID != "" {
+		return a.defaultClusterID
+	}
+	return clusterID
 }
 
 // Authenticate reports whether secret matches the stored hash for clusterID.
@@ -93,32 +94,53 @@ func (a *Authorizer) Authenticate(ctx context.Context, clusterID, secret string)
 //
 // Returns the resolved account id (used to rewrite the request to the ECR
 func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, clusterID string) (accountID string, homed bool, err error) {
+	// Nothing can be bound to a primary that has no clusters row, so an operator
+	// cannot express the binding this would demand.
+	if clusterID == PrimaryClusterID && a.defaultClusterID == "" {
+		id, found, err := a.lookupAccountID(ctx, namespace)
+		return id, found, err
+	}
+
 	// A uuid-shaped namespace is an account id (transitional refs); otherwise it
 	// is an account name. Either way the lookup hits a unique index.
 	column := "name"
 	if uuid.Validate(namespace) == nil {
 		column = "id"
 	}
+	// Mirrors account.IsAllowed: an account with no bindings is unrestricted, and
+	// once it has any the set is exhaustive. The primary is no exception.
 	query := fmt.Sprintf(`
-		SELECT a.id, EXISTS(
-			SELECT 1 FROM account_clusters ac
-			WHERE ac.account_id = a.id AND ac.cluster_id = $2
-		)
+		SELECT a.id,
+		       NOT EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id)
+		    OR EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id AND ac.cluster_id = $2)
 		FROM accounts a WHERE a.%s = $1 AND a.deleted_at IS NULL`, column)
 
 	var (
-		id    string
-		bound bool
+		id      string
+		allowed bool
 	)
-	if err := a.db.QueryRowContext(ctx, query, namespace, clusterID).Scan(&id, &bound); err != nil {
+	if err := a.db.QueryRowContext(ctx, query, namespace, a.canonicalClusterID(clusterID)).Scan(&id, &allowed); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("failed to resolve account %q: %w", namespace, err)
 	}
 
-	if a.isPrimary(clusterID) {
-		return id, true, nil
+	return id, allowed, nil
+}
+
+func (a *Authorizer) lookupAccountID(ctx context.Context, namespace string) (string, bool, error) {
+	column := "name"
+	if uuid.Validate(namespace) == nil {
+		column = "id"
 	}
-	return id, bound, nil
+	var id string
+	query := fmt.Sprintf(`SELECT a.id FROM accounts a WHERE a.%s = $1 AND a.deleted_at IS NULL`, column)
+	if err := a.db.QueryRowContext(ctx, query, namespace).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("failed to resolve account %q: %w", namespace, err)
+	}
+	return id, true, nil
 }

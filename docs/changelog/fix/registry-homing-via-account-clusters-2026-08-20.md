@@ -8,14 +8,16 @@ An account allowed on two clusters would be homed on at most one. Pods on the ot
 
 ## Design
 
-**One rule, not two.** Homing now asks whether the account has a binding to the requesting cluster, which is what `IsAllowed` asks on the deploy path. The pull rule and the placement rule read the same table, so a cluster that may run an account's workload may fetch its image.
+**One rule, not two.** Homing asks the question `account.IsAllowed` asks on the deploy path, in SQL: an account with no bindings is unrestricted, and once it has any the set is exhaustive. A cluster that may run an account's workload may fetch its image, and one that may not, may not.
 
-The check rides along as an `EXISTS` on the account lookup the resolver already makes, so it stays one round trip. The namespace is still an account id or an account name depending on its shape, and either way the lookup hits a unique index.
+The primary is no exception. It is an ordinary row in `account_clusters` under cluster-config boot sync, so confining an account to one region also stops the primary from pulling its images. Exempting it would leave the pull rule wider than the placement rule for the one cluster most accounts use.
 
-**The primary keeps its sentinel.** The primary cluster has no `clusters` row in the mode this sentinel exists for, so nothing can be bound to it and a binding check would refuse every account. It authorizes any account that exists, which is the answer the NULL column gave before.
+The check rides along as a predicate on the account lookup the resolver already makes, so it stays one round trip. The namespace is still an account id or an account name depending on its shape, and either way the lookup hits a unique index.
 
-This does widen the primary. An account bound only to another cluster used to be un-homed on the primary and is now homed there. No account is bound away from the primary, so nothing changes in practice, and confining an account to one region is a placement decision the deploy path enforces.
+**The sentinel resolves to the real id.** A CPC issued before boot sync carries the reserved `primary` identifier for the cluster that `account_clusters` records under its configured id. Homing resolves one to the other, so a bound account is not read as bound to some other cluster.
+
+**An unregistered primary skips the check.** With no cluster-config, the primary has no `clusters` row and so cannot appear in `account_clusters` at all. An operator has no way to express the binding an exhaustive check would demand, so that case resolves the account and stops there.
 
 ## Migration
 
-None. Bindings materialize as accounts are read, and every account keeps the primary binding it picks up, so the pull path answers as it does today until an operator binds a second cluster.
+None. An account with no bindings is unrestricted, so nothing changes until an operator binds a cluster, and binding materializes the primary alongside it.
