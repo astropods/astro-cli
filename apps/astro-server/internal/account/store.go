@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 )
 
 // ErrAlreadyDeleted is returned when MarkDeleted targets an account that is
@@ -22,12 +24,21 @@ var ErrAccountNotFound = errors.New("account not found")
 
 // AccountStore manages account persistence in PostgreSQL
 type AccountStore struct {
-	db *sql.DB
+	db       *sql.DB
+	clusters clusterid.Resolver
 }
 
 // NewAccountStore creates a new account store with the given database connection
 func NewAccountStore(db *sql.DB) *AccountStore {
 	return &AccountStore{db: db}
+}
+
+// NewAccountStoreWithClusters returns a store that binds every account it
+// creates to the primary cluster, so the binding set exists before anything
+// reads it. The zero Resolver carries no primary, which is the local mode with
+// no cluster config, and binds nothing.
+func NewAccountStoreWithClusters(db *sql.DB, clusters clusterid.Resolver) *AccountStore {
+	return &AccountStore{db: db, clusters: clusters}
 }
 
 // Create creates a new account and adds the owner as a member.
@@ -75,6 +86,10 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 		return nil, fmt.Errorf("failed to seed account profile: %w", err)
 	}
 
+	if err := BindPrimary(tx, acct.ID, s.clusters.Primary()); err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit: %w", err)
 	}
@@ -110,6 +125,10 @@ func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, e
 	`, acct.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to seed account profile: %w", err)
+	}
+
+	if err := BindPrimary(s.db, acct.ID, s.clusters.Primary()); err != nil {
+		return nil, err
 	}
 
 	return &acct, nil

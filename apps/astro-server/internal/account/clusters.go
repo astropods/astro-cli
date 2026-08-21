@@ -2,6 +2,7 @@ package account
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -48,17 +49,9 @@ func (s *AccountStore) Clusters(clusters clusterid.Resolver) *ClusterBindings {
 	return NewClusterBindings(s.db, clusters)
 }
 
+// List is a pure read. Account creation and the startup backfill establish the
+// binding set, so a read does not have to write one.
 func (b *ClusterBindings) List(accountID string) ([]ClusterBinding, error) {
-	out, err := b.read(accountID)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) > 0 || b.clusters.Primary() == "" {
-		return out, nil
-	}
-	if err := b.materializePrimary(b.db, accountID); err != nil {
-		return nil, err
-	}
 	return b.read(accountID)
 }
 
@@ -66,7 +59,13 @@ type execer interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-func (b *ClusterBindings) materializePrimary(db execer, accountID string) error {
+// BindPrimary gives an account with no bindings its primary one. Account
+// creation calls it so the set exists before anything reads it, and the lazy
+// path calls it for accounts created before a cluster was registered.
+func BindPrimary(db execer, accountID, primaryClusterID string) error {
+	if primaryClusterID == "" {
+		return nil
+	}
 	_, err := db.Exec(`
 		INSERT INTO account_clusters (account_id, cluster_id, is_default)
 		SELECT $1::uuid, $2::varchar, true
@@ -74,11 +73,43 @@ func (b *ClusterBindings) materializePrimary(db execer, accountID string) error 
 		  AND EXISTS (SELECT 1 FROM accounts WHERE id = $1::uuid AND deleted_at IS NULL)
 		  AND NOT EXISTS (SELECT 1 FROM account_clusters WHERE account_id = $1::uuid)
 		ON CONFLICT (account_id, cluster_id) DO NOTHING
-	`, accountID, b.clusters.Primary())
+	`, accountID, primaryClusterID)
 	if err != nil {
-		return fmt.Errorf("bind primary cluster %q: %w", b.clusters.Primary(), err)
+		return fmt.Errorf("bind primary cluster %q: %w", primaryClusterID, err)
 	}
 	return nil
+}
+
+func (b *ClusterBindings) materializePrimary(db execer, accountID string) error {
+	return BindPrimary(db, accountID, b.clusters.Primary())
+}
+
+// BackfillPrimaryBindings gives every account with no bindings its primary one, so a
+// reader that cannot write does not have to decide what an empty set means. It
+// is idempotent: the NOT EXISTS filter empties out and later passes do nothing.
+// It no-ops when the primary has no clusters row, which is the local mode with
+// no cluster config.
+func (b *ClusterBindings) BackfillPrimaryBindings(ctx context.Context) (int64, error) {
+	if b.clusters.Primary() == "" {
+		return 0, nil
+	}
+	res, err := b.db.ExecContext(ctx, `
+		INSERT INTO account_clusters (account_id, cluster_id, is_default)
+		SELECT a.id, $1::varchar, true
+		FROM accounts a
+		WHERE a.deleted_at IS NULL
+		  AND EXISTS (SELECT 1 FROM clusters WHERE id = $1::varchar)
+		  AND NOT EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id)
+		ON CONFLICT (account_id, cluster_id) DO NOTHING
+	`, b.clusters.Primary())
+	if err != nil {
+		return 0, fmt.Errorf("backfill primary cluster bindings: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("backfill primary cluster bindings rows affected: %w", err)
+	}
+	return n, nil
 }
 
 func (b *ClusterBindings) read(accountID string) ([]ClusterBinding, error) {

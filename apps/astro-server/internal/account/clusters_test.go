@@ -1,6 +1,7 @@
 package account
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -14,33 +15,23 @@ func clusterRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"cluster_id", "region", "is_default"})
 }
 
-func TestListClusters_MaterializesThePrimary(t *testing.T) {
+func TestListClusters_DoesNotWrite(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	mock.ExpectQuery("SELECT ac.cluster_id, c.region, ac.is_default").
 		WithArgs("acct-1").
 		WillReturnRows(clusterRows())
-	mock.ExpectExec("INSERT INTO account_clusters").
-		WithArgs("acct-1", "cluster-default").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectQuery("SELECT ac.cluster_id, c.region, ac.is_default").
-		WithArgs("acct-1").
-		WillReturnRows(clusterRows().AddRow("cluster-default", "region-a", true))
 
 	got, err := NewClusterBindings(db, clusterid.New("cluster-default")).List("acct-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 1 || got[0].ClusterID != "cluster-default" || !got[0].IsDefault {
-		t.Fatalf("got %+v, want cluster-default flagged default", got)
+	if len(got) != 0 {
+		t.Fatalf("got %+v, want an empty set read back as-is", got)
 	}
-	if got[0].Region != "region-a" {
-		t.Errorf("region = %q, want region-a", got[0].Region)
-	}
-	if !IsAllowed("cluster-default", got) {
-		t.Error("the primary should be allowed once bound")
-	}
+	// Creation and the startup backfill own the write; a read that also wrote
+	// is what made an empty set ambiguous.
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
+		t.Errorf("List should issue no statement beyond the read: %v", err)
 	}
 }
 
@@ -283,5 +274,46 @@ func TestIsAllowed(t *testing.T) {
 
 	if !IsAllowed("cluster-b", nil) {
 		t.Error("an account with no bindings should not be blocked")
+	}
+}
+
+func TestBackfillPrimaryBindings(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	mock.ExpectExec("INSERT INTO account_clusters").
+		WithArgs("cluster-default").
+		WillReturnResult(sqlmock.NewResult(0, 7))
+
+	n, err := NewClusterBindings(db, clusterid.New("cluster-default")).BackfillPrimaryBindings(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 7 {
+		t.Errorf("bound = %d, want 7", n)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestBackfillPrimaryBindings_NoPrimaryConfigured(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+
+	n, err := NewClusterBindings(db, clusterid.Resolver{}).BackfillPrimaryBindings(context.Background())
+	if err != nil || n != 0 {
+		t.Fatalf("got (%d, %v), want (0, nil)", n, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("no statement should run without a primary: %v", err)
+	}
+}
+
+func TestBindPrimary_NoPrimaryIsANoop(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+
+	if err := BindPrimary(db, "acct-1", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("no statement should run without a primary: %v", err)
 	}
 }

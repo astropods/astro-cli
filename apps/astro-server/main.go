@@ -120,7 +120,7 @@ func main() {
 	log.Info("Database connection established")
 
 	// Initialize account store and agent index (needed by both API and worker)
-	accountStore := account.NewAccountStore(db)
+	accountStore := account.NewAccountStoreWithClusters(db, clusterid.New(cfg.Deployment.DefaultClusterID))
 	agentIndex := agentindex.NewIndexWithDB(db)
 	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
 	var deploymentFGA authz.FGA
@@ -656,6 +656,20 @@ func runAPI(
 	return srv, grpcServer, probeHandler, adminSrv, rq
 }
 
+// backfillPrimaryBindings makes the account_clusters set exhaustive for every
+// account, so readers that cannot materialize it, such as the registry's
+// image-pull check, do not have to interpret an empty set.
+func backfillPrimaryBindings(ctx context.Context, bindings *account.ClusterBindings, log *logger.Logger) {
+	n, err := bindings.BackfillPrimaryBindings(ctx)
+	if err != nil {
+		log.Warn("account cluster binding backfill failed", "error", err)
+		return
+	}
+	if n > 0 {
+		log.Info("account cluster binding backfill complete", "bound", n)
+	}
+}
+
 func backfillPrimaryPlacement(ctx context.Context, store *deploymentstore.Store, clusters clusterid.Resolver, log *logger.Logger) {
 	res, err := store.BackfillPrimaryClusterID(ctx, clusters.Primary())
 	if err != nil {
@@ -803,6 +817,7 @@ func runWorker(
 			Logger:  log,
 		}, func(leaderCtx context.Context) {
 			backfillPrimaryPlacement(leaderCtx, workerDeploymentStore, clusterid.New(cfg.Deployment.DefaultClusterID), log)
+			backfillPrimaryBindings(leaderCtx, account.NewClusterBindings(db, clusterid.New(cfg.Deployment.DefaultClusterID)), log)
 			// Feed leader-received nudges into the controller queue; the listener's
 			// lifetime is tied to leadership via leaderCtx.
 			go pgnotify.Listen(leaderCtx, dsn, pgnotify.DeployReconcileChannel, log, controller.EnqueueNamespace)
