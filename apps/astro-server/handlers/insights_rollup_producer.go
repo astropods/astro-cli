@@ -138,24 +138,6 @@ func (p *InsightsRollupProducer) RollUpAgentsDay(ctx context.Context, acct *acco
 	return p.Rollups.ReplaceDay(ctx, acct.ID, insightsrollup.GrainModel, day, insightsrollup.SourceAgents, models)
 }
 
-// fetchUsageGrain reads the measure grain from the traces view, grouped by
-// [tags, userId], carrying cost, tokens and request count.
-//
-// Grouping by `tags` is safe to sum. Langfuse declares `tags` as a plain
-// string[] dimension without `explodeArray`, so its query builder groups by the
-// whole array rather than emitting arrayJoin — one row per distinct tag array,
-// with each trace counted exactly once. Several arrays can carry the same
-// deployment tag ([deployment:x] and [deployment:x, env:prod]); those rows are
-// summed by the store's fold, which is correct.
-//
-// This is two separate GetMetrics calls, not one, so that a Langfuse v4
-// target can satisfy both correctly. v4's traces view is emulated as
-// view:"observations" filtered to isRootObservation=true, but that filter
-// only produces a correct trace *count* — cost/tokens live on child
-// GENERATION spans and don't roll up onto the root, so they need the same
-// view queried *without* that filter. One query mixing count with cost/tokens
-// can't be satisfied by a single filter choice; splitting the query is what
-// makes both halves correct under v3 and v4 alike.
 func (p *InsightsRollupProducer) fetchUsageGrain(
 	ctx context.Context,
 	client *langfuse.Client,
@@ -163,10 +145,6 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 	day time.Time,
 	from, to string,
 ) ([]insightsrollup.Fact, error) {
-	// No TimeDimension on either query: the query window *is* one day, so a
-	// per-bucket timestamp would be redundant. last_seen resolves to the day
-	// itself, which matches v1 — it already dropped to day granularity
-	// because hourly buckets cost 24x for no product gain.
 	dims := []langfuse.MetricsDimension{{Field: "tags"}, {Field: "userId"}}
 
 	countResp, err := p.timedMetrics(ctx, client, "usage:count", langfuse.MetricsQuery{
@@ -193,10 +171,6 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 		return nil, fmt.Errorf("insights rollup: usage grain (cost/tokens): %w", err)
 	}
 
-	// Collapse linked Slack ids onto their WorkOS id before aggregating, exactly
-	// as v1 does before writing its cache. Doing it here rather than at read
-	// time keeps v2 byte-comparable with v1; a Slack account linked later is
-	// picked up by the weekly reconcile re-rolling history.
 	translateLinkedSlackUserIDs(p.Log, p.SlackStore, "insights-rollup", countResp.Data, usageResp.Data)
 
 	usageByGroup := make(map[string]map[string]any, len(usageResp.Data))
@@ -210,6 +184,9 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 	for _, row := range countResp.Data {
 		group := usageGroupKey(row)
 		seen[group] = true
+		if devtoolTagged(row["tags"]) {
+			continue
+		}
 
 		requests := int64(toInt(row["count_count"]))
 		var cost float64
@@ -237,14 +214,9 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 		facts = append(facts, fact)
 	}
 
-	// Defensive: a (tags, userId) group present in the cost/tokens response
-	// but absent from the count response would mean the two queries somehow
-	// grouped the same trace set differently. Shouldn't happen — both filter
-	// the same underlying traces — but dropping such a row would silently
-	// lose spend, so it's folded in rather than assumed impossible.
 	for _, row := range usageResp.Data {
 		group := usageGroupKey(row)
-		if seen[group] {
+		if seen[group] || devtoolTagged(row["tags"]) {
 			continue
 		}
 		cost := toFloat(row["sum_totalCost"])

@@ -53,6 +53,15 @@ func devtoolActorFor(email string, emailToUserID map[string]string) (kind, key s
 	return insightsrollup.ActorKindUnidentified, email
 }
 
+func devtoolTagged(rawTags any) bool {
+	for _, ad := range devtoolAdapters {
+		if hasTag(rawTags, ad.Key) {
+			return true
+		}
+	}
+	return false
+}
+
 // devtoolAdapterByKey resolves a registered source key.
 func devtoolAdapterByKey(key string) (devtoolAdapter, bool) {
 	for _, ad := range devtoolAdapters {

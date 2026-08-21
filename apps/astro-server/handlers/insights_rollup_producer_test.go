@@ -90,6 +90,40 @@ func TestRollupActorFor(t *testing.T) {
 	}
 }
 
+func TestFetchUsageGrainExcludesDevtoolTaggedTraces(t *testing.T) {
+	p := testProducer()
+	acct := &account.Account{ID: "acct_1"}
+	day := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	client := stubLangfuseMetrics(t, []map[string]any{
+		metricRow("2026-08-11", "user_1", []any{"deployment:dep-1"}, 4.00, 400, 4),
+		metricRow("2026-08-11", "dev@x.com", ccTags, 1100.00, 110000, 900),
+		metricRow("2026-08-11", "user_2", nil, 0.50, 50, 1),
+	})
+
+	facts, err := p.fetchUsageGrain(context.Background(), client, acct, day, "", "")
+	if err != nil {
+		t.Fatalf("fetchUsageGrain: %v", err)
+	}
+
+	for _, f := range facts {
+		if f.ActorKey == "dev@x.com" || f.CostUSD == 1100.00 {
+			t.Errorf("dev-tool spend banked as agent usage: %+v", f)
+		}
+	}
+
+	byActor := factsByActor(t, facts)
+	tagged, ok := byActor[[2]string{insightsrollup.ActorKindMember, "user_1"}]
+	if !ok || tagged.DeploymentID != "dep-1" || tagged.CostUSD != 4.00 {
+		t.Errorf("deployment fact = %+v, want dep-1 at cost 4", tagged)
+	}
+	untagged, ok := byActor[[2]string{insightsrollup.ActorKindMember, "user_2"}]
+	if !ok || untagged.DeploymentID != "" || untagged.CostUSD != 0.50 {
+		t.Errorf("untagged fact = %+v, want empty deployment at cost 0.5", untagged)
+	}
+
+	assertFactsSumTo(t, facts, 4.50, 450, 5)
+}
+
 // factsByActor indexes one day's facts by (kind, key), which is the tuple the
 // primary key is built from, so a duplicate would be a write error rather than a
 // wrong number.
