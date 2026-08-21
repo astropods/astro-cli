@@ -2,6 +2,7 @@ package clusterplacement
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
-	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -22,39 +22,6 @@ var deploymentFullColumns = []string{
 	"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
 	"status", "error_message", "error_details", "status_changed_at", "current_revision",
 	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
-}
-
-func TestListDeploymentsNeedingMigration(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := deploymentstore.NewStore(db)
-
-	eu := "eu"
-	mock.ExpectQuery("SELECT .+ FROM deployments").
-		WithArgs("acct-1", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows(deploymentFullColumns).
-			AddRow(
-				"dep-primary", "acct-1", nil, "agent-a", "build-1", "astro-dep1-0", "Agent A",
-				`{"target":{"runtime":"kubernetes"}}`, nil, nil, nil,
-				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil, nil,
-			).
-			AddRow(
-				"dep-eu", "acct-1", nil, "agent-b", "build-2", "astro-dep2-0", "Agent B",
-				`{"target":{"runtime":"kubernetes"}}`, nil, nil, eu,
-				"active", nil, nil, time.Now(), 1,
-				time.Now(), nil, nil, nil,
-			))
-
-	got, err := ListDeploymentsNeedingMigration(store, "acct-1", "eu", clusterid.Resolver{})
-	if err != nil {
-		t.Fatalf("ListDeploymentsNeedingMigration: %v", err)
-	}
-	if len(got) != 1 || got[0].ID != "dep-primary" {
-		t.Fatalf("got %+v, want dep-primary only", got)
-	}
 }
 
 func TestMigrateDeployment_ValidatesInput(t *testing.T) {
@@ -145,15 +112,15 @@ func TestMigrateDeployment_Success(t *testing.T) {
 		Deployer: &deployer.Deployer{Registry: k8s.NewRegistryWithPrimary(client)},
 		Queue:    q,
 	}
-	skipped, err := m.MigrateDeployment(context.Background(), MigrateInput{
+	res, err := m.MigrateDeployment(context.Background(), MigrateInput{
 		DeploymentID:    "dep-1",
 		TargetClusterID: "eu",
 	})
 	if err != nil {
 		t.Fatalf("MigrateDeployment: %v", err)
 	}
-	if skipped {
-		t.Fatal("expected migration to run")
+	if res.Outcome != MigrateApplied || !res.Enqueued {
+		t.Fatalf("result = %+v, want applied and enqueued", res)
 	}
 	if !teardownCalled {
 		t.Fatal("expected teardown on source cluster before routing update")
@@ -186,15 +153,15 @@ func TestMigrateDeployment_RecoveryWhenPendingAndAligned(t *testing.T) {
 
 	q := &recordingDeployQueue{}
 	m := &Migrator{Store: store, Queue: q}
-	skipped, err := m.MigrateDeployment(context.Background(), MigrateInput{
+	res, err := m.MigrateDeployment(context.Background(), MigrateInput{
 		DeploymentID:    "dep-1",
 		TargetClusterID: "eu",
 	})
 	if err != nil {
 		t.Fatalf("MigrateDeployment: %v", err)
 	}
-	if skipped {
-		t.Fatal("expected deploy enqueue recovery, not skip")
+	if res.Outcome != MigrateAlreadyOnTarget || !res.Enqueued {
+		t.Fatalf("result = %+v, want already_on_target and enqueued", res)
 	}
 	if q.deploymentID != "dep-1" || q.clusterID != "eu" {
 		t.Fatalf("deploy job = %+v, want dep-1/eu", q)
@@ -239,7 +206,7 @@ func TestMigrateDeployment_ContinuesWhenSourceClusterUnavailable(t *testing.T) {
 		Deployer: &deployer.Deployer{Registry: k8s.NewRegistryWithPrimary(fakeClusterClient(t))},
 		Queue:    q,
 	}
-	skipped, err := m.MigrateDeployment(context.Background(), MigrateInput{
+	res, err := m.MigrateDeployment(context.Background(), MigrateInput{
 		DeploymentID:    "dep-1",
 		TargetClusterID: "",
 		SourceClusterID: missing,
@@ -247,15 +214,15 @@ func TestMigrateDeployment_ContinuesWhenSourceClusterUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateDeployment: %v", err)
 	}
-	if skipped {
-		t.Fatal("expected migration to continue after unavailable source cluster")
+	if res.Outcome != MigrateApplied || !res.Enqueued {
+		t.Fatalf("result = %+v, want applied and enqueued despite the unavailable source", res)
 	}
 	if q.deploymentID != "dep-1" {
 		t.Fatalf("expected deploy enqueue, got %+v", q)
 	}
 }
 
-func TestMigrateDeployment_SkipsWhenStatusChangedDuringMigration(t *testing.T) {
+func TestMigrateDeployment_FailsWhenStatusChangedAfterTeardown(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
@@ -291,15 +258,12 @@ func TestMigrateDeployment_SkipsWhenStatusChangedDuringMigration(t *testing.T) {
 		Deployer: &deployer.Deployer{Registry: k8s.NewRegistryWithPrimary(client)},
 		Queue:    q,
 	}
-	skipped, err := m.MigrateDeployment(context.Background(), MigrateInput{
+	_, err = m.MigrateDeployment(context.Background(), MigrateInput{
 		DeploymentID:    "dep-1",
 		TargetClusterID: "eu",
 	})
-	if err != nil {
-		t.Fatalf("MigrateDeployment: %v", err)
-	}
-	if !skipped {
-		t.Fatal("expected skip when status changed during migration")
+	if !errors.Is(err, deploymentstore.ErrClusterMigrationStatusChanged) {
+		t.Fatalf("err = %v, want ErrClusterMigrationStatusChanged", err)
 	}
 	if !teardownCalled {
 		t.Fatal("expected teardown before guarded DB update")
@@ -338,4 +302,83 @@ func fakeClusterClientWithHook(t *testing.T, handler http.HandlerFunc) k8s.Clust
 		t.Fatalf("NewForConfig: %v", err)
 	}
 	return &stubClusterClient{clientset: cs}
+}
+
+func TestMigrateDeployment_SourceMovedStillEnqueuesForAPendingRow(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := deploymentstore.NewStore(db)
+	moved := "ap-south"
+
+	mock.ExpectQuery("SELECT .+ FROM deployments").
+		WithArgs("dep-1").
+		WillReturnRows(sqlmock.NewRows(deploymentFullColumns).
+			AddRow(
+				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
+				`{"target":{"runtime":"kubernetes"}}`, nil, nil, moved,
+				"pending", nil, nil, time.Now(), 1,
+				time.Now(), nil, nil, nil,
+			))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE deployments").
+		WithArgs("dep-1", moved, sqlmock.AnyArg(), deploymentstore.StatusPending).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE deployments").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO deployment_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	q := &recordingDeployQueue{}
+	m := &Migrator{Store: store, Queue: q}
+	res, err := m.MigrateDeployment(context.Background(), MigrateInput{
+		DeploymentID:    "dep-1",
+		TargetClusterID: "eu",
+		SourceClusterID: "us-east",
+	})
+	if err != nil {
+		t.Fatalf("MigrateDeployment: %v", err)
+	}
+	if res.Outcome != MigrateSourceMoved || !res.Enqueued {
+		t.Fatalf("result = %+v, want source_moved and enqueued", res)
+	}
+	if q.deploymentID != "dep-1" || q.clusterID != moved {
+		t.Fatalf("deploy job = %+v, want dep-1/%s", q, moved)
+	}
+}
+
+func TestMigrateDeployment_SourceMovedLeavesAnActiveRowAlone(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := deploymentstore.NewStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM deployments").
+		WithArgs("dep-1").
+		WillReturnRows(sqlmock.NewRows(deploymentFullColumns).
+			AddRow(
+				"dep-1", "acct-1", nil, "agent-a", "build-1", "astro-ns-0", "Agent A",
+				`{"target":{"runtime":"kubernetes"}}`, nil, nil, "ap-south",
+				"active", nil, nil, time.Now(), 1,
+				time.Now(), nil, nil, nil,
+			))
+
+	q := &recordingDeployQueue{}
+	m := &Migrator{Store: store, Queue: q}
+	res, err := m.MigrateDeployment(context.Background(), MigrateInput{
+		DeploymentID:    "dep-1",
+		TargetClusterID: "eu",
+		SourceClusterID: "us-east",
+	})
+	if err != nil {
+		t.Fatalf("MigrateDeployment: %v", err)
+	}
+	if res.Outcome != MigrateSourceMoved || res.Enqueued {
+		t.Fatalf("result = %+v, want source_moved with nothing enqueued", res)
+	}
+	if q.deploymentID != "" {
+		t.Fatalf("expected no deploy enqueue, got %+v", q)
+	}
 }

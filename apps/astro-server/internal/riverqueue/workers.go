@@ -432,7 +432,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
 	log.Info("river: registered worker", "worker", "WakeUpWorker")
-	migrateWorker := &MigrateDeploymentClusterWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache}
+	migrateWorker := &MigrateDeploymentClusterWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache, clusters: clusterResolver(cfg)}
 	addWorkerWithCatalogCheck(log, workers, migrateWorker)
 	log.Info("river: registered worker", "worker", "MigrateDeploymentClusterWorker")
 

@@ -41,6 +41,20 @@ type MigrateInput struct {
 	EventMessage    string // recorded before status → pending; defaults to account migration text
 }
 
+type MigrateOutcome string
+
+const (
+	MigrateApplied         MigrateOutcome = "applied"
+	MigrateAlreadyOnTarget MigrateOutcome = "already_on_target"
+	MigrateNotMigratable   MigrateOutcome = "not_migratable"
+	MigrateSourceMoved     MigrateOutcome = "source_moved"
+)
+
+type MigrateResult struct {
+	Outcome  MigrateOutcome
+	Enqueued bool
+}
+
 func isMigratableStatus(status string) bool {
 	for _, s := range MigratableStatuses {
 		if status == s {
@@ -50,75 +64,84 @@ func isMigratableStatus(status string) bool {
 	return false
 }
 
-// ListDeploymentsNeedingMigration returns migratable deployments whose routing
-// cluster differs from the target account cluster.
-func ListDeploymentsNeedingMigration(store *deploymentstore.Store, accountID, targetClusterID string, clusters clusterid.Resolver) ([]*deploymentstore.Deployment, error) {
-	deps, err := store.GetDeploymentsByAccountInStatuses(accountID, MigratableStatuses...)
-	if err != nil {
-		return nil, err
-	}
-	var out []*deploymentstore.Deployment
-	for _, d := range deps {
-		if !clusters.Same(targetClusterID, d.EffectiveClusterID()) {
-			out = append(out, d)
-		}
-	}
-	return out, nil
-}
-
-func (m *Migrator) finishDeployEnqueue(ctx context.Context, dep *deploymentstore.Deployment, targetClusterID string) (bool, error) {
+func (m *Migrator) enqueueDeploy(ctx context.Context, dep *deploymentstore.Deployment, targetClusterID string) error {
 	if err := m.Queue.InsertDeployJob(ctx, dep.ID, targetClusterID); err != nil {
-		return false, fmt.Errorf("enqueue deploy job: %w", err)
+		return fmt.Errorf("enqueue deploy job: %w", err)
 	}
 	_ = deploycache.Invalidate(ctx, m.Cache, dep.AccountID)
-	return false, nil
+	return nil
 }
 
 // MigrateDeployment tears down on the source cluster, updates routing, and enqueues deploy.
-// Returns skipped=true when the deployment no longer needs migration.
-func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (skipped bool, err error) {
+func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (MigrateResult, error) {
 	if m == nil || m.Store == nil {
-		return false, fmt.Errorf("clusterplacement: migrator not configured")
+		return MigrateResult{}, fmt.Errorf("clusterplacement: migrator not configured")
 	}
 	if in.DeploymentID == "" {
-		return false, fmt.Errorf("clusterplacement: deployment_id is required")
+		return MigrateResult{}, fmt.Errorf("clusterplacement: deployment_id is required")
 	}
 	if m.Queue == nil {
-		return false, fmt.Errorf("clusterplacement: queue not configured")
+		return MigrateResult{}, fmt.Errorf("clusterplacement: queue not configured")
 	}
 
 	dep, err := m.Store.GetDeploymentByID(in.DeploymentID)
 	if err != nil {
-		return false, fmt.Errorf("get deployment: %w", err)
+		return MigrateResult{}, fmt.Errorf("get deployment: %w", err)
 	}
 	if dep == nil || !isMigratableStatus(dep.Status) {
-		return true, nil
+		return MigrateResult{Outcome: MigrateNotMigratable}, nil
 	}
 
 	sourceClusterID := dep.EffectiveClusterID()
 	if m.Clusters.Same(in.TargetClusterID, sourceClusterID) {
-		if dep.Status == deploymentstore.StatusPending {
-			return m.finishDeployEnqueue(ctx, dep, in.TargetClusterID)
+		res := MigrateResult{Outcome: MigrateAlreadyOnTarget}
+		if dep.Status != deploymentstore.StatusPending {
+			return res, nil
 		}
-		return true, nil
+		if err := m.enqueueDeploy(ctx, dep, in.TargetClusterID); err != nil {
+			return res, err
+		}
+		res.Enqueued = true
+		return res, nil
 	}
 	if in.SourceClusterID != "" && !m.Clusters.Same(sourceClusterID, in.SourceClusterID) {
-		return true, nil
+		res := MigrateResult{Outcome: MigrateSourceMoved}
+		if dep.Status != deploymentstore.StatusPending {
+			return res, nil
+		}
+		patchedSpec, err := PatchDeploymentSpecClusterID(dep.DeploymentSpecJSON, sourceClusterID, m.Clusters)
+		if err != nil {
+			return res, err
+		}
+		if err := m.Store.ApplyClusterMigration(deploymentstore.ClusterMigrationParams{
+			DeploymentID:    dep.ID,
+			TargetClusterID: sourceClusterID,
+			PatchedSpecJSON: patchedSpec,
+			PriorStatus:     dep.Status,
+			EventMessage:    "Cluster migration superseded, deploying to " + m.Clusters.Label(sourceClusterID),
+		}); err != nil {
+			return res, fmt.Errorf("record superseded migration: %w", err)
+		}
+		if err := m.enqueueDeploy(ctx, dep, sourceClusterID); err != nil {
+			return res, err
+		}
+		res.Enqueued = true
+		return res, nil
 	}
 
 	if m.Deployer == nil {
-		return false, fmt.Errorf("clusterplacement: deployer not configured")
+		return MigrateResult{}, fmt.Errorf("clusterplacement: deployer not configured")
 	}
 
 	if err := m.Deployer.TeardownOnCluster(ctx, dep, sourceClusterID); err != nil {
 		if !errors.Is(err, deployer.ErrClusterClientUnavailable) {
-			return false, fmt.Errorf("teardown source cluster: %w", err)
+			return MigrateResult{}, fmt.Errorf("teardown source cluster: %w", err)
 		}
 	}
 
 	patchedSpec, err := PatchDeploymentSpecClusterID(dep.DeploymentSpecJSON, in.TargetClusterID, m.Clusters)
 	if err != nil {
-		return false, err
+		return MigrateResult{}, err
 	}
 
 	eventMsg := in.EventMessage
@@ -133,11 +156,11 @@ func (m *Migrator) MigrateDeployment(ctx context.Context, in MigrateInput) (skip
 		PriorStatus:     dep.Status,
 		EventMessage:    eventMsg,
 	}); err != nil {
-		if errors.Is(err, deploymentstore.ErrClusterMigrationStatusChanged) {
-			return true, nil
-		}
-		return false, fmt.Errorf("apply cluster migration: %w", err)
+		return MigrateResult{}, fmt.Errorf("apply cluster migration: %w", err)
 	}
 
-	return m.finishDeployEnqueue(ctx, dep, in.TargetClusterID)
+	if err := m.enqueueDeploy(ctx, dep, in.TargetClusterID); err != nil {
+		return MigrateResult{Outcome: MigrateApplied}, err
+	}
+	return MigrateResult{Outcome: MigrateApplied, Enqueued: true}, nil
 }
