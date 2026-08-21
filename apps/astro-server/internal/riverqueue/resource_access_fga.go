@@ -67,7 +67,7 @@ func (w *ResourceAccessFGAReconcileWorker) Work(ctx context.Context, job *river.
 		if err != nil || synced {
 			return err
 		}
-		w.log.Debug("Resource access intents changed repeatedly during reconciliation",
+		w.log.Debug("resource access fga: resource access intents changed repeatedly during reconciliation",
 			"resource_type", job.Args.ResourceType,
 			"resource_id", job.Args.ResourceID,
 		)

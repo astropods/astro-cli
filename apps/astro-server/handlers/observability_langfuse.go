@@ -60,7 +60,7 @@ func resolveLangfuseContext(
 
 	client := langfuse.NewClient(cfg.Deployment.LangfuseBaseURL, creds.PublicKey, creds.SecretKey)
 
-	log.Debug("Resolving Langfuse observability context",
+	log.Debug("observability langfuse: resolving Langfuse observability context",
 		"deployment_id", dctx.DeploymentID, "user_id", dctx.UserID,
 	)
 
@@ -141,7 +141,7 @@ func GetAccountLangfuseSummary(
 
 		resp, err := ComputeAccountSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, groupBy, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
-			log.Warn("Langfuse account metrics unavailable; returning empty summary", "error", err)
+			log.Warn("observability langfuse: Langfuse account metrics unavailable; returning empty summary", "error", err)
 			degraded := zeroAccountSummary(from, to, hasPeriod)
 			degraded.MetricsUnavailable = true
 			c.JSON(http.StatusOK, degraded)
@@ -150,7 +150,7 @@ func GetAccountLangfuseSummary(
 		if err != nil {
 			// Non-Langfuse error (e.g. deployment store DB failure). 500 so the
 			// failure is visible rather than masked as a metrics outage.
-			log.Error("Failed to compute account summary", "error", err)
+			log.Error("observability langfuse: compute account summary failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute account summary"})
 			return
 		}
@@ -207,7 +207,7 @@ func ComputeAccountSummary(
 
 	const maxDeployments = 100
 	if len(deps) > maxDeployments {
-		log.Warn("Truncating deployments for account summary",
+		log.Warn("observability langfuse: truncating deployments for account summary",
 			"account", acct.Name, "total", len(deps), "cap", maxDeployments)
 		deps = deps[:maxDeployments]
 	}
@@ -242,7 +242,7 @@ func ComputeAccountSummary(
 		lfAttempts.Add(1)
 		if err != nil {
 			lfFailures.Add(1)
-			log.Warn("Account daily metrics query failed", "error", err)
+			log.Warn("observability langfuse: account daily metrics query failed", "error", err)
 		}
 		return nil
 	})
@@ -286,7 +286,7 @@ func ComputeAccountSummary(
 		lfAttempts.Add(1)
 		if ferr != nil {
 			lfFailures.Add(1)
-			log.Warn("Per-model stats query failed; model latency/requests will be zero", "error", ferr)
+			log.Warn("observability langfuse: per-model stats query failed; model latency/requests will be zero", "error", ferr)
 			return nil
 		}
 		modelStatsRows = resp.Data
@@ -321,7 +321,7 @@ func ComputeAccountSummary(
 			lfAttempts.Add(1)
 			if ferr != nil {
 				lfFailures.Add(1)
-				log.Warn("UserId-grouped cost query failed; active-users chart will be empty", "error", ferr)
+				log.Warn("observability langfuse: userId-grouped cost query failed; active-users chart will be empty", "error", ferr)
 				return nil
 			}
 			userCostRows = resp.Data
@@ -1484,14 +1484,14 @@ func GetAccountDeploymentsSummary(
 
 		resp, err := ComputeDeploymentsSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, slackStore, acct, from, to, includeArchived)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
-			log.Warn("Langfuse deployments metrics unavailable; returning empty list", "error", err)
+			log.Warn("observability langfuse: Langfuse deployments metrics unavailable; returning empty list", "error", err)
 			degraded := zeroDeploymentEntries(from, to)
 			degraded.MetricsUnavailable = true
 			c.JSON(http.StatusOK, degraded)
 			return
 		}
 		if err != nil {
-			log.Error("Failed to compute deployments summary", "error", err)
+			log.Error("observability langfuse: compute deployments summary failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute deployments summary"})
 			return
 		}
@@ -1554,7 +1554,7 @@ func ComputeDeploymentsSummary(
 
 	const maxDeployments = 100
 	if len(deployments) > maxDeployments {
-		log.Warn("Truncating deployments for deployments summary",
+		log.Warn("observability langfuse: truncating deployments for deployments summary",
 			"account", acct.Name, "total", len(deployments), "cap", maxDeployments)
 		deployments = deployments[:maxDeployments]
 	}
@@ -1582,7 +1582,7 @@ func ComputeDeploymentsSummary(
 		lfAttempts.Add(1)
 		if perr != nil {
 			lfFailures.Add(1)
-			log.Warn("Batched P95 query failed — per-blueprint latency will render as zero", "error", perr)
+			log.Warn("observability langfuse: batched P95 query failed — per-blueprint latency will render as zero", "error", perr)
 		}
 		p95ByDep = m
 		return nil
@@ -1623,12 +1623,12 @@ func ComputeDeploymentsSummary(
 		lfAttempts.Add(1)
 		if ferr != nil {
 			lfFailures.Add(1)
-			log.Warn("Failed to fetch users-per-deployment for deployments summary", "error", ferr)
+			log.Warn("observability langfuse: fetch users-per-deployment for deployments summary failed", "error", ferr)
 			return nil
 		}
 		tagsRows = resp.Data
 		if includeArchived {
-			log.Debug("Q_tags unfiltered response", "account", acct.Name, "rows", len(resp.Data))
+			log.Debug("observability langfuse: q_tags unfiltered response", "account", acct.Name, "rows", len(resp.Data))
 		}
 		return nil
 	})
@@ -1644,7 +1644,7 @@ func ComputeDeploymentsSummary(
 		tombstoneIDs = discoverTombstoneIDs(tagsRows, deployments)
 		const maxTombstones = 50
 		if len(tombstoneIDs) > maxTombstones {
-			log.Warn("Truncating tombstoned deployments for deployments summary",
+			log.Warn("observability langfuse: truncating tombstoned deployments for deployments summary",
 				"account", acct.Name, "total", len(tombstoneIDs), "cap", maxTombstones)
 			tombstoneIDs = tombstoneIDs[:maxTombstones]
 		}
@@ -1655,7 +1655,7 @@ func ComputeDeploymentsSummary(
 	if len(tombstoneIDs) > 0 {
 		tombstones, terr := deploymentStore.GetDeploymentsByIDsForAccount(acct.ID, tombstoneIDs)
 		if terr != nil {
-			log.Warn("Failed to load tombstoned deployments for deployments summary", "error", terr)
+			log.Warn("observability langfuse: load tombstoned deployments for deployments summary failed", "error", terr)
 		} else if len(tombstones) > 0 {
 			tombstoneTags := make([]string, len(tombstones))
 			for i, d := range tombstones {
@@ -1670,7 +1670,7 @@ func ComputeDeploymentsSummary(
 				lfAttempts.Add(1)
 				if perr != nil {
 					lfFailures.Add(1)
-					log.Warn("Tombstone P95 query failed", "error", perr)
+					log.Warn("observability langfuse: tombstone P95 query failed", "error", perr)
 				}
 				tombstoneP95 = m
 				return nil
@@ -1799,7 +1799,7 @@ func GetAccountUsersSummary(
 
 		resp, err := ComputeUsersSummary(c.Request.Context(), log, cfg, langfuseStore, deploymentStore, accountStore, slackStore, acct, from, to)
 		if errors.Is(err, ErrAllLangfuseCallsFailed) {
-			log.Warn("Langfuse users metrics unavailable; returning empty users list", "error", err)
+			log.Warn("observability langfuse: Langfuse users metrics unavailable; returning empty users list", "error", err)
 			c.JSON(http.StatusOK, AccountUsersSummaryResponse{
 				Users:              []UserSummaryEntry{},
 				Period:             buildPeriod(from, to),
@@ -1808,7 +1808,7 @@ func GetAccountUsersSummary(
 			return
 		}
 		if err != nil {
-			log.Error("Failed to compute users summary", "error", err)
+			log.Error("observability langfuse: compute users summary failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute users summary"})
 			return
 		}
@@ -1901,7 +1901,7 @@ func ComputeUsersSummary(
 		visibleTagValues = append(visibleTagValues, "deployment:"+id)
 	}
 	if len(visibleTagValues) > maxTagFilterValues {
-		log.Warn("Truncating deployment-tag filter for users-summary",
+		log.Warn("observability langfuse: truncating deployment-tag filter for users-summary",
 			"total", len(visibleTagValues), "cap", maxTagFilterValues)
 		sort.Strings(visibleTagValues)
 		visibleTagValues = visibleTagValues[:maxTagFilterValues]
@@ -1954,7 +1954,7 @@ func ComputeUsersSummary(
 		resp, ferr := client.GetMetrics(gCtx, q)
 		if ferr != nil {
 			mainQueryFailed.Store(true)
-			log.Warn("Users Q_main query failed", "error", ferr)
+			log.Warn("observability langfuse: users Q_main query failed", "error", ferr)
 			return nil
 		}
 		mainRows = resp.Data
@@ -1974,7 +1974,7 @@ func ComputeUsersSummary(
 		}
 		resp, ferr := client.GetMetrics(gCtx, q)
 		if ferr != nil {
-			log.Warn("Users Q_tags query failed; agents_used will be empty", "error", ferr)
+			log.Warn("observability langfuse: users Q_tags query failed; agents_used will be empty", "error", ferr)
 			return nil
 		}
 		tagsRows = resp.Data
@@ -1998,7 +1998,7 @@ func ComputeUsersSummary(
 		return users[i].CostUSD > users[j].CostUSD
 	})
 	if len(users) > maxUsersInResponse {
-		log.Warn("Truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
+		log.Warn("observability langfuse: truncating users-summary response", "total", len(users), "cap", maxUsersInResponse)
 		users = users[:maxUsersInResponse]
 	}
 	return AccountUsersSummaryResponse{
@@ -2175,7 +2175,7 @@ func GetLangfuseMetrics(
 
 		obsResp, err := lctx.Client.GetMetrics(c.Request.Context(), obsQ)
 		if err != nil {
-			log.Error("Failed to get Langfuse metrics", "error", err, "granularity", granularity)
+			log.Error("observability langfuse: get Langfuse metrics failed", "error", err, "granularity", granularity)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse metrics"})
 			return
 		}
@@ -2200,7 +2200,7 @@ func GetLangfuseMetrics(
 		traceResp, terr := lctx.Client.GetMetrics(c.Request.Context(), traceQ)
 		latencyByTS := map[string]latencyAgg{}
 		if terr != nil {
-			log.Warn("Failed to get Langfuse trace latency metrics — bucket latency will be zero", "error", terr)
+			log.Warn("observability langfuse: get Langfuse trace latency metrics — bucket latency will be zero failed", "error", terr)
 		} else {
 			for _, row := range traceResp.Data {
 				ts, _ := row[langfuseTimeDimensionKey].(string)
@@ -2289,7 +2289,7 @@ func GetLangfuseSummary(
 
 		traces, err := lctx.Client.GetTraces(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"), 0, 0)
 		if err != nil {
-			log.Error("Failed to get Langfuse traces for summary", "error", err)
+			log.Error("observability langfuse: get Langfuse traces for summary failed", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
 			return
 		}
@@ -2300,7 +2300,7 @@ func GetLangfuseSummary(
 		totalTokens := 0
 		dailyMetrics, dmErr := lctx.Client.GetDailyMetrics(c.Request.Context(), lctx.DeploymentID, c.Query("start_time"), c.Query("end_time"))
 		if dmErr != nil {
-			log.Warn("Failed to get Langfuse daily metrics for summary", "error", dmErr)
+			log.Warn("observability langfuse: get Langfuse daily metrics for summary failed", "error", dmErr)
 		} else {
 			for _, m := range dailyMetrics {
 				totalTokens += m.InputTokens() + m.OutputTokens()
@@ -2337,7 +2337,7 @@ func GetLangfuseSummaries(
 
 		deployments, err := deploymentStore.GetActiveDeploymentsByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list deployments for bulk summary", "account_id", acct.ID, "error", err)
+			log.Error("observability langfuse: list deployments for bulk summary failed", "account_id", acct.ID, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
 			return
 		}
@@ -2348,7 +2348,7 @@ func GetLangfuseSummaries(
 		}
 		summaries, cacheErr := deploymentSummariesFromCache(c.Request.Context(), cache, deploymentIDs)
 		if cacheErr != nil {
-			log.Warn("Obs summary cache read", "error", cacheErr)
+			log.Warn("observability langfuse: obs summary cache read", "error", cacheErr)
 		}
 
 		c.JSON(http.StatusOK, DeploymentSummariesResponse{Summaries: summaries})
@@ -2938,7 +2938,7 @@ func GetLangfuseTraceUsers(
 			log, accountStore, slackStore,
 		)
 		if err != nil {
-			log.Error("Failed to get Langfuse trace user facets", "error", err)
+			log.Error("observability langfuse: get Langfuse trace user facets failed", "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse trace users"})
 			return
 		}
@@ -3012,7 +3012,7 @@ func GetLangfuseTraces(
 				traces, err = fetchDeploymentPage(orderBy)(c.Request.Context(), limit, offset)
 			}
 			if err != nil {
-				log.Error("Failed to get ordered Langfuse traces", "error", err)
+				log.Error("observability langfuse: get ordered Langfuse traces failed", "error", err)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
 				return
 			}
@@ -3049,7 +3049,7 @@ func GetLangfuseTraces(
 				)
 			})
 			if err != nil {
-				log.Error("Failed to resolve filtered Langfuse traces", "error", err)
+				log.Error("observability langfuse: resolve filtered Langfuse traces failed", "error", err)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse traces"})
 				return
 			}
@@ -3098,7 +3098,7 @@ func GetLangfuseTraceDetail(
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 				return
 			}
-			log.Error("Failed to get Langfuse trace detail", "error", err, "trace_id", traceID)
+			log.Error("observability langfuse: get Langfuse trace detail failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse trace"})
 			return
 		}
@@ -3211,7 +3211,7 @@ func GetLangfuseObservationDetail(
 				c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
 				return
 			}
-			log.Error("Failed to get Langfuse observation detail", "error", err, "observation_id", observationID)
+			log.Error("observability langfuse: get Langfuse observation detail failed", "error", err, "observation_id", observationID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse observation"})
 			return
 		}
@@ -3222,7 +3222,7 @@ func GetLangfuseObservationDetail(
 				c.JSON(http.StatusNotFound, gin.H{"error": "observation not found"})
 				return
 			}
-			log.Error("Failed to verify observation ownership", "error", err, "trace_id", obs.TraceID)
+			log.Error("observability langfuse: verify observation ownership failed", "error", err, "trace_id", obs.TraceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query langfuse observation"})
 			return
 		}

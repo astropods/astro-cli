@@ -38,7 +38,7 @@ func ToggleHeart(log *logger.Logger, hearts *heartstore.Store, accountStore *acc
 
 		hearted, count, err := hearts.Toggle(c.Request.Context(), acct.ID, agentName, user.ID)
 		if err != nil {
-			log.Error("Failed to toggle heart", "error", err, "account", accountName, "agent", agentName)
+			log.Error("hearts: toggle heart failed", "error", err, "account", accountName, "agent", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to toggle heart"})
 			return
 		}
@@ -89,7 +89,7 @@ func ListHearted(log *logger.Logger, hearts *heartstore.Store, accountStore *acc
 		cursor := c.Query("cursor")
 		items, nextCursor, err := hearts.ListHearted(c.Request.Context(), ownerID, pageSize, cursor)
 		if err != nil {
-			log.Error("Failed to list hearted agents", "error", err, "account", accountName)
+			log.Error("hearts: list hearted agents failed", "error", err, "account", accountName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list hearted blueprints"})
 			return
 		}

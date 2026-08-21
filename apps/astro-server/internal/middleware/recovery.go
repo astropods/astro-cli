@@ -15,7 +15,7 @@ func Recovery(log *logger.Logger) gin.HandlerFunc {
 		defer func() {
 			if err := recover(); err != nil {
 				// Log the panic
-				log.Error("Panic recovered",
+				log.Error("recovery: panic recovered",
 					"error", fmt.Sprintf("%v", err),
 					"stack", string(debug.Stack()),
 					"path", c.Request.URL.Path,

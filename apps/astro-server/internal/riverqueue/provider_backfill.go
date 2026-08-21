@@ -67,7 +67,7 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 		for rows.Next() {
 			var p pending
 			if err := rows.Scan(&p.id, &p.specJSON); err != nil {
-				w.log.Error("Provider backfill: scan row", "error", err)
+				w.log.Error("provider backfill: scan row", "error", err)
 				continue
 			}
 			lastID = p.id
@@ -82,7 +82,7 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 			scanned++
 			var ds deployment.AstroDeploymentSpec
 			if err := json.Unmarshal([]byte(p.specJSON), &ds); err != nil {
-				w.log.Warn("Provider backfill: parse spec", "deployment_id", p.id, "error", err)
+				w.log.Warn("provider backfill: parse spec", "deployment_id", p.id, "error", err)
 				continue
 			}
 			byKind := map[string]map[string]string{"model": {}, "knowledge": {}}
@@ -104,7 +104,7 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 						WHERE deployment_id = $2 AND component_kind = $3 AND component_key = $4 AND provider IS NULL
 					`, provider, p.id, kind, key)
 					if err != nil {
-						w.log.Warn("Provider backfill: update", "deployment_id", p.id, "kind", kind, "key", key, "error", err)
+						w.log.Warn("provider backfill: update", "deployment_id", p.id, "kind", kind, "key", key, "error", err)
 						continue
 					}
 					if n, _ := res.RowsAffected(); n > 0 {
@@ -120,11 +120,11 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 				SET provider = ''
 				WHERE deployment_id = $1 AND component_kind IN ('knowledge', 'model') AND provider IS NULL
 			`, p.id); err != nil {
-				w.log.Warn("Provider backfill: settle", "deployment_id", p.id, "error", err)
+				w.log.Warn("provider backfill: settle", "deployment_id", p.id, "error", err)
 			}
 		}
 	}
 
-	w.log.Info("Provider backfill completed", "deployments_scanned", scanned, "rows_updated", updated)
+	w.log.Info("provider backfill: completed", "deployments_scanned", scanned, "rows_updated", updated)
 	return nil
 }

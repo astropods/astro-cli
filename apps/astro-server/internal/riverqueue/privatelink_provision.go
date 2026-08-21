@@ -53,7 +53,7 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 		return fmt.Errorf("get endpoint: %w", err)
 	}
 	if ep == nil {
-		w.log.Warn("PrivateLinkProvision: endpoint not found, skipping", "store_id", storeID)
+		w.log.Warn("privatelink provision: endpoint not found, skipping", "store_id", storeID)
 		return nil
 	}
 
@@ -99,16 +99,16 @@ func (w *PrivateLinkProvisionWorker) Work(ctx context.Context, job *river.Job[Pr
 
 	vpceID := aws.ToString(out.VpcEndpoint.VpcEndpointId)
 	if err := w.ksStore.SetEndpointVPCEID(storeID, vpceID); err != nil {
-		w.log.Error("PrivateLinkProvision: failed to record VPCE ID", "error", err, "store_id", storeID)
+		w.log.Error("privatelink provision: record VPCE ID failed", "error", err, "store_id", storeID)
 	}
 	if err := w.ksStore.SetEndpointStatus(storeID, knowledgestore.StatusPendingAcceptance); err != nil {
-		w.log.Error("PrivateLinkProvision: failed to update endpoint status", "error", err, "store_id", storeID)
+		w.log.Error("privatelink provision: update endpoint status failed", "error", err, "store_id", storeID)
 	}
 	if err := w.ksStore.SetStatus(storeID, knowledgestore.StatusPendingAcceptance); err != nil {
-		w.log.Error("PrivateLinkProvision: failed to update store status", "error", err, "store_id", storeID)
+		w.log.Error("privatelink provision: update store status failed", "error", err, "store_id", storeID)
 	}
 
-	w.log.Info("PrivateLinkProvision: VPC endpoint created",
+	w.log.Info("privatelink provision: VPC endpoint created",
 		"store_id", storeID, "vpce_id", vpceID, "service", ep.EndpointService)
 	return nil
 }
@@ -127,7 +127,7 @@ func (w *PrivateLinkProvisionWorker) checkVPCEndpointLimit(ctx context.Context, 
 		}},
 	})
 	if err != nil {
-		w.log.Warn("PrivateLinkProvision: failed to check VPC endpoint count (proceeding anyway)", "error", err)
+		w.log.Warn("privatelink provision: check VPC endpoint count (proceeding anyway) failed", "error", err)
 		return nil // non-fatal — let AWS reject it if over limit
 	}
 
@@ -137,7 +137,7 @@ func (w *PrivateLinkProvisionWorker) checkVPCEndpointLimit(ctx context.Context, 
 			count, maxVPCEndpointsPerVPC, w.cfg.Deployment.PrivateLinkVpcID)
 	}
 	if count >= vpceWarningThreshold {
-		w.log.Warn("PrivateLinkProvision: approaching VPC endpoint limit",
+		w.log.Warn("privatelink provision: approaching VPC endpoint limit",
 			"count", count, "limit", maxVPCEndpointsPerVPC, "vpc_id", w.cfg.Deployment.PrivateLinkVpcID)
 	}
 	return nil
@@ -242,9 +242,9 @@ func sortedStrings(s []string) []string {
 
 func (w *PrivateLinkProvisionWorker) setError(storeID, errMsg string) {
 	if err := w.ksStore.SetEndpointError(storeID, errMsg); err != nil {
-		w.log.Error("PrivateLinkProvision: failed to record endpoint error", "error", err, "store_id", storeID)
+		w.log.Error("privatelink provision: record endpoint error failed", "error", err, "store_id", storeID)
 	}
 	if err := w.ksStore.SetError(storeID, errMsg); err != nil {
-		w.log.Error("PrivateLinkProvision: failed to record store error", "error", err, "store_id", storeID)
+		w.log.Error("privatelink provision: record store error failed", "error", err, "store_id", storeID)
 	}
 }

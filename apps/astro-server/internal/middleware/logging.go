@@ -44,11 +44,11 @@ func Logger(log *logger.Logger) gin.HandlerFunc {
 
 		switch {
 		case statusCode >= 500:
-			logEntry.Error("Server error")
+			logEntry.Error("logging: server error")
 		case statusCode >= 400:
-			logEntry.Warn("Client error")
+			logEntry.Warn("logging: client error")
 		default:
-			logEntry.Info("Request completed")
+			logEntry.Info("logging: request completed")
 		}
 	}
 }

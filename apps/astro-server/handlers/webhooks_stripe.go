@@ -54,7 +54,7 @@ func StripeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin.Ha
 
 		event, err := webhook.ConstructEvent(body, c.GetHeader("Stripe-Signature"), secret)
 		if err != nil {
-			log.Warn("Stripe webhook signature verification failed", "error", err)
+			log.Warn("webhooks stripe: Stripe webhook signature verification failed", "error", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 			return
 		}
@@ -65,7 +65,7 @@ func StripeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin.Ha
 				// A verified event we can't parse is an internal problem, not a
 				// client error — 500 so Stripe redelivers rather than us acking
 				// and silently dropping a possible payment-failure signal.
-				log.Error("Stripe webhook: failed to parse event object", "type", string(event.Type), "error", err)
+				log.Error("webhooks stripe: parse event object failed", "type", string(event.Type), "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse event"})
 				return
 			}
@@ -79,7 +79,7 @@ func StripeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin.Ha
 		if queue != nil {
 			if err := queue.InsertStripeWebhook(c.Request.Context(), event.ID, string(event.Type), customer, obj.HostedInvoiceURL); err != nil {
 				// Return 500 so Stripe redelivers — the event is not yet tracked.
-				log.Error("Stripe webhook: enqueue failed", "type", string(event.Type), "error", err)
+				log.Error("webhooks stripe: enqueue failed", "type", string(event.Type), "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})
 				return
 			}

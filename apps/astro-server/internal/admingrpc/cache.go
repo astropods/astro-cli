@@ -35,7 +35,7 @@ func (s *Server) InvalidateAccountCaches(ctx context.Context, req *adminv1.Inval
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
-	s.log.Info("Admin invalidated account caches",
+	s.log.Info("admin cache: invalidated account caches",
 		"account_id", req.AccountID,
 		"deployments", result.DeploymentsBusted,
 	)
@@ -87,7 +87,7 @@ func (s *Server) InvalidateAllCaches(ctx context.Context, _ *adminv1.InvalidateA
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
-	s.log.Warn("Admin invalidated ALL caches",
+	s.log.Warn("admin cache: invalidated all caches",
 		"accounts", len(accountsResp.Accounts),
 		"deployments", len(deps),
 	)

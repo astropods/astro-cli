@@ -224,12 +224,12 @@ func enqueueDeploymentAccessReconcile(c *gin.Context, log *logger.Logger, queue 
 		return
 	}
 	if queue == nil {
-		log.Warn("Deployment access reconciliation enqueue skipped; periodic sweep will retry",
+		log.Warn("deployment access management: deployment access reconciliation enqueue skipped; periodic sweep will retry",
 			"deployment_id", intent.Resource.ExternalID, "subject_id", intent.SubjectID)
 		return
 	}
 	if err := queue.InsertResourceAccessFGAReconcileJob(c.Request.Context(), intent.Key()); err != nil {
-		log.Warn("Deployment access reconciliation enqueue failed; periodic sweep will retry",
+		log.Warn("deployment access management: deployment access reconciliation enqueue failed; periodic sweep will retry",
 			"deployment_id", intent.Resource.ExternalID, "subject_id", intent.SubjectID, "error", err)
 	}
 }
@@ -278,19 +278,19 @@ func writeDeploymentAccessError(c *gin.Context, log *logger.Logger, deploymentID
 	attrs := []any{"deployment_id", deploymentID, "error", err}
 	switch {
 	case errors.Is(err, authz.ErrResourceNotVisible), errors.Is(err, sql.ErrNoRows):
-		log.Debug("Deployment access resource unavailable", attrs...)
+		log.Debug("deployment access management: deployment access resource unavailable", attrs...)
 		c.JSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 	case errors.Is(err, authz.ErrAccessManagementUnavailable), errors.Is(err, authz.ErrFGAResourceNotEnabled):
-		log.Debug("Deployment access management disabled", attrs...)
+		log.Debug("deployment access management: disabled", attrs...)
 		c.JSON(http.StatusNotFound, gin.H{"error": "deployment access management is unavailable"})
 	case errors.Is(err, authz.ErrWorkOSMembershipUnavailable):
-		log.Warn("Deployment access identity unavailable", attrs...)
+		log.Warn("deployment access management: deployment access identity unavailable", attrs...)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization session is unavailable; refresh or sign in again"})
 	case errors.Is(err, authz.ErrAccessSubjectNotProvisioned):
-		log.Debug("Deployment access target is not provisioned", attrs...)
+		log.Debug("deployment access management: deployment access target is not provisioned", attrs...)
 		c.JSON(http.StatusConflict, gin.H{"error": "selected member is not yet provisioned for fine-grained access"})
 	default:
-		log.Warn("Deployment access operation failed", attrs...)
+		log.Warn("deployment access management: deployment access operation failed", attrs...)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 	}
 }

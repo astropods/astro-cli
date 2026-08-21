@@ -149,7 +149,7 @@ func ListOtelIngestTokens(log *logger.Logger, store *ingesttoken.Store, cfg *con
 
 		tokens, err := store.ListByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list OTel ingest tokens", "error", err, "account_id", acct.ID)
+			log.Error("otel ingest tokens: list OTel ingest tokens failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list ingest keys"})
 			return
 		}
@@ -205,7 +205,7 @@ func CreateOtelIngestToken(
 
 		plaintext, hash, prefix, err := ingesttoken.Generate()
 		if err != nil {
-			log.Error("Failed to generate OTel ingest token", "error", err, "account_id", acct.ID)
+			log.Error("otel ingest tokens: generate OTel ingest token failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate ingest key"})
 			return
 		}
@@ -217,7 +217,7 @@ func CreateOtelIngestToken(
 
 		tok, err := store.Create(acct.ID, req.Name, hash, prefix, createdBy, excluded)
 		if err != nil {
-			log.Error("Failed to create OTel ingest token", "error", err, "account_id", acct.ID)
+			log.Error("otel ingest tokens: create OTel ingest token failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create ingest key"})
 			return
 		}
@@ -228,12 +228,12 @@ func CreateOtelIngestToken(
 			if _, _, lfErr := provisioner.EnsureProject(
 				c.Request.Context(), lfStore, acct.ID, acct.Name,
 			); lfErr != nil {
-				log.Warn("Langfuse project ensure failed during ingest-key creation; continuing",
+				log.Warn("otel ingest tokens: Langfuse project ensure failed during ingest-key creation; continuing",
 					"error", lfErr, "account_id", acct.ID)
 			}
 		}
 
-		log.Info("OTel ingest token created", "account_id", acct.ID, "token_id", tok.ID)
+		log.Info("otel ingest tokens: OTel ingest token created", "account_id", acct.ID, "token_id", tok.ID)
 		emitNotify(c, log, queue, notify.SecurityKeyCreated(acct.ID, ingestKeyKind, req.Name))
 		c.JSON(http.StatusCreated, CreateOtelIngestTokenResponse{
 			OtelIngestTokenMeta: toMeta(tok),
@@ -260,12 +260,12 @@ func RevokeOtelIngestToken(log *logger.Logger, store *ingesttoken.Store, queue n
 				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
 				return
 			}
-			log.Error("Failed to revoke OTel ingest token", "error", err, "account_id", acct.ID, "token_id", tokenID)
+			log.Error("otel ingest tokens: revoke OTel ingest token failed", "error", err, "account_id", acct.ID, "token_id", tokenID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke ingest key"})
 			return
 		}
 
-		log.Info("OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
+		log.Info("otel ingest tokens: OTel ingest token revoked", "account_id", acct.ID, "token_id", tokenID)
 		emitNotify(c, log, queue, notify.SecurityKeyRevoked(acct.ID, ingestKeyKind, keyName))
 		c.JSON(http.StatusOK, gin.H{"message": "ingest key revoked"})
 	}
@@ -300,12 +300,12 @@ func RenameOtelIngestToken(log *logger.Logger, store *ingesttoken.Store) gin.Han
 				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
 				return
 			}
-			log.Error("Failed to rename OTel ingest token", "error", err, "account_id", acct.ID, "token_id", tokenID)
+			log.Error("otel ingest tokens: rename OTel ingest token failed", "error", err, "account_id", acct.ID, "token_id", tokenID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename ingest key"})
 			return
 		}
 
-		log.Info("OTel ingest token renamed", "account_id", acct.ID, "token_id", tokenID)
+		log.Info("otel ingest tokens: OTel ingest token renamed", "account_id", acct.ID, "token_id", tokenID)
 		c.JSON(http.StatusOK, RenameOtelIngestTokenResponse{Name: name})
 	}
 }
@@ -339,12 +339,12 @@ func UpdateOtelIngestTokenExclusions(log *logger.Logger, store *ingesttoken.Stor
 				c.JSON(http.StatusNotFound, gin.H{"error": "ingest key not found"})
 				return
 			}
-			log.Error("Failed to update OTel ingest token exclusions", "error", err, "account_id", acct.ID, "token_id", tokenID)
+			log.Error("otel ingest tokens: update OTel ingest token exclusions failed", "error", err, "account_id", acct.ID, "token_id", tokenID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update exclusions"})
 			return
 		}
 
-		log.Info("OTel ingest token exclusions updated", "account_id", acct.ID, "token_id", tokenID, "excluded_count", len(excluded))
+		log.Info("otel ingest tokens: OTel ingest token exclusions updated", "account_id", acct.ID, "token_id", tokenID, "excluded_count", len(excluded))
 		c.JSON(http.StatusOK, UpdateOtelIngestTokenExclusionsResponse{ExcludedEmails: excluded})
 	}
 }

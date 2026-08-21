@@ -226,7 +226,7 @@ func GetNetworkSummary(
 			})
 		}
 		if err := g.Wait(); err != nil {
-			log.Error("Network summary query failed", "deployment_id", dctx.Deployment.ID, "error", err)
+			log.Error("network: summary query failed", "deployment_id", dctx.Deployment.ID, "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query network metrics"})
 			return
 		}
@@ -388,7 +388,7 @@ func GetNetworkFlows(
 
 		flows, err := collectFlows(c.Request.Context(), dctx.PromClient, spec, dctx, window, direction)
 		if err != nil {
-			log.Error("Network flows query failed",
+			log.Error("network: flows query failed",
 				"deployment_id", dctx.Deployment.ID, "direction", direction, "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query network flows"})
 			return
@@ -646,7 +646,7 @@ func GetNetworkTimeseries(
 
 		series, err := queryTimeseries(c.Request.Context(), dctx.PromClient, spec, dctx, window, step, metric, groupBy)
 		if err != nil {
-			log.Error("Network timeseries query failed",
+			log.Error("network: timeseries query failed",
 				"deployment_id", dctx.Deployment.ID, "direction", direction, "metric", metric, "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query network timeseries"})
 			return

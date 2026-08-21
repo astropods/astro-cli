@@ -240,7 +240,7 @@ func serveUserResourceList[Request any](config userResourceListConfig[Request]) 
 		generations := config.generations(c.Request.Context(), config.cache, accountIDs)
 		cacheKey, err := userResourceCacheKey(user.ID, scope, config.cacheIdentity(request), generations)
 		if err != nil {
-			config.log.Error("Failed to build user resource cache key", "resource", config.resource, "error", err)
+			config.log.Error("user resources: build user resource cache key failed", "resource", config.resource, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list " + config.resource})
 			return
 		}
@@ -263,7 +263,7 @@ func serveUserResourceList[Request any](config userResourceListConfig[Request]) 
 		}
 		responseData, err := withRejectedAccounts(response.Data, scope.rejected)
 		if err != nil {
-			config.log.Error("Failed to add rejected accounts to user resource response", "resource", config.resource, "error", err)
+			config.log.Error("user resources: add rejected accounts to user resource response failed", "resource", config.resource, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list " + config.resource})
 			return
 		}

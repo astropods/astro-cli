@@ -74,7 +74,7 @@ func GetEvalDataset(
 
 		criteriaCounts, err := judgmentStore.CriterionCounts(ds.ID)
 		if err != nil {
-			log.Error("Failed to get dataset criterion counts", "error", err, "dataset_id", ds.ID, "deployment_id", dctx.DeploymentID)
+			log.Error("dataset summary: get dataset criterion counts failed", "error", err, "dataset_id", ds.ID, "deployment_id", dctx.DeploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dataset criteria counts"})
 			return
 		}

@@ -107,7 +107,7 @@ func ProxyDeploymentMessaging(
 
 		upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 		if resolveErr != nil {
-			log.Warn("messaging proxy target resolution failed",
+			log.Warn("messaging proxy: target resolution failed",
 				"deployment", dep.ID, "error", resolveErr)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "messaging endpoint unavailable"})
 			return
@@ -168,7 +168,7 @@ func ProxyDeploymentMessaging(
 
 		resp, err := upstream.client.Do(req)
 		if err != nil {
-			log.Warn("messaging proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
+			log.Warn("messaging proxy: upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
 			status := http.StatusBadGateway
 			if errors.Is(err, context.DeadlineExceeded) {
 				status = http.StatusGatewayTimeout
@@ -186,7 +186,7 @@ func ProxyDeploymentMessaging(
 		copyMessagingResponseHeaders(resp.Header, c.Writer.Header())
 		c.Status(resp.StatusCode)
 		if _, copyErr := io.Copy(c.Writer, resp.Body); copyErr != nil {
-			log.Debug("messaging proxy response copy failed", "deployment", dep.ID, "error", copyErr)
+			log.Debug("messaging proxy: response copy failed", "deployment", dep.ID, "error", copyErr)
 		}
 	}
 }
@@ -345,6 +345,6 @@ func proxyMessagingEventStream(
 	// the EventSource on a conversation switch or a finished turn, not a failure.
 	// Only log a genuine scan error so the signal isn't buried in disconnect noise.
 	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
-		log.Debug("messaging proxy SSE scan failed", "deployment", deploymentID, "error", err)
+		log.Debug("messaging proxy: SSE scan failed", "deployment", deploymentID, "error", err)
 	}
 }

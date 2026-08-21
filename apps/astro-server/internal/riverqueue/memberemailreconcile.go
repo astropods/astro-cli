@@ -107,6 +107,6 @@ func (w *MemberEmailReconcileWorker) Work(ctx context.Context, _ *river.Job[Memb
 		}()
 	}
 	wg.Wait()
-	w.log.Info("member email reconcile complete", "missing", len(userIDs), "resolved", resolved.Load())
+	w.log.Info("memberemailreconcile: member email reconcile complete", "missing", len(userIDs), "resolved", resolved.Load())
 	return nil
 }

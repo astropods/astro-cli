@@ -75,6 +75,6 @@ func (w *BillingCollectWorker) Work(ctx context.Context, job *river.Job[BillingC
 	// The status change rides the resulting provider webhook rather than being
 	// written here. A payment that succeeds outside our window then reaches the
 	// same code, so one path clears dunning instead of two.
-	w.log.Info("billing collect", "account_id", job.Args.AccountID, "paid", paid)
+	w.log.Info("billing collect: completed", "account_id", job.Args.AccountID, "paid", paid)
 	return nil
 }

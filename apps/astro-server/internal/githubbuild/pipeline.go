@@ -100,7 +100,7 @@ func (p *GitHubBuildPipeline) step(name string, fn func() error) *GitHubBuildPip
 func (p *GitHubBuildPipeline) updateStep(name string) {
 	if p.cfg.GHStore != nil && p.cfg.RecordID != "" {
 		if err := p.cfg.GHStore.UpdateBuildStep(context.Background(), p.cfg.RecordID, name); err != nil && p.cfg.Log != nil {
-			p.cfg.Log.Error("failed to update build step", "step", name, "error", err)
+			p.cfg.Log.Error("pipeline: update build step failed", "step", name, "error", err)
 		}
 	}
 }
@@ -237,7 +237,7 @@ func (p *GitHubBuildPipeline) CreateComponentRecords() *GitHubBuildPipeline {
 			id, err := p.cfg.GHStore.CreateBuildComponent(context.Background(), p.cfg.RecordID, comp.Suffix(), jobName)
 			if err != nil {
 				if p.cfg.Log != nil {
-					p.cfg.Log.Error("failed to create build component record", "component", comp.Suffix(), "error", err)
+					p.cfg.Log.Error("pipeline: create build component record failed", "component", comp.Suffix(), "error", err)
 				}
 			} else {
 				p.componentIDs[comp.Suffix()] = id
@@ -267,7 +267,7 @@ func (p *GitHubBuildPipeline) RunBuildJobs() *GitHubBuildPipeline {
 			}
 
 			if p.cfg.Log != nil {
-				p.cfg.Log.Info("Building component",
+				p.cfg.Log.Info("pipeline: building component",
 					"component", suffix,
 					"destination", destination,
 					"progress", fmt.Sprintf("%d/%d", i+1, len(p.components)))
@@ -276,7 +276,7 @@ func (p *GitHubBuildPipeline) RunBuildJobs() *GitHubBuildPipeline {
 			if destination != "" {
 				if err := p.cfg.Builder.EnsureRepository(p.ctx, destination); err != nil {
 					if p.cfg.Log != nil {
-						p.cfg.Log.Error("failed to ensure ECR repository", "error", err)
+						p.cfg.Log.Error("pipeline: ensure ECR repository failed", "error", err)
 					}
 					if compID > 0 {
 						_ = p.cfg.GHStore.UpdateBuildComponentStatus(context.Background(), compID, "failed")
@@ -344,7 +344,7 @@ func (p *GitHubBuildPipeline) ProcessReadmeImages() *GitHubBuildPipeline {
 		)
 		for _, warning := range warnings {
 			if p.cfg.Log != nil {
-				p.cfg.Log.Warn("readme image skipped", "agent", p.cfg.AgentName, "detail", warning)
+				p.cfg.Log.Warn("pipeline: readme image skipped", "agent", p.cfg.AgentName, "detail", warning)
 			}
 		}
 		p.readme = rewritten

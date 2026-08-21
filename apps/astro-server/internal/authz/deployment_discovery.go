@@ -218,7 +218,7 @@ func (d *DeploymentDiscovery) failClosed(
 	if deadlineErr := discoveryDeadlineError(ctx, err); deadlineErr != nil {
 		return nil, true, deadlineErr
 	}
-	d.log.Warn("Deployment visibility discovery failed closed",
+	d.log.Warn("deployment discovery: deployment visibility discovery failed closed",
 		"operation", operation,
 		"account_id", acct.ID,
 		"workos_organization_id", acct.WorkOSOrganizationID,

@@ -120,7 +120,7 @@ func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingS
 		}
 		suspended++
 	}
-	w.log.Info("billing suspend", "account_id", job.Args.AccountID, "suspended", suspended, "total", len(deps))
+	w.log.Info("billing suspend: completed", "account_id", job.Args.AccountID, "suspended", suspended, "total", len(deps))
 	return nil
 }
 
@@ -170,6 +170,6 @@ func (w *BillingResumeWorker) Work(ctx context.Context, job *river.Job[BillingRe
 		}
 		resumed++
 	}
-	w.log.Info("billing resume", "account_id", job.Args.AccountID, "resumed", resumed, "total", len(deps))
+	w.log.Info("billing suspend: billing resume", "account_id", job.Args.AccountID, "resumed", resumed, "total", len(deps))
 	return nil
 }

@@ -122,7 +122,7 @@ func forwardChat(
 
 	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		log.Warn("chat proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
+		log.Warn("chat: proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "chat endpoint unavailable"})
 		return
 	}
@@ -177,7 +177,7 @@ func forwardChat(
 		if errors.Is(err, context.DeadlineExceeded) {
 			status = http.StatusGatewayTimeout
 		}
-		log.Warn("chat proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
+		log.Warn("chat: proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
 		c.JSON(status, gin.H{"error": "chat request failed"})
 		return
 	}
@@ -188,7 +188,7 @@ func forwardChat(
 	}
 	c.Status(resp.StatusCode)
 	if _, copyErr := io.Copy(c.Writer, resp.Body); copyErr != nil {
-		log.Debug("chat proxy response copy failed", "deployment", dep.ID, "error", copyErr)
+		log.Debug("chat: proxy response copy failed", "deployment", dep.ID, "error", copyErr)
 	}
 }
 

@@ -43,7 +43,7 @@ func GetFineGrainedAccessExperiment(log *logger.Logger, store experimentStore) g
 
 		enabled, err := store.Enabled(c.Request.Context(), acct.ID, experiment.FineGrainedAccess)
 		if err != nil {
-			log.Error("Failed to read account experiment", "error", err, "account_id", acct.ID, "experiment", experiment.FineGrainedAccess)
+			log.Error("experiments: read account experiment failed", "error", err, "account_id", acct.ID, "experiment", experiment.FineGrainedAccess)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read experiment"})
 			return
 		}
@@ -77,7 +77,7 @@ func UpdateFineGrainedAccessExperiment(
 			return
 		}
 		if err := store.SetEnabled(c.Request.Context(), acct.ID, experiment.FineGrainedAccess, *req.Enabled); err != nil {
-			log.Error("Failed to update account experiment", "error", err, "account_id", acct.ID, "experiment", experiment.FineGrainedAccess)
+			log.Error("experiments: update account experiment failed", "error", err, "account_id", acct.ID, "experiment", experiment.FineGrainedAccess)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update experiment"})
 			return
 		}

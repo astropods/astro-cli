@@ -103,7 +103,7 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 		}
 		sig := c.GetHeader("Metronome-Webhook-Signature")
 		if !verifyMetronomeSignature(secret, date, body, sig) {
-			log.Warn("Metronome webhook signature verification failed")
+			log.Warn("webhooks metronome: Metronome webhook signature verification failed")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 			return
 		}
@@ -126,7 +126,7 @@ func MetronomeWebhook(log *logger.Logger, secret string, queue WebhookQueue) gin
 				Detail:       env.detail(),
 			}); err != nil {
 				// Return 500 so Metronome redelivers — the event is not yet tracked.
-				log.Error("Metronome webhook: enqueue failed", "type", env.Type, "error", err)
+				log.Error("webhooks metronome: enqueue failed", "type", env.Type, "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "enqueue failed"})
 				return
 			}

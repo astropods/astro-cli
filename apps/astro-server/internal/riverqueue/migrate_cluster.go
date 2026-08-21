@@ -82,7 +82,7 @@ func (w *MigrateDeploymentClusterWorker) Work(ctx context.Context, job *river.Jo
 	if err != nil {
 		return err
 	}
-	w.log.Info("Migrate cluster finished",
+	w.log.Info("migrate cluster: finished",
 		"deployment_id", job.Args.DeploymentID,
 		"target_cluster_id", job.Args.TargetClusterID,
 		"outcome", res.Outcome,

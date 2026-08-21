@@ -20,7 +20,7 @@ func loadDataset(
 ) (*evaldatasetstore.EvalDataset, bool) {
 	ds, err := datasetStore.GetByDeploymentID(deploymentID)
 	if err != nil {
-		log.Error("Failed to get dataset record", "error", err, "deployment_id", deploymentID)
+		log.Error("dataset: get dataset record failed", "error", err, "deployment_id", deploymentID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get dataset"})
 		return nil, false
 	}
@@ -52,7 +52,7 @@ func loadDatasetEnsured(
 		DeploymentID: lctx.DeploymentID,
 	})
 	if err != nil {
-		log.Error("Failed to ensure eval dataset", "error", err, "deployment_id", lctx.DeploymentID)
+		log.Error("dataset: ensure eval dataset failed", "error", err, "deployment_id", lctx.DeploymentID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare dataset"})
 		return nil, false
 	}

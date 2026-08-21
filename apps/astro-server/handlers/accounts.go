@@ -141,7 +141,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		if req.Type == "personal" {
 			hasPersonal, err := accountStore.HasPersonalAccount(user.ID)
 			if err != nil {
-				log.Error("Failed to check personal account", "error", err)
+				log.Error("accounts: check personal account failed", "error", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check existing accounts"})
 				return
 			}
@@ -191,7 +191,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		// Step 1: Create local account (Astro is source of truth)
 		acct, err := accountStore.Create(req.Name, req.Type, user.ID, req.DisplayName)
 		if err != nil {
-			log.Error("Failed to create account", "error", err, "name", req.Name)
+			log.Error("accounts: create account failed", "error", err, "name", req.Name)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to create account",
 				"details": err.Error(),
@@ -203,14 +203,14 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		// attribution. Non-fatal — account creation must not fail on this.
 		if memberEmails != nil {
 			if err := memberEmails.UpsertWorkOS(c.Request.Context(), user.ID, user.Email, user.EmailVerified); err != nil {
-				log.Warn("Failed to mirror member email on account create", "error", err, "user_id", user.ID)
+				log.Warn("accounts: mirror member email on account create failed", "error", err, "user_id", user.ID)
 			}
 		}
 
 		// Login skips this sync until a personal account exists; it retries there.
 		if req.Type == "personal" && orgSync != nil {
 			if err := orgSync.SyncMembershipsForUser(c.Request.Context(), user.ID); err != nil {
-				log.Warn("Failed to sync memberships after personal account create", "error", err, "user_id", user.ID)
+				log.Warn("accounts: sync memberships after personal account create failed", "error", err, "user_id", user.ID)
 			}
 		}
 
@@ -221,7 +221,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			// Create WorkOS organization with external_id = account.ID
 			workosOrg, err := orgClient.CreateOrganization(ctx, req.Name, acct.ID)
 			if err != nil {
-				log.Error("Failed to create WorkOS organization", "error", err, "account_id", acct.ID)
+				log.Error("accounts: create WorkOS organization failed", "error", err, "account_id", acct.ID)
 				// Compensating action: delete local account
 				_ = accountStore.DeleteByID(acct.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{
@@ -233,7 +233,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 
 			// Link WorkOS org to local account
 			if err := accountStore.SetWorkOSOrganizationID(acct.ID, workosOrg.ID); err != nil {
-				log.Error("Failed to link WorkOS org", "error", err, "account_id", acct.ID)
+				log.Error("accounts: link WorkOS org failed", "error", err, "account_id", acct.ID)
 				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
 				_ = accountStore.DeleteByID(acct.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link organization"})
@@ -244,7 +244,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			// Create WorkOS membership for creator as owner
 			m, err := orgClient.CreateMembership(ctx, workosOrg.ID, user.ID, "owner")
 			if err != nil {
-				log.Error("Failed to create WorkOS membership for org creator", "error", err, "account_id", acct.ID)
+				log.Error("accounts: create WorkOS membership for org creator failed", "error", err, "account_id", acct.ID)
 				// Compensating action: clean up WorkOS org and local account
 				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
 				_ = accountStore.DeleteByID(acct.ID)
@@ -265,11 +265,11 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 		_, provisions := billingProvider.(billing.Provisioner)
 		if q, ok := queue.(billingProvisionQueue); ok && provisions {
 			if err := q.InsertBillingProvision(c.Request.Context(), acct.ID); err != nil {
-				log.Error("Failed to enqueue billing provisioning", "error", err, "account_id", acct.ID)
+				log.Error("accounts: enqueue billing provisioning failed", "error", err, "account_id", acct.ID)
 			}
 		}
 
-		log.Info("Account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
+		log.Info("accounts: account created", "id", acct.ID, "name", acct.Name, "type", acct.Type, "user_id", user.ID)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AccountCreate
@@ -312,7 +312,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			resp.Invitations = results
 			for _, r := range results {
 				if !r.Success {
-					log.Warn("Invitation failed during account creation", "value", r.Value, "error", r.Error)
+					log.Warn("accounts: invitation failed during account creation", "value", r.Value, "error", r.Error)
 				}
 			}
 		}
@@ -360,7 +360,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 		}
 
 		if allowed, err := bindings.List(acct.ID); err != nil {
-			log.Error("Failed to list account clusters", "error", err, "account_id", acct.ID)
+			log.Error("accounts: list account clusters failed", "error", err, "account_id", acct.ID)
 		} else {
 			resp.AllowedClusters = allowed
 		}
@@ -402,13 +402,13 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 		if billingProvider != nil {
 			customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
 			if err != nil {
-				log.Error("Failed to load billing customer id for delete", "error", err, "account_id", acct.ID)
+				log.Error("accounts: load billing customer id for delete failed", "error", err, "account_id", acct.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 				return
 			}
 			if customerID != "" {
 				if err := billingProvider.DeleteCustomer(ctx, customerID); err != nil {
-					log.Error("Failed to archive billing customer; aborting delete", "error", err, "account_id", acct.ID, "billing_customer_id", customerID)
+					log.Error("accounts: archive billing customer; aborting delete failed", "error", err, "account_id", acct.ID, "billing_customer_id", customerID)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 					return
 				}
@@ -420,7 +420,7 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 			return
 		} else if err != nil {
-			log.Error("Failed to mark account deleted", "error", err, "account_id", acct.ID)
+			log.Error("accounts: mark account deleted failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
 		}
@@ -430,18 +430,18 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 		// best-effort cleanup before removing the account row.
 		if aigwProvisioner != nil && aigwJudgeStore != nil {
 			if err := aigwProvisioner.RevokeAccountJudgeKeys(ctx, aigwJudgeStore, acct.ID); err != nil {
-				log.Warn("Failed to revoke AI Gateway judge key for deleted account", "error", err, "account_id", acct.ID)
+				log.Warn("accounts: revoke AI Gateway judge key for deleted account failed", "error", err, "account_id", acct.ID)
 			}
 		}
 
 		// Enqueue undeploy for all visible deployments (reuses existing undeploy pipeline)
 		deps, err := deployStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list deployments for deleted account", "error", err, "account_id", acct.ID)
+			log.Error("accounts: list deployments for deleted account failed", "error", err, "account_id", acct.ID)
 		} else {
 			for _, dep := range deps {
 				if err := EnqueueUndeploy(ctx, deployStore, queue, dep); err != nil {
-					log.Error("Failed to enqueue undeploy for deleted account", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
+					log.Error("accounts: enqueue undeploy for deleted account failed", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
 				}
 			}
 		}
@@ -449,11 +449,11 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 		// Clean up WorkOS organization (best-effort)
 		if acct.WorkOSOrganizationID != "" && orgClient != nil {
 			if err := orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
-				log.Error("Failed to delete WorkOS organization", "error", err, "workos_org_id", acct.WorkOSOrganizationID, "account_id", acct.ID)
+				log.Error("accounts: delete WorkOS organization failed", "error", err, "workos_org_id", acct.WorkOSOrganizationID, "account_id", acct.ID)
 			}
 		}
 
-		log.Info("Account deleted", "account_id", acct.ID, "account_name", acct.Name)
+		log.Info("accounts: account deleted", "account_id", acct.ID, "account_name", acct.Name)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AccountDelete
@@ -561,12 +561,12 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 		}
 
 		if err := accountStore.UpdateProfile(acct.ID, displayName, req.Bio, req.Location, req.LocalTimezone, req.Pronouns, req.Website, req.SocialLinks, req.BlueprintOrder); err != nil {
-			log.Error("Failed to update account profile", "error", err, "account_id", acct.ID)
+			log.Error("accounts: update account profile failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return
 		}
 
-		log.Info("Account profile updated", "account_id", acct.ID, "display_name", displayName)
+		log.Info("accounts: account profile updated", "account_id", acct.ID, "display_name", displayName)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.ProfileUpdate
@@ -605,7 +605,7 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 		}
 
 		if err := accountStore.Rename(acct.ID, req.Name); err != nil {
-			log.Error("Failed to rename account", "error", err, "account_id", acct.ID)
+			log.Error("accounts: rename account failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to rename account",
 				"details": err.Error(),
@@ -616,7 +616,7 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 		// Sync the name to WorkOS for organization accounts
 		if acct.WorkOSOrganizationID != "" && orgClient != nil {
 			if err := orgClient.UpdateOrganizationName(c.Request.Context(), acct.WorkOSOrganizationID, req.Name); err != nil {
-				log.Warn("Failed to update WorkOS organization name", "error", err, "account_id", acct.ID)
+				log.Warn("accounts: update WorkOS organization name failed", "error", err, "account_id", acct.ID)
 			}
 		}
 
@@ -624,22 +624,22 @@ func RenameAccount(log *logger.Logger, accountStore *account.AccountStore, agent
 		if avatarStore != nil && acct.Name != req.Name {
 			agentNames, _ := agentIdx.AgentNames(acct.ID)
 			if err := avatarStore.MoveAllForAccount(c.Request.Context(), acct.Name, req.Name, agentNames); err != nil {
-				log.Warn("Failed to move avatars during rename", "error", err, "account_id", acct.ID)
+				log.Warn("accounts: move avatars during rename failed", "error", err, "account_id", acct.ID)
 			} else {
 				// Stamp the moved avatars so their cache-busting tokens advance past
 				// the old key's cached copy.
 				if _, err := accountStore.TouchAvatarUpdatedAt(acct.ID); err != nil {
-					log.Warn("Failed to stamp account avatar_updated_at after rename", "error", err, "account_id", acct.ID)
+					log.Warn("accounts: stamp account avatar_updated_at after rename failed", "error", err, "account_id", acct.ID)
 				}
 				for _, name := range agentNames {
 					if _, err := agentIdx.TouchAvatarUpdatedAt(acct.ID, name); err != nil {
-						log.Warn("Failed to stamp agent avatar_updated_at after rename", "error", err, "account_id", acct.ID, "agent", name)
+						log.Warn("accounts: stamp agent avatar_updated_at after rename failed", "error", err, "account_id", acct.ID, "agent", name)
 					}
 				}
 			}
 		}
 
-		log.Info("Account renamed", "id", acct.ID, "old_name", acct.Name, "new_name", req.Name)
+		log.Info("accounts: account renamed", "id", acct.ID, "old_name", acct.Name, "new_name", req.Name)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AccountRename
@@ -697,7 +697,7 @@ func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore, audit
 		// Find the user's personal account
 		accounts, err := accountStore.GetAccountsForUser(user.ID)
 		if err != nil {
-			log.Error("Failed to fetch accounts", "error", err, "user_id", user.ID)
+			log.Error("accounts: fetch accounts failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch accounts"})
 			return
 		}
@@ -715,12 +715,12 @@ func UpdateProfile(log *logger.Logger, accountStore *account.AccountStore, audit
 		}
 
 		if err := accountStore.UpdateDisplayName(personalAccountID, req.DisplayName); err != nil {
-			log.Error("Failed to update display name", "error", err, "user_id", user.ID)
+			log.Error("accounts: update display name failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
 			return
 		}
 
-		log.Info("Display name updated", "user_id", user.ID, "account_id", personalAccountID)
+		log.Info("accounts: display name updated", "user_id", user.ID, "account_id", personalAccountID)
 
 		evt := auditlog.FromGinContext(c, personalAccountID)
 		evt.Action = auditlog.ProfileUpdate
@@ -750,7 +750,7 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 
 		accounts, err := accountStore.GetAccountsForUser(user.ID)
 		if err != nil {
-			log.Error("Failed to get accounts for user", "error", err, "user_id", user.ID)
+			log.Error("accounts: get accounts for user failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get accounts"})
 			return
 		}
@@ -864,7 +864,7 @@ func SearchAccounts(log *logger.Logger, accountStore *account.AccountStore, avat
 
 		accounts, err := accountStore.Search(q, accountType, limit)
 		if err != nil {
-			log.Error("Failed to search accounts", "error", err, "query", q)
+			log.Error("accounts: search accounts failed", "error", err, "query", q)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search accounts"})
 			return
 		}
@@ -915,7 +915,7 @@ func GetAccountOrgs(log *logger.Logger, accountStore *account.AccountStore) gin.
 
 		orgs, err := accountStore.GetOrgAccountsForUser(ownerID)
 		if err != nil {
-			log.Error("Failed to get org accounts", "error", err, "account", accountName)
+			log.Error("accounts: get org accounts failed", "error", err, "account", accountName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get org accounts"})
 			return
 		}

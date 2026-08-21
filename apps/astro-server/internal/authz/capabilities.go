@@ -104,7 +104,7 @@ func (s *CapabilityService) Evaluate(
 }
 
 func logCapabilityComparison(log DecisionLogger, ctx context.Context, subject Subject, action Action, resource ResourceRef, legacyAllowed, fgaAllowed bool) {
-	log.Debug("Deployment capability comparison",
+	log.Debug("capabilities: deployment capability comparison",
 		"route", authorizationRoute(ctx),
 		"action", action,
 		"resource_type", resource.Type,

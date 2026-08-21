@@ -297,7 +297,7 @@ func enrichUserDeploymentRows(
 		var err error
 		messagingURLs, err = dependencies.deployments.GetMessagingURLsContext(ctx, deploymentIDs)
 		if err != nil {
-			dependencies.log.Warn("Failed to batch deployment messaging URLs", "error", err)
+			dependencies.log.Warn("user deployments: batch deployment messaging URLs failed", "error", err)
 		}
 		return err
 	})
@@ -305,7 +305,7 @@ func enrichUserDeploymentRows(
 		var err error
 		webConfigured, err = dependencies.deployments.GetMessagingWebConfigured(ctx, deploymentIDs)
 		if err != nil {
-			dependencies.log.Warn("Failed to batch messaging web flags", "error", err)
+			dependencies.log.Warn("user deployments: batch messaging web flags failed", "error", err)
 		}
 		return err
 	})
@@ -314,7 +314,7 @@ func enrichUserDeploymentRows(
 			var err error
 			latestAudit, err = dependencies.audit.LatestPerResources(ctx, accountIDs, "deployment", deploymentIDs)
 			if err != nil {
-				dependencies.log.Warn("Failed to batch deployment audit timestamps", "error", err)
+				dependencies.log.Warn("user deployments: batch deployment audit timestamps failed", "error", err)
 			}
 			return err
 		})
@@ -328,7 +328,7 @@ func enrichUserDeploymentRows(
 				deploymentIDs,
 			)
 			if err != nil {
-				dependencies.log.Warn("Failed to batch deployment authors", "error", err)
+				dependencies.log.Warn("user deployments: batch deployment authors failed", "error", err)
 			}
 			return err
 		})
@@ -338,7 +338,7 @@ func enrichUserDeploymentRows(
 			var err error
 			latestBuilds, err = dependencies.agents.BatchLatestBuildInfo(ctx, lineageRefs)
 			if err != nil {
-				dependencies.log.Warn("Failed to batch latest deployment builds", "error", err)
+				dependencies.log.Warn("user deployments: batch latest deployment builds failed", "error", err)
 			}
 			return err
 		})

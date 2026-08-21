@@ -60,7 +60,7 @@ func ListAccountVariables(log *logger.Logger, store *accountvars.Store) gin.Hand
 
 		vars, err := store.List(acct.ID)
 		if err != nil {
-			log.Error("Failed to list account variables", "error", err, "account_id", acct.ID)
+			log.Error("account secrets: list account variables failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list variables"})
 			return
 		}
@@ -128,7 +128,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 			}
 
 			if err := applyValue(v, entry.Value, enc); err != nil {
-				log.Error("Failed to encrypt variable", "error", err, "account_id", acct.ID, "name", entry.Name)
+				log.Error("account secrets: encrypt variable failed", "error", err, "account_id", acct.ID, "name", entry.Name)
 				result.Status = "error"
 				result.Error = "failed to encrypt"
 				results = append(results, result)
@@ -136,7 +136,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 			}
 
 			if err := store.Save(v); err != nil {
-				log.Error("Failed to save account variable", "error", err, "account_id", acct.ID, "name", entry.Name)
+				log.Error("account secrets: save account variable failed", "error", err, "account_id", acct.ID, "name", entry.Name)
 				result.Status = "error"
 				result.Error = "failed to save"
 				results = append(results, result)
@@ -145,7 +145,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 
 			result.Status = "created"
 			results = append(results, result)
-			log.Info("Account variable created", "account_id", acct.ID, "name", entry.Name, "secret", entry.Secret)
+			log.Info("account secrets: account variable created", "account_id", acct.ID, "name", entry.Name, "secret", entry.Secret)
 		}
 
 		c.JSON(http.StatusOK, CreateAccountVariablesResponse{Results: results})
@@ -166,7 +166,7 @@ func GetAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Handle
 		varName := c.Param("varName")
 		v, err := store.Get(acct.ID, varName)
 		if err != nil {
-			log.Error("Failed to get account variable", "error", err, "account_id", acct.ID, "name", varName)
+			log.Error("account secrets: get account variable failed", "error", err, "account_id", acct.ID, "name", varName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get variable"})
 			return
 		}
@@ -203,7 +203,7 @@ func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 
 		existing, err := store.Get(acct.ID, varName)
 		if err != nil {
-			log.Error("Failed to get variable for update", "error", err, "account_id", acct.ID)
+			log.Error("account secrets: get variable for update failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update variable"})
 			return
 		}
@@ -252,12 +252,12 @@ func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 		}
 
 		if err := store.Save(existing); err != nil {
-			log.Error("Failed to update account variable", "error", err, "account_id", acct.ID)
+			log.Error("account secrets: update account variable failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update variable"})
 			return
 		}
 
-		log.Info("Account variable updated", "account_id", acct.ID, "name", varName)
+		log.Info("account secrets: account variable updated", "account_id", acct.ID, "name", varName)
 		c.JSON(http.StatusOK, gin.H{"name": varName, "message": "variable updated"})
 	}
 }
@@ -275,12 +275,12 @@ func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Han
 		varName := c.Param("varName")
 
 		if err := store.Delete(acct.ID, varName); err != nil {
-			log.Error("Failed to delete account variable", "error", err, "account_id", acct.ID, "name", varName)
+			log.Error("account secrets: delete account variable failed", "error", err, "account_id", acct.ID, "name", varName)
 			c.JSON(http.StatusNotFound, gin.H{"error": "variable not found"})
 			return
 		}
 
-		log.Info("Account variable deleted", "account_id", acct.ID, "name", varName)
+		log.Info("account secrets: account variable deleted", "account_id", acct.ID, "name", varName)
 		c.JSON(http.StatusOK, gin.H{"message": "variable deleted"})
 	}
 }
@@ -290,18 +290,18 @@ func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.
 
 	ek, err := store.GetEncryptionKey(accountID)
 	if err != nil {
-		log.Error("Failed to get account encryption key", "error", err, "account_id", accountID)
+		log.Error("account secrets: get account encryption key failed", "error", err, "account_id", accountID)
 		return nil, err
 	}
 
 	if ek == nil {
 		enc, err := vault.Encryptor(ctx)
 		if err != nil {
-			log.Error("Failed to generate KMS data key", "error", err, "account_id", accountID)
+			log.Error("account secrets: generate KMS data key failed", "error", err, "account_id", accountID)
 			return nil, err
 		}
 		if err := store.SaveEncryptionKey(accountID, enc.EncryptedDataKey, enc.KMSKeyARN); err != nil {
-			log.Error("Failed to save account encryption key", "error", err, "account_id", accountID)
+			log.Error("account secrets: save account encryption key failed", "error", err, "account_id", accountID)
 			return nil, err
 		}
 		return enc, nil
@@ -309,7 +309,7 @@ func getAccountEncryptor(c *gin.Context, log *logger.Logger, store *accountvars.
 
 	enc, err := vault.EncryptorFor(ctx, ek.EncryptedDataKey)
 	if err != nil {
-		log.Error("Failed to create encryptor from stored data key", "error", err, "account_id", accountID)
+		log.Error("account secrets: create encryptor from stored data key failed", "error", err, "account_id", accountID)
 		return nil, err
 	}
 
@@ -367,7 +367,7 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *dep
 	// Fetch variables from DB
 	acctVars, err := store.GetByNames(accountID, names)
 	if err != nil {
-		log.Error("Failed to fetch account variables for deployment", "error", err, "account_id", accountID)
+		log.Error("account secrets: fetch account variables for deployment failed", "error", err, "account_id", accountID)
 		return nil, fmt.Errorf("failed to fetch account variables")
 	}
 
@@ -431,13 +431,13 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *dep
 		if varMap[acctVarName].Secret {
 			ek, err := store.GetEncryptionKey(accountID)
 			if err != nil {
-				log.Error("Failed to get account encryption key", "error", err, "account_id", accountID)
+				log.Error("account secrets: get account encryption key failed", "error", err, "account_id", accountID)
 				return nil, fmt.Errorf("failed to decrypt account variables")
 			}
 			if ek != nil {
 				decryptor, err = vault.Decryptor(c.Request.Context(), ek.EncryptedDataKey)
 				if err != nil {
-					log.Error("Failed to create decryptor for account variables", "error", err, "account_id", accountID)
+					log.Error("account secrets: create decryptor for account variables failed", "error", err, "account_id", accountID)
 					return nil, fmt.Errorf("failed to decrypt account variables")
 				}
 			}
@@ -454,12 +454,12 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *dep
 			if decryptor != nil && av.Nonce != nil {
 				ciphertext, err := base64.StdEncoding.DecodeString(av.Value)
 				if err != nil {
-					log.Error("Failed to decode variable ciphertext", "error", err, "variable", acctVarName)
+					log.Error("account secrets: decode variable ciphertext failed", "error", err, "variable", acctVarName)
 					return nil, fmt.Errorf("failed to decrypt variable %q", acctVarName)
 				}
 				pt, err := decryptor.Decrypt(ciphertext, av.Nonce)
 				if err != nil {
-					log.Error("Failed to decrypt account variable", "error", err, "variable", acctVarName)
+					log.Error("account secrets: decrypt account variable failed", "error", err, "variable", acctVarName)
 					return nil, fmt.Errorf("failed to decrypt variable %q", acctVarName)
 				}
 				plaintext = string(pt)
@@ -475,7 +475,7 @@ func resolveVarReferences(c *gin.Context, log *logger.Logger, submittedSpec *dep
 		v.Ref = "" // clear ref after resolution so validation and K8s see only the value
 		submittedSpec.Variables[varKey] = v
 
-		log.Info("Resolved account variable reference", "variable", varKey, "account_var", acctVarName, "account_id", accountID)
+		log.Info("account secrets: resolved account variable reference", "variable", varKey, "account_var", acctVarName, "account_id", accountID)
 	}
 
 	return refs, nil

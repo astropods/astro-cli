@@ -56,7 +56,7 @@ func GetAccountUsage(log *logger.Logger, quotaChecker quota.Reporter) gin.Handle
 		// (unlimited) is reported with no quota bar.
 		report, err := quotaChecker.Report(c.Request.Context(), acct.ID, quota.AllResources...)
 		if err != nil {
-			log.Warn("Failed to load quota usage", "error", err, "account_id", acct.ID)
+			log.Warn("usage: load quota usage failed", "error", err, "account_id", acct.ID)
 		} else {
 			for resource, u := range report {
 				m := UsageMeter{Usage: float64(u.Used)}

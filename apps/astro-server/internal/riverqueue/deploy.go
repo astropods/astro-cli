@@ -75,7 +75,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		return fmt.Errorf("get deployment: %w", err)
 	}
 	if dep == nil || dep.Status != deploymentstore.StatusPending {
-		w.log.Info("Deploy skipped: not in pending status",
+		w.log.Info("deploy: skipped, not in pending status",
 			"deployment_id", job.Args.DeploymentID,
 			"status", statusOrNil(dep),
 		)
@@ -95,7 +95,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 			errDetails = nil
 		}
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: applyErr.Error(), ErrorDetails: errDetails}); err != nil {
-			w.log.Warn("Failed to mark deployment as failed", "error", err, "deployment_id", dep.ID)
+			w.log.Warn("deploy: mark deployment as failed failed", "error", err, "deployment_id", dep.ID)
 		}
 		// Status change → deploy cache for the account is stale.
 		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -107,10 +107,10 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		// Partial failure — some K8s resources failed. Mark failed with details.
 		errJSON, jsonErr := json.Marshal(result.Errors)
 		if jsonErr != nil {
-			w.log.Warn("Failed to marshal error details", "error", jsonErr, "deployment_id", dep.ID)
+			w.log.Warn("deploy: marshal error details failed", "error", jsonErr, "deployment_id", dep.ID)
 		}
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "partial failure", ErrorDetails: errJSON}); err != nil {
-			w.log.Warn("Failed to mark deployment as partially failed", "error", err, "deployment_id", dep.ID)
+			w.log.Warn("deploy: mark deployment as partially failed failed", "error", err, "deployment_id", dep.ID)
 		}
 		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 		return nil // no retry — user needs to fix the spec
@@ -122,7 +122,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 		return fmt.Errorf("re-read after apply: %w", err)
 	}
 	if refreshed == nil || refreshed.Status != deploymentstore.StatusProvisioning {
-		w.log.Info("Deploy: status changed during apply, skipping active transition",
+		w.log.Info("deploy: status changed during apply, skipping active transition",
 			"deployment_id", dep.ID,
 			"status", statusOrNil(refreshed),
 		)
@@ -151,7 +151,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
 	creds, err := w.langfuseStore.Get(dep.AccountID)
 	if err != nil {
-		w.log.Warn("Deploy: failed to load Langfuse credentials for dataset provisioning", "deployment_id", dep.ID, "account_id", dep.AccountID, "error", err)
+		w.log.Warn("deploy: load Langfuse credentials for dataset provisioning failed", "deployment_id", dep.ID, "account_id", dep.AccountID, "error", err)
 		return
 	}
 	if creds == nil {
@@ -163,7 +163,7 @@ func (w *DeployWorker) provisionDataset(dep *deploymentstore.Deployment) {
 		AccountID:    dep.AccountID,
 		Description:  dep.AgentName,
 	}); err != nil {
-		w.log.Warn("Deploy: provision dataset failed", "deployment_id", dep.ID, "error", err)
+		w.log.Warn("deploy: provision dataset failed", "deployment_id", dep.ID, "error", err)
 	}
 }
 

@@ -84,7 +84,7 @@ func GetDatasetPredictionStatus(
 			dataset.ID,
 		)
 		if err != nil {
-			log.Error("Failed to load dataset prediction status", "error", err, "deployment_id", dctx.DeploymentID)
+			log.Error("dataset predictions: load dataset prediction status failed", "error", err, "deployment_id", dctx.DeploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load dataset prediction status"})
 			return
 		}
@@ -138,7 +138,7 @@ func PostDatasetPredictions(
 
 		credentials, err := langfuseStore.Get(dctx.Deployment.AccountID)
 		if err != nil || credentials == nil {
-			log.Error("Failed to load Langfuse credentials for predictions", "error", err, "deployment_id", deploymentID)
+			log.Error("dataset predictions: load Langfuse credentials for predictions failed", "error", err, "deployment_id", deploymentID)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset prediction generation is not configured"})
 			return
 		}
@@ -163,11 +163,11 @@ func PostDatasetPredictions(
 		)
 		if err != nil {
 			if errors.Is(err, errReviewQueueLocalRead) {
-				log.Error("Failed to load dataset prediction state", "error", err, "deployment_id", deploymentID)
+				log.Error("dataset predictions: load dataset prediction state failed", "error", err, "deployment_id", deploymentID)
 				c.JSON(http.StatusInternalServerError, response)
 				return
 			}
-			log.Error("Failed to load recent traces for predictions", "error", err, "deployment_id", deploymentID)
+			log.Error("dataset predictions: load recent traces for predictions failed", "error", err, "deployment_id", deploymentID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load recent traces for predictions"})
 			return
 		}
@@ -181,13 +181,13 @@ func PostDatasetPredictions(
 		}
 		queuedTraceIDs, err := predictionStore.QueuePredictionRequests(c.Request.Context(), dataset.ID, traceIDs)
 		if err != nil {
-			log.Error("Failed to persist dataset prediction requests", "error", err, "deployment_id", deploymentID)
+			log.Error("dataset predictions: persist dataset prediction requests failed", "error", err, "deployment_id", deploymentID)
 			response.FailedTraceIDs = append(response.FailedTraceIDs, traceIDs...)
 			c.JSON(http.StatusInternalServerError, response)
 			return
 		}
 		if err := queue.InsertEvalJudgePredictionJobs(c.Request.Context(), dataset.ID, traceIDs); err != nil {
-			log.Error("Failed to enqueue dataset predictions", "error", err, "deployment_id", deploymentID)
+			log.Error("dataset predictions: enqueue dataset predictions failed", "error", err, "deployment_id", deploymentID)
 			errorMessage := predictionEnqueueFailureMessage
 			if len(queuedTraceIDs) > 0 {
 				if updateErr := predictionStore.UpdatePredictionRequests(

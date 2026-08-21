@@ -259,7 +259,7 @@ func (s *Server) StartRiverUI(_ context.Context, _ *adminv1.StartRiverUIRequest)
 	}
 	s.riverUIHandler = handler
 	s.riverUICleanup = cleanup
-	s.log.Info("River UI started")
+	s.log.Info("server: River UI started")
 
 	return &adminv1.StartRiverUIResponse{Status: "started"}, nil
 }
@@ -278,7 +278,7 @@ func (s *Server) StopRiverUI(_ context.Context, _ *adminv1.StopRiverUIRequest) (
 	}
 	s.riverUIHandler = nil
 	s.riverUICleanup = nil
-	s.log.Info("River UI stopped")
+	s.log.Info("server: River UI stopped")
 
 	return &adminv1.StopRiverUIResponse{Status: "stopped"}, nil
 }
@@ -492,7 +492,7 @@ func (s *Server) queryRiverJobs(ctx context.Context, q string, args ...interface
 	for rows.Next() {
 		j, err := scanRiverJob(rows)
 		if err != nil {
-			s.log.Warn("ListJobs scan failed", "error", err)
+			s.log.Warn("server: listJobs scan failed", "error", err)
 			continue
 		}
 		jobs = append(jobs, j)
@@ -543,7 +543,7 @@ func (s *Server) CancelJobs(ctx context.Context, req *adminv1.CancelJobsRequest)
 	cancelled := 0
 	for _, id := range req.IDs {
 		if err := s.queue.CancelJob(ctx, id); err != nil {
-			s.log.Warn("CancelJob failed", "job_id", id, "error", err)
+			s.log.Warn("server: cancelJob failed", "job_id", id, "error", err)
 			continue
 		}
 		cancelled++
@@ -556,7 +556,7 @@ func (s *Server) RetryJobs(ctx context.Context, req *adminv1.RetryJobsRequest) (
 	for _, id := range req.IDs {
 		ok, err := s.queue.RetryJob(ctx, id)
 		if err != nil {
-			s.log.Warn("RetryJob failed", "job_id", id, "error", err)
+			s.log.Warn("server: retryJob failed", "job_id", id, "error", err)
 			continue
 		}
 		if ok {
@@ -780,7 +780,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	var protoEvents []*adminv1.AdminDeploymentEvent
 	events, evErr := s.deployStore.GetDeploymentEvents(dep.ID, 50)
 	if evErr != nil {
-		s.log.Warn("Failed to fetch deployment events", "deployment_id", dep.ID, "error", evErr)
+		s.log.Warn("server: fetch deployment events failed", "deployment_id", dep.ID, "error", evErr)
 	}
 	for _, ev := range events {
 		protoEvents = append(protoEvents, &adminv1.AdminDeploymentEvent{
@@ -804,7 +804,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 
 	clusterStatus, err := s.GetClusterStatus(ctx, &adminv1.GetClusterStatusRequest{Namespace: dep.Namespace})
 	if err != nil {
-		s.log.Warn("Failed to get cluster status for deployment detail", "namespace", dep.Namespace, "error", err)
+		s.log.Warn("server: get cluster status for deployment detail failed", "namespace", dep.Namespace, "error", err)
 		clusterStatus = &adminv1.GetClusterStatusResponse{}
 	}
 
@@ -947,7 +947,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// Deployments
 	deps, err := clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list k8s deployments", "error", err)
+		s.log.Warn("server: list k8s deployments failed", "error", err)
 	} else {
 		for _, d := range deps.Items {
 			replicas := int32(0)
@@ -969,7 +969,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// StatefulSets
 	ssets, err := clientset.AppsV1().StatefulSets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list k8s statefulsets", "error", err)
+		s.log.Warn("server: list k8s statefulsets failed", "error", err)
 	} else {
 		for _, ss := range ssets.Items {
 			replicas := int32(0)
@@ -991,7 +991,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// Pods
 	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list pods", "error", err)
+		s.log.Warn("server: list pods failed", "error", err)
 	} else {
 		for _, p := range pods.Items {
 			pi := &adminv1.K8sPodInfo{
@@ -1162,7 +1162,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// Services
 	svcs, err := clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list services", "error", err)
+		s.log.Warn("server: list services failed", "error", err)
 	} else {
 		for _, svc := range svcs.Items {
 			si := &adminv1.K8sServiceInfo{
@@ -1196,7 +1196,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// Ingresses
 	ings, err := clientset.NetworkingV1().Ingresses(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list ingresses", "error", err)
+		s.log.Warn("server: list ingresses failed", "error", err)
 	} else {
 		for _, ing := range ings.Items {
 			ii := &adminv1.K8sIngressInfo{
@@ -1243,7 +1243,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// NetworkPolicies
 	netpols, err := clientset.NetworkingV1().NetworkPolicies(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list network policies", "error", err)
+		s.log.Warn("server: list network policies failed", "error", err)
 	} else {
 		for _, np := range netpols.Items {
 			policyTypes := make([]string, len(np.Spec.PolicyTypes))
@@ -1266,7 +1266,7 @@ func (s *Server) GetClusterStatus(ctx context.Context, req *adminv1.GetClusterSt
 	// Events
 	events, err := clientset.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		s.log.Warn("Failed to list events", "error", err)
+		s.log.Warn("server: list events failed", "error", err)
 	} else {
 		for _, ev := range events.Items {
 			resp.Events = append(resp.Events, &adminv1.K8sEventInfo{
@@ -1337,7 +1337,7 @@ func (s *Server) DeleteDeployment(_ context.Context, req *adminv1.DeleteDeployme
 	// Enqueue async undeploy job
 	if s.queue != nil {
 		if err := s.queue.InsertUndeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
-			s.log.Warn("Failed to enqueue undeploy job", "deployment_id", dep.ID, "error", err)
+			s.log.Warn("server: enqueue undeploy job failed", "deployment_id", dep.ID, "error", err)
 		}
 	}
 
@@ -1859,7 +1859,7 @@ func (s *Server) RecoverAccountMetronomeAliases(ctx context.Context, req *adminv
 		return nil, fmt.Errorf("set ingest aliases: %w", err)
 	}
 
-	s.log.Info("Recovered Metronome ingest aliases",
+	s.log.Info("server: recovered Metronome ingest aliases",
 		"account_id", req.AccountID, "customer_id", metronomeCustomerID, "aliases", expected)
 
 	if s.auditStore != nil {
@@ -1920,7 +1920,7 @@ func (s *Server) RegisterAccountMetronome(ctx context.Context, req *adminv1.Regi
 		return nil, fmt.Errorf("persist metronome customer id: %w", err)
 	}
 
-	s.log.Info("Registered Metronome customer", "account_id", req.AccountID, "customer_id", customerID)
+	s.log.Info("server: registered Metronome customer", "account_id", req.AccountID, "customer_id", customerID)
 	if s.auditStore != nil {
 		evt := auditlog.ForAdmin(req.AccountID, "grpc")
 		evt.Action = auditlog.BillingRegisterMetronome
@@ -1964,7 +1964,7 @@ func (s *Server) RecoverAccountLangfuse(ctx context.Context, req *adminv1.Recove
 		projectID = row.LangfuseProjectID
 	}
 
-	s.log.Info("Recovered Langfuse project", "account_id", req.AccountID, "project_id", projectID)
+	s.log.Info("server: recovered Langfuse project", "account_id", req.AccountID, "project_id", projectID)
 	if s.auditStore != nil {
 		evt := auditlog.ForAdmin(req.AccountID, "grpc")
 		evt.Action = auditlog.ObservabilityRecoverLangfuse
@@ -1994,7 +1994,7 @@ func (s *Server) RecoverAccountBifrost(ctx context.Context, req *adminv1.Recover
 		return nil, fmt.Errorf("ensure bifrost customer: %w", err)
 	}
 
-	s.log.Info("Recovered Bifrost customer", "account_id", req.AccountID, "customer_id", customerID)
+	s.log.Info("server: recovered Bifrost customer", "account_id", req.AccountID, "customer_id", customerID)
 	if s.auditStore != nil {
 		evt := auditlog.ForAdmin(req.AccountID, "grpc")
 		evt.Action = auditlog.ObservabilityRecoverBifrost
@@ -2340,7 +2340,7 @@ func (s *Server) RollbackDeployment(_ context.Context, req *adminv1.RollbackDepl
 	// Enqueue deploy job (idempotent — safe outside transaction)
 	if s.queue != nil {
 		if err := s.queue.InsertDeployJob(context.Background(), dep.ID, dep.EffectiveClusterID()); err != nil {
-			s.log.Warn("Failed to enqueue deploy job for rollback", "deployment_id", dep.ID, "error", err)
+			s.log.Warn("server: enqueue deploy job for rollback failed", "deployment_id", dep.ID, "error", err)
 		}
 	}
 
@@ -2450,7 +2450,7 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 	// Re-generate the deployment template from the original package spec.
 	// This picks up fixes to credential dedup, variable merging, etc.
 	if err := s.retemplateDeploymentSpec(dep, &storedDS); err != nil {
-		s.log.Warn("Re-template from package spec failed, falling back to stored spec",
+		s.log.Warn("server: re-template from package spec failed, falling back to stored spec",
 			"deployment_id", req.DeploymentId, "error", err)
 	} else {
 		// Persist the fixed deployment spec JSON.
@@ -2475,7 +2475,7 @@ func (s *Server) RepairNormalizedSpec(ctx context.Context, req *adminv1.RepairNo
 		return nil, fmt.Errorf("repair normalized spec: %w", err)
 	}
 
-	s.log.Info("Repaired normalized spec",
+	s.log.Info("server: repaired normalized spec",
 		"deployment_id", req.DeploymentId,
 		"workloads", workloads,
 		"services", services,
@@ -2595,7 +2595,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		LIMIT 25
 	`, dep.ID)
 	if err != nil {
-		s.log.Warn("Failed to query river jobs", "error", err, "deployment_id", dep.ID)
+		s.log.Warn("server: query river jobs failed", "error", err, "deployment_id", dep.ID)
 		// Return empty jobs instead of failing — river schema may not exist
 		return &adminv1.GetDeploymentJobsResponse{}, nil
 	}
@@ -2608,7 +2608,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		var attemptedAt, finalizedAt sql.NullTime
 		var errorsStr sql.NullString
 		if err := rows.Scan(&j.JobId, &j.Kind, &j.State, &j.Attempt, &j.MaxAttempt, &createdAt, &attemptedAt, &finalizedAt, &errorsStr, &j.ClusterId); err != nil {
-			s.log.Warn("Failed to scan river job row", "error", err)
+			s.log.Warn("server: scan river job row failed", "error", err)
 			continue
 		}
 		j.CreatedAt = createdAt.Format(time.RFC3339)
@@ -2624,7 +2624,7 @@ func (s *Server) GetDeploymentJobs(ctx context.Context, req *adminv1.GetDeployme
 		jobs = append(jobs, &j)
 	}
 	if err := rows.Err(); err != nil {
-		s.log.Warn("Error iterating river jobs", "error", err)
+		s.log.Warn("server: error iterating river jobs", "error", err)
 	}
 
 	return &adminv1.GetDeploymentJobsResponse{Jobs: jobs}, nil

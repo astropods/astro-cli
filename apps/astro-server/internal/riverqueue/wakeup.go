@@ -49,7 +49,7 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 		return fmt.Errorf("get deployment: %w", err)
 	}
 	if dep == nil || (dep.Status != deploymentstore.StatusStopped && dep.Status != deploymentstore.StatusPending) {
-		w.log.Info("Wakeup skipped: status is not stopped/pending",
+		w.log.Info("wakeup: skipped, status is not stopped/pending",
 			"deployment_id", job.Args.DeploymentID,
 			"status", statusOrNil(dep),
 		)
@@ -62,7 +62,7 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 
 	if _, err := w.deployer.Apply(ctx, dep); err != nil {
 		if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: err.Error()}); sErr != nil {
-			w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
+			w.log.Warn("wakeup: mark deployment as failed failed", "error", sErr, "deployment_id", dep.ID)
 		}
 		return fmt.Errorf("wakeup apply failed: %w", err)
 	}

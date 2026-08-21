@@ -84,14 +84,14 @@ func (w *AccountPurgeWorker) Work(ctx context.Context, job *river.Job[AccountPur
 	var purged, skipped int
 	for _, accountID := range accountIDs {
 		if err := w.purgeAccount(ctx, accountID); err != nil {
-			w.log.Error("Failed to purge account, will retry next tick", "error", err, "account_id", accountID)
+			w.log.Error("purge accounts: purge account, will retry next tick failed", "error", err, "account_id", accountID)
 			skipped++
 			continue
 		}
 		purged++
 	}
 
-	w.log.Info("Account purge complete", "purged", purged, "skipped", skipped)
+	w.log.Info("purge accounts: account purge complete", "purged", purged, "skipped", skipped)
 	return nil
 }
 
@@ -108,7 +108,7 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 			// Re-enqueue undeploy for anything not already in undeploying state
 			if dep.Status != deploymentstore.StatusUndeploying {
 				if err := w.enqueueUndeploy(ctx, dep.ID); err != nil {
-					w.log.Error("Failed to re-enqueue undeploy", "error", err, "deployment_id", dep.ID, "account_id", accountID)
+					w.log.Error("purge accounts: re-enqueue undeploy failed", "error", err, "deployment_id", dep.ID, "account_id", accountID)
 				}
 			}
 		}
@@ -145,7 +145,7 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 	// need the upstream revokes since LiteLLM has no FK back to us.
 	if w.aigwProvisioner != nil && w.aigwStore != nil {
 		if err := w.aigwProvisioner.RevokeAccount(ctx, w.aigwStore, accountID); err != nil {
-			w.log.Warn("Failed to revoke AI Gateway keys, continuing purge", "error", err, "account_id", accountID)
+			w.log.Warn("purge accounts: revoke AI Gateway keys, continuing purge failed", "error", err, "account_id", accountID)
 		}
 	}
 
@@ -154,7 +154,7 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 	// explicit /key/delete.
 	if w.aigwProvisioner != nil && w.aigwDevStore != nil {
 		if err := w.aigwProvisioner.RevokeAccountDevKeys(ctx, w.aigwDevStore, accountID); err != nil {
-			w.log.Warn("Failed to revoke AI Gateway dev keys, continuing purge", "error", err, "account_id", accountID)
+			w.log.Warn("purge accounts: revoke AI Gateway dev keys, continuing purge failed", "error", err, "account_id", accountID)
 		}
 	}
 
@@ -164,7 +164,7 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 	// deployment-key handling by warning and continuing after one retry.
 	if w.aigwProvisioner != nil && w.aigwJudgeStore != nil {
 		if err := w.aigwProvisioner.RevokeAccountJudgeKeys(ctx, w.aigwJudgeStore, accountID); err != nil {
-			w.log.Warn("Failed to revoke AI Gateway judge key, continuing purge", "error", err, "account_id", accountID)
+			w.log.Warn("purge accounts: revoke AI Gateway judge key, continuing purge failed", "error", err, "account_id", accountID)
 		}
 	}
 
@@ -177,6 +177,6 @@ func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string)
 		return nil // already deleted
 	}
 
-	w.log.Info("Account purged", "account_id", accountID)
+	w.log.Info("purge accounts: account purged", "account_id", accountID)
 	return nil
 }

@@ -280,7 +280,7 @@ func (s *Server) RetryBillingProvision(ctx context.Context, req *adminv1.RetryBi
 		return nil, fmt.Errorf("enqueue billing provision: %w", err)
 	}
 
-	s.log.Info("Re-enqueued billing provisioning", "account_id", req.AccountID)
+	s.log.Info("billing: re-enqueued billing provisioning", "account_id", req.AccountID)
 	if s.auditStore != nil {
 		evt := auditlog.ForAdmin(req.AccountID, "grpc")
 		evt.Action = auditlog.BillingRetryProvision
@@ -322,7 +322,7 @@ func (s *Server) ForceBillingResume(ctx context.Context, req *adminv1.ForceBilli
 		return nil, fmt.Errorf("enqueue billing resume: %w", err)
 	}
 
-	s.log.Info("Forced billing resume", "account_id", req.AccountID)
+	s.log.Info("billing: forced billing resume", "account_id", req.AccountID)
 	if s.auditStore != nil {
 		evt := auditlog.ForAdmin(req.AccountID, "grpc")
 		evt.Action = auditlog.BillingForceResume

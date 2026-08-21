@@ -34,7 +34,7 @@ import (
 func touchAccountAvatar(log *logger.Logger, accountStore *account.AccountStore, accountID, accountName string) *time.Time {
 	ts, err := accountStore.TouchAvatarUpdatedAt(accountID)
 	if err != nil {
-		log.Warn("Failed to stamp account avatar_updated_at", "error", err, "account", accountName)
+		log.Warn("avatar: stamp account avatar_updated_at failed", "error", err, "account", accountName)
 		return nil
 	}
 	return &ts
@@ -46,7 +46,7 @@ func touchAccountAvatar(log *logger.Logger, accountStore *account.AccountStore, 
 func touchAgentAvatar(log *logger.Logger, index *agentindex.Index, accountID, accountName, agentName string) *time.Time {
 	ts, err := index.TouchAvatarUpdatedAt(accountID, agentName)
 	if err != nil {
-		log.Warn("Failed to stamp agent avatar_updated_at", "error", err, "account", accountName, "agent", agentName)
+		log.Warn("avatar: stamp agent avatar_updated_at failed", "error", err, "account", accountName, "agent", agentName)
 		return nil
 	}
 	return &ts
@@ -58,7 +58,7 @@ func touchAgentAvatar(log *logger.Logger, index *agentindex.Index, accountID, ac
 func touchDeploymentAvatar(log *logger.Logger, deployStore *deploymentstore.Store, deploymentID string) *time.Time {
 	ts, err := deployStore.TouchAvatarUpdatedAt(deploymentID)
 	if err != nil {
-		log.Warn("Failed to stamp deployment avatar_updated_at", "error", err, "deployment", deploymentID)
+		log.Warn("avatar: stamp deployment avatar_updated_at failed", "error", err, "deployment", deploymentID)
 		return nil
 	}
 	return &ts
@@ -74,21 +74,21 @@ func extractAndStoreColors(ctx context.Context, log *logger.Logger,
 ) json.RawMessage {
 	data, err := readFn(ctx)
 	if err != nil {
-		log.Warn("Failed to read avatar for color extraction", append([]any{"error", err}, logAttrs...)...)
+		log.Warn("avatar: read avatar for color extraction failed", append([]any{"error", err}, logAttrs...)...)
 		return nil
 	}
 	colors, err := colorextract.ExtractFromJPEG(data)
 	if err != nil {
-		log.Warn("Failed to extract avatar colors", append([]any{"error", err}, logAttrs...)...)
+		log.Warn("avatar: extract avatar colors failed", append([]any{"error", err}, logAttrs...)...)
 		return nil
 	}
 	colorsJSON, err := json.Marshal(colors)
 	if err != nil {
-		log.Warn("Failed to marshal avatar colors", append([]any{"error", err}, logAttrs...)...)
+		log.Warn("avatar: marshal avatar colors failed", append([]any{"error", err}, logAttrs...)...)
 		return nil
 	}
 	if err := storeFn(colorsJSON); err != nil {
-		log.Warn("Failed to store avatar colors", append([]any{"error", err}, logAttrs...)...)
+		log.Warn("avatar: store avatar colors failed", append([]any{"error", err}, logAttrs...)...)
 	}
 	return colorsJSON
 }
@@ -127,7 +127,7 @@ func UploadAvatar(log *logger.Logger, accountStore *account.AccountStore, avatar
 		}
 
 		if err := avatarStore.Upload(c.Request.Context(), acct.Name, data); err != nil {
-			log.Error("Failed to upload avatar", "error", err, "account", acct.Name)
+			log.Error("avatar: upload avatar failed", "error", err, "account", acct.Name)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -170,7 +170,7 @@ func SetAvatarPreset(log *logger.Logger, accountStore *account.AccountStore, ava
 		}
 
 		if err := avatarStore.SetPreset(c.Request.Context(), acct.Name, index); err != nil {
-			log.Error("Failed to set avatar preset", "error", err, "account", acct.Name)
+			log.Error("avatar: set avatar preset failed", "error", err, "account", acct.Name)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set preset"})
 			return
 		}
@@ -207,7 +207,7 @@ func ResetAvatar(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		}
 
 		if err := avatarStore.AssignPreset(c.Request.Context(), acct.Name); err != nil {
-			log.Error("Failed to reset avatar", "error", err, "account", acct.Name)
+			log.Error("avatar: reset avatar failed", "error", err, "account", acct.Name)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
@@ -266,7 +266,7 @@ func UploadBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index 
 		}
 
 		if err := avatarStore.UploadAgent(c.Request.Context(), acct.Name, agentName, data); err != nil {
-			log.Error("Failed to upload blueprint avatar", "error", err, "account", acct.Name, "agent", agentName)
+			log.Error("avatar: upload blueprint avatar failed", "error", err, "account", acct.Name, "agent", agentName)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -306,7 +306,7 @@ func ResetBlueprintAvatar(log *logger.Logger, avatarStore *avatar.Store, index *
 		agentName := c.Param("name")
 
 		if err := avatarStore.DeleteAgent(c.Request.Context(), acct.Name, agentName); err != nil {
-			log.Error("Failed to reset blueprint avatar", "error", err, "account", acct.Name, "agent", agentName)
+			log.Error("avatar: reset blueprint avatar failed", "error", err, "account", acct.Name, "agent", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}
@@ -345,7 +345,7 @@ func UploadDeploymentAvatar(log *logger.Logger, accountStore *account.AccountSto
 		}
 
 		if err := avatarStore.UploadDeployment(c.Request.Context(), dep.ID, data); err != nil {
-			log.Error("Failed to upload deployment avatar", "error", err, "deployment", dep.ID)
+			log.Error("avatar: upload deployment avatar failed", "error", err, "deployment", dep.ID)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -383,7 +383,7 @@ func ResetDeploymentAvatar(log *logger.Logger, accountStore *account.AccountStor
 		}
 
 		if err := avatarStore.DeleteDeployment(c.Request.Context(), dep.ID); err != nil {
-			log.Error("Failed to reset deployment avatar", "error", err, "deployment", dep.ID)
+			log.Error("avatar: reset deployment avatar failed", "error", err, "deployment", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset avatar"})
 			return
 		}

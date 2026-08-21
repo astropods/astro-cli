@@ -127,7 +127,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 		// Generate a random state for CSRF protection
 		state, err := generateRandomState()
 		if err != nil {
-			h.log.Error("Failed to generate state", "error", err)
+			h.log.Error("auth: generate state failed", "error", err)
 			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
 				Error:       "server_error",
 				Description: "Failed to initiate authentication",
@@ -203,7 +203,7 @@ func (h *AuthHandler) Login() gin.HandlerFunc {
 		// Get the authorization URL
 		authURL, err := h.workos.GetAuthorizationURL(state, loginOpts)
 		if err != nil {
-			h.log.Error("Failed to get authorization URL", "error", err)
+			h.log.Error("auth: get authorization URL failed", "error", err)
 			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
 				Error:       "server_error",
 				Description: "Failed to initiate authentication",
@@ -235,7 +235,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		// Check for error in callback
 		if errCode := c.Query("error"); errCode != "" {
 			errDesc := c.Query("error_description")
-			h.log.Warn("Authentication error from WorkOS",
+			h.log.Warn("auth: authentication error from WorkOS",
 				"error", errCode,
 				"description", errDesc,
 			)
@@ -246,7 +246,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		// Get the authorization code
 		code := c.Query("code")
 		if code == "" {
-			h.log.Warn("Missing authorization code in callback")
+			h.log.Warn("auth: missing authorization code in callback")
 			c.Redirect(http.StatusFound, buildErrorURL("invalid_request", "Missing authorization code"))
 			return
 		}
@@ -255,7 +255,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		state := c.Query("state")
 		storedState, err := c.Cookie("auth_state")
 		if err != nil || state != storedState {
-			h.log.Warn("State mismatch in callback", "received", state, "expected", storedState)
+			h.log.Warn("auth: state mismatch in callback", "received", state, "expected", storedState)
 			c.Redirect(http.StatusFound, buildErrorURL("invalid_state", "State parameter mismatch"))
 			return
 		}
@@ -269,12 +269,12 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		// Exchange code for tokens
 		result, err := h.workos.AuthenticateWithCode(c.Request.Context(), code)
 		if err != nil {
-			h.log.Error("Failed to authenticate with code", "error", err)
+			h.log.Error("auth: authenticate with code failed", "error", err)
 			c.Redirect(http.StatusFound, buildErrorURL("authentication_failed", "Failed to authenticate"))
 			return
 		}
 
-		h.log.Info("User authenticated successfully",
+		h.log.Info("auth: user authenticated successfully",
 			"user_id", result.User.ID,
 			"email", result.User.Email,
 			"session_id", result.SessionID,
@@ -285,14 +285,14 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		// WorkOS events poller. Never fails the login.
 		if h.memberEmails != nil {
 			if err := h.memberEmails.UpsertWorkOS(c.Request.Context(), result.User.ID, result.User.Email, result.User.EmailVerified); err != nil {
-				h.log.Warn("Failed to mirror member email on login", "error", err, "user_id", result.User.ID)
+				h.log.Warn("auth: mirror member email on login failed", "error", err, "user_id", result.User.ID)
 			}
 		}
 
 		// Best-effort: sync org memberships from WorkOS to local store
 		if h.orgSync != nil {
 			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), result.User.ID); err != nil {
-				h.log.Warn("Failed to sync memberships on login", "error", err, "user_id", result.User.ID)
+				h.log.Warn("auth: sync memberships on login failed", "error", err, "user_id", result.User.ID)
 			}
 		}
 
@@ -310,9 +310,9 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 							defer cancel()
 							if exists, _ := avatarStore.AvatarExists(ctx, acctName); !exists {
 								if err := avatarStore.Ingest(ctx, acctName, profileURL); err != nil {
-									h.log.Warn("Failed to ingest profile picture", "error", err, "account", acctName)
+									h.log.Warn("auth: ingest profile picture failed", "error", err, "account", acctName)
 								} else if _, err := h.accountStore.TouchAvatarUpdatedAtByName(acctName); err != nil {
-									h.log.Warn("Failed to stamp account avatar_updated_at after ingest", "error", err, "account", acctName)
+									h.log.Warn("auth: stamp account avatar_updated_at after ingest failed", "error", err, "account", acctName)
 								}
 							}
 						}()
@@ -345,7 +345,7 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		// Seal and store session in cookie
 		sealed, err := h.sessionManager.SealSession(sessionData)
 		if err != nil {
-			h.log.Error("Failed to seal session", "error", err)
+			h.log.Error("auth: seal session failed", "error", err)
 			c.Redirect(http.StatusFound, buildErrorURL("server_error", "Failed to create session"))
 			return
 		}
@@ -392,11 +392,11 @@ func (h *AuthHandler) Logout() gin.HandlerFunc {
 		if err == nil && sessionData.Session != nil {
 			sessionID = sessionData.Session.ID
 
-			h.log.Info("Processing logout request", "session_id", sessionID)
+			h.log.Info("auth: processing logout request", "session_id", sessionID)
 
 			// Revoke the session at WorkOS (best effort)
 			if err := h.workos.RevokeSession(c.Request.Context(), sessionID); err != nil {
-				h.log.Warn("Failed to revoke session at WorkOS", "error", err, "session_id", sessionID)
+				h.log.Warn("auth: revoke session at WorkOS failed", "error", err, "session_id", sessionID)
 			}
 		}
 
@@ -416,12 +416,12 @@ func (h *AuthHandler) Logout() gin.HandlerFunc {
 		if sessionID != "" {
 			logoutURL, err := h.workos.GetLogoutURLWithReturnTo(sessionID, redirectURL)
 			if err != nil {
-				h.log.Warn("Failed to get logout URL", "error", err)
+				h.log.Warn("auth: get logout URL failed", "error", err)
 				c.Redirect(http.StatusFound, redirectURL)
 				return
 			}
 
-			h.log.Info("Redirecting to WorkOS logout", "logout_url", logoutURL)
+			h.log.Info("auth: redirecting to WorkOS logout", "logout_url", logoutURL)
 			c.Redirect(http.StatusFound, logoutURL)
 			return
 		}
@@ -446,7 +446,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 		// Unseal session
 		sessionData, err := h.sessionManager.UnsealSession(sessionCookie)
 		if err != nil {
-			h.log.Debug("Failed to unseal session", "error", err)
+			h.log.Debug("auth: unseal session failed", "error", err)
 
 			// Clear invalid cookie
 			h.setSameSiteMode(c)
@@ -472,7 +472,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 			// Try to refresh the session
 			refreshed, err := h.refreshSession(c, sessionData)
 			if err != nil {
-				h.log.Debug("Failed to refresh session", "error", err)
+				h.log.Debug("auth: refresh session failed", "error", err)
 
 				// Clear expired cookie
 				h.setSameSiteMode(c)
@@ -503,7 +503,7 @@ func (h *AuthHandler) Me() gin.HandlerFunc {
 				sessionData.Session.WorkOSMembershipID = claims.OrganizationMembershipID
 				sealed, sealErr := h.sessionManager.SealSession(sessionData)
 				if sealErr != nil {
-					h.log.Warn("Failed to reseal session with WorkOS membership", "error", sealErr, "user_id", sessionData.Session.UserID, "org_id", sessionData.Session.OrganizationID)
+					h.log.Warn("auth: reseal session with WorkOS membership failed", "error", sealErr, "user_id", sessionData.Session.UserID, "org_id", sessionData.Session.OrganizationID)
 				} else {
 					maxAge := int(h.cfg.Auth.CookieMaxAge.Seconds())
 					h.setSameSiteMode(c)
@@ -563,7 +563,7 @@ func (h *AuthHandler) Refresh() gin.HandlerFunc {
 		// Refresh the session
 		refreshed, err := h.refreshSession(c, sessionData)
 		if err != nil {
-			h.log.Error("Failed to refresh session", "error", err)
+			h.log.Error("auth: refresh session failed", "error", err)
 			c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
 				Error:       "refresh_failed",
 				Description: "Failed to refresh session",
@@ -632,7 +632,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 			req.OrganizationID,
 		)
 		if err != nil {
-			h.log.Error("Failed to switch org", "error", err, "org_id", req.OrganizationID)
+			h.log.Error("auth: switch org failed", "error", err, "org_id", req.OrganizationID)
 			var httpErr workos_errors.HTTPError
 			if errors.As(err, &httpErr) && httpErr.ErrorCode == "invalid_grant" {
 				c.JSON(http.StatusUnauthorized, auth.ErrorResponse{
@@ -651,7 +651,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		// Best-effort: sync org memberships so DB fallback can resolve membership id
 		if h.orgSync != nil {
 			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
-				h.log.Warn("Failed to sync memberships on org switch", "error", err, "user_id", sessionData.Session.UserID)
+				h.log.Warn("auth: sync memberships on org switch failed", "error", err, "user_id", sessionData.Session.UserID)
 			}
 		}
 
@@ -678,7 +678,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		// Seal and update cookie
 		sealed, err := h.sessionManager.SealSession(newSessionData)
 		if err != nil {
-			h.log.Error("Failed to seal session after org switch", "error", err)
+			h.log.Error("auth: seal session after org switch failed", "error", err)
 			c.JSON(http.StatusInternalServerError, auth.ErrorResponse{
 				Error:       "server_error",
 				Description: "Failed to update session",
@@ -728,7 +728,7 @@ func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.A
 	if h.accountStore != nil {
 		userAccounts, err := h.accountStore.GetAccountsForUser(userID)
 		if err != nil {
-			h.log.Warn("Failed to fetch accounts for user", "error", err, "user_id", userID)
+			h.log.Warn("auth: fetch accounts for user failed", "error", err, "user_id", userID)
 		} else {
 			for _, a := range userAccounts {
 				role := ""
@@ -775,13 +775,13 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	// Best-effort: sync org memberships on token refresh
 	if h.orgSync != nil {
 		if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
-			h.log.Warn("Failed to sync memberships on refresh", "error", err, "user_id", sessionData.Session.UserID)
+			h.log.Warn("auth: sync memberships on refresh failed", "error", err, "user_id", sessionData.Session.UserID)
 		}
 	}
 
 	wg.Wait()
 	if userErr != nil {
-		h.log.Warn("Failed to fetch fresh user on refresh, using cached data", "error", userErr)
+		h.log.Warn("auth: fetch fresh user on refresh, using cached data failed", "error", userErr)
 		freshUser = sessionData.User
 	}
 
@@ -938,9 +938,9 @@ func (h *AuthHandler) populateSessionMembership(session *auth.Session, claims au
 	)
 	if err != nil {
 		if errors.Is(err, auth.ErrWorkOSMembershipIDNotFound) || errors.Is(err, account.ErrAccountNotFound) {
-			h.log.Debug("Failed to resolve WorkOS membership for session", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
+			h.log.Debug("auth: resolve WorkOS membership for session failed", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
 		} else {
-			h.log.Warn("Failed to resolve WorkOS membership for session", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
+			h.log.Warn("auth: resolve WorkOS membership for session failed", "error", err, "user_id", session.UserID, "org_id", session.OrganizationID)
 		}
 		return
 	}

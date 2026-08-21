@@ -68,7 +68,7 @@ func SubmitFeedback(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			user.ID,
 		).Scan(&recentCount)
 		if err != nil {
-			log.Error("Failed to check feedback rate limit", "error", err, "user_id", user.ID)
+			log.Error("feedback: check feedback rate limit failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to submit feedback"})
 			return
 		}
@@ -86,12 +86,12 @@ func SubmitFeedback(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			user.ID, user.Email, input.Message, input.PageURL,
 		).Scan(&id)
 		if err != nil {
-			log.Error("Failed to insert feedback", "error", err, "user_id", user.ID)
+			log.Error("feedback: insert feedback failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to submit feedback"})
 			return
 		}
 
-		log.Info("Feedback submitted", "feedback_id", id, "user_id", user.ID)
+		log.Info("feedback: submitted", "feedback_id", id, "user_id", user.ID)
 		c.JSON(http.StatusCreated, FeedbackResponse{ID: id})
 	}
 }

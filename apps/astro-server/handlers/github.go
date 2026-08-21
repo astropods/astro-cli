@@ -119,7 +119,7 @@ func GitHubAccountConnect(log *logger.Logger, pipesClient *pipes.Client, cfg Git
 					UserID:         session.UserID,
 					OrganizationID: session.OrganizationID,
 				}); delErr != nil {
-					log.Warn("github: failed to clear stale connection before re-auth", "error", delErr)
+					log.Warn("github: clear stale connection before re-auth failed", "error", delErr)
 				}
 				err = pipes.ErrNeedsReauthorization
 			}
@@ -403,7 +403,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		if oldBase != "" && oldBase != newBase {
 			if oldWebhookID, deleted, _ := webhookStore.DeleteIfNoConnections(c.Request.Context(), oldBase); deleted {
 				if delErr := gh.DeleteWebhook(c.Request.Context(), oldBase, oldWebhookID); delErr != nil {
-					log.Warn("github: failed to remove old webhook", "error", delErr, "repo", oldBase)
+					log.Warn("github: remove old webhook failed", "error", delErr, "repo", oldBase)
 				}
 			}
 		}
@@ -411,7 +411,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		// Global webhook dedup: if any account already registered a webhook for this base
 		// repo, reuse it — no GitHub API call needed.
 		if _, getErr := webhookStore.Get(c.Request.Context(), newBase); getErr == nil {
-			log.Info("GitHub repo linked (webhook reused)", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName)
+			log.Info("github: repo linked (webhook reused)", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName)
 			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
 			return
 		}
@@ -419,7 +419,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 		// Install a new webhook on the base repo.
 		secretBytes := make([]byte, 32)
 		if _, err := rand.Read(secretBytes); err != nil {
-			log.Warn("github: failed to generate webhook secret", "error", err)
+			log.Warn("github: generate webhook secret failed", "error", err)
 			c.JSON(http.StatusCreated, gin.H{"repo_full_name": req.RepoFullName, "branch": req.Branch})
 			return
 		}
@@ -449,7 +449,7 @@ func GitHubLink(log *logger.Logger, pipesClient *pipes.Client, ghStore *githubco
 			}
 		}
 
-		log.Info("GitHub repo linked", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName, "branch", req.Branch)
+		log.Info("github: repo linked", "account", acct.Name, "agent", agentName, "repo", req.RepoFullName, "branch", req.Branch)
 		c.JSON(http.StatusCreated, gin.H{
 			"repo_full_name": req.RepoFullName,
 			"branch":         req.Branch,
@@ -515,7 +515,7 @@ func GitHubAccountStatus(log *logger.Logger, pipesClient *pipes.Client) gin.Hand
 				c.JSON(http.StatusOK, gin.H{"connected": false})
 				return
 			}
-			log.Warn("github: failed to fetch login for account status", "error", loginErr)
+			log.Warn("github: fetch login for account status failed", "error", loginErr)
 		}
 		resp := gin.H{"connected": true}
 		if login != "" {
@@ -668,7 +668,7 @@ func GitHubAccountDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghSt
 
 		_ = cache.Invalidate(c.Request.Context(), githubOrgsCachePrefix+session.UserID)
 
-		log.Info("GitHub account disconnected", "account", acct.Name, "connections_removed", len(conns))
+		log.Info("github: account disconnected", "account", acct.Name, "connections_removed", len(conns))
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -726,7 +726,7 @@ func GitHubDisconnect(log *logger.Logger, pipesClient *pipes.Client, ghStore *gi
 			}
 		}
 
-		log.Info("GitHub connection removed", "account", acct.Name, "agent", agentName)
+		log.Info("github: connection removed", "account", acct.Name, "agent", agentName)
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -939,7 +939,7 @@ func GitHubWebhook(log *logger.Logger, ghStore *githubconnection.Store, webhookS
 			}
 
 			enqueued++
-			log.Info("GitHub push enqueued for build",
+			log.Info("github: push enqueued for build",
 				"repo", payload.Repository.FullName,
 				"branch", branch,
 				"agent", conn.AgentName,
@@ -1114,7 +1114,7 @@ func GitHubRebuild(log *logger.Logger, pipesClient *pipes.Client, ghStore *githu
 			return
 		}
 
-		log.Info("Manual rebuild enqueued", "account", acct.Name, "agent", agentName, "sha", sha[:7], "build_id", buildID)
+		log.Info("github: manual rebuild enqueued", "account", acct.Name, "agent", agentName, "sha", sha[:7], "build_id", buildID)
 		c.JSON(http.StatusAccepted, gin.H{"build_id": buildID, "commit_sha": sha})
 	}
 }

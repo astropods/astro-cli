@@ -36,7 +36,7 @@ func ListDeploymentWatchers(log *logger.Logger, accountStore *account.AccountSto
 
 		rows, err := watchers.List(c.Request.Context(), dep.ID)
 		if err != nil {
-			log.Error("Failed to list deployment watchers", "error", err, "deployment_id", dep.ID)
+			log.Error("watchers: list deployment watchers failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list watchers"})
 			return
 		}
@@ -50,7 +50,7 @@ func ListDeploymentWatchers(log *logger.Logger, accountStore *account.AccountSto
 		// failing a read that is otherwise complete.
 		names, err := accountStore.DisplayNamesForUsers(ids)
 		if err != nil {
-			log.Warn("Failed to resolve watcher display names", "error", err, "deployment_id", dep.ID)
+			log.Warn("watchers: resolve watcher display names failed", "error", err, "deployment_id", dep.ID)
 			names = map[string]string{}
 		}
 		for _, w := range rows {
@@ -90,7 +90,7 @@ func setWatchState(log *logger.Logger, accountStore *account.AccountStore, deplo
 		}
 
 		if err := watchers.SetMuted(c.Request.Context(), dep.AccountID, dep.ID, user.ID, muted); err != nil {
-			log.Error("Failed to update watch state", "error", err, "deployment_id", dep.ID, "user_id", user.ID)
+			log.Error("watchers: update watch state failed", "error", err, "deployment_id", dep.ID, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update watch state"})
 			return
 		}

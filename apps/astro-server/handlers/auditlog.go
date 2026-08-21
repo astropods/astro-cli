@@ -51,7 +51,7 @@ func ListAuditLogFilters(log *logger.Logger, auditStore *auditlog.Store) gin.Han
 
 		opts, err := auditStore.Filters(c.Request.Context(), acct.ID)
 		if err != nil {
-			log.Error("Failed to query audit log filters", "error", err, "account_id", acct.ID)
+			log.Error("auditlog: query audit log filters failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query audit log filters"})
 			return
 		}
@@ -93,7 +93,7 @@ func ListAuditLog(log *logger.Logger, auditStore *auditlog.Store) gin.HandlerFun
 
 		entries, err := auditStore.Query(c.Request.Context(), params)
 		if err != nil {
-			log.Error("Failed to query audit log", "error", err, "account_id", acct.ID)
+			log.Error("auditlog: query audit log failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query audit log"})
 			return
 		}

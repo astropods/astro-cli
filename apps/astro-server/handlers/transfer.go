@@ -84,7 +84,7 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 
 		// Transfer
 		if err := index.Transfer(sourceAcct.ID, targetAcct.ID, agentName); err != nil {
-			log.Error("Failed to transfer agent",
+			log.Error("transfer: agent failed",
 				"agent", agentName,
 				"source", sourceAccountName,
 				"target", req.TargetAccount,
@@ -110,7 +110,7 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		// including the source if it owns any post-transfer rows.
 		_ = deploycache.Invalidate(c.Request.Context(), cache, sourceAcct.ID)
 		if affected := deploycache.InvalidateForLineage(c.Request.Context(), cache, deployStore, targetAcct.ID, agentName); len(affected) > 0 {
-			log.Info("Transfer: invalidated deploy cache for downstream consumers",
+			log.Info("transfer: invalidated deploy cache for downstream consumers",
 				"agent", agentName,
 				"affected_accounts", len(affected),
 			)
@@ -120,20 +120,20 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		if avatarStore != nil {
 			if exists, _ := avatarStore.AgentAvatarExists(c.Request.Context(), sourceAccountName, agentName); exists {
 				if err := avatarStore.MoveAgentAvatar(c.Request.Context(), sourceAccountName, req.TargetAccount, agentName); err != nil {
-					log.Warn("Failed to move agent avatar during transfer (avatar may be stale)",
+					log.Warn("transfer: move agent avatar during transfer (avatar may be stale) failed",
 						"agent", agentName,
 						"source", sourceAccountName,
 						"target", req.TargetAccount,
 						"error", err,
 					)
 				} else if _, err := index.TouchAvatarUpdatedAt(targetAcct.ID, agentName); err != nil {
-					log.Warn("Failed to stamp agent avatar_updated_at after transfer",
+					log.Warn("transfer: stamp agent avatar_updated_at after transfer failed",
 						"agent", agentName, "target", req.TargetAccount, "error", err)
 				}
 			}
 		}
 
-		log.Info("Agent transferred",
+		log.Info("transfer: agent transferred",
 			"agent", agentName,
 			"source", sourceAccountName,
 			"target", req.TargetAccount,

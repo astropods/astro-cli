@@ -71,7 +71,7 @@ func GetAccountInsights(
 			accountStore, deploymentStore, slackStore, rollups, acct,
 			cache, time.Now().UTC(), params)
 		if err != nil {
-			log.Error("Failed to compute insights from rollups", "error", err, "account_id", acct.ID)
+			log.Error("insights rollup: compute insights from rollups failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute insights"})
 			return
 		}
@@ -106,7 +106,7 @@ func ComputeInsightsFromRollups(
 	if serr != nil {
 		// Non-fatal: without the watermark we still know the facts stop at the last
 		// complete day, which is where the watermark sits on a healthy account.
-		log.Warn("Insights rollup: failed to read watermark, falling back to last complete day",
+		log.Warn("insights rollup: read watermark, falling back to last complete day failed",
 			"account_id", acct.ID, "error", serr)
 	}
 	asOf := insightsAsOfDay(state, now)
@@ -329,7 +329,7 @@ func rollupDeploymentEntries(
 		if aerr != nil {
 			// Non-fatal: the rows still carry correct spend, they just fall back
 			// to being labelled by id rather than name.
-			log.Warn("Insights rollup: failed to resolve archived deployment names",
+			log.Warn("insights rollup: resolve archived deployment names failed",
 				"account_id", acct.ID, "count", len(archivedIDs), "error", aerr)
 		}
 		for _, d := range archived {

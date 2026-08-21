@@ -39,26 +39,26 @@ func TestShadowCheckerReturnsPrimaryAndLogsShadowOutcome(t *testing.T) {
 		{
 			name:          "matching decision",
 			shadowAllowed: true,
-			wantInfo:      []string{"FGA shadow decision matched"},
+			wantInfo:      []string{"shadow checker: FGA shadow decision matched"},
 		},
 		{
 			name:     "mismatched decision",
-			wantWarn: []string{"FGA shadow decision mismatch"},
+			wantWarn: []string{"shadow checker: FGA shadow decision mismatch"},
 		},
 		{
 			name:      "missing membership",
 			shadowErr: authz.ErrWorkOSMembershipUnavailable,
-			wantDebug: []string{"FGA shadow identity unavailable"},
+			wantDebug: []string{"shadow checker: FGA shadow identity unavailable"},
 		},
 		{
 			name:      "resource outside rollout",
 			shadowErr: authz.ErrFGAResourceNotEnabled,
-			wantDebug: []string{"FGA shadow check skipped"},
+			wantDebug: []string{"shadow checker: FGA shadow check skipped"},
 		},
 		{
 			name:      "live check failure",
 			shadowErr: errors.New("workos unavailable"),
-			wantWarn:  []string{"FGA shadow check failed"},
+			wantWarn:  []string{"shadow checker: FGA shadow check failed"},
 		},
 	}
 
@@ -128,7 +128,7 @@ func TestGatedShadowCheckerSkipsComparisonOutsideRollout(t *testing.T) {
 	if err != nil || allowed || comparisonCalled {
 		t.Fatalf("Authorize() = (%v, %v), comparisonCalled=%v", allowed, err, comparisonCalled)
 	}
-	if !slices.Equal(log.debug, []string{"FGA shadow check skipped"}) {
+	if !slices.Equal(log.debug, []string{"shadow checker: FGA shadow check skipped"}) {
 		t.Fatalf("debug logs = %v", log.debug)
 	}
 }

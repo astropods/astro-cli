@@ -51,7 +51,7 @@ func resolveStripeCustomer(c *gin.Context, log *logger.Logger, accountStore *acc
 	}
 	customerID, err := accountStore.GetStripeCustomerID(acct.ID)
 	if err != nil {
-		log.Warn("Failed to load Stripe customer ID", "error", err, "account_id", acct.ID)
+		log.Warn("payment methods: load Stripe customer ID failed", "error", err, "account_id", acct.ID)
 		return "", false
 	}
 	if customerID != "" {
@@ -62,15 +62,15 @@ func resolveStripeCustomer(c *gin.Context, log *logger.Logger, accountStore *acc
 	// is acceptable if none is mirrored yet.
 	ownerEmail, emailErr := accountStore.GetOwnerEmail(acct.ID)
 	if emailErr != nil {
-		log.Warn("Failed to load account owner email for Stripe customer", "error", emailErr, "account_id", acct.ID)
+		log.Warn("payment methods: load account owner email for Stripe customer failed", "error", emailErr, "account_id", acct.ID)
 	}
 	customerID, err = paymentProvider.CreateCustomer(c.Request.Context(), acct.ID, acct.Name, ownerEmail)
 	if err != nil {
-		log.Error("Failed to create Stripe customer", "error", err, "account_id", acct.ID)
+		log.Error("payment methods: create Stripe customer failed", "error", err, "account_id", acct.ID)
 		return "", false
 	}
 	if err := accountStore.SetStripeCustomerID(acct.ID, customerID); err != nil {
-		log.Error("Failed to store Stripe customer ID", "error", err, "account_id", acct.ID)
+		log.Error("payment methods: store Stripe customer ID failed", "error", err, "account_id", acct.ID)
 	}
 	return customerID, true
 }
@@ -92,7 +92,7 @@ func CreateSetupIntent(log *logger.Logger, accountStore *account.AccountStore, p
 		}
 		clientSecret, err := paymentProvider.CreateSetupIntent(c.Request.Context(), customerID)
 		if err != nil {
-			log.Error("Failed to create setup intent", "error", err, "account_id", acct.ID)
+			log.Error("payment methods: create setup intent failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to create setup intent"})
 			return
 		}
@@ -129,7 +129,7 @@ func ConfirmPaymentMethod(log *logger.Logger, accountStore *account.AccountStore
 
 		card, err := paymentProvider.ConfirmSetup(c.Request.Context(), customerID, body.SetupIntentID)
 		if err != nil {
-			log.Error("Failed to confirm setup intent", "error", err, "account_id", acct.ID)
+			log.Error("payment methods: confirm setup intent failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to save payment method"})
 			return
 		}
@@ -159,7 +159,7 @@ func GetPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, pa
 		}
 		customerID, err := accountStore.GetStripeCustomerID(acct.ID)
 		if err != nil {
-			log.Warn("Failed to load Stripe customer ID", "error", err, "account_id", acct.ID)
+			log.Warn("payment methods: load Stripe customer ID failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusOK, PaymentMethodResponse{Available: false})
 			return
 		}
@@ -170,7 +170,7 @@ func GetPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, pa
 		}
 		card, err := paymentProvider.DefaultCard(c.Request.Context(), customerID)
 		if err != nil {
-			log.Error("Failed to load payment method", "error", err, "account_id", acct.ID)
+			log.Error("payment methods: load payment method failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load payment method"})
 			return
 		}
@@ -197,7 +197,7 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 			return
 		}
 		if err := paymentProvider.RemoveCard(c.Request.Context(), customerID); err != nil {
-			log.Error("Failed to remove payment method", "error", err, "account_id", acct.ID)
+			log.Error("payment methods: remove payment method failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to remove payment method"})
 			return
 		}
@@ -221,11 +221,11 @@ func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusS
 	ctx := c.Request.Context()
 	newStatus, changed, err := billing.ApplySignal(ctx, status, accountID, sig, time.Now())
 	if err != nil {
-		log.Error("Failed to apply card billing signal", "error", err, "account_id", accountID, "signal", string(sig))
+		log.Error("payment methods: apply card billing signal failed", "error", err, "account_id", accountID, "signal", string(sig))
 		return
 	}
 	if changed {
-		log.Info("billing status changed", "source", "card", "account_id", accountID, "status", string(newStatus), "signal", string(sig))
+		log.Info("payment methods: billing status changed", "source", "card", "account_id", accountID, "status", string(newStatus), "signal", string(sig))
 	}
 	if queue == nil {
 		return
@@ -240,13 +240,13 @@ func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusS
 		enqueueErr = queue.InsertBillingResume(ctx, accountID)
 	}
 	if enqueueErr != nil {
-		log.Error("Failed to enqueue workload reconcile after card change", "error", enqueueErr, "account_id", accountID)
+		log.Error("payment methods: enqueue workload reconcile after card change failed", "error", enqueueErr, "account_id", accountID)
 	}
 	if !collectAfterCard(newStatus, sig) || stripeCustomerID == "" {
 		return
 	}
 	if err := queue.InsertBillingCollect(ctx, accountID, stripeCustomerID); err != nil {
-		log.Error("Failed to enqueue invoice collection after card change", "error", err, "account_id", accountID)
+		log.Error("payment methods: enqueue invoice collection after card change failed", "error", err, "account_id", accountID)
 	}
 }
 
@@ -278,6 +278,6 @@ func linkStripeToBilling(c *gin.Context, log *logger.Logger, accountStore *accou
 		return
 	}
 	if err := linker.LinkStripeCustomer(c.Request.Context(), metronomeCustomerID, stripeCustomerID); err != nil {
-		log.Error("Failed to link Stripe customer to billing provider", "error", err, "account_id", acct.ID)
+		log.Error("payment methods: link Stripe customer to billing provider failed", "error", err, "account_id", acct.ID)
 	}
 }

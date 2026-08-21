@@ -125,7 +125,7 @@ func GetAccountInsightsSource(
 
 		resp, err := computeInsightsSource(c.Request.Context(), classifications, acct.ID, ad, viewer, day, time.Now().UTC())
 		if err != nil {
-			log.Error("Failed to compute source insights", "error", err, "account_id", acct.ID, "source", ad.Key)
+			log.Error("insights source: compute source insights failed", "error", err, "account_id", acct.ID, "source", ad.Key)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute source insights"})
 			return
 		}

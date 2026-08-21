@@ -171,7 +171,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 
 		members, err := accountStore.GetMembersForAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list members", "error", err, "account_id", acct.ID)
+			log.Error("org: list members failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list members"})
 			return
 		}
@@ -186,7 +186,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		if acct.WorkOSOrganizationID != "" && orgClient != nil {
 			memberships, err := orgClient.ListMemberships(c.Request.Context(), acct.WorkOSOrganizationID, org.ListOpts{Limit: 100})
 			if err != nil {
-				log.Error("Failed to fetch WorkOS memberships", "error", err, "account_id", acct.ID)
+				log.Error("org: fetch WorkOS memberships failed", "error", err, "account_id", acct.ID)
 				c.JSON(http.StatusBadGateway, gin.H{
 					"error": "failed to fetch member roles from identity provider",
 				})
@@ -204,7 +204,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		}
 		profileByUserID, err := accountStore.GetPersonalProfiles(memberUserIDs)
 		if err != nil {
-			log.Error("Failed to fetch member profiles", "error", err, "account_id", acct.ID)
+			log.Error("org: fetch member profiles failed", "error", err, "account_id", acct.ID)
 			profileByUserID = map[string]account.PersonalProfile{}
 		}
 
@@ -215,7 +215,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		if slackStore != nil {
 			slackByUserID, err = slackStore.ListByWorkOSUsers(memberUserIDs)
 			if err != nil {
-				log.Error("Failed to fetch slack identities", "error", err, "account_id", acct.ID)
+				log.Error("org: fetch slack identities failed", "error", err, "account_id", acct.ID)
 				slackByUserID = map[string][]slackidentity.Mapping{}
 			}
 		}
@@ -263,7 +263,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			}
 			pendingProfiles, err := accountStore.GetPersonalProfiles(pendingUIDs)
 			if err != nil {
-				log.Error("Failed to fetch pending member profiles", "error", err, "account_id", acct.ID)
+				log.Error("org: fetch pending member profiles failed", "error", err, "account_id", acct.ID)
 				pendingProfiles = map[string]account.PersonalProfile{}
 			}
 			for _, uid := range pendingUIDs {
@@ -334,7 +334,7 @@ func resolveMemberEmails(ctx context.Context, log *logger.Logger, memberEmails m
 	if memberEmails != nil {
 		known, err := memberEmails.EmailsForUsers(ctx, userIDs)
 		if err != nil {
-			log.Warn("Failed to read mirrored member emails", "error", err)
+			log.Warn("org: read mirrored member emails failed", "error", err)
 		} else {
 			mirrored = known
 		}
@@ -362,7 +362,7 @@ func resolveMemberEmails(ctx context.Context, log *logger.Logger, memberEmails m
 		missing = append(missing, uid)
 	}
 	if len(missing) > memberEmailLookupLimit {
-		log.Warn("Member email lookups capped", "limit", memberEmailLookupLimit, "unnamed", len(missing))
+		log.Warn("org: member email lookups capped", "limit", memberEmailLookupLimit, "unnamed", len(missing))
 		missing = missing[:memberEmailLookupLimit]
 	}
 	if len(missing) == 0 {
@@ -388,7 +388,7 @@ func resolveMemberEmails(ctx context.Context, log *logger.Logger, memberEmails m
 			defer func() { <-sem }()
 			u, err := workosUsers.GetUser(ctx, uid)
 			if err != nil {
-				log.Warn("Failed to fetch member from WorkOS", "error", err, "user_id", uid)
+				log.Warn("org: fetch member from WorkOS failed", "error", err, "user_id", uid)
 				recordLookupAttempt(writeCtx, log, memberEmails, uid)
 				return
 			}
@@ -401,7 +401,7 @@ func resolveMemberEmails(ctx context.Context, log *logger.Logger, memberEmails m
 			mu.Unlock()
 			if memberEmails != nil {
 				if err := memberEmails.UpsertWorkOS(writeCtx, uid, u.Email, u.EmailVerified); err != nil {
-					log.Warn("Failed to mirror member email", "error", err, "user_id", uid)
+					log.Warn("org: mirror member email failed", "error", err, "user_id", uid)
 				}
 			}
 		}()
@@ -417,7 +417,7 @@ func recordLookupAttempt(ctx context.Context, log *logger.Logger, memberEmails m
 		return
 	}
 	if err := memberEmails.RecordReconcileAttempt(ctx, userID); err != nil {
-		log.Warn("Failed to record member email attempt", "error", err, "user_id", userID)
+		log.Warn("org: record member email attempt failed", "error", err, "user_id", userID)
 	}
 }
 
@@ -450,14 +450,14 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 
 		member, err := syncSvc.AddMember(c.Request.Context(), acct.ID, req.UserID, req.Role)
 		if err != nil {
-			log.Error("Failed to add member", "error", err, "account_id", acct.ID, "user_id", req.UserID)
+			log.Error("org: add member failed", "error", err, "account_id", acct.ID, "user_id", req.UserID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to add member",
 			})
 			return
 		}
 
-		log.Info("Member added", "account_id", acct.ID, "user_id", req.UserID, "role", req.Role)
+		log.Info("org: member added", "account_id", acct.ID, "user_id", req.UserID, "role", req.Role)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.MemberAdd
@@ -508,14 +508,14 @@ func UpdateMemberRole(log *logger.Logger, syncSvc memberRoleSyncer, accountStore
 				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
 				return
 			}
-			log.Error("Failed to update member role", "error", err, "account_id", acct.ID, "user_id", userID)
+			log.Error("org: update member role failed", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to update member role",
 			})
 			return
 		}
 
-		log.Info("Member role updated", "account_id", acct.ID, "user_id", userID, "old_role", previousRole, "new_role", req.Role)
+		log.Info("org: member role updated", "account_id", acct.ID, "user_id", userID, "old_role", previousRole, "new_role", req.Role)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.MemberUpdateRole
@@ -563,14 +563,14 @@ func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *ac
 				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
 				return
 			}
-			log.Error("Failed to remove member", "error", err, "account_id", acct.ID, "user_id", userID)
+			log.Error("org: remove member failed", "error", err, "account_id", acct.ID, "user_id", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to remove member",
 			})
 			return
 		}
 
-		log.Info("Member removed", "account_id", acct.ID, "user_id", userID)
+		log.Info("org: member removed", "account_id", acct.ID, "user_id", userID)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.MemberRemove
@@ -654,9 +654,9 @@ func CreateInvitations(log *logger.Logger, orgSync *org.Sync, auditStore *auditl
 
 		for _, r := range results {
 			if r.Success {
-				log.Info("Invitation sent", "account_id", acct.ID, "value", r.Value)
+				log.Info("org: invitation sent", "account_id", acct.ID, "value", r.Value)
 			} else {
-				log.Warn("Invitation failed", "account_id", acct.ID, "value", r.Value, "error", r.Error)
+				log.Warn("org: invitation failed", "account_id", acct.ID, "value", r.Value, "error", r.Error)
 			}
 		}
 
@@ -689,7 +689,7 @@ func ListAccountInvitations(log *logger.Logger, orgClient *org.Client) gin.Handl
 
 		invitations, err := orgClient.ListInvitations(c.Request.Context(), acct.WorkOSOrganizationID)
 		if err != nil {
-			log.Error("Failed to list invitations", "error", err, "account_id", acct.ID)
+			log.Error("org: list invitations failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list invitations"})
 			return
 		}
@@ -712,7 +712,7 @@ func RevokeInvitation(log *logger.Logger, orgClient *org.Client, auditStore *aud
 		// Verify the invitation belongs to this account's WorkOS org to prevent IDOR
 		inv, err := orgClient.GetInvitation(c.Request.Context(), invitationID)
 		if err != nil {
-			log.Error("Failed to get invitation", "error", err, "invitation_id", invitationID)
+			log.Error("org: get invitation failed", "error", err, "invitation_id", invitationID)
 			c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found"})
 			return
 		}
@@ -722,14 +722,14 @@ func RevokeInvitation(log *logger.Logger, orgClient *org.Client, auditStore *aud
 		}
 
 		if err := orgClient.RevokeInvitation(c.Request.Context(), invitationID); err != nil {
-			log.Error("Failed to revoke invitation", "error", err, "invitation_id", invitationID)
+			log.Error("org: revoke invitation failed", "error", err, "invitation_id", invitationID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "failed to revoke invitation",
 			})
 			return
 		}
 
-		log.Info("Invitation revoked", "invitation_id", invitationID, "account_id", acct.ID)
+		log.Info("org: invitation revoked", "invitation_id", invitationID, "account_id", acct.ID)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.InvitationRevoke

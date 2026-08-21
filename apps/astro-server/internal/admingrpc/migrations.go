@@ -29,13 +29,13 @@ func (s *Server) ListClusterMigrations(ctx context.Context, req *adminv1.ListClu
 
 	events, err := s.listClusterMigrationEvents(ctx, req.MismatchesOnly)
 	if err != nil {
-		s.log.Warn("list cluster migration events", "error", err)
+		s.log.Warn("migrations: list cluster migration events", "error", err)
 		events = nil
 	}
 
 	jobs, err := s.listClusterMigrationJobs(ctx, req.MismatchesOnly)
 	if err != nil {
-		s.log.Warn("list cluster migration jobs", "error", err)
+		s.log.Warn("migrations: list cluster migration jobs", "error", err)
 		jobs = nil
 	}
 

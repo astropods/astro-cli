@@ -35,7 +35,7 @@ type AvatarBackfillWorker struct {
 
 func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBackfillArgs]) error {
 	if w.avatarStore == nil {
-		w.log.Debug("Avatar backfill skipped: no avatar store configured")
+		w.log.Debug("avatar backfill: skipped, no avatar store configured")
 		return nil
 	}
 
@@ -51,7 +51,7 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 			LIMIT $2
 		`, lastID, batchSize)
 		if err != nil {
-			w.log.Error("Avatar backfill: failed to query accounts", "error", err)
+			w.log.Error("avatar backfill: query accounts failed", "error", err)
 			return nil // Don't retry — transient DB issues shouldn't wedge the queue
 		}
 
@@ -59,7 +59,7 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 		for rows.Next() {
 			var id, name string
 			if err := rows.Scan(&id, &name); err != nil {
-				w.log.Error("Avatar backfill: failed to scan row", "error", err)
+				w.log.Error("avatar backfill: scan row failed", "error", err)
 				continue
 			}
 			lastID = id
@@ -72,12 +72,12 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 			}
 
 			if err := w.avatarStore.AssignPreset(ctx, name); err != nil {
-				w.log.Error("Avatar backfill: failed to assign preset", "account", name, "error", err)
+				w.log.Error("avatar backfill: assign preset failed", "account", name, "error", err)
 				totalFailed++
 				continue
 			}
 			if _, err := w.db.ExecContext(ctx, `UPDATE accounts SET avatar_updated_at = now() WHERE id = $1::uuid`, id); err != nil {
-				w.log.Warn("Avatar backfill: failed to stamp avatar_updated_at", "account", name, "error", err)
+				w.log.Warn("avatar backfill: stamp avatar_updated_at failed", "account", name, "error", err)
 			}
 			totalProcessed++
 		}
@@ -91,7 +91,7 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 	// Backfill colors for accounts that have avatars but no colors yet.
 	colorProcessed, colorSkipped, colorFailed := w.backfillAccountColors(ctx)
 
-	w.log.Info("Avatar backfill completed",
+	w.log.Info("avatar backfill: completed",
 		"processed", totalProcessed,
 		"skipped", totalSkipped,
 		"failed", totalFailed,
@@ -125,7 +125,7 @@ func (w *AvatarBackfillWorker) backfillAccountColors(ctx context.Context) (proce
 		for rows.Next() {
 			var id, name string
 			if err := rows.Scan(&id, &name); err != nil {
-				w.log.Error("Account color backfill: scan row", "error", err)
+				w.log.Error("avatar backfill: account color backfill, scan row", "error", err)
 				continue
 			}
 			lastID = id

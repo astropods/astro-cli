@@ -235,10 +235,10 @@ func (q *Queue) Start(ctx context.Context) error {
 // Stop gracefully drains in-flight jobs and closes the pool.
 func (q *Queue) Stop(ctx context.Context) error {
 	if err := q.client.Stop(ctx); err != nil {
-		q.log.Error("River queue stop error", "error", err)
+		q.log.Error("river: queue stop error", "error", err)
 	}
 	q.pool.Close()
-	q.log.Info("River queue stopped")
+	q.log.Info("river: queue stopped")
 	return nil
 }
 

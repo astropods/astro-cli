@@ -468,7 +468,7 @@ func (w *EvalDatasetEvaluationWorker) logEvaluatorFailure(job *river.Job[EvalDat
 	if w.log == nil {
 		return
 	}
-	w.log.Error("evaluator failed",
+	w.log.Error("eval dataset evaluation: evaluator failed",
 		"eval_dataset_id", job.Args.EvalDatasetID,
 		"trace_id", job.Args.TraceID,
 		"evaluator_key", key,

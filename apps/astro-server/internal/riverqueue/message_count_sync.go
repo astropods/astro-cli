@@ -40,7 +40,7 @@ type MessageCountSyncWorker struct {
 
 func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageCountSyncArgs]) error {
 	if w.promClient == nil {
-		w.log.Debug("Message count sync skipped: no Prometheus client configured")
+		w.log.Debug("message count sync: skipped, no Prometheus client configured")
 		return nil
 	}
 
@@ -48,7 +48,7 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 	if w.registry != nil {
 		listed, err := w.registry.List(ctx)
 		if err != nil {
-			w.log.Error("Message count sync: failed to list clusters, falling back to primary only", "error", err)
+			w.log.Error("message count sync: list clusters, falling back to primary only failed", "error", err)
 		} else {
 			entries = listed
 			hasDefault := false
@@ -91,7 +91,7 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 
 		clusterSamples, err := client.Query(ctx, query)
 		if err != nil {
-			w.log.Error("Message count sync: failed to query Prometheus", "cluster", entry.ID, "error", err)
+			w.log.Error("message count sync: query Prometheus failed", "cluster", entry.ID, "error", err)
 			continue // Don't retry — transient Prometheus issues shouldn't wedge the queue
 		}
 		samples = append(samples, clusterSamples...)
@@ -111,14 +111,14 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		}
 		acct, err := w.accountStore.GetByName(accountName)
 		if err != nil {
-			w.log.Error("Message count sync: account lookup failed",
+			w.log.Error("message count sync: account lookup failed",
 				"account_name", accountName,
 				"error", err,
 			)
 			continue
 		}
 		if err := upsertMessageCount(ctx, w.db, acct.ID, agentName, s.Value); err != nil {
-			w.log.Error("Message count sync: upsert failed",
+			w.log.Error("message count sync: upsert failed",
 				"account_id", acct.ID,
 				"agent_name", agentName,
 				"error", err,
@@ -126,7 +126,7 @@ func (w *MessageCountSyncWorker) Work(ctx context.Context, _ *river.Job[MessageC
 		}
 	}
 
-	w.log.Info("Message count sync completed", "agents", len(samples))
+	w.log.Info("message count sync: completed", "agents", len(samples))
 	return nil
 }
 

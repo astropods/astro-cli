@@ -73,7 +73,7 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, de
 		}
 		rec, err := billingStatus.Record(c.Request.Context(), acct.ID)
 		if err != nil {
-			log.Error("Failed to load billing status", "error", err, "account_id", acct.ID)
+			log.Error("billing: load billing status failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load billing status"})
 			return
 		}
@@ -84,7 +84,7 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, de
 		if rec.Status != billing.StatusActive && deployments != nil {
 			var derr error
 			if stopped, derr = deployments.HasBillingSuspended(c.Request.Context(), acct.ID); derr != nil {
-				log.Warn("Failed to check suspended workloads", "error", derr, "account_id", acct.ID)
+				log.Warn("billing: check suspended workloads failed", "error", derr, "account_id", acct.ID)
 			}
 		}
 		gated := rec.Status != billing.StatusActive && (enforced || stopped)
@@ -118,7 +118,7 @@ func resolveBillingCustomer(c *gin.Context, log *logger.Logger, accountStore *ac
 
 	customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
 	if err != nil {
-		log.Warn("Failed to load billing customer ID", "error", err, "account_id", acct.ID)
+		log.Warn("billing: load billing customer ID failed", "error", err, "account_id", acct.ID)
 		return "", false
 	}
 	if customerID != "" {
@@ -136,11 +136,11 @@ func resolveBillingCustomer(c *gin.Context, log *logger.Logger, accountStore *ac
 		BifrostCustomerID: bifrostCustomerID,
 	})
 	if err != nil {
-		log.Error("Failed to create billing customer", "error", err, "account_id", acct.ID)
+		log.Error("billing: create billing customer failed", "error", err, "account_id", acct.ID)
 		return "", false
 	}
 	if err := accountStore.SetBillingCustomerID(acct.ID, billingBackend, customerID); err != nil {
-		log.Error("Failed to store billing customer ID", "error", err, "account_id", acct.ID)
+		log.Error("billing: store billing customer ID failed", "error", err, "account_id", acct.ID)
 	}
 	return customerID, true
 }
@@ -175,11 +175,11 @@ func billingData(
 				return
 			}
 			if errors.Is(err, errNoBillingContract) {
-				log.Error("No billing contract covers the account", "account_id", acct.ID, "customer_id", customerID)
+				log.Error("billing: no billing contract covers the account", "account_id", acct.ID, "customer_id", customerID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "no billing contract covers this account"})
 				return
 			}
-			log.Error("Failed to load billing "+label, "error", err, "account_id", acct.ID)
+			log.Error("billing: load billing  failed"+label, "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load billing " + label})
 			return
 		}
@@ -270,7 +270,7 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 				c.JSON(http.StatusNotFound, gin.H{"error": "no PDF is available for this invoice"})
 				return
 			}
-			log.Error("Failed to load invoice PDF", "error", err, "account_id", acct.ID, "invoice_id", invoiceID)
+			log.Error("billing: load invoice PDF failed", "error", err, "account_id", acct.ID, "invoice_id", invoiceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load invoice PDF"})
 			return
 		}
@@ -279,7 +279,7 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 		c.Header("Content-Type", "application/pdf")
 		c.Header("Content-Disposition", "inline; filename=\"invoice.pdf\"")
 		if _, err := io.Copy(c.Writer, rc); err != nil {
-			log.Warn("Failed to stream invoice PDF", "error", err, "account_id", acct.ID, "invoice_id", invoiceID)
+			log.Warn("billing: stream invoice PDF failed", "error", err, "account_id", acct.ID, "invoice_id", invoiceID)
 		}
 	}
 }
@@ -354,11 +354,11 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 			if planner, ok := billingProvider.(billing.PlanReporter); ok {
 				plan, covered, perr := planner.CustomerPlan(ctx, customerID)
 				if perr != nil {
-					log.Warn("Failed to load billing plan", "error", perr, "customer_id", customerID)
+					log.Warn("billing: load billing plan failed", "error", perr, "customer_id", customerID)
 				} else {
 					resp.Plan = string(plan)
 					if plan == "" && covered {
-						log.Warn("Billing contract sits on a package this build does not recognise",
+						log.Warn("billing: contract sits on a package this build does not recognise",
 							"account_id", acct.ID, "customer_id", customerID)
 					}
 					if !covered {
@@ -369,7 +369,7 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 			if reader, ok := billingProvider.(billing.UsageThresholdReader); ok {
 				usage, uerr := reader.CustomerUsageThresholds(ctx, customerID)
 				if uerr != nil {
-					log.Warn("Failed to load usage thresholds", "error", uerr, "customer_id", customerID)
+					log.Warn("billing: load usage thresholds failed", "error", uerr, "customer_id", customerID)
 				} else {
 					resp.Usage = usageThresholdsResponse(usage)
 				}
@@ -379,7 +379,7 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 			if reader, ok := billingProvider.(billing.SpendThresholdReader); ok {
 				th, terr := reader.CustomerSpendThresholds(ctx, customerID)
 				if terr != nil {
-					log.Warn("Failed to load spend thresholds", "error", terr, "customer_id", customerID)
+					log.Warn("billing: load spend thresholds failed", "error", terr, "customer_id", customerID)
 				} else {
 					if th.HasWarning {
 						resp.Warning = &SpendThresholdResponse{Amount: th.Warning.Amount, InAlarm: th.Warning.InAlarm}
@@ -476,7 +476,7 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 
 		applied, failed, err := writeSpendThresholds(c.Request.Context(), writer, customerID, req.Warning, req.Limit)
 		if err != nil {
-			log.Error("Failed to write spend threshold", "error", err, "account_id", acct.ID, "kind", string(failed))
+			log.Error("billing: write spend threshold failed", "error", err, "account_id", acct.ID, "kind", string(failed))
 			// Changing a threshold archives the old alert before creating its
 			// replacement, so a failure can leave that control unset. Name it rather
 			// than reporting a generic failure over an account that may now be
@@ -490,7 +490,7 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		}
 		resp := BillingDataResponse{Available: true}
 		if err := liftSelfLimit(c.Request.Context(), status, queue, billingProvider, acct.ID, customerID); err != nil {
-			log.Error("Failed to lift the self-limit latch", "error", err, "account_id", acct.ID)
+			log.Error("billing: lift the self-limit latch failed", "error", err, "account_id", acct.ID)
 			resp.LimitLiftFailed = true
 		}
 		c.JSON(http.StatusOK, resp)
@@ -588,7 +588,7 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 				err = writer.SetCustomerUsageThreshold(ctx, customerID, metric, w.kind, *w.amount)
 			}
 			if err != nil {
-				log.Error("Failed to write usage threshold", "error", err, "account_id", acct.ID, "kind", string(w.kind))
+				log.Error("billing: write usage threshold failed", "error", err, "account_id", acct.ID, "kind", string(w.kind))
 				c.JSON(http.StatusBadGateway, gin.H{
 					"error":   "failed to save usage controls",
 					"details": fmt.Sprintf("the %s may now be unset; re-save to restore it", w.kind),
@@ -599,7 +599,7 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 
 		resp := BillingDataResponse{Available: true}
 		if err := liftSelfLimit(ctx, status, queue, billingProvider, acct.ID, customerID); err != nil {
-			log.Error("Failed to lift the self-limit latch", "error", err, "account_id", acct.ID)
+			log.Error("billing: lift the self-limit latch failed", "error", err, "account_id", acct.ID)
 			resp.LimitLiftFailed = true
 		}
 		c.JSON(http.StatusOK, resp)

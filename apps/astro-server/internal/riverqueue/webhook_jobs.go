@@ -608,7 +608,7 @@ func applyWebhookSignal(
 		return err
 	}
 	if changed {
-		log.Info("billing status changed", "source", source, "account_id", acct.ID, "status", string(newStatus), "signal", string(sig))
+		log.Info("webhook jobs: billing status changed", "source", source, "account_id", acct.ID, "status", string(newStatus), "signal", string(sig))
 	}
 	if sig == billing.SignalCreditsExhausted && !suspendedForCredits(ctx, status, acct.ID) {
 		sig = ""

@@ -59,7 +59,7 @@ func (m *BillingStateManager) StartBilling(ctx context.Context, deploymentID str
 			SET billing_active = true, last_emitted_at = $3, cpu_request = $4, memory_request = $5, replicas = $6, stopped_at = NULL
 		`, deploymentID, w.Component, now, w.CPURequest, w.MemoryRequest, replicas)
 		if err != nil {
-			m.log.Error("Failed to start billing state", "error", err, "deployment_id", deploymentID, "component", w.Component)
+			m.log.Error("billing: start billing state failed", "error", err, "deployment_id", deploymentID, "component", w.Component)
 		}
 	}
 }
@@ -77,7 +77,7 @@ func (m *BillingStateManager) StopBilling(ctx context.Context, deploymentID stri
 		WHERE deployment_id = $1 AND billing_active = true
 	`, deploymentID, stoppedAt)
 	if err != nil {
-		m.log.Error("billing: failed to record deployment stop", "error", err, "deployment_id", deploymentID)
+		m.log.Error("billing: record deployment stop failed", "error", err, "deployment_id", deploymentID)
 	}
 }
 
@@ -108,7 +108,7 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 		WHERE bs.billing_active = true AND d.status IN ('active', 'provisioning')
 	`)
 	if err != nil {
-		m.log.Error("metering: failed to query active billing states", "error", err)
+		m.log.Error("metering: query active billing states failed", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -124,7 +124,7 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 		var lastEmitted time.Time
 		var replicas int
 		if err := rows.Scan(&deploymentID, &component, &lastEmitted, &cpuReq, &memReq, &replicas, &accountID, &agentName); err != nil {
-			m.log.Error("metering: failed to scan active billing row", "error", err)
+			m.log.Error("metering: scan active billing row failed", "error", err)
 			continue
 		}
 		cu := rawCU(cpuReq, memReq, replicas)
@@ -150,12 +150,12 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 		keys = append(keys, rowKey{deploymentID, component, spans[len(spans)-1].end})
 	}
 	if err := rows.Err(); err != nil {
-		m.log.Error("metering: failed to iterate active billing rows", "error", err)
+		m.log.Error("metering: iterate active billing rows failed", "error", err)
 	}
 
 	if len(events) > 0 {
 		if err := m.provider.IngestUsage(ctx, events); err != nil {
-			m.log.Error("metering: failed to emit reconcile compute events", "error", err)
+			m.log.Error("metering: emit reconcile compute events failed", "error", err)
 			return // don't advance timestamps if emission failed
 		}
 		m.log.Info("metering: reconciled active compute", "events", len(events))
@@ -181,7 +181,7 @@ func (m *BillingStateManager) emitActiveBilling(ctx context.Context, now time.Ti
 			strings.Join(placeholders, ", "),
 		)
 		if _, err := m.db.ExecContext(ctx, query, params...); err != nil {
-			m.log.Error("metering: failed to advance billing timestamps", "error", err)
+			m.log.Error("metering: advance billing timestamps failed", "error", err)
 		}
 	}
 }
@@ -197,7 +197,7 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 		WHERE bs.billing_active = true AND d.status NOT IN ('active', 'provisioning')
 	`)
 	if err != nil {
-		m.log.Error("metering: failed to query stale billing states", "error", err)
+		m.log.Error("metering: query stale billing states failed", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -209,7 +209,7 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 		var replicas int
 		if err := rows.Scan(&deploymentID, &component, &lastEmitted, &cpuReq, &memReq, &replicas,
 			&accountID, &agentName, &statusChangedAt); err != nil {
-			m.log.Error("metering: failed to scan stale billing row", "error", err)
+			m.log.Error("metering: scan stale billing row failed", "error", err)
 			continue
 		}
 
@@ -222,12 +222,12 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		m.log.Error("metering: failed to iterate stale billing rows", "error", err)
+		m.log.Error("metering: iterate stale billing rows failed", "error", err)
 	}
 
 	if len(events) > 0 {
 		if err := m.provider.IngestUsage(ctx, events); err != nil {
-			m.log.Error("metering: failed to emit stale billing events", "error", err)
+			m.log.Error("metering: emit stale billing events failed", "error", err)
 			return
 		}
 		m.log.Info("metering: reconciled stale compute", "events", len(events))
@@ -240,7 +240,7 @@ func (m *BillingStateManager) reconcileStale(ctx context.Context) {
 		    SELECT id FROM deployments WHERE status NOT IN ('active', 'provisioning')
 		  )
 	`); err != nil {
-		m.log.Error("metering: failed to deactivate stale billing rows", "error", err)
+		m.log.Error("metering: deactivate stale billing rows failed", "error", err)
 	}
 }
 
@@ -258,7 +258,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 		  AND bs.last_emitted_at < bs.stopped_at
 	`)
 	if err != nil {
-		m.log.Error("metering: failed to query stopped billing rows", "error", err)
+		m.log.Error("metering: query stopped billing rows failed", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -272,7 +272,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 		var replicas int
 		if err := rows.Scan(&deploymentID, &component, &lastEmitted, &stoppedAt,
 			&cpuReq, &memReq, &replicas, &accountID, &agentName); err != nil {
-			m.log.Error("metering: failed to scan stopped billing row", "error", err)
+			m.log.Error("metering: scan stopped billing row failed", "error", err)
 			continue
 		}
 		keys = append(keys, rowKey{deploymentID, component})
@@ -288,7 +288,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 			accountID, agentName, deploymentID, component, cpuReq, memReq, replicas, cu*span.hours()))
 	}
 	if err := rows.Err(); err != nil {
-		m.log.Error("metering: failed to iterate stopped billing rows", "error", err)
+		m.log.Error("metering: iterate stopped billing rows failed", "error", err)
 	}
 
 	if len(keys) == 0 {
@@ -297,7 +297,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 
 	if len(events) > 0 {
 		if err := m.provider.IngestUsage(ctx, events); err != nil {
-			m.log.Error("metering: failed to emit stopped billing events", "error", err)
+			m.log.Error("metering: emit stopped billing events failed", "error", err)
 			return
 		}
 		m.log.Info("metering: emitted final period for stopped deployments", "events", len(events))
@@ -314,7 +314,7 @@ func (m *BillingStateManager) reconcileStopped(ctx context.Context) {
 		strings.Join(placeholders, ", "),
 	)
 	if _, err := m.db.ExecContext(ctx, query, params...); err != nil {
-		m.log.Error("metering: failed to clear stopped_at on billing rows", "error", err)
+		m.log.Error("metering: clear stopped_at on billing rows failed", "error", err)
 	}
 }
 
@@ -335,7 +335,7 @@ func (m *BillingStateManager) healMissingBillingRows(ctx context.Context, now ti
 		RETURNING deployment_id, component
 	`, now)
 	if err != nil {
-		m.log.Error("metering: failed to heal missing billing rows", "error", err)
+		m.log.Error("metering: heal missing billing rows failed", "error", err)
 		return
 	}
 	defer rows.Close() //nolint:errcheck
@@ -343,7 +343,7 @@ func (m *BillingStateManager) healMissingBillingRows(ctx context.Context, now ti
 	for rows.Next() {
 		var deploymentID, component string
 		if err := rows.Scan(&deploymentID, &component); err != nil {
-			m.log.Error("metering: failed to scan healed billing row", "error", err)
+			m.log.Error("metering: scan healed billing row failed", "error", err)
 			continue
 		}
 		m.log.Info("metering: healed missing billing row", "deployment_id", deploymentID, "component", component)

@@ -218,7 +218,7 @@ func (h *AccessGroupHandler) mutateMember(c *gin.Context, add bool) {
 		return
 	}
 	if err != nil {
-		h.log.Warn("Resolve access-group member", "account_id", acct.ID, "user_id", userID, "error", err)
+		h.log.Warn("access groups: resolve access-group member", "account_id", acct.ID, "user_id", userID, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 		return
 	}
@@ -274,7 +274,7 @@ func (h *AccessGroupHandler) scope(c *gin.Context) (*account.Account, context.Co
 	enabled, err := h.experiments.Enabled(ctx, acct.ID)
 	if err != nil {
 		cancel()
-		h.log.Warn("Resolve access-group experiment", "account_id", acct.ID, "error", err)
+		h.log.Warn("access groups: resolve access-group experiment", "account_id", acct.ID, "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 		return nil, nil, nil, false
 	}
@@ -339,7 +339,7 @@ func (h *AccessGroupHandler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, authz.ErrGroupExists):
 		c.JSON(http.StatusConflict, gin.H{"error": "access group already exists"})
 	default:
-		h.log.Warn("Access group operation failed", "error", err)
+		h.log.Warn("access groups: access group operation failed", "error", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 	}
 }

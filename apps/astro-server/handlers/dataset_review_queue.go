@@ -142,11 +142,11 @@ func GetDatasetReviewQueue(
 				return
 			}
 			if errors.Is(err, errReviewQueueLocalRead) {
-				log.Error("Failed to load review queue state", "error", err, "deployment_id", lctx.DeploymentID)
+				log.Error("dataset review queue: load review queue state failed", "error", err, "deployment_id", lctx.DeploymentID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load review queue state"})
 				return
 			}
-			log.Error("Failed to fetch traces for queue", "error", err, "deployment_id", lctx.DeploymentID)
+			log.Error("dataset review queue: fetch traces for queue failed", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch traces"})
 			return
 		}

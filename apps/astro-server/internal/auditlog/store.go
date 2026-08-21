@@ -86,7 +86,7 @@ func (s *Store) LogAsync(log *logger.Logger, e Event) {
 	}
 	go func() {
 		if err := s.Log(context.Background(), e); err != nil {
-			log.Error("Failed to write audit log", "error", err, "action", e.Action, "resource", e.ResourceType+"/"+e.ResourceID)
+			log.Error("auditlog: write failed", "error", err, "action", e.Action, "resource", e.ResourceType+"/"+e.ResourceID)
 		}
 	}()
 }

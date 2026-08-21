@@ -61,12 +61,12 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			acct.ID, input.FeatureKey, input.CurrentUsage, input.CurrentQuota, input.RequestedAmount, input.Reason, uid,
 		).Scan(&id)
 		if err != nil {
-			log.Error("Failed to create quota increase request", "error", err, "account_id", acct.ID)
+			log.Error("quota increase: create quota increase request failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
 			return
 		}
 
-		log.Info("Quota increase requested", "request_id", id, "account_id", acct.ID, "feature", input.FeatureKey)
+		log.Info("quota increase: requested", "request_id", id, "account_id", acct.ID, "feature", input.FeatureKey)
 		c.JSON(http.StatusCreated, QuotaIncreaseResponse{ID: id, Status: "pending"})
 	}
 }
@@ -105,7 +105,7 @@ func ListQuotaIncreaseRequests(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			acct.ID,
 		)
 		if err != nil {
-			log.Error("Failed to list quota increase requests", "error", err)
+			log.Error("quota increase: list quota increase requests failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list requests"})
 			return
 		}
@@ -116,7 +116,7 @@ func ListQuotaIncreaseRequests(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			var item QuotaIncreaseListItem
 			var createdAt sql.NullTime
 			if err := rows.Scan(&item.ID, &item.FeatureKey, &item.CurrentUsage, &item.CurrentQuota, &item.RequestedAmount, &item.Reason, &item.Status, &createdAt); err != nil {
-				log.Error("Failed to scan quota increase request", "error", err)
+				log.Error("quota increase: scan quota increase request failed", "error", err)
 				continue
 			}
 			if createdAt.Valid {
@@ -125,7 +125,7 @@ func ListQuotaIncreaseRequests(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			items = append(items, item)
 		}
 		if err := rows.Err(); err != nil {
-			log.Error("Failed to iterate quota increase requests", "error", err)
+			log.Error("quota increase: iterate quota increase requests failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list requests"})
 			return
 		}

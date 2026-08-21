@@ -64,7 +64,7 @@ func GetDeploymentAlerts(log *logger.Logger, accountStore *account.AccountStore,
 		if alertStore != nil {
 			state, err = alertStore.ForDeploymentWorkload(c.Request.Context(), keyID, workload)
 			if err != nil {
-				log.Error("Failed to read alert state", "error", err, "deployment_id", keyID, "workload", workload)
+				log.Error("observation alerts: read alert state failed", "error", err, "deployment_id", keyID, "workload", workload)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read deployment alerts"})
 				return
 			}

@@ -44,7 +44,7 @@ func (c *gatedShadowChecker) Authorize(ctx context.Context, subject Subject, act
 		return false, err
 	}
 	if !enabled {
-		c.log.Debug("FGA shadow check skipped",
+		c.log.Debug("shadow checker: FGA shadow check skipped",
 			"route", authorizationRoute(ctx),
 			"action", action,
 			"resource_type", resource.Type,
@@ -91,20 +91,20 @@ func logDecisionComparison(
 		attrs = append(attrs, "error", shadowErr)
 		switch {
 		case errors.Is(shadowErr, ErrFGAResourceNotEnabled):
-			log.Debug("FGA shadow check skipped", attrs...)
+			log.Debug("shadow checker: FGA shadow check skipped", attrs...)
 		case errors.Is(shadowErr, ErrWorkOSMembershipUnavailable):
-			log.Debug("FGA shadow identity unavailable", attrs...)
+			log.Debug("shadow checker: FGA shadow identity unavailable", attrs...)
 		default:
-			log.Warn("FGA shadow check failed", attrs...)
+			log.Warn("shadow checker: FGA shadow check failed", attrs...)
 		}
 		return
 	}
 
 	attrs = append(attrs, "fga_allowed", shadowAllowed)
 	if primaryAllowed != shadowAllowed {
-		log.Warn("FGA shadow decision mismatch", attrs...)
+		log.Warn("shadow checker: FGA shadow decision mismatch", attrs...)
 	} else {
-		log.Info("FGA shadow decision matched", attrs...)
+		log.Info("shadow checker: FGA shadow decision matched", attrs...)
 	}
 }
 

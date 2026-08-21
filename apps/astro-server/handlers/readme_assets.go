@@ -44,7 +44,7 @@ func UploadReadmeAssets(log *logger.Logger, store *readmeassets.Store) gin.Handl
 		assets := make(map[string]string)
 		for relPath, headers := range form.File {
 			if len(assets) >= readmeassets.MaxAssets {
-				log.Warn("readme asset upload exceeded limit",
+				log.Warn("readme assets: readme asset upload exceeded limit",
 					"account", acct.Name, "agent", agentName, "limit", readmeassets.MaxAssets)
 				break
 			}
@@ -53,17 +53,17 @@ func UploadReadmeAssets(log *logger.Logger, store *readmeassets.Store) gin.Handl
 			}
 			fh := headers[0]
 			if fh.Size > readmeassets.MaxAssetSize {
-				log.Warn("skipping oversized readme asset", "path", relPath, "size", fh.Size)
+				log.Warn("readme assets: skipping oversized readme asset", "path", relPath, "size", fh.Size)
 				continue
 			}
 			data, err := readMultipartFile(fh)
 			if err != nil {
-				log.Warn("failed to read readme asset", "path", relPath, "error", err)
+				log.Warn("readme assets: read readme asset failed", "path", relPath, "error", err)
 				continue
 			}
 			url, err := store.Upload(c.Request.Context(), acct.Name, agentName, data)
 			if err != nil {
-				log.Warn("failed to store readme asset", "path", relPath, "error", err)
+				log.Warn("readme assets: store readme asset failed", "path", relPath, "error", err)
 				continue
 			}
 			assets[relPath] = url

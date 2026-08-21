@@ -168,7 +168,7 @@ func (m *AuthMiddleware) RequireRole(role string) gin.HandlerFunc {
 func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) bool {
 	claims, err := m.jwtValidator.ValidateToken(c.Request.Context(), token)
 	if err != nil {
-		m.log.Warn("Token validation failed", "error", err)
+		m.log.Warn("auth: token validation failed", "error", err)
 		return false
 	}
 
@@ -199,12 +199,12 @@ func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) boo
 func (m *AuthMiddleware) authenticateWithCookie(c *gin.Context, cookieValue string) bool {
 	sessionData, err := m.sessionManager.UnsealSession(cookieValue)
 	if err != nil {
-		m.log.Debug("Failed to unseal session", "error", err)
+		m.log.Debug("auth: unseal session failed", "error", err)
 		return false
 	}
 
 	if !m.sessionManager.IsSessionValid(sessionData.Session) {
-		m.log.Debug("Session is not valid")
+		m.log.Debug("auth: session is not valid")
 		return false
 	}
 

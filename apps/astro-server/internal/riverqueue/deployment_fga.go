@@ -88,7 +88,7 @@ func (w *DeploymentFGAReconcileWorker) Work(ctx context.Context, job *river.Job[
 		}
 		if err := w.queue.InsertDeploymentFGAReconcileJob(ctx, id); err != nil {
 			enqueueErr = errors.Join(enqueueErr, fmt.Errorf("enqueue deployment %s: %w", id, err))
-			w.log.Warn("Failed to enqueue deployment FGA reconciliation",
+			w.log.Warn("deployment fga: enqueue deployment FGA reconciliation failed",
 				"deployment_id", id,
 				"error", err,
 			)
@@ -135,7 +135,7 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 		if firstRegistration || work.CreatorAssignmentPending {
 			switch {
 			case !work.CreatorIsMember:
-				w.log.Info("Deployment creator is not a current organization member; skipping creator role assignment",
+				w.log.Info("deployment fga: deployment creator is not a current organization member; skipping creator role assignment",
 					"deployment_id", work.DeploymentID,
 					"organization_id", work.WorkOSOrgID,
 				)
@@ -151,7 +151,7 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 					return err
 				}
 				if deferred {
-					w.log.Warn("Deployment creator membership unavailable; deferring role assignment",
+					w.log.Warn("deployment fga: deployment creator membership unavailable; deferring role assignment",
 						"deployment_id", work.DeploymentID,
 						"organization_id", work.WorkOSOrgID,
 					)
@@ -161,7 +161,7 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 		}
 	case authz.DeploymentFGADeleted:
 		if work.WorkOSOrgID == "" {
-			w.log.Info("Deployment account has no WorkOS organization id; treating resource deletion as complete",
+			w.log.Info("deployment fga: deployment account has no WorkOS organization id; treating resource deletion as complete",
 				"deployment_id", work.DeploymentID,
 			)
 			break
@@ -174,7 +174,7 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 			_, orgErr := w.organizations.GetOrganization(ctx, work.WorkOSOrgID)
 			switch {
 			case errors.Is(orgErr, org.ErrOrganizationNotFound):
-				w.log.Info("WorkOS organization is gone; treating deployment resource deletion as complete",
+				w.log.Info("deployment fga: WorkOS organization is gone; treating deployment resource deletion as complete",
 					"deployment_id", work.DeploymentID,
 					"organization_id", work.WorkOSOrgID,
 				)
@@ -193,13 +193,13 @@ func (w *DeploymentFGAReconcileWorker) reconcile(ctx context.Context, deployment
 		return err
 	}
 	if !synced {
-		w.log.Debug("Deployment FGA desired state changed during reconciliation",
+		w.log.Debug("deployment fga: desired state changed during reconciliation",
 			"deployment_id", work.DeploymentID,
 			"attempted_state", work.DesiredState,
 		)
 		return nil
 	}
-	w.log.Info("Deployment FGA reconciliation complete",
+	w.log.Info("deployment fga: reconciliation complete",
 		"deployment_id", work.DeploymentID,
 		"desired_state", work.DesiredState,
 		"desired_version", work.DesiredVersion,

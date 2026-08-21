@@ -51,7 +51,7 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		// Fetch agent spec from index
 		agentVersion, err := agentIndex.GetVersion(dep.AccountID, agentName, buildID)
 		if err != nil {
-			log.Error("Agent version not found", "error", err)
+			log.Error("ingestion: agent version not found", "error", err)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "agent version not found",
 				"details": fmt.Sprintf("%s:%s not found in index", agentName, buildID),
@@ -63,12 +63,12 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		var astroSpec spec.AstroSpec
 		specBytes, err := json.Marshal(agentVersion.Spec)
 		if err != nil {
-			log.Error("Failed to marshal spec", "error", err)
+			log.Error("ingestion: marshal spec failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
 			return
 		}
 		if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-			log.Error("Failed to unmarshal spec", "error", err)
+			log.Error("ingestion: unmarshal spec failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec"})
 			return
 		}
@@ -113,7 +113,7 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 			c.Request.Context(), job, metav1.CreateOptions{},
 		)
 		if err != nil {
-			log.Error("Failed to create ingestion job", "error", err, "job", jobName)
+			log.Error("ingestion: create ingestion job failed", "error", err, "job", jobName)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to create ingestion job",
 				"details": err.Error(),
@@ -122,7 +122,7 @@ func TriggerIngestion(log *logger.Logger, agentIndex *agentindex.Index, accountS
 		}
 
 		u, _ := middleware.GetUser(c)
-		log.Info("Manual ingestion triggered",
+		log.Info("ingestion: manual ingestion triggered",
 			"agent", agentName,
 			"build_id", buildID,
 			"ingestion", ingestionName,

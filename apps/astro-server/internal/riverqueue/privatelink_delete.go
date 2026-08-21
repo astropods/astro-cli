@@ -50,18 +50,18 @@ func (w *PrivateLinkDeleteWorker) Work(ctx context.Context, job *river.Job[Priva
 			VpcEndpointIds: []string{endpointID},
 		})
 		if err != nil {
-			w.log.Error("PrivateLinkDelete: failed to delete VPC endpoint",
+			w.log.Error("privatelink delete: delete VPC endpoint failed",
 				"error", err, "store_id", storeID, "endpoint_id", endpointID)
 			return fmt.Errorf("delete vpc endpoint: %w", err)
 		}
 
-		w.log.Info("PrivateLinkDelete: VPC endpoint deleted",
+		w.log.Info("privatelink delete: VPC endpoint deleted",
 			"store_id", storeID, "endpoint_id", endpointID)
 	}
 
 	// Clean up the DB row — may already be gone via ON DELETE CASCADE.
 	if err := w.ksStore.DeleteEndpoint(storeID); err != nil {
-		w.log.Warn("PrivateLinkDelete: failed to delete endpoint row (may already be cascaded)",
+		w.log.Warn("privatelink delete: delete endpoint row (may already be cascaded) failed",
 			"error", err, "store_id", storeID)
 	}
 

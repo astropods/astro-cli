@@ -125,10 +125,10 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	// so we mark the build as failed to avoid leaving it stuck in "building" forever.
 	started, err := w.ghStore.StartBuildIfPending(dbCtx, args.BuildRecordID)
 	if err != nil {
-		log.Error("failed to start build", "error", err)
+		log.Error("github build: start build failed", "error", err)
 		// Non-fatal: continue with best-effort status tracking.
 	} else if !started {
-		log.Info("build no longer pending — cancelling River job", "record_id", args.BuildRecordID)
+		log.Info("github build: build no longer pending — cancelling River job", "record_id", args.BuildRecordID)
 		_ = w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "failed", "build interrupted — likely server restart; please trigger a new build")
 		return river.JobCancel(fmt.Errorf("build no longer pending"))
 	}
@@ -149,7 +149,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 		OrganizationID: conn.WorkOSOrganizationID,
 	})
 	if err != nil {
-		log.Error("failed to get GitHub token",
+		log.Error("github build: get GitHub token failed",
 			"error", err,
 			"workos_user_id", conn.WorkOSUserID,
 			"repo", conn.RepoFullName,
@@ -174,7 +174,7 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 			oldTree, err1 := ghClient.GetSubtreeSHA(ctx, repoBase, lastSHA, subPath)
 			newTree, err2 := ghClient.GetSubtreeSHA(ctx, repoBase, args.CommitSHA, subPath)
 			if err1 != nil || err2 != nil {
-				log.Warn("could not check subpath changes — proceeding with build",
+				log.Warn("github build: could not check subpath changes — proceeding with build",
 					"subpath", subPath, "err1", err1, "err2", err2)
 				// Both guards are load-bearing: "" means the subpath didn't exist at
 				// that commit, so "" == "" would incorrectly skip a build where the
@@ -252,14 +252,14 @@ func (w *GitHubBuildWorker) Work(ctx context.Context, job *river.Job[GitHubBuild
 	}
 
 	if err := w.ghStore.UpdateBuildStatus(dbCtx, args.BuildRecordID, "registered", ""); err != nil {
-		log.Error("failed to update build status to registered", "error", err, "record_id", args.BuildRecordID)
+		log.Error("github build: update build status to registered failed", "error", err, "record_id", args.BuildRecordID)
 	}
-	log.Info("GitHub build registered", "agent", agentName, "build_id", args.BuildID)
+	log.Info("github build: registered", "agent", agentName, "build_id", args.BuildID)
 
 	// Fan out deploy-cache invalidations to every downstream consumer: a new
 	// registered build shifts `latest_build_id` on the agents-page payload.
 	if affected := deploycache.InvalidateForLineage(ctx, w.cache, w.deployStore, conn.AccountID, agentName); len(affected) > 0 {
-		log.Info("GitHub build: invalidated deploy cache for downstream consumers",
+		log.Info("github build: invalidated deploy cache for downstream consumers",
 			"agent", agentName,
 			"affected_accounts", len(affected),
 		)

@@ -66,13 +66,13 @@ type ObsSummaryRefreshWorker struct {
 
 func (w *ObsSummaryRefreshWorker) Work(ctx context.Context, _ *river.Job[ObsSummaryRefreshArgs]) error {
 	if w.cache == nil {
-		w.log.Debug("Obs summary refresh skipped: no Redis cache configured")
+		w.log.Debug("obs summary refresh: skipped, no Redis cache configured")
 		return nil
 	}
 
 	deployments, err := w.deploymentStore.ListAllActive()
 	if err != nil {
-		w.log.Error("Obs summary refresh: list active deployments", "error", err)
+		w.log.Error("obs summary refresh: list active deployments", "error", err)
 		return nil // transient; don't wedge the periodic job
 	}
 	if len(deployments) == 0 {
@@ -98,7 +98,7 @@ func (w *ObsSummaryRefreshWorker) Work(ctx context.Context, _ *river.Job[ObsSumm
 	for accountID, deps := range byAccount {
 		creds, credsErr := w.langfuseStore.Get(accountID)
 		if credsErr != nil {
-			w.log.Warn("Obs summary refresh: load Langfuse creds", "account_id", accountID, "error", credsErr)
+			w.log.Warn("obs summary refresh: load Langfuse creds", "account_id", accountID, "error", credsErr)
 			skippedAccts++
 			continue
 		}
@@ -116,7 +116,7 @@ func (w *ObsSummaryRefreshWorker) Work(ctx context.Context, _ *river.Job[ObsSumm
 			id := d.ID
 			g.Go(func() error {
 				if err := w.refreshOne(ctx, client, id, startTime, endTime, dates); err != nil {
-					w.log.Warn("Obs summary refresh: refresh deployment", "deployment_id", id, "error", err)
+					w.log.Warn("obs summary refresh: refresh deployment", "deployment_id", id, "error", err)
 					failed.Add(1)
 					return nil // individual failures are non-fatal
 				}
@@ -128,7 +128,7 @@ func (w *ObsSummaryRefreshWorker) Work(ctx context.Context, _ *river.Job[ObsSumm
 	}
 
 	failedN := int(failed.Load())
-	w.log.Info("Obs summary refresh completed",
+	w.log.Info("obs summary refresh: completed",
 		"refreshed", attempted-failedN,
 		"failed", failedN,
 		"skipped_accounts", skippedAccts,
@@ -163,7 +163,7 @@ func (w *ObsSummaryRefreshWorker) refreshOne(
 	if dmErr != nil {
 		// Daily metrics failure shouldn't drop the whole entry — total_traces
 		// + last_trace_at are still useful. Leave the usage fields zero-padded.
-		w.log.Warn("Obs summary refresh: daily metrics", "deployment_id", deploymentID, "error", dmErr)
+		w.log.Warn("obs summary refresh: daily metrics", "deployment_id", deploymentID, "error", dmErr)
 	} else {
 		byDate := make(map[string]langfuse.DailyMetric, len(dailyMetrics))
 		for _, m := range dailyMetrics {

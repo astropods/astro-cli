@@ -278,7 +278,7 @@ func TestDeploymentDiscoveryLogsPerOrganizationFailures(t *testing.T) {
 				key, _ := args[index].(string)
 				fields[key] = args[index+1]
 			}
-			if warns != 1 || message != "Deployment visibility discovery failed closed" ||
+			if warns != 1 || message != "deployment discovery: deployment visibility discovery failed closed" ||
 				fields["account_id"] != "acct_123" || fields["workos_organization_id"] != "org_123" ||
 				fields["error"] == nil || fields["error"].(error).Error() != test.wantError {
 				t.Fatalf("warning = (%q, %#v, %d)", message, fields, warns)

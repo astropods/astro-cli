@@ -98,7 +98,7 @@ func TestCapabilityServiceEvaluatesCompleteCatalogFromOneEffectivePermissionList
 	debug, info, warns := log.debug, log.info, log.warns
 	message := log.debugMsg
 	log.mu.Unlock()
-	if debug != len(actions) || info != 0 || warns != 0 || message != "Deployment capability comparison" {
+	if debug != len(actions) || info != 0 || warns != 0 || message != "capabilities: deployment capability comparison" {
 		t.Fatalf("logged comparisons = debug:%d info:%d warn:%d message:%q", debug, info, warns, message)
 	}
 }

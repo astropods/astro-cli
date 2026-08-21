@@ -38,12 +38,12 @@ type encryptedCredentials struct {
 func encryptKnowledgeCreds(ctx context.Context, log *logger.Logger, vault *envelope.Vault, creds map[string]string) (*encryptedCredentials, error) {
 	enc, err := vault.Encryptor(ctx)
 	if err != nil {
-		log.Error("Failed to create KMS encryptor", "error", err)
+		log.Error("knowledge: create KMS encryptor failed", "error", err)
 		return nil, fmt.Errorf("failed to encrypt credentials")
 	}
 	encrypted, err := knowledgestore.EncryptCredentials(enc, creds)
 	if err != nil {
-		log.Error("Failed to encrypt credentials", "error", err)
+		log.Error("knowledge: encrypt credentials failed", "error", err)
 		return nil, fmt.Errorf("failed to encrypt credentials")
 	}
 	return &encryptedCredentials{
@@ -251,14 +251,14 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 				c.JSON(http.StatusConflict, gin.H{"error": "a knowledge store with this name already exists"})
 				return
 			}
-			log.Error("Failed to create external knowledge store record", "error", err)
+			log.Error("knowledge: create external knowledge store record failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create store"})
 			return
 		}
 
 		if enc != nil {
 			if err := ksStore.SaveCredentials(storeID, enc.Credentials); err != nil {
-				log.Error("Failed to save credentials", "error", err, "store_id", storeID)
+				log.Error("knowledge: save credentials failed", "error", err, "store_id", storeID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save credentials"})
 				return
 			}
@@ -294,22 +294,22 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 				EndpointService:  req.Host,
 				Region:           region,
 			}); epErr != nil {
-				log.Error("Failed to create endpoint record", "error", epErr, "store_id", storeID)
+				log.Error("knowledge: create endpoint record failed", "error", epErr, "store_id", storeID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create endpoint"})
 				return
 			}
 			if err := ksStore.SetStatus(storeID, knowledgestore.StatusConnecting); err != nil {
-				log.Error("Failed to update store status to connecting", "error", err, "store_id", storeID)
+				log.Error("knowledge: update store status to connecting failed", "error", err, "store_id", storeID)
 			}
 			if err := queue.InsertPrivateLinkProvisionJob(c.Request.Context(), storeID); err != nil {
-				log.Error("Failed to enqueue PrivateLink provision job", "error", err, "store_id", storeID)
+				log.Error("knowledge: enqueue PrivateLink provision job failed", "error", err, "store_id", storeID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue provision job"})
 				return
 			}
 
 			// Re-read so the response reflects the connecting status.
 			ks, _ = ksStore.GetByID(storeID)
-			log.Info("External knowledge store connected with PrivateLink", "store_id", storeID, "provider", req.Provider, "arn", storeARN, "region", region)
+			log.Info("knowledge: external knowledge store connected with PrivateLink", "store_id", storeID, "provider", req.Provider, "arn", storeARN, "region", region)
 
 			c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 			return
@@ -321,16 +321,16 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 			defer cancel()
 			if hErr := knowledgestore.CheckHealth(hctx, req.Provider, creds); hErr != nil {
 				msg := knowledgestore.HumanizeHealthCheckError(hErr)
-				log.Warn("External knowledge store health check failed", "store_id", storeID, "provider", req.Provider, "error", hErr)
+				log.Warn("knowledge: external knowledge store health check failed", "store_id", storeID, "provider", req.Provider, "error", hErr)
 				if sErr := ksStore.SetError(storeID, msg); sErr != nil {
-					log.Error("Failed to set error status after health check failure", "error", sErr, "store_id", storeID)
+					log.Error("knowledge: set error status after health check failure failed", "error", sErr, "store_id", storeID)
 				}
 				// Re-read the store so the response reflects the error status.
 				ks, _ = ksStore.GetByID(storeID)
 			}
 		}
 
-		log.Info("External knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
+		log.Info("knowledge: external knowledge store connected", "store_id", storeID, "provider", req.Provider, "arn", storeARN)
 
 		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 	}
@@ -352,7 +352,7 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 
 		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
 		if err != nil {
-			log.Error("Failed to get knowledge store", "error", err)
+			log.Error("knowledge: get knowledge store failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
 			return
 		}
@@ -450,13 +450,13 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 
 		dbCreds, err := ksStore.GetCredentials(ks.ID)
 		if err != nil {
-			log.Error("Failed to get credentials", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: get credentials failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve credentials"})
 			return
 		}
 		merged, err := knowledgestore.ResolveCredentials(c.Request.Context(), ks, dbCreds, vault)
 		if err != nil {
-			log.Error("Failed to resolve credentials", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: resolve credentials failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})
 			return
 		}
@@ -475,7 +475,7 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 			hctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 			defer cancel()
 			if hErr := knowledgestore.CheckHealth(hctx, ks.Provider, merged); hErr != nil {
-				log.Warn("Knowledge store credential update health check failed", "store_id", ks.ID, "provider", ks.Provider, "error", hErr)
+				log.Warn("knowledge: store credential update health check failed", "store_id", ks.ID, "provider", ks.Provider, "error", hErr)
 				c.JSON(http.StatusBadRequest, gin.H{"error": knowledgestore.HumanizeHealthCheckError(hErr)})
 				return
 			}
@@ -484,7 +484,7 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 		// Persist only the changed keys, re-encrypted under the store's existing
 		// data key.
 		if err := ksStore.RewriteCredentials(c.Request.Context(), vault, ks, updates); err != nil {
-			log.Error("Failed to update credentials", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: update credentials failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update credentials"})
 			return
 		}
@@ -492,11 +492,11 @@ func UpdateKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore
 		// The credentials now work (or the check was skipped); clear any prior
 		// error and mark the store ready.
 		if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
-			log.Error("Failed to mark store ready", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: mark store ready failed", "error", err, "store_id", ks.ID)
 		}
 
 		ks, _ = ksStore.GetByID(ks.ID)
-		log.Info("Knowledge store credentials updated", "store_id", ks.ID, "provider", ks.Provider, "fields", len(updates))
+		log.Info("knowledge: store credentials updated", "store_id", ks.ID, "provider", ks.Provider, "fields", len(updates))
 		c.JSON(http.StatusOK, toKnowledgeResponse(ks))
 	}
 }
@@ -511,7 +511,7 @@ func ListKnowledgeStores(log *logger.Logger, ksStore *knowledgestore.Store) gin.
 
 		stores, err := ksStore.ListByAccount(acct.ID)
 		if err != nil {
-			log.Error("Failed to list knowledge stores", "error", err, "account_id", acct.ID)
+			log.Error("knowledge: list knowledge stores failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list stores"})
 			return
 		}
@@ -534,7 +534,7 @@ func GetKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store) gin.Ha
 
 		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
 		if err != nil {
-			log.Error("Failed to get knowledge store", "error", err)
+			log.Error("knowledge: get knowledge store failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
 			return
 		}
@@ -590,7 +590,7 @@ func RecheckKnowledgeStore(
 
 		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
 		if err != nil {
-			log.Error("Failed to get knowledge store", "error", err)
+			log.Error("knowledge: get knowledge store failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
 			return
 		}
@@ -600,7 +600,7 @@ func RecheckKnowledgeStore(
 		}
 		ep, err := ksStore.GetEndpoint(ks.ID)
 		if err != nil {
-			log.Error("Failed to get endpoint", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: get endpoint failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get endpoint"})
 			return
 		}
@@ -627,18 +627,18 @@ func RecheckKnowledgeStore(
 		// Persist the resolved DNS on the endpoint record and rewrite the
 		// HOST credential to it.
 		if err := ksStore.SetEndpointReady(ks.ID, *ep.EndpointID, dns); err != nil {
-			log.Error("Failed to record endpoint DNS", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: record endpoint DNS failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update endpoint"})
 			return
 		}
 		if err := ksStore.RewriteHostCredential(c.Request.Context(), vault, ks, dns); err != nil {
-			log.Error("Failed to rewrite host credential", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: rewrite host credential failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update host"})
 			return
 		}
 		if ks.Status != knowledgestore.StatusReady {
 			if err := ksStore.SetStatus(ks.ID, knowledgestore.StatusReady); err != nil {
-				log.Error("Failed to mark store ready", "error", err, "store_id", ks.ID)
+				log.Error("knowledge: mark store ready failed", "error", err, "store_id", ks.ID)
 			}
 			ks.Status = knowledgestore.StatusReady
 		}
@@ -665,14 +665,14 @@ func RecheckKnowledgeStore(
 func resolveEndpointDNS(ctx context.Context, log *logger.Logger, newEC2 func(context.Context) (knowledgestore.EC2Client, error), endpointID string) string {
 	ec2Client, err := newEC2(ctx)
 	if err != nil {
-		log.Warn("recheck: failed to create EC2 client, using stored DNS", "error", err)
+		log.Warn("recheck: create EC2 client, using stored DNS failed", "error", err)
 		return ""
 	}
 	out, err := ec2Client.DescribeVpcEndpoints(ctx, &ec2.DescribeVpcEndpointsInput{
 		VpcEndpointIds: []string{endpointID},
 	})
 	if err != nil || out == nil || len(out.VpcEndpoints) == 0 {
-		log.Warn("recheck: failed to describe VPC endpoint, using stored DNS", "error", err, "vpce_id", endpointID)
+		log.Warn("recheck: describe VPC endpoint, using stored DNS failed", "error", err, "vpce_id", endpointID)
 		return ""
 	}
 	vpce := out.VpcEndpoints[0]
@@ -692,7 +692,7 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, que
 
 		ks, err := ksStore.GetByName(acct.ID, c.Param("name"))
 		if err != nil {
-			log.Error("Failed to get knowledge store", "error", err)
+			log.Error("knowledge: get knowledge store failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get store"})
 			return
 		}
@@ -704,7 +704,7 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, que
 		// Refuse to delete a store that has active deployment bindings.
 		bound, err := ksStore.GetBoundAgents(c.Request.Context(), ks.ID)
 		if err != nil {
-			log.Error("Failed to check store bindings", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: check store bindings failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check store bindings"})
 			return
 		}
@@ -724,12 +724,12 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, que
 				endpointID = *ep.EndpointID
 			}
 			if err := queue.InsertPrivateLinkDeleteJob(c.Request.Context(), ks.ID, endpointID); err != nil {
-				log.Error("Failed to enqueue PrivateLink delete job", "error", err, "store_id", ks.ID)
+				log.Error("knowledge: enqueue PrivateLink delete job failed", "error", err, "store_id", ks.ID)
 			}
 		}
 
 		if err := ksStore.Delete(ks.ID); err != nil {
-			log.Error("Failed to delete knowledge store record", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: delete knowledge store record failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete store"})
 			return
 		}
@@ -756,14 +756,14 @@ func GetKnowledgeStoreCredentials(log *logger.Logger, ksStore *knowledgestore.St
 
 		creds, err := ksStore.GetCredentials(ks.ID)
 		if err != nil {
-			log.Error("Failed to get credentials", "error", err, "store_id", ks.ID)
+			log.Error("knowledge: get credentials failed", "error", err, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve credentials"})
 			return
 		}
 
 		plainCreds, resolveErr := knowledgestore.ResolveCredentials(c.Request.Context(), ks, creds, vault)
 		if resolveErr != nil {
-			log.Error("Failed to resolve credentials", "error", resolveErr, "store_id", ks.ID)
+			log.Error("knowledge: resolve credentials failed", "error", resolveErr, "store_id", ks.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve credentials"})
 			return
 		}

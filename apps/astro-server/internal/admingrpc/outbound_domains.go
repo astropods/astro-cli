@@ -106,7 +106,7 @@ func (s *Server) ListOutboundDomains(ctx context.Context, req *adminv1.ListOutbo
 		// after the fact would never record the counts a failure needs explaining.
 		g.Go(func() error {
 			out, err := grp.client.QueryWithTimeout(gCtx, requestsQL, outboundQueryTimeout)
-			s.log.Info("Outbound domain host query done", "group", i, "window", window, "host_series", len(out), "error", err)
+			s.log.Info("outbound domains: outbound domain host query done", "group", i, "window", window, "host_series", len(out), "error", err)
 			mu.Lock()
 			requests = append(requests, out...)
 			mu.Unlock()
@@ -114,7 +114,7 @@ func (s *Server) ListOutboundDomains(ctx context.Context, req *adminv1.ListOutbo
 		})
 		g.Go(func() error {
 			out, err := grp.client.QueryWithTimeout(gCtx, deploymentsQL, outboundQueryTimeout)
-			s.log.Info("Outbound domain edge query done", "group", i, "window", window, "edge_series", len(out), "error", err)
+			s.log.Info("outbound domains: outbound domain edge query done", "group", i, "window", window, "edge_series", len(out), "error", err)
 			mu.Lock()
 			deployments = append(deployments, out...)
 			mu.Unlock()
@@ -122,7 +122,7 @@ func (s *Server) ListOutboundDomains(ctx context.Context, req *adminv1.ListOutbo
 		})
 	}
 	if err := g.Wait(); err != nil {
-		s.log.Error("Outbound domain query failed", "error", err, "window", window)
+		s.log.Error("outbound domains: outbound domain query failed", "error", err, "window", window)
 		return nil, status.Errorf(codes.Internal, "query metrics: %v", err)
 	}
 
@@ -232,7 +232,7 @@ func (s *Server) outboundClusterGroups(ctx context.Context) []outboundGroup {
 
 	entries, err := s.k8sRegistry.List(ctx)
 	if err != nil {
-		s.log.Warn("Outbound domains: cluster list failed, scoping to primary", "error", err)
+		s.log.Warn("outbound domains: cluster list failed, scoping to primary", "error", err)
 		return []outboundGroup{primaryOnly}
 	}
 

@@ -21,7 +21,7 @@ func (s *Server) RefreshMessagingCache(ctx context.Context, _ *adminv1.RefreshMe
 
 	image, err := s.imageRefresher.RefreshMessaging(ctx)
 	if err != nil {
-		s.log.Error("Admin messaging cache refresh failed", "image", image, "error", err)
+		s.log.Error("imagecache: admin messaging cache refresh failed", "image", image, "error", err)
 		return nil, status.Errorf(codes.Internal, "refresh messaging cache: %v", err)
 	}
 
@@ -35,7 +35,7 @@ func (s *Server) RefreshMessagingCache(ctx context.Context, _ *adminv1.RefreshMe
 		s.auditStore.LogAsync(s.log, evt)
 	}
 
-	s.log.Info("Admin force-refreshed messaging cache", "image", image)
+	s.log.Info("imagecache: admin force-refreshed messaging cache", "image", image)
 
 	return &adminv1.RefreshMessagingCacheResponse{
 		Image:   image,

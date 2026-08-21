@@ -221,7 +221,7 @@ func GetWorkloadMetrics(
 			return nil
 		})
 		if err := g.Wait(); err != nil {
-			log.Error("Workload metrics query failed",
+			log.Error("workload metrics: query failed",
 				"deployment_id", dctx.Deployment.ID, "pod", podName, "range", rangeKey, "error", err)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to query workload metrics"})
 			return

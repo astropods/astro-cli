@@ -254,7 +254,7 @@ func forwardFiles(
 
 	upstream, resolveErr := resolveMessagingProxyTarget(c.Request.Context(), cfg, k8sReg, dep)
 	if resolveErr != nil {
-		log.Warn("files proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
+		log.Warn("files: proxy target resolution failed", "deployment", dep.ID, "error", resolveErr)
 		writeFilesError(c, http.StatusServiceUnavailable, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return
 	}
@@ -329,7 +329,7 @@ func forwardFiles(
 		if errors.Is(err, context.DeadlineExceeded) {
 			status = http.StatusGatewayTimeout
 		}
-		log.Warn("files proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
+		log.Warn("files: proxy upstream failed", "deployment", dep.ID, "url", upstreamURL, "error", err)
 		writeFilesError(c, status, "files_unavailable", "File storage is temporarily unavailable. Try again.")
 		return
 	}
@@ -337,7 +337,7 @@ func forwardFiles(
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, filesProxyMaxErrorBody))
-		log.Warn("files proxy upstream error",
+		log.Warn("files: proxy upstream error",
 			"deployment", dep.ID,
 			"upstream_status", resp.StatusCode,
 			"upstream_body", strings.TrimSpace(string(body)),
@@ -352,7 +352,7 @@ func forwardFiles(
 	copyMessagingResponseHeaders(resp.Header, c.Writer.Header())
 	c.Status(resp.StatusCode)
 	if _, copyErr := io.Copy(c.Writer, resp.Body); copyErr != nil {
-		log.Debug("files proxy response copy failed", "deployment", dep.ID, "error", copyErr)
+		log.Debug("files: proxy response copy failed", "deployment", dep.ID, "error", copyErr)
 	}
 }
 

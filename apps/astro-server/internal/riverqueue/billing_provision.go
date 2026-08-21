@@ -170,14 +170,14 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 			return err
 		}
 		if changed {
-			w.log.Info("billing status changed", "source", "provision", "account_id", acct.ID, "status", string(newStatus))
+			w.log.Info("billing provision: billing status changed", "source", "provision", "account_id", acct.ID, "status", string(newStatus))
 		}
 		if err := reconcileWorkloads(ctx, w.queue, acct.ID, newStatus); err != nil {
 			return err
 		}
 	}
 
-	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
+	w.log.Info("billing provision: completed", "account_id", acct.ID, "customer_id", customerID)
 	return nil
 }
 
@@ -226,7 +226,7 @@ func (w *BillingProvisionWorker) syncCoverage(ctx context.Context, accountID, cu
 		return err
 	}
 	if changed {
-		w.log.Info("billing status changed", "source", "coverage", "account_id", accountID, "status", string(newStatus))
+		w.log.Info("billing provision: billing status changed", "source", "coverage", "account_id", accountID, "status", string(newStatus))
 	}
 	return reconcileWorkloads(ctx, w.queue, accountID, newStatus)
 }
@@ -324,7 +324,7 @@ func (w *BillingProvisionSweepWorker) Work(ctx context.Context, _ *river.Job[Bil
 		}
 	}
 	if len(pending) > 0 {
-		w.log.Info("billing provision sweep", "enqueued", len(pending))
+		w.log.Info("billing provision: sweep", "enqueued", len(pending))
 	}
 	return nil
 }

@@ -44,19 +44,19 @@ func GetDeploymentCapabilities(log *logger.Logger, evaluator capabilityEvaluator
 			attrs := []any{"error", err, "deployment_id", deploymentID, "user_id", subject.UserID}
 			switch {
 			case errors.Is(err, authz.ErrResourceNotVisible), errors.Is(err, sql.ErrNoRows):
-				log.Debug("Deployment capabilities resource unavailable", attrs...)
+				log.Debug("deployment capabilities: resource unavailable", attrs...)
 				c.JSON(http.StatusNotFound, gin.H{"error": ErrorMessageDeploymentNotFound})
 			case errors.Is(err, authz.ErrWorkOSMembershipUnavailable):
-				log.Warn("Deployment capabilities identity unavailable", attrs...)
+				log.Warn("deployment capabilities: identity unavailable", attrs...)
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrorMessageAuthorizationSessionUnavailable})
 			default:
-				log.Warn("Deployment capabilities check failed", attrs...)
+				log.Warn("deployment capabilities: check failed", attrs...)
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrorMessageAuthorizationTemporarilyUnavailable})
 			}
 			return
 		}
 		if set.Mode == authz.CapabilityModeFGA && !set.Actions[authz.ActionDeploymentRead] {
-			log.Debug("Deployment capabilities denied by baseline read", "deployment_id", deploymentID, "user_id", subject.UserID)
+			log.Debug("deployment capabilities: denied by baseline read", "deployment_id", deploymentID, "user_id", subject.UserID)
 			c.JSON(http.StatusNotFound, gin.H{"error": ErrorMessageDeploymentNotFound})
 			return
 		}

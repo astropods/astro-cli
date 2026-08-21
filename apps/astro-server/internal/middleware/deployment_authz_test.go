@@ -383,7 +383,7 @@ func TestObserveDeploymentAuthorizationLogsNotFoundAtDebug(t *testing.T) {
 
 	select {
 	case message := <-log.debug:
-		if message != "FGA shadow membership check failed" {
+		if message != "deployment authz: FGA shadow membership check failed" {
 			t.Fatalf("debug message = %q", message)
 		}
 	case <-time.After(time.Second):
@@ -423,7 +423,7 @@ func TestObserveDeploymentAuthorizationRecoversCheckerPanic(t *testing.T) {
 
 	select {
 	case entry := <-log.warn:
-		if entry.message != "FGA shadow check panic recovered" {
+		if entry.message != "deployment authz: FGA shadow check panic recovered" {
 			t.Fatalf("warn message = %q", entry.message)
 		}
 		attrs := make(map[string]any, len(entry.attrs)/2)
@@ -493,7 +493,7 @@ func TestObserveDeploymentAuthorizationDropsCheckAtConcurrencyLimit(t *testing.T
 	}
 	select {
 	case entry := <-log.debug:
-		if entry.message != "FGA shadow check skipped: concurrency limit reached" {
+		if entry.message != "deployment authz: FGA shadow check skipped, concurrency limit reached" {
 			t.Fatalf("debug message = %q", entry.message)
 		}
 		attrs := make(map[string]any, len(entry.attrs)/2)

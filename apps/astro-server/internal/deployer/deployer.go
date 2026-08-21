@@ -108,7 +108,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	var authTestUserID string
 	if d.Cfg.Deployment.K8sClientMode == "local" {
 		if uid, uErr := d.AccountStore.GetFirstMemberUserID(dep.AccountID); uErr != nil {
-			d.Log.Warn("Local-mode authn user lookup failed; messaging will run unauthenticated",
+			d.Log.Warn("deployer: local-mode authn user lookup failed; messaging will run unauthenticated",
 				"error", uErr, "account_id", dep.AccountID)
 		} else {
 			authTestUserID = uid
@@ -136,7 +136,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	if d.LangfuseProvisioner != nil && d.LangfuseStore != nil {
 		pk, sk, lfErr := d.LangfuseProvisioner.EnsureProject(ctx, d.LangfuseStore, acct.ID, acct.Name)
 		if lfErr != nil {
-			d.Log.Warn("Langfuse provisioning failed, continuing without", "error", lfErr, "account", acct.Name)
+			d.Log.Warn("deployer: Langfuse provisioning failed, continuing without", "error", lfErr, "account", acct.Name)
 		} else {
 			langfuseAuthToken = base64.StdEncoding.EncodeToString([]byte(pk + ":" + sk))
 		}
@@ -226,7 +226,7 @@ func (d *Deployer) Apply(ctx context.Context, dep *deploymentstore.Deployment) (
 	// applier itself projects from these rows, this becomes load-bearing.
 	if applyErr == nil && applyResult != nil && len(applyResult.Errors) == 0 {
 		if err := d.populateBuildEnv(ctx, dep, &ds, boundKnowledge, applyResult.AllCredentials); err != nil {
-			d.Log.Warn("Failed to populate deployment_build_env",
+			d.Log.Warn("deployer: populate deployment_build_env failed",
 				"error", err, "deployment_id", dep.ID)
 		}
 	}
@@ -531,7 +531,7 @@ func (d *Deployer) Teardown(ctx context.Context, dep *deploymentstore.Deployment
 			// Best-effort: log and continue. A failed upstream revoke is
 			// not a reason to block namespace deletion — the row stays put
 			// and the next purge sweep retries.
-			d.Log.Warn("Failed to revoke AI Gateway key during teardown", "error", err, "deployment_id", dep.ID)
+			d.Log.Warn("deployer: revoke AI Gateway key during teardown failed", "error", err, "deployment_id", dep.ID)
 		}
 	}
 	return d.TeardownOnCluster(ctx, dep, dep.EffectiveClusterID())
@@ -607,7 +607,7 @@ func (d *Deployer) RehydrateSecrets(ctx context.Context, dep *deploymentstore.De
 
 		plaintext, decErr := dec.Decrypt(r.ValueEncrypted, r.Nonce)
 		if decErr != nil {
-			d.Log.Warn("Failed to decrypt variable", "name", r.UserVarName, "deployment_id", dep.ID)
+			d.Log.Warn("deployer: decrypt variable failed", "name", r.UserVarName, "deployment_id", dep.ID)
 			continue
 		}
 		existing.Value = string(plaintext)

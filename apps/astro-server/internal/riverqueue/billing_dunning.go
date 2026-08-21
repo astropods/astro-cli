@@ -102,7 +102,7 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 		}
 	}
 	if len(ids) > 0 {
-		w.log.Info("billing dunning sweep", "evaluated", len(ids), "suspended", suspended)
+		w.log.Info("billing dunning: sweep", "evaluated", len(ids), "suspended", suspended)
 	}
 	return nil
 }

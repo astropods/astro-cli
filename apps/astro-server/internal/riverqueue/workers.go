@@ -316,7 +316,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 				cfg.ServerConfig.Deployment.LangfuseOrgID,
 			)
 			if provErr != nil {
-				cfg.Logger.Warn("Failed to initialize Langfuse provisioner", "error", provErr)
+				cfg.Logger.Warn("workers: initialize Langfuse provisioner failed", "error", provErr)
 			} else {
 				dep.LangfuseProvisioner = prov
 			}
@@ -562,7 +562,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	if cfg.PipesClient != nil && cfg.GitHubStore != nil && cfg.AgentIndex != nil {
 		ghBuildWorker = NewGitHubBuildWorker(cfg.PipesClient, cfg.GitHubStore, cfg.AgentIndex, cfg.ReadmeAssetStore, cfg.K8sRegistry, cfg.ServerConfig, log, cfg.DB, store, cfg.K8sCache, cfg.AccountStore)
 		if err := ghBuildWorker.builder.EnsureInfrastructure(context.Background()); err != nil {
-			log.Warn("github build: failed to ensure build infrastructure", "error", err)
+			log.Warn("github build: ensure build infrastructure failed", "error", err)
 		}
 		addWorkerWithCatalogCheck(log, workers, ghBuildWorker)
 		log.Info("river: registered worker", "worker", "GitHubBuildWorker")

@@ -999,7 +999,7 @@ func RestoreBindingsFromSpec(log *logger.Logger, specJSON string) *TemplateBindi
 		// The JSON came from our own DB — a decode failure means corruption
 		// or a schema break we should surface, not silently skip.
 		if log != nil {
-			log.Warn("Failed to unmarshal stored deployment spec for binding restore", "error", err)
+			log.Warn("template: unmarshal stored deployment spec for binding restore failed", "error", err)
 		}
 		return nil
 	}

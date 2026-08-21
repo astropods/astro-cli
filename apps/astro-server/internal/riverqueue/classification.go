@@ -69,7 +69,7 @@ type ClassificationDiscoveryWorker struct {
 
 func (w *ClassificationDiscoveryWorker) Work(ctx context.Context, job *river.Job[ClassificationArgs]) error {
 	if w.queue == nil || w.langfuseStore == nil {
-		w.log.Debug("Classification discovery skipped: queue or langfuse store not wired")
+		w.log.Debug("classification: discovery skipped, queue or langfuse store not wired")
 		return nil
 	}
 

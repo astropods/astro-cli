@@ -187,7 +187,7 @@ func ListUserBlueprints(
 			}
 			metadata, enrichmentErr := index.BatchUserBlueprintMetadata(ctx, refs)
 			if enrichmentErr != nil {
-				log.Warn("Failed to batch user blueprint metadata", "error", enrichmentErr)
+				log.Warn("user blueprints: batch user blueprint metadata failed", "error", enrichmentErr)
 			}
 			nextCursor := ""
 			if hasMore && len(rows) > 0 {

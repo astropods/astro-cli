@@ -138,7 +138,7 @@ func (c *DBChecker) Check(ctx context.Context, accountID string, resources ...st
 
 		// Over limit. Only block when enforcing; otherwise log and allow.
 		if !c.enforce {
-			c.log.Warn("Quota exceeded (not enforcing)",
+			c.log.Warn("quota: exceeded (not enforcing)",
 				"account_id", accountID, "resource", resource, "used", used, "limit", limit)
 			continue
 		}
@@ -211,7 +211,7 @@ func (c *DBChecker) Wrap(handler gin.HandlerFunc, resources ...string) gin.Handl
 		}
 		res, err := c.Check(ctx.Request.Context(), acct.ID, resources...)
 		if err != nil {
-			c.log.Warn("Quota check failed", "error", err, "account_id", acct.ID)
+			c.log.Warn("quota: check failed", "error", err, "account_id", acct.ID)
 			handler(ctx)
 			return
 		}
@@ -239,7 +239,7 @@ func (c *DBChecker) WrapRegister(handler gin.HandlerFunc) gin.HandlerFunc {
 		exists, err := c.blueprintExists(ctx.Request.Context(), acct.ID, ctx.Param("name"))
 		if err != nil {
 			// Fail open on the blueprint-count gate; the build gate still applies.
-			c.log.Warn("Blueprint existence check failed", "error", err, "account_id", acct.ID)
+			c.log.Warn("quota: blueprint existence check failed", "error", err, "account_id", acct.ID)
 			exists = true
 		}
 		if !exists {
@@ -247,7 +247,7 @@ func (c *DBChecker) WrapRegister(handler gin.HandlerFunc) gin.HandlerFunc {
 		}
 		res, err := c.Check(ctx.Request.Context(), acct.ID, resources...)
 		if err != nil {
-			c.log.Warn("Quota check failed", "error", err, "account_id", acct.ID)
+			c.log.Warn("quota: check failed", "error", err, "account_id", acct.ID)
 			handler(ctx)
 			return
 		}

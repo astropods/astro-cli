@@ -127,7 +127,7 @@ func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQ
 		return nil, fmt.Errorf("commit quota approval: %w", err)
 	}
 
-	s.log.Info("Quota increase approved",
+	s.log.Info("quota: increase approved",
 		"request_id", req.RequestID, "account_id", accountID, "resource", featureKey, "limit", limit)
 
 	if s.auditStore != nil {
@@ -163,7 +163,7 @@ func (s *Server) DenyQuotaIncrease(ctx context.Context, req *adminv1.DenyQuotaIn
 		return nil, fmt.Errorf("request not found or already resolved")
 	}
 
-	s.log.Info("Quota increase denied", "request_id", req.RequestID)
+	s.log.Info("quota: increase denied", "request_id", req.RequestID)
 
 	if s.auditStore != nil {
 		accountID := s.lookupQuotaRequestAccountID(ctx, req.RequestID)

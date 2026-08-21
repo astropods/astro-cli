@@ -60,7 +60,7 @@ func IssueAIGatewayDevKey(
 		ctx := c.Request.Context()
 		apiKey, baseURL, expiresAt, err := provisioner.EnsureDevKey(ctx, devStore, vault, acct.ID, user.ID)
 		if err != nil {
-			log.Error("Failed to ensure AI Gateway dev key", "error", err, "account_id", acct.ID, "user_id", user.ID)
+			log.Error("ai gateway keys: ensure AI Gateway dev key failed", "error", err, "account_id", acct.ID, "user_id", user.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to issue AI Gateway key"})
 			return
 		}

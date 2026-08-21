@@ -149,26 +149,26 @@ func (e deploymentAuthorizationEnforcer) authorize(c *gin.Context, action authz.
 		attrs = append(attrs, "error", err)
 		switch {
 		case errors.Is(err, authz.ErrFGAResourceNotEnabled):
-			e.log.Debug("FGA enforcement skipped", attrs...)
+			e.log.Debug("deployment authz: FGA enforcement skipped", attrs...)
 			return true
 		case errors.Is(err, sql.ErrNoRows):
-			e.log.Debug("FGA authorization resource unavailable", attrs...)
+			e.log.Debug("deployment authz: FGA authorization resource unavailable", attrs...)
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 		case errors.Is(err, authz.ErrWorkOSMembershipUnavailable):
-			e.log.Warn("FGA authorization identity unavailable", attrs...)
+			e.log.Warn("deployment authz: FGA authorization identity unavailable", attrs...)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authorization session is unavailable; refresh or sign in again"})
 		default:
-			e.log.Warn("FGA authorization check failed", attrs...)
+			e.log.Warn("deployment authz: FGA authorization check failed", attrs...)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 		}
 		return false
 	}
 	if !allowed {
-		e.log.Info("FGA authorization denied", attrs...)
+		e.log.Info("deployment authz: FGA authorization denied", attrs...)
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "deployment not found"})
 		return false
 	}
-	e.log.Debug("FGA authorization allowed", attrs...)
+	e.log.Debug("deployment authz: FGA authorization allowed", attrs...)
 	return true
 }
 
@@ -232,7 +232,7 @@ func startDeploymentAuthorizationObservation(
 			observeDeploymentAuthorization(requestCtx, log, checker, route, subject, action, resource)
 		}()
 	default:
-		log.Debug("FGA shadow check skipped: concurrency limit reached",
+		log.Debug("deployment authz: FGA shadow check skipped, concurrency limit reached",
 			"route", route,
 			"action", action,
 			"resource_type", resource.Type,
@@ -257,7 +257,7 @@ func observeDeploymentAuthorization(
 			// Keep recovery best-effort even if the logger caused the panic.
 			func() {
 				defer func() { _ = recover() }()
-				log.Warn("FGA shadow check panic recovered",
+				log.Warn("deployment authz: FGA shadow check panic recovered",
 					"route", route,
 					"resource_id", resource.ExternalID,
 					"panic", recovered,
@@ -281,9 +281,9 @@ func observeDeploymentAuthorization(
 			"error", err,
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			log.Debug("FGA shadow membership check failed", attrs...)
+			log.Debug("deployment authz: FGA shadow membership check failed", attrs...)
 			return
 		}
-		log.Warn("FGA shadow membership check failed", attrs...)
+		log.Warn("deployment authz: FGA shadow membership check failed", attrs...)
 	}
 }

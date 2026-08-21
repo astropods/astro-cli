@@ -98,7 +98,7 @@ func main() {
 
 	// Initialize logger
 	log := logger.New(cfg.Log.Level, cfg.Log.Format)
-	log.Info("Starting astro-server",
+	log.Info("server: starting",
 		"version", "1.0.0",
 		"mode", cfg.Server.Mode,
 		"run_mode", cfg.RunMode,
@@ -108,16 +108,16 @@ func main() {
 	// Open shared database connection
 	db, err := sql.Open("postgres", cfg.Database.URL)
 	if err != nil {
-		log.Error("Failed to open database", "error", err)
+		log.Error("database: open failed", "error", err)
 		os.Exit(1)
 	}
 	defer db.Close() //nolint:errcheck
 
 	if err := db.Ping(); err != nil {
-		log.Error("Failed to connect to database", "error", err)
+		log.Error("database: connect failed", "error", err)
 		os.Exit(1)
 	}
-	log.Info("Database connection established")
+	log.Info("database: connected")
 
 	// Initialize account store and agent index (needed by both API and worker)
 	accountStore := account.NewAccountStoreWithClusters(db, clusterid.New(cfg.Deployment.DefaultClusterID))
@@ -138,7 +138,7 @@ func main() {
 	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
 	sharedS3Client, sharedS3Err := newS3Client(cfg)
 	if sharedS3Err != nil {
-		log.Warn("Failed to initialize S3 client", "error", sharedS3Err)
+		log.Warn("s3: client init failed", "error", sharedS3Err)
 	}
 
 	// Initialize avatar + readme-asset stores (S3 or local filesystem). Both
@@ -150,12 +150,12 @@ func main() {
 			backend := avatar.NewLocalBackend(cfg.Avatar.LocalDir)
 			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
 			readmeAssetStore = readmeassets.NewStore(backend, cfg.Avatar.AssetsURL)
-			log.Info("Avatar store initialized (local)", "dir", cfg.Avatar.LocalDir)
+			log.Info("avatars: store initialized", "backend", "local", "dir", cfg.Avatar.LocalDir)
 		} else if sharedS3Client != nil {
 			backend := avatar.NewS3Backend(sharedS3Client, cfg.Avatar.S3Bucket)
 			avatarStore = avatar.NewStore(backend, cfg.Avatar.AssetsURL)
 			readmeAssetStore = readmeassets.NewStore(backend, cfg.Avatar.AssetsURL)
-			log.Info("Avatar store initialized (S3)", "bucket", cfg.Avatar.S3Bucket)
+			log.Info("avatars: store initialized", "backend", "s3", "bucket", cfg.Avatar.S3Bucket)
 		}
 	}
 	// Initialize WorkOS organization client
@@ -165,7 +165,7 @@ func main() {
 		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
 		workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
 		orgSync = org.NewSync(orgClient, accountStore, workosClient, db)
-		log.Info("WorkOS organization client initialized")
+		log.Info("workos: organization client initialized")
 	}
 
 	// Billing provider seam. BILLING_PROVIDER selects the backend; the
@@ -174,7 +174,7 @@ func main() {
 	switch cfg.BillingBackend() {
 	case config.BillingBackendNoop:
 		billingProvider = noop.New()
-		log.Info("Billing provider: noop (unmetered)")
+		log.Info("billing: provider selected", "provider", "noop", "metered", false)
 	case config.BillingBackendMetronome:
 		mp := metronome.New(metronome.Config{
 			APIKey:             cfg.MetronomeAPIKey,
@@ -183,13 +183,13 @@ func main() {
 			PackageIDUnlimited: cfg.MetronomePackageIDUnlimited,
 		})
 		if mp == nil {
-			log.Error("BILLING_PROVIDER=metronome but METRONOME_API_KEY is not set; billing disabled")
+			log.Error("billing: METRONOME_API_KEY unset, billing disabled")
 		} else {
 			billingProvider = mp
 		}
-		log.Info("Billing provider: metronome")
+		log.Info("billing: provider selected", "provider", "metronome")
 	default:
-		log.Error("Unsupported BILLING_PROVIDER for this build; billing disabled", "provider", cfg.BillingBackend())
+		log.Error("billing: unsupported BILLING_PROVIDER, billing disabled", "provider", cfg.BillingBackend())
 	}
 
 	// Payment provider seam (card vault). Stripe collects and saves a card; the
@@ -201,7 +201,7 @@ func main() {
 		PublishableKey: cfg.StripePublishableKey,
 	}); sp != nil {
 		paymentProvider = sp
-		log.Info("Payment provider: stripe (card vault)")
+		log.Info("payment: provider selected", "provider", "stripe")
 	}
 
 	// Consumption gate. Reads the cached account_billing_status (written off-path
@@ -223,11 +223,11 @@ func main() {
 	if cfg.RedisURL != "" {
 		opts, redisErr := goredis.ParseURL(cfg.RedisURL)
 		if redisErr != nil {
-			log.Error("Failed to parse REDIS_URL, Redis features disabled", "error", redisErr)
+			log.Error("redis: REDIS_URL parse failed, redis features disabled", "error", redisErr)
 		} else {
 			redisClient = goredis.NewClient(opts)
 			// Log host/db only — the parsed URL carries the password in userinfo.
-			log.Info("Redis client initialized", "addr", opts.Addr, "db", opts.DB)
+			log.Info("redis: client initialized", "addr", opts.Addr, "db", opts.DB)
 		}
 	}
 	k8sCache := k8scache.New(redisClient)
@@ -243,7 +243,7 @@ func main() {
 
 	vault, vaultErr := envelope.Open(context.Background(), cfg.Deployment.IsLocal(), cfg.Deployment.KMSKeyARN)
 	if vaultErr != nil {
-		log.Error("Failed to open the envelope vault", "error", vaultErr)
+		log.Error("vault: open failed", "error", vaultErr)
 		os.Exit(1)
 	}
 
@@ -274,9 +274,9 @@ func main() {
 			ReadHeaderTimeout: 10 * time.Second,
 		}
 		go func() {
-			log.Info("Worker health server listening", "address", httpSrv.Addr)
+			log.Info("worker: health server listening", "address", httpSrv.Addr)
 			if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error("Worker health server failed", "error", err)
+				log.Error("worker: health server failed", "error", err)
 				os.Exit(1)
 			}
 		}()
@@ -287,7 +287,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Info("Shutting down server...")
+	log.Info("server: shutting down")
 
 	// Mark as not ready to stop receiving new traffic
 	if probeHandler != nil {
@@ -319,12 +319,12 @@ func main() {
 	// Attempt graceful shutdown of HTTP server
 	if httpSrv != nil {
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
-			log.Error("Server forced to shutdown", "error", err)
+			log.Error("server: forced shutdown", "error", err)
 			os.Exit(1)
 		}
 	}
 
-	log.Info("Server stopped gracefully")
+	log.Info("server: stopped gracefully")
 }
 
 // exitOnLocalClusterMisconfig stops a local server whose cluster config cannot
@@ -336,7 +336,7 @@ func exitOnLocalClusterMisconfig(cfg *config.Config, log *logger.Logger, err err
 	if err == nil || k8s.ClientMode(cfg.Deployment.K8sClientMode) != k8s.ClientModeLocal {
 		return
 	}
-	log.Error("Cluster config is unusable",
+	log.Error("cluster config: unusable",
 		"error", err,
 		"path", cfg.Deployment.ClusterConfigPath,
 		"default_cluster_id", cfg.Deployment.DefaultClusterID,
@@ -434,7 +434,7 @@ func runAPI(
 	// Set trusted proxies
 	if len(cfg.Security.TrustedProxies) > 0 {
 		if err := router.SetTrustedProxies(cfg.Security.TrustedProxies); err != nil {
-			log.Error("Failed to set trusted proxies", "error", err)
+			log.Error("server: set trusted proxies failed", "error", err)
 		}
 	}
 
@@ -450,7 +450,7 @@ func runAPI(
 	heartStore := heartstore.New(db)
 	agentMetricsStore := metricsstore.New(db)
 	ksStore := knowledgestore.NewStore(db, k8sCache)
-	log.Info("Agent index and stores initialized")
+	log.Info("stores: initialized")
 
 	/*
 	   One-shot, idempotent backfill of deployments.source_account_id for rows
@@ -466,7 +466,7 @@ func runAPI(
 		defer cancel()
 		res, err := deploymentStore.BackfillSourceAccountIDs(ctx)
 		if err != nil {
-			log.Warn("source_account_id backfill failed",
+			log.Warn("backfill: source_account_id failed",
 				"error", err,
 				"scanned", res.Scanned,
 				"from_spec", res.FromSpec,
@@ -478,7 +478,7 @@ func runAPI(
 			// failure of the NULL-fill pass should not block repair of
 			// transferred-agent deployments.
 		} else if res.Scanned > 0 {
-			log.Info("source_account_id backfill complete",
+			log.Info("backfill: source_account_id complete",
 				"scanned", res.Scanned,
 				"from_spec", res.FromSpec,
 				"from_self", res.FromSelf,
@@ -492,14 +492,14 @@ func runAPI(
 		// agent_versions.
 		rebind, err := deploymentStore.RebindStaleSourceAccountIDs(ctx)
 		if err != nil {
-			log.Warn("source_account_id stale rebind failed", "error", err)
+			log.Warn("backfill: source_account_id stale rebind failed", "error", err)
 		} else if rebind.Rebound > 0 {
-			log.Info("source_account_id stale rebind complete", "rebound", rebind.Rebound)
+			log.Info("backfill: source_account_id stale rebind complete", "rebound", rebind.Rebound)
 		}
 	}()
 
 	clientMode := k8s.ClientMode(cfg.Deployment.K8sClientMode)
-	log.Info("Initializing Kubernetes registry", "mode", string(clientMode))
+	log.Info("k8s: initializing registry", "mode", string(clientMode))
 	registryCtx, registryCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	registryCfg, regCfgErr := buildRegistryConfig(registryCtx, clusterStore, cfg, log)
 	exitOnLocalClusterMisconfig(cfg, log, regCfgErr)
@@ -513,19 +513,19 @@ func runAPI(
 	var k8sClient k8s.ClusterClient
 	var k8sReg *k8s.Registry
 	if registryErr != nil {
-		log.Warn("Failed to initialize K8s registry", "error", registryErr)
-		log.Warn("Kubernetes features will be unavailable")
+		log.Warn("k8s: registry init failed", "error", registryErr)
+		log.Warn("k8s: features unavailable")
 	} else {
 		k8sReg = registry
 		k8sClient = registry.Default()
 		if version, connErr := k8sClient.GetServerVersion(); connErr != nil {
-			log.Warn("K8s client created but connection failed", "error", connErr)
+			log.Warn("k8s: client created but connection failed", "error", connErr)
 			diag := k8sClient.DiagnoseConnection()
 			for key, val := range diag {
-				log.Debug("K8s diagnostic", key, val)
+				log.Debug("k8s: diagnostic", key, val)
 			}
 		} else {
-			log.Info("Kubernetes connection established",
+			log.Info("k8s: connected",
 				"mode", string(clientMode),
 				"version", version,
 			)
@@ -545,7 +545,7 @@ func runAPI(
 	// Create insert-only River queue for API (no workers, no periodic jobs — workers run in runWorker)
 	rq, rqErr := riverqueue.NewInsertOnly(context.Background(), cfg.Database.URL, log, cfg.BillingGateEnforce)
 	if rqErr != nil {
-		log.Error("Failed to create River queue for API", "error", rqErr)
+		log.Error("river: create api queue failed", "error", rqErr)
 		os.Exit(1)
 	}
 
@@ -634,7 +634,7 @@ func runAPI(
 	adminSrv.SetEvaluators(deployeval.NewStore(db), deployeval.BuildAll(deployeval.Deps{Deployer: evalDeployer}))
 	grpcServer, grpcErr := startAdminGRPCServer(log, cfg, adminSrv)
 	if grpcErr != nil {
-		log.Error("Failed to start admin gRPC server", "error", grpcErr)
+		log.Error("admin grpc: start failed", "error", grpcErr)
 		os.Exit(1)
 	}
 
@@ -677,9 +677,9 @@ func runAPI(
 
 	// Start HTTP server
 	go func() {
-		log.Info("Server listening", "address", srv.Addr)
+		log.Info("server: listening", "address", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("Failed to start server", "error", err)
+			log.Error("server: start failed", "error", err)
 			os.Exit(1)
 		}
 	}()
@@ -693,24 +693,24 @@ func runAPI(
 func backfillPrimaryBindings(ctx context.Context, bindings *account.ClusterBindings, log *logger.Logger) {
 	n, err := bindings.BackfillPrimaryBindings(ctx)
 	if err != nil {
-		log.Error("account cluster binding backfill failed; accounts without a binding are refused image pulls until the next leader election retries this",
+		log.Error("backfill: account cluster bindings failed, accounts without a binding are refused image pulls until the next leader election retries this",
 			"error", err)
 		return
 	}
 	if n > 0 {
-		log.Info("account cluster binding backfill complete", "bound", n)
+		log.Info("backfill: account cluster bindings complete", "bound", n)
 	}
 }
 
 func backfillPrimaryPlacement(ctx context.Context, store *deploymentstore.Store, clusters clusterid.Resolver, log *logger.Logger) {
 	res, err := store.BackfillPrimaryClusterID(ctx, clusters.Primary())
 	if err != nil {
-		log.Error("cluster placement backfill failed; deployments with no cluster recorded stay invisible to per-cluster queries until the next leader election retries this",
+		log.Error("backfill: cluster placement failed, deployments with no cluster recorded stay invisible to per-cluster queries until the next leader election retries this",
 			"error", err)
 		return
 	}
 	if res.Recorded > 0 {
-		log.Info("cluster placement backfill complete", "recorded", res.Recorded, "cluster_id", clusters.Primary())
+		log.Info("backfill: cluster placement complete", "recorded", res.Recorded, "cluster_id", clusters.Primary())
 	}
 }
 
@@ -723,17 +723,17 @@ func backfillPrimaryPlacement(ctx context.Context, store *deploymentstore.Store,
 func backfillClusterPullCredentials(ctx context.Context, clusterStore *clusterstore.Store, registry *k8s.Registry, log *logger.Logger) {
 	clusters, err := clusterStore.List(ctx)
 	if err != nil {
-		log.Warn("cluster pull credential backfill: list clusters failed", "error", err)
+		log.Warn("backfill: cluster pull credential list clusters failed", "error", err)
 		return
 	}
 	for _, c := range clusters {
 		generated, err := clusterStore.EnsurePullCredential(ctx, c.ID)
 		if err != nil {
-			log.Warn("cluster pull credential backfill failed", "cluster", c.ID, "error", err)
+			log.Warn("backfill: cluster pull credential failed", "cluster", c.ID, "error", err)
 			continue
 		}
 		if generated {
-			log.Info("cluster pull credential backfilled", "cluster", c.ID)
+			log.Info("backfill: cluster pull credential done", "cluster", c.ID)
 			if registry != nil {
 				_ = registry.Refresh(ctx, c.ID)
 			}
@@ -785,7 +785,7 @@ func runWorker(
 
 	var k8sReg *k8s.Registry
 	if registryErr != nil {
-		log.Warn("Worker: K8s registry unavailable, namespace scanner will skip K8s reconciliation", "error", registryErr)
+		log.Warn("k8s: registry unavailable, namespace scanner will skip reconciliation", "error", registryErr)
 	} else {
 		k8sReg = registry
 	}
@@ -799,7 +799,7 @@ func runWorker(
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(registryCfg.PrometheusURL, registryCfg.EKSBootstrapName)
 	if promClient != nil {
-		log.Info("Prometheus query client initialized", "url", registryCfg.PrometheusURL)
+		log.Info("prometheus: client initialized", "url", registryCfg.PrometheusURL)
 	}
 
 	// Initialize WorkOS client for background jobs (user lookups)
@@ -863,10 +863,10 @@ func runWorker(
 	var notifyProvider notify.Provider
 	if cfg.Notify.NovuAPIURL != "" && cfg.Notify.NovuSecretKey != "" {
 		notifyProvider = notify.NewNovuProvider(novu.NewClient(cfg.Notify.NovuAPIURL, cfg.Notify.NovuSecretKey))
-		log.Info("Notification provider: novu", "api_url", cfg.Notify.NovuAPIURL)
+		log.Info("notify: provider selected", "provider", "novu", "api_url", cfg.Notify.NovuAPIURL)
 	} else {
 		notifyProvider = notify.NewNoopProvider(log)
-		log.Warn("Notification provider: no-op (NOVU_API_URL/NOVU_SECRET_KEY unset); notifications will be dropped")
+		log.Warn("notify: provider selected, notifications will be dropped", "provider", "noop")
 	}
 
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
@@ -918,10 +918,10 @@ func runWorker(
 		Vault:               vault,
 	})
 	if rqErr != nil {
-		log.Error("Failed to create River queue", "error", rqErr)
+		log.Error("river: create queue failed", "error", rqErr)
 	} else {
 		if startErr := rq.Start(workerCtx); startErr != nil {
-			log.Error("Failed to start River queue", "error", startErr)
+			log.Error("river: start queue failed", "error", startErr)
 		} else {
 			// Stop River on context cancellation
 			go func() {
@@ -1080,7 +1080,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	var ingestLangfuseStore *langfuse.Store
 	if cfg.Deployment.LangfuseDBURL != "" {
 		if p, err := langfuse.NewProvisioner(cfg.Deployment.LangfuseDBURL, cfg.Deployment.LangfuseSalt, cfg.Deployment.LangfuseOrgID); err != nil {
-			log.Warn("Langfuse provisioner init failed; ingest-key creation will skip project ensure", "error", err)
+			log.Warn("langfuse: provisioner init failed, ingest-key creation will skip project ensure", "error", err)
 		} else {
 			ingestLangfuseProvisioner = p
 			ingestLangfuseStore = langfuse.NewStore(db)
@@ -1148,7 +1148,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		authHandler.GetSessionManager(),
 		authHandler.GetJWTValidator(),
 	)
-	log.Info("Authentication enabled", "provider", "WorkOS")
+	log.Info("auth: enabled", "provider", "WorkOS")
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -1241,7 +1241,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		deploymentRoutes := middleware.NewDeploymentRoutes(api, protected, deploymentRouteCatalog)
 		if cfg.FGAEnforcementEnabled && cfg.Auth.WorkOSAPIKey != "" {
 			protected.Use(middleware.EnforceDeploymentAuthorization(log, deploymentFGAEnforcementChecker, deploymentRouteCatalog))
-			log.Info("Deployment FGA mutation enforcement enabled")
+			log.Info("authz: deployment FGA mutation enforcement enabled")
 		}
 		if cfg.FGAShadowEnabled && cfg.Auth.WorkOSAPIKey != "" {
 			protected.Use(middleware.ObserveDeploymentAuthorization(
@@ -1249,7 +1249,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				authz.NewGatedShadowChecker(log, deploymentFGAShadowRollout, membershipChecker, deploymentFGALiveChecker),
 				deploymentRouteCatalog,
 			))
-			log.Info("Deployment FGA shadow checks enabled")
+			log.Info("authz: deployment FGA shadow checks enabled")
 		}
 		{
 			// Profile
@@ -2831,7 +2831,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	}
 
 	if err := deploymentRouteCatalog.Validate(router.Routes()); err != nil {
-		log.Error("Invalid deployment authorization routes", "error", err)
+		log.Error("authz: invalid deployment authorization routes", "error", err)
 		os.Exit(1)
 	}
 
@@ -2862,10 +2862,10 @@ func startAdminGRPCServer(
 	var opts []grpc.ServerOption
 	if creds == nil {
 		if !cfg.Deployment.IsLocal() {
-			log.Warn("Admin gRPC disabled — mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
+			log.Warn("admin grpc: disabled, mTLS not configured (set ADMIN_GRPC_CERT_FILE, ADMIN_GRPC_KEY_FILE, ADMIN_GRPC_CA_FILE)")
 			return nil, nil
 		}
-		log.Warn("Admin gRPC starting without TLS (local dev only)")
+		log.Warn("admin grpc: starting without TLS, local dev only")
 		opts = append(opts, grpc.Creds(insecure.NewCredentials()))
 	} else {
 		opts = append(opts, grpc.Creds(creds))
@@ -2886,9 +2886,9 @@ func startAdminGRPCServer(
 	}
 
 	go func() {
-		log.Info("Admin gRPC server listening", "port", port)
+		log.Info("admin grpc: listening", "port", port)
 		if err := grpcSrv.Serve(lis); err != nil {
-			log.Error("Admin gRPC server error", "error", err)
+			log.Error("admin grpc: server error", "error", err)
 		}
 	}()
 

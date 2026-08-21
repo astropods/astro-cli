@@ -322,7 +322,7 @@ func (s *Server) RefreshClusterPullSecrets(ctx context.Context, req *adminv1.Ref
 	resp := &adminv1.RefreshClusterPullSecretsResponse{ClusterID: targetID}
 	for _, ns := range namespaces {
 		if err := k8s.RefreshRegistryPullSecret(ctx, client, s.proxyRegistryHost, row.PullCredential, ns); err != nil {
-			s.log.Warn("refresh cluster pull secret failed", "cluster", targetID, "namespace", ns, "error", err)
+			s.log.Warn("clusters: refresh cluster pull secret failed", "cluster", targetID, "namespace", ns, "error", err)
 			resp.FailedNamespaces = append(resp.FailedNamespaces, ns)
 			continue
 		}

@@ -76,7 +76,7 @@ func streamLogs(
 	if lokiClient != nil {
 		lines, err := lokiClient.QueryLogs(c.Request.Context(), lokiParams)
 		if err != nil {
-			log.Error("Failed to query Loki logs", "error", err, "namespace", namespace)
+			log.Error("logs: query Loki logs failed", "error", err, "namespace", namespace)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query logs", "details": err.Error()})
 			return
 		}
@@ -95,7 +95,7 @@ func streamLogs(
 
 	stream, err := k8sClient.Clientset().CoreV1().Pods(namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
 	if err != nil {
-		log.Error("Failed to get pod logs", "error", err, "pod", podName)
+		log.Error("logs: get pod logs failed", "error", err, "pod", podName)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get pod logs", "details": err.Error()})
 		return
 	}
@@ -103,7 +103,7 @@ func streamLogs(
 
 	logBytes, err := io.ReadAll(stream)
 	if err != nil {
-		log.Error("Failed to read pod logs", "error", err)
+		log.Error("logs: read pod logs failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read pod logs"})
 		return
 	}

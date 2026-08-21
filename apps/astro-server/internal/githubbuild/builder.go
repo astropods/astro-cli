@@ -153,7 +153,7 @@ func (b *Builder) EnsureRepository(ctx context.Context, destination string) erro
 		return nil // already exists
 	}
 
-	b.log.Info("Creating ECR repository", "repo", repoName)
+	b.log.Info("builder: creating ECR repository", "repo", repoName)
 	_, err = client.CreateRepository(ctx, &ecr.CreateRepositoryInput{
 		RepositoryName: &repoName,
 	})
@@ -434,7 +434,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 	}}
 	if _, err := clientset.CoreV1().Secrets(ns).Update(ctx, tokenSecret, metav1.UpdateOptions{}); err != nil {
 		// Non-fatal: the secret will still be cleaned up by the job deletion defer.
-		b.log.Warn("failed to set owner reference on token secret", "error", err)
+		b.log.Warn("builder: set owner reference on token secret failed", "error", err)
 	}
 
 	// Delete the job on any non-success path (cancel, timeout, build failure) to
@@ -465,7 +465,7 @@ func (b *Builder) RunJob(ctx context.Context, jobName, githubToken, repoFullName
 		}
 		j, err := clientset.BatchV1().Jobs(ns).Get(pollCtx, jobName, metav1.GetOptions{})
 		if err != nil {
-			b.log.Warn("failed to get build job status", "job", jobName, "error", err)
+			b.log.Warn("builder: get build job status failed", "job", jobName, "error", err)
 			if k8serrors.IsNotFound(err) {
 				return "", fmt.Errorf("build job %s was deleted before completion", jobName)
 			}

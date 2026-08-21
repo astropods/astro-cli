@@ -48,7 +48,7 @@ func DownloadEvalDataset(
 
 		fw, err := zw.Create(jsonlName)
 		if err != nil {
-			log.Error("Failed to create zip entry", "error", err)
+			log.Error("dataset items: create zip entry failed", "error", err)
 			return
 		}
 
@@ -57,7 +57,7 @@ func DownloadEvalDataset(
 		for page := 1; ; page++ {
 			items, pageErr := lctx.Client.GetDatasetItems(c.Request.Context(), ds.LangfuseDatasetName, page, pageSize)
 			if pageErr != nil {
-				log.Error("Failed to fetch dataset items for download", "error", pageErr, "page", page, "deployment_id", lctx.DeploymentID)
+				log.Error("dataset items: fetch dataset items for download failed", "error", pageErr, "page", page, "deployment_id", lctx.DeploymentID)
 				return
 			}
 			for _, item := range items.Data {
@@ -71,7 +71,7 @@ func DownloadEvalDataset(
 					"created_at":            item.CreatedAt,
 				}
 				if encErr := enc.Encode(row); encErr != nil {
-					log.Error("Failed to write JSONL entry", "error", encErr)
+					log.Error("dataset items: write JSONL entry failed", "error", encErr)
 					return
 				}
 			}
@@ -141,7 +141,7 @@ func GetEvalDatasetItems(
 		}
 		resp, err := lctx.Client.GetDatasetItems(c.Request.Context(), ds.LangfuseDatasetName, page, limit)
 		if err != nil {
-			log.Error("Failed to list dataset items", "error", err, "deployment_id", lctx.DeploymentID)
+			log.Error("dataset items: list dataset items failed", "error", err, "deployment_id", lctx.DeploymentID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch dataset items"})
 			return
 		}

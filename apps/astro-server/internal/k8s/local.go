@@ -69,7 +69,7 @@ func NewLocalClient(cfg ClusterClientConfig) (*LocalClient, error) {
 	}
 
 	if log != nil {
-		log.Info("Local K8s client initialized",
+		log.Info("k8s: local client initialized",
 			"kubeconfig", kubeconfigPath,
 			"context", resolvedContext,
 			"server", restConfig.Host,

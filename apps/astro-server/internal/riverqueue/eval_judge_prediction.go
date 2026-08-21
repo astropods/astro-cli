@@ -310,7 +310,7 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 				"total_tokens", result.Usage.TotalTokens,
 			)
 		}
-		w.log.Info("eval judge prediction completed", logArgs...)
+		w.log.Info("eval judge prediction: completed", logArgs...)
 	}
 	return nil
 }

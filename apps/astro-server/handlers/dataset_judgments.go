@@ -121,7 +121,7 @@ func PostDatasetJudgment(
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 				return
 			}
-			log.Error("Failed to fetch trace for judgment", "error", err, "trace_id", body.TraceID)
+			log.Error("dataset judgments: fetch trace for judgment failed", "error", err, "trace_id", body.TraceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
 			return
 		}
@@ -143,13 +143,13 @@ func PostDatasetJudgment(
 				c.JSON(http.StatusConflict, gin.H{"error": "trace already judged"})
 				return
 			}
-			log.Error("Failed to record judgment", "error", err, "trace_id", body.TraceID)
+			log.Error("dataset judgments: record judgment failed", "error", err, "trace_id", body.TraceID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record judgment"})
 			return
 		}
 		rollbackJudgment := func(reason string) {
 			if err := judgmentStore.Delete(ds.ID, body.TraceID); err != nil {
-				log.Warn("Failed to roll back judgment row", "error", err, "trace_id", body.TraceID, "reason", reason)
+				log.Warn("dataset judgments: roll back judgment row failed", "error", err, "trace_id", body.TraceID, "reason", reason)
 			}
 		}
 
@@ -160,7 +160,7 @@ func PostDatasetJudgment(
 			datasetItemID, err = upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, body.TraceID, effect, nil)
 			if err != nil {
 				rollbackJudgment("dataset item write failed")
-				log.Error("Failed to upsert dataset item", "error", err, "trace_id", body.TraceID)
+				log.Error("dataset judgments: upsert dataset item failed", "error", err, "trace_id", body.TraceID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
 				return
 			}
@@ -173,11 +173,11 @@ func PostDatasetJudgment(
 					// compensation so a retry cannot recreate the item before this
 					// request deletes it.
 					if deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
-						log.Warn("Failed to roll back Langfuse dataset item", "error", deleteErr, "trace_id", body.TraceID, "dataset_item_id", datasetItemID)
+						log.Warn("dataset judgments: roll back Langfuse dataset item failed", "error", deleteErr, "trace_id", body.TraceID, "dataset_item_id", datasetItemID)
 					}
 				}
 				rollbackJudgment("dataset count bump failed")
-				log.Error("Failed to bump dataset counts", "error", err, "deployment_id", lctx.DeploymentID,
+				log.Error("dataset judgments: bump dataset counts failed", "error", err, "deployment_id", lctx.DeploymentID,
 					"good_delta", effect.goodDelta, "bad_delta", effect.badDelta)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dataset counts"})
 				return
@@ -233,7 +233,7 @@ func PatchDatasetJudgment(
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 				return
 			}
-			log.Error("Failed to fetch trace for judgment change", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: fetch trace for judgment change failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
 			return
 		}
@@ -250,7 +250,7 @@ func PatchDatasetJudgment(
 
 		previous, previousReasons, found, err := judgmentStore.SetVerdictAndReasons(ds.ID, traceID, verdict, nil)
 		if err != nil {
-			log.Error("Failed to update dataset judgment", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: update dataset judgment failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update judgment"})
 			return
 		}
@@ -270,7 +270,7 @@ func PatchDatasetJudgment(
 
 		restoreJudgment := func(reason string) {
 			if _, _, _, err := judgmentStore.SetVerdictAndReasons(ds.ID, traceID, previous, previousReasons); err != nil {
-				log.Warn("Failed to restore judgment after verdict change failure", "error", err, "trace_id", traceID, "reason", reason)
+				log.Warn("dataset judgments: restore judgment after verdict change failure failed", "error", err, "trace_id", traceID, "reason", reason)
 			}
 		}
 
@@ -281,14 +281,14 @@ func PatchDatasetJudgment(
 		if nextEffect.writeDatasetItem {
 			if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, nextEffect, nil); err != nil {
 				restoreJudgment("dataset item upsert failed")
-				log.Error("Failed to upsert changed dataset item", "error", err, "trace_id", traceID)
+				log.Error("dataset judgments: upsert changed dataset item failed", "error", err, "trace_id", traceID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
 				return
 			}
 		} else if previousEffect.writeDatasetItem {
 			if err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
 				restoreJudgment("dataset item delete failed")
-				log.Error("Failed to delete changed dataset item", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
+				log.Error("dataset judgments: delete changed dataset item failed", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
 				return
 			}
@@ -300,15 +300,15 @@ func PatchDatasetJudgment(
 			if err := datasetStore.BumpCountsByID(ds.ID, goodDelta, badDelta); err != nil {
 				if previousEffect.writeDatasetItem {
 					if _, rollbackErr := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, previousEffect, previousReasons); rollbackErr != nil {
-						log.Warn("Failed to restore dataset item after verdict count failure", "error", rollbackErr, "trace_id", traceID)
+						log.Warn("dataset judgments: restore dataset item after verdict count failure failed", "error", rollbackErr, "trace_id", traceID)
 					}
 				} else if nextEffect.writeDatasetItem {
 					if deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
-						log.Warn("Failed to delete dataset item after verdict count failure", "error", deleteErr, "trace_id", traceID)
+						log.Warn("dataset judgments: delete dataset item after verdict count failure failed", "error", deleteErr, "trace_id", traceID)
 					}
 				}
 				restoreJudgment("dataset count update failed")
-				log.Error("Failed to update dataset counts for verdict change", "error", err, "deployment_id", lctx.DeploymentID,
+				log.Error("dataset judgments: update dataset counts for verdict change failed", "error", err, "deployment_id", lctx.DeploymentID,
 					"good_delta", goodDelta, "bad_delta", badDelta)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dataset counts"})
 				return
@@ -413,7 +413,7 @@ func PutDatasetJudgmentCriteria(
 				c.JSON(http.StatusNotFound, gin.H{"error": "trace not found"})
 				return
 			}
-			log.Error("Failed to fetch trace for criteria update", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: fetch trace for criteria update failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch trace"})
 			return
 		}
@@ -429,7 +429,7 @@ func PutDatasetJudgmentCriteria(
 
 		verdict, previous, found, err := judgmentStore.ReplaceReasons(ds.ID, traceID, reasons)
 		if err != nil {
-			log.Error("Failed to replace judgment criteria", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: replace judgment criteria failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update criteria"})
 			return
 		}
@@ -445,9 +445,9 @@ func PutDatasetJudgmentCriteria(
 		effect := effectForVerdict(verdict)
 		if _, err := upsertJudgmentDatasetItem(c.Request.Context(), lctx, ds, trace, traceID, effect, reasons); err != nil {
 			if _, _, _, restoreErr := judgmentStore.ReplaceReasons(ds.ID, traceID, previous); restoreErr != nil {
-				log.Warn("Failed to restore criteria after dataset item upsert failure", "error", restoreErr, "trace_id", traceID)
+				log.Warn("dataset judgments: restore criteria after dataset item upsert failure failed", "error", restoreErr, "trace_id", traceID)
 			}
-			log.Error("Failed to upsert dataset item for criteria", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: upsert dataset item for criteria failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to write dataset item"})
 			return
 		}
@@ -493,7 +493,7 @@ func DeleteDatasetJudgment(
 
 		verdict, found, err := judgmentStore.DeleteReturningVerdict(ds.ID, traceID)
 		if err != nil {
-			log.Error("Failed to remove dataset judgment", "error", err, "trace_id", traceID)
+			log.Error("dataset judgments: remove dataset judgment failed", "error", err, "trace_id", traceID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove judgment"})
 			return
 		}
@@ -504,7 +504,7 @@ func DeleteDatasetJudgment(
 
 		restoreJudgment := func(reason string) {
 			if err := judgmentStore.Insert(ds.ID, traceID, verdict); err != nil && !errors.Is(err, judgmentstore.ErrAlreadyJudged) {
-				log.Warn("Failed to restore judgment row after undo failure", "error", err, "trace_id", traceID, "reason", reason)
+				log.Warn("dataset judgments: restore judgment row after undo failure failed", "error", err, "trace_id", traceID, "reason", reason)
 			}
 		}
 
@@ -512,7 +512,7 @@ func DeleteDatasetJudgment(
 		if effect.goodDelta != 0 || effect.badDelta != 0 {
 			if err := datasetStore.BumpCountsByID(ds.ID, effect.goodDelta, effect.badDelta); err != nil {
 				restoreJudgment("dataset count decrement failed")
-				log.Error("Failed to decrement dataset counts", "error", err, "deployment_id", lctx.DeploymentID,
+				log.Error("dataset judgments: decrement dataset counts failed", "error", err, "deployment_id", lctx.DeploymentID,
 					"good_delta", effect.goodDelta, "bad_delta", effect.badDelta)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dataset counts"})
 				return
@@ -524,11 +524,11 @@ func DeleteDatasetJudgment(
 			if err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
 				if effect.goodDelta != 0 || effect.badDelta != 0 {
 					if bumpErr := datasetStore.BumpCountsByID(ds.ID, -effect.goodDelta, -effect.badDelta); bumpErr != nil {
-						log.Warn("Failed to restore dataset counts after undo failure", "error", bumpErr, "trace_id", traceID)
+						log.Warn("dataset judgments: restore dataset counts after undo failure failed", "error", bumpErr, "trace_id", traceID)
 					}
 				}
 				restoreJudgment("dataset item delete failed")
-				log.Error("Failed to delete dataset item", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
+				log.Error("dataset judgments: delete dataset item failed", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
 				return
 			}

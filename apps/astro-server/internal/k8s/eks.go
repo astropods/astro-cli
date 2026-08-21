@@ -77,7 +77,7 @@ func NewEKSClient(ctx context.Context, cfg EKSClientConfig) (*EKSClient, error) 
 	}
 
 	if log != nil {
-		log.Debug("AWS credentials loaded",
+		log.Debug("eks: AWS credentials loaded",
 			"source", creds.Source,
 			"region", awsCfg.Region,
 		)
@@ -93,7 +93,7 @@ func NewEKSClient(ctx context.Context, cfg EKSClientConfig) (*EKSClient, error) 
 	if len(cfg.ClusterCA) > 0 {
 		caData = cfg.ClusterCA
 		if log != nil {
-			log.Debug("Using caller-supplied EKS cluster CA",
+			log.Debug("eks: using caller-supplied EKS cluster CA",
 				"cluster", cfg.ClusterName,
 				"bytes", len(caData),
 			)
@@ -149,7 +149,7 @@ func NewEKSClient(ctx context.Context, cfg EKSClientConfig) (*EKSClient, error) 
 	}
 
 	if log != nil {
-		log.Info("EKS client initialized",
+		log.Info("eks: client initialized",
 			"cluster", cfg.ClusterName,
 			"endpoint", cfg.ClusterEndpoint,
 		)
@@ -294,7 +294,7 @@ func (p *eksTokenProvider) refreshLocked(ctx context.Context) error {
 	p.expiresAt = time.Now().Add(tokenExpiry)
 
 	if p.log != nil {
-		p.log.Debug("EKS token refreshed", "expires_in", tokenExpiry)
+		p.log.Debug("eks: token refreshed", "expires_in", tokenExpiry)
 	}
 
 	return nil
@@ -349,12 +349,12 @@ func (t *eksTokenTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	// On 401, refresh token and retry once
 	if resp.StatusCode == http.StatusUnauthorized {
 		if t.tokenProvider.log != nil {
-			t.tokenProvider.log.Debug("Got 401, refreshing EKS token", "path", req.URL.Path)
+			t.tokenProvider.log.Debug("eks: got 401, refreshing EKS token", "path", req.URL.Path)
 		}
 
 		if refreshErr := t.tokenProvider.refresh(req.Context()); refreshErr != nil {
 			if t.tokenProvider.log != nil {
-				t.tokenProvider.log.Error("Failed to refresh EKS token", "error", refreshErr)
+				t.tokenProvider.log.Error("eks: refresh EKS token failed", "error", refreshErr)
 			}
 			return resp, nil
 		}

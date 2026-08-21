@@ -43,14 +43,14 @@ type BlueprintAvatarBackfillWorker struct {
 
 func (w *BlueprintAvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[BlueprintAvatarBackfillArgs]) error {
 	if w.avatarStore == nil {
-		w.log.Debug("Blueprint avatar backfill skipped: no avatar store configured")
+		w.log.Debug("blueprint avatar backfill: skipped, no avatar store configured")
 		return nil
 	}
 
 	bpProcessed, bpSkipped, bpFailed := w.backfillBlueprints(ctx)
 	depProcessed, depSkipped, depFailed := w.backfillDeployments(ctx)
 
-	w.log.Info("Blueprint avatar backfill completed",
+	w.log.Info("blueprint avatar backfill: completed",
 		"blueprints_processed", bpProcessed,
 		"blueprints_skipped", bpSkipped,
 		"blueprints_failed", bpFailed,
@@ -80,7 +80,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 			LIMIT $3
 		`, lastAccountID, lastName, batchSize)
 		if err != nil {
-			w.log.Error("Blueprint avatar backfill: query agents", "error", err)
+			w.log.Error("blueprint avatar backfill: query agents", "error", err)
 			return processed, skipped, failed
 		}
 
@@ -88,7 +88,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 		for rows.Next() {
 			var accountID, agentName, accountName string
 			if err := rows.Scan(&accountID, &agentName, &accountName); err != nil {
-				w.log.Error("Blueprint avatar backfill: scan agent row", "error", err)
+				w.log.Error("blueprint avatar backfill: scan agent row", "error", err)
 				continue
 			}
 			lastAccountID = accountID
@@ -97,7 +97,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 
 			exists, err := w.avatarStore.AgentAvatarExists(ctx, accountName, agentName)
 			if err != nil {
-				w.log.Error("Blueprint avatar backfill: exists check", "account", accountName, "name", agentName, "error", err)
+				w.log.Error("blueprint avatar backfill: exists check", "account", accountName, "name", agentName, "error", err)
 				failed++
 				continue
 			}
@@ -110,25 +110,25 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 				Seed: accountName + "/" + agentName,
 			})
 			if err != nil {
-				w.log.Error("Blueprint avatar backfill: generate", "account", accountName, "name", agentName, "error", err)
+				w.log.Error("blueprint avatar backfill: generate", "account", accountName, "name", agentName, "error", err)
 				failed++
 				continue
 			}
 			if err := w.avatarStore.WriteAgentAvatarJPEG(ctx, accountName, agentName, jpegBytes); err != nil {
-				w.log.Error("Blueprint avatar backfill: upload", "account", accountName, "name", agentName, "error", err)
+				w.log.Error("blueprint avatar backfill: upload", "account", accountName, "name", agentName, "error", err)
 				failed++
 				continue
 			}
 			if _, err := w.db.ExecContext(ctx, `UPDATE agents SET avatar_updated_at = now() WHERE account_id = $1::uuid AND name = $2`, accountID, agentName); err != nil {
-				w.log.Warn("Blueprint avatar backfill: stamp avatar_updated_at", "account", accountName, "name", agentName, "error", err)
+				w.log.Warn("blueprint avatar backfill: stamp avatar_updated_at", "account", accountName, "name", agentName, "error", err)
 			}
 			// Extract colors immediately while we have the JPEG bytes.
 			if colors, err := colorextract.ExtractFromJPEG(jpegBytes); err != nil {
-				w.log.Warn("Blueprint avatar backfill: extract colors", "account", accountName, "name", agentName, "error", err)
+				w.log.Warn("blueprint avatar backfill: extract colors", "account", accountName, "name", agentName, "error", err)
 			} else if j, err := json.Marshal(colors); err != nil {
-				w.log.Warn("Blueprint avatar backfill: marshal colors", "account", accountName, "name", agentName, "error", err)
+				w.log.Warn("blueprint avatar backfill: marshal colors", "account", accountName, "name", agentName, "error", err)
 			} else if _, err := w.db.ExecContext(ctx, `UPDATE agents SET avatar_colors = $1 WHERE account_id = $2::uuid AND name = $3`, j, accountID, agentName); err != nil {
-				w.log.Warn("Blueprint avatar backfill: store colors", "account", accountName, "name", agentName, "error", err)
+				w.log.Warn("blueprint avatar backfill: store colors", "account", accountName, "name", agentName, "error", err)
 			}
 			processed++
 		}
@@ -161,7 +161,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 			LIMIT $2
 		`, lastID, batchSize)
 		if err != nil {
-			w.log.Error("Blueprint avatar backfill: query deployments", "error", err)
+			w.log.Error("blueprint avatar backfill: query deployments", "error", err)
 			return processed, skipped, failed
 		}
 
@@ -169,7 +169,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 		for rows.Next() {
 			var id, agentName, ownerName string
 			if err := rows.Scan(&id, &agentName, &ownerName); err != nil {
-				w.log.Error("Blueprint avatar backfill: scan deployment row", "error", err)
+				w.log.Error("blueprint avatar backfill: scan deployment row", "error", err)
 				continue
 			}
 			lastID = id
@@ -177,7 +177,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 
 			exists, err := w.avatarStore.DeploymentAvatarExists(ctx, id)
 			if err != nil {
-				w.log.Error("Blueprint avatar backfill: deployment exists check", "deployment", id, "error", err)
+				w.log.Error("blueprint avatar backfill: deployment exists check", "deployment", id, "error", err)
 				failed++
 				continue
 			}
@@ -188,7 +188,7 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 
 			copied, err := w.avatarStore.CopyAgentToDeployment(ctx, ownerName, agentName, id)
 			if err != nil {
-				w.log.Error("Blueprint avatar backfill: copy to deployment", "deployment", id, "account", ownerName, "name", agentName, "error", err)
+				w.log.Error("blueprint avatar backfill: copy to deployment", "deployment", id, "account", ownerName, "name", agentName, "error", err)
 				failed++
 				continue
 			}
@@ -200,27 +200,27 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 					Seed: ownerName + "/" + agentName,
 				})
 				if err != nil {
-					w.log.Error("Blueprint avatar backfill: generate deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
+					w.log.Error("blueprint avatar backfill: generate deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
 					failed++
 					continue
 				}
 				if err := w.avatarStore.WriteDeploymentAvatarJPEG(ctx, id, jpegBytes); err != nil {
-					w.log.Error("Blueprint avatar backfill: upload deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
+					w.log.Error("blueprint avatar backfill: upload deployment avatar", "deployment", id, "account", ownerName, "name", agentName, "error", err)
 					failed++
 					continue
 				}
 			}
 			if _, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_updated_at = now() WHERE id = $1`, id); err != nil {
-				w.log.Warn("Blueprint avatar backfill: stamp deployment avatar_updated_at", "deployment", id, "error", err)
+				w.log.Warn("blueprint avatar backfill: stamp deployment avatar_updated_at", "deployment", id, "error", err)
 			}
 			if jpegBytes, err := w.avatarStore.ReadDeploymentAvatar(ctx, id); err != nil {
-				w.log.Warn("Blueprint avatar backfill: read deployment avatar for colors", "deployment", id, "error", err)
+				w.log.Warn("blueprint avatar backfill: read deployment avatar for colors", "deployment", id, "error", err)
 			} else if colors, err := colorextract.ExtractFromJPEG(jpegBytes); err != nil {
-				w.log.Warn("Blueprint avatar backfill: extract deployment colors", "deployment", id, "error", err)
+				w.log.Warn("blueprint avatar backfill: extract deployment colors", "deployment", id, "error", err)
 			} else if j, err := json.Marshal(colors); err != nil {
-				w.log.Warn("Blueprint avatar backfill: marshal deployment colors", "deployment", id, "error", err)
+				w.log.Warn("blueprint avatar backfill: marshal deployment colors", "deployment", id, "error", err)
 			} else if _, err := w.db.ExecContext(ctx, `UPDATE deployments SET avatar_colors = $1 WHERE id = $2`, j, id); err != nil {
-				w.log.Warn("Blueprint avatar backfill: store deployment colors", "deployment", id, "error", err)
+				w.log.Warn("blueprint avatar backfill: store deployment colors", "deployment", id, "error", err)
 			}
 			processed++
 		}

@@ -79,6 +79,29 @@ All server data integration uses TanStack Query. See [docs/04-guides/tanstack-qu
 - All query keys must come from the factories in `src/api/queries/keys.ts`.
 - Mutations invalidate affected queries in `onSuccess`.
 
+# Log messages (Go)
+
+Every log message is `component: lowercase phrase`, with everything variable in
+structured fields. The component is the subsystem the reader would grep for,
+usually the file's own concern (`deploy:`, `river:`, `insights rollup:`).
+
+```go
+log.Info("river: registered worker", "worker", "DeployWorker", "period", "5m")
+log.Warn("deploy: resolve cluster ingress config failed", "cluster_id", id, "error", err)
+```
+
+- Lowercase the phrase. Identifiers keep their own case: `K8s`, `WorkOS`,
+  `METRONOME_API_KEY`, `StatefulSets`.
+- Name the failure at the end, not the front: `get deployment failed`, not
+  `Failed to get deployment`. Failures then sort next to their subject.
+- One colon. The component prefix owns it, so separate a reason with a comma:
+  `deploy: rejected, cluster unhealthy`.
+- Never interpolate a value into the message. A message is a constant so it can
+  be grepped and grouped; `"account_id", id` is a field.
+- Field keys are snake_case.
+- Don't repeat the component in the phrase: `billing collect: completed`, not
+  `billing collect: billing collect`.
+
 # Writing style
 
 Applies to code comments, changelog entries, release notes, and specs. For

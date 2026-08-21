@@ -60,7 +60,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 		return fmt.Errorf("get deployment: %w", err)
 	}
 	if dep == nil || dep.Status != deploymentstore.StatusUndeploying {
-		w.log.Info("Undeploy skipped: not in undeploying status",
+		w.log.Info("undeploy: skipped, not in undeploying status",
 			"deployment_id", job.Args.DeploymentID,
 			"status", statusOrNil(dep),
 		)
@@ -70,20 +70,20 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	// Clean up knowledge store bindings before teardown.
 	if w.ksStore != nil {
 		if err := w.ksStore.DeleteBindingsForDeployment(ctx, dep.ID); err != nil {
-			w.log.Warn("Failed to delete knowledge store bindings", "error", err, "deployment_id", dep.ID)
+			w.log.Warn("undeploy: delete knowledge store bindings failed", "error", err, "deployment_id", dep.ID)
 		}
 	}
 
 	if err := w.deployer.Teardown(ctx, dep); err != nil {
 		if errors.Is(err, deployer.ErrClusterClientUnavailable) {
-			w.log.Warn("Undeploy: cluster client unavailable, skipping K8s teardown",
+			w.log.Warn("undeploy: cluster client unavailable, skipping K8s teardown",
 				"deployment_id", dep.ID,
 				"cluster_id", dep.EffectiveClusterID(),
 				"error", err,
 			)
 		} else {
 			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "undeploy failed: " + err.Error()}); sErr != nil {
-				w.log.Warn("Failed to mark deployment as failed", "error", sErr, "deployment_id", dep.ID)
+				w.log.Warn("undeploy: mark deployment as failed failed", "error", sErr, "deployment_id", dep.ID)
 			}
 			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 			return fmt.Errorf("teardown failed: %w", err)
@@ -118,7 +118,7 @@ func (w *UndeployWorker) enqueueDeploymentFGAReconciliation(ctx context.Context,
 		return
 	}
 	if err := w.fgaQueue.InsertDeploymentFGAReconcileJob(ctx, deploymentID); err != nil {
-		w.log.Warn("Failed to enqueue deployment FGA reconciliation",
+		w.log.Warn("undeploy: enqueue deployment FGA reconciliation failed",
 			"deployment_id", deploymentID,
 			"desired_state", authz.DeploymentFGADeleted,
 			"error", err,

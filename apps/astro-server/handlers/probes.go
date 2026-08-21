@@ -60,7 +60,7 @@ func (h *ProbeHandler) Readyz() gin.HandlerFunc {
 		// Check agent index database connectivity
 		if h.agentIndex != nil {
 			if _, err := h.agentIndex.List(); err != nil {
-				h.log.Error("Readiness check failed: agent index unavailable", "error", err)
+				h.log.Error("probes: readiness check failed, agent index unavailable", "error", err)
 				c.String(http.StatusServiceUnavailable, "not ready: database unavailable")
 				return
 			}

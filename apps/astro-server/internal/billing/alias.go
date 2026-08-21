@@ -37,14 +37,14 @@ func (s *AliasSyncer) SyncBifrostAlias(ctx context.Context, accountID, bifrostCu
 	}
 	customerID, err := s.lookup.GetBillingCustomerID(accountID, s.backend)
 	if err != nil {
-		s.log.Warn("Failed to load billing customer for alias sync", "error", err, "account_id", accountID)
+		s.log.Warn("alias: load billing customer for alias sync failed", "error", err, "account_id", accountID)
 		return nil
 	}
 	if customerID == "" {
 		return nil
 	}
 	if err := s.provider.SetIngestAliases(ctx, customerID, []string{accountID, bifrostCustomerID}); err != nil {
-		s.log.Warn("Failed to sync Bifrost ingest alias", "error", err, "account_id", accountID)
+		s.log.Warn("alias: sync Bifrost ingest alias failed", "error", err, "account_id", accountID)
 		return fmt.Errorf("set ingest aliases: %w", err)
 	}
 	return nil

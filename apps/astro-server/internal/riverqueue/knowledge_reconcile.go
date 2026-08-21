@@ -52,7 +52,7 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 		knowledgestore.StatusPendingAcceptance,
 	)
 	if err != nil {
-		w.log.Error("KnowledgeReconcile: failed to list PrivateLink endpoints", "error", err)
+		w.log.Error("knowledge reconcile: list PrivateLink endpoints failed", "error", err)
 		return
 	}
 	if len(endpoints) == 0 {
@@ -70,7 +70,7 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 		if ec2Client == nil {
 			ec2Client, err = knowledgestore.NewEC2Client(ctx)
 			if err != nil {
-				w.log.Error("KnowledgeReconcile: failed to create EC2 client", "error", err)
+				w.log.Error("knowledge reconcile: create EC2 client failed", "error", err)
 				return
 			}
 		}
@@ -79,7 +79,7 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			VpcEndpointIds: []string{*ep.EndpointID},
 		})
 		if err != nil {
-			w.log.Error("KnowledgeReconcile: failed to describe VPC endpoint",
+			w.log.Error("knowledge reconcile: describe VPC endpoint failed",
 				"error", err, "store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID)
 			continue
 		}
@@ -104,14 +104,14 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			// DNS entries may take a few seconds to propagate after the VPCE
 			// transitions to available. Defer to next reconcile cycle if empty.
 			if len(vpce.DnsEntries) == 0 || aws.ToString(vpce.DnsEntries[0].DnsName) == "" {
-				w.log.Info("KnowledgeReconcile: VPCE available but DNS not yet propagated, will retry",
+				w.log.Info("knowledge reconcile: VPCE available but DNS not yet propagated, will retry",
 					"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID)
 				continue
 			}
 			dns := aws.ToString(vpce.DnsEntries[0].DnsName)
 
 			if err := w.ksStore.SetEndpointReady(ep.KnowledgeStoreID, *ep.EndpointID, dns); err != nil {
-				w.log.Error("KnowledgeReconcile: failed to mark endpoint ready",
+				w.log.Error("knowledge reconcile: mark endpoint ready failed",
 					"error", err, "store_id", ep.KnowledgeStoreID)
 				continue
 			}
@@ -121,16 +121,16 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			// stored value is the address agents actually dial. Done before the
 			// store flips to ready so a deploy never observes the stale host.
 			if err := w.persistResolvedHost(ctx, ep.KnowledgeStoreID, dns); err != nil {
-				w.log.Error("KnowledgeReconcile: failed to persist resolved host",
+				w.log.Error("knowledge reconcile: persist resolved host failed",
 					"error", err, "store_id", ep.KnowledgeStoreID)
 				continue
 			}
 			if err := w.ksStore.SetStatus(ep.KnowledgeStoreID, knowledgestore.StatusReady); err != nil {
-				w.log.Error("KnowledgeReconcile: failed to mark store ready",
+				w.log.Error("knowledge reconcile: mark store ready failed",
 					"error", err, "store_id", ep.KnowledgeStoreID)
 				continue
 			}
-			w.log.Info("KnowledgeReconcile: PrivateLink endpoint ready",
+			w.log.Info("knowledge reconcile: PrivateLink endpoint ready",
 				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "dns", dns)
 
 		case "rejected", "failed", "deleted":
@@ -138,7 +138,7 @@ func (w *KnowledgeReconcileWorker) reconcilePrivateLink(ctx context.Context) {
 			w.setEndpointAndStoreError(ep.KnowledgeStoreID, reason)
 
 		default:
-			w.log.Warn("KnowledgeReconcile: unhandled VPCE state",
+			w.log.Warn("knowledge reconcile: unhandled VPCE state",
 				"store_id", ep.KnowledgeStoreID, "vpce_id", *ep.EndpointID, "state", string(vpce.State))
 		}
 	}
@@ -166,9 +166,9 @@ func (w *KnowledgeReconcileWorker) persistResolvedHost(ctx context.Context, stor
 
 func (w *KnowledgeReconcileWorker) setEndpointAndStoreError(storeID, errMsg string) {
 	if err := w.ksStore.SetEndpointError(storeID, errMsg); err != nil {
-		w.log.Error("KnowledgeReconcile: failed to record endpoint error", "error", err, "store_id", storeID)
+		w.log.Error("knowledge reconcile: record endpoint error failed", "error", err, "store_id", storeID)
 	}
 	if err := w.ksStore.SetError(storeID, errMsg); err != nil {
-		w.log.Error("KnowledgeReconcile: failed to record store error", "error", err, "store_id", storeID)
+		w.log.Error("knowledge reconcile: record store error failed", "error", err, "store_id", storeID)
 	}
 }

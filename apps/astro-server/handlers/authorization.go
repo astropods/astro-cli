@@ -105,7 +105,7 @@ func CheckDeploymentAuthorization(log *logger.Logger, authStore *authorizationst
 		// resolveCandidates as a zero-query short-circuit).
 		candidates, resolvedUserID, err := resolveCandidates(authStore, slackStore, deploymentID, identityType, identityID, identityScope)
 		if err != nil {
-			log.Error("authorize: failed to resolve identity",
+			log.Error("authorize: resolve identity failed",
 				"deployment_id", deploymentID,
 				"identity_type", identityType,
 				"error", err,

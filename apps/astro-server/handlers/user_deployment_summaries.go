@@ -59,7 +59,7 @@ func ListUserDeploymentSummaries(
 		if discovery != nil && discovery.Active() {
 			memberships, membershipErr := accounts.GetAccountsForUserContext(c.Request.Context(), user.ID)
 			if membershipErr != nil {
-				log.Error("Failed to load memberships for deployment summaries", "error", membershipErr, "user_id", user.ID)
+				log.Error("user deployment summaries: load memberships for deployment summaries failed", "error", membershipErr, "user_id", user.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load deployment summaries"})
 				return
 			}
@@ -78,13 +78,13 @@ func ListUserDeploymentSummaries(
 			visibility.ReadableDeploymentIDs,
 		)
 		if err != nil {
-			log.Error("Failed to authorize visible deployment summaries", "error", err, "requested_count", len(ids))
+			log.Error("user deployment summaries: authorize visible deployment summaries failed", "error", err, "requested_count", len(ids))
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load deployment summaries"})
 			return
 		}
 		summaries, cacheErr := deploymentSummariesFromCache(c.Request.Context(), cache, visible)
 		if cacheErr != nil {
-			log.Warn("Failed to decode some visible deployment summaries", "error", cacheErr)
+			log.Warn("user deployment summaries: decode some visible deployment summaries failed", "error", cacheErr)
 		}
 		c.JSON(http.StatusOK, DeploymentSummariesResponse{Summaries: summaries})
 	}

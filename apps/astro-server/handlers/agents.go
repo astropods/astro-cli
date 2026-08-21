@@ -245,11 +245,11 @@ func ListAgents(log *logger.Logger, index *agentindex.Index, accountStore *accou
 			return
 		}
 
-		log.Info("Listing public agents from index")
+		log.Info("agents: listing public agents from index")
 
 		page, err := index.ListPublicAgents(toBlueprintListOptions(filters))
 		if err != nil {
-			log.Error("Failed to list agents", "error", err)
+			log.Error("agents: list agents failed", "error", err)
 			writeBlueprintListInternalError(c, "Failed to list agents from index")
 			return
 		}
@@ -409,7 +409,7 @@ func ListAccountAgents(log *logger.Logger, index *agentindex.Index, accountStore
 			listOpts,
 		)
 		if err != nil {
-			log.Error("Failed to list agents for account", "error", err, "account", accountName)
+			log.Error("agents: list agents for account failed", "error", err, "account", accountName)
 			writeBlueprintListInternalError(c, "Failed to list agents")
 			return
 		}
@@ -563,7 +563,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 		accountName := c.Param("account")
 		name := c.Param("name")
 
-		log.Info("Getting agent details", "account", accountName, "name", name)
+		log.Info("agents: getting agent details", "account", accountName, "name", name)
 
 		// Resolve account
 		acct, err := accountStore.GetByName(accountName)
@@ -574,7 +574,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 
 		agent, err := index.Get(acct.ID, name)
 		if err != nil {
-			log.Error("Failed to get agent", "error", err)
+			log.Error("agents: get agent failed", "error", err)
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   "Agent not found",
 				"details": err.Error(),
@@ -676,7 +676,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		var err error
 		minVer, err = semver.NewVersion(minCLIVersion)
 		if err != nil {
-			log.Warn("Invalid MIN_CLI_VERSION, version gate disabled", "value", minCLIVersion, "error", err)
+			log.Warn("agents: invalid MIN_CLI_VERSION, version gate disabled", "value", minCLIVersion, "error", err)
 		}
 	}
 
@@ -690,7 +690,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 				})
 				return
 			} else if cv, err := semver.NewVersion(cliVersion); err != nil {
-				log.Warn("Unparseable X-CLI-Version header", "value", cliVersion)
+				log.Warn("agents: unparseable X-CLI-Version header", "value", cliVersion)
 			} else if cv.LessThan(minVer) {
 				c.JSON(http.StatusUpgradeRequired, gin.H{
 					"error": fmt.Sprintf("CLI version %s is below the minimum required version %s — please upgrade", cliVersion, minVer),
@@ -719,7 +719,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 
 		var req RegisterAgentRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			log.Error("Invalid request body", "error", err)
+			log.Error("agents: invalid request body", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
 				"details": err.Error(),
@@ -734,7 +734,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		}
 		accountID := acct.ID
 
-		log.Info("Registering agent",
+		log.Info("agents: registering agent",
 			"account", accountName,
 			"name", agentName,
 			"build_id", req.BuildID,
@@ -743,7 +743,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Parse YAML spec to structured format
 		var specMap map[string]any
 		if err := yaml.Unmarshal([]byte(req.SpecContent), &specMap); err != nil {
-			log.Error("Failed to parse spec YAML", "error", err)
+			log.Error("agents: parse spec YAML failed", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid spec YAML",
 				"details": err.Error(),
@@ -811,7 +811,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
 
 		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, acct.ID, specMap, req.Readme, agentCardJSON, validationWarningsJSON); err != nil {
-			log.Error("Failed to register agent", "error", err)
+			log.Error("agents: register agent failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to register agent",
 				"details": err.Error(),
@@ -824,7 +824,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// deploy caches so the "Update available" pill shows up immediately
 		// instead of waiting for SafetyTTL.
 		if affected := deploycache.InvalidateForLineage(c.Request.Context(), cache, deployStore, accountID, agentName); len(affected) > 0 {
-			log.Info("Publish: invalidated deploy cache for downstream consumers",
+			log.Info("agents: publish, invalidated deploy cache for downstream consumers",
 				"agent", agentName,
 				"affected_accounts", len(affected),
 			)
@@ -833,7 +833,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Set visibility if provided (only "public" or "private" are valid)
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(accountID, agentName, req.Visibility); err != nil {
-				log.Warn("Failed to set visibility during registration", "error", err, "visibility", req.Visibility)
+				log.Warn("agents: set visibility during registration failed", "error", err, "visibility", req.Visibility)
 			}
 		}
 
@@ -854,9 +854,9 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 				if jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
 					Seed: accountName + "/" + agentName,
 				}); err != nil {
-					log.Warn("Failed to generate blueprint avatar", "account", accountName, "name", agentName, "error", err)
+					log.Warn("agents: generate blueprint avatar failed", "account", accountName, "name", agentName, "error", err)
 				} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, agentName, jpegBytes); err != nil {
-					log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", agentName, "error", err)
+					log.Warn("agents: upload blueprint avatar failed", "account", accountName, "name", agentName, "error", err)
 				} else {
 					_ = touchAgentAvatar(log, index, accountID, accountName, agentName)
 					extractAndStoreColors(c.Request.Context(), log,
@@ -937,14 +937,14 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})
 				return
 			}
-			log.Error("Failed to create blueprint", "error", err)
+			log.Error("agents: create blueprint failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create blueprint"})
 			return
 		}
 
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {
-				log.Warn("Failed to set visibility on new blueprint", "error", err)
+				log.Warn("agents: set visibility on new blueprint failed", "error", err)
 			}
 		}
 
@@ -956,9 +956,9 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			if jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
 				Seed: accountName + "/" + req.Name,
 			}); err != nil {
-				log.Warn("Failed to generate blueprint avatar", "account", accountName, "name", req.Name, "error", err)
+				log.Warn("agents: generate blueprint avatar failed", "account", accountName, "name", req.Name, "error", err)
 			} else if err := avatarStore.WriteAgentAvatarJPEG(c.Request.Context(), accountName, req.Name, jpegBytes); err != nil {
-				log.Warn("Failed to upload blueprint avatar", "account", accountName, "name", req.Name, "error", err)
+				log.Warn("agents: upload blueprint avatar failed", "account", accountName, "name", req.Name, "error", err)
 			} else {
 				_ = touchAgentAvatar(log, index, acct.ID, accountName, req.Name)
 				extractAndStoreColors(c.Request.Context(), log,
@@ -977,7 +977,7 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 		evt.Description = "Created blueprint " + req.Name
 		auditStore.LogAsync(log, evt)
 
-		log.Info("Blueprint created", "account", accountName, "name", req.Name)
+		log.Info("agents: blueprint created", "account", accountName, "name", req.Name)
 		c.JSON(http.StatusCreated, CreateBlueprintResponse{Account: accountName, Name: req.Name})
 	}
 }
@@ -1003,7 +1003,7 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 		}
 
 		if err := index.Archive(acct.ID, agentName); err != nil {
-			log.Error("Failed to archive agent", "error", err, "account", accountName, "name", agentName)
+			log.Error("agents: archive agent failed", "error", err, "account", accountName, "name", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to archive agent",
 				"details": err.Error(),
@@ -1026,7 +1026,7 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			if delErr := ghStore.Delete(context.Background(), acct.ID, agentName); delErr != nil {
 				log.Warn("github: delete connection on archive", "error", delErr, "agent", agentName)
 			} else {
-				log.Info("GitHub connection removed on archive", "account", acct.Name, "agent", agentName)
+				log.Info("agents: GitHub connection removed on archive", "account", acct.Name, "agent", agentName)
 			}
 			if wid, deleted, _ := webhookStore.DeleteIfNoConnections(context.Background(), repoBase); deleted && sessionOK {
 				token, tokenErr := pipesClient.GetAccessToken(context.Background(), pipes.GetAccessTokenInput{
@@ -1043,7 +1043,7 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			}
 		}()
 
-		log.Info("Agent archived", "account", accountName, "name", agentName)
+		log.Info("agents: agent archived", "account", accountName, "name", agentName)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AgentArchive
@@ -1081,7 +1081,7 @@ func SetAgentVisibility(log *logger.Logger, index *agentindex.Index, auditStore 
 		}
 
 		if err := index.SetVisibility(acct.ID, agentName, req.Visibility); err != nil {
-			log.Error("Failed to set agent visibility", "error", err)
+			log.Error("agents: set agent visibility failed", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "failed to set visibility",
 				"details": err.Error(),
@@ -1089,7 +1089,7 @@ func SetAgentVisibility(log *logger.Logger, index *agentindex.Index, auditStore 
 			return
 		}
 
-		log.Info("Agent visibility updated",
+		log.Info("agents: agent visibility updated",
 			"account", accountName,
 			"name", agentName,
 			"visibility", req.Visibility,

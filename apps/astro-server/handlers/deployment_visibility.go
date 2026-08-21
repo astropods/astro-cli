@@ -45,7 +45,7 @@ func singleAccountVisibilityScope(acct *account.Account) []account.AccountWithRo
 }
 
 func writeDeploymentVisibilityError(c *gin.Context, log *logger.Logger, err error) {
-	log.Warn("Failed to resolve deployment visibility", "error", err)
+	log.Warn("deployment visibility: resolve deployment visibility failed", "error", err)
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authorization temporarily unavailable"})
 }
 

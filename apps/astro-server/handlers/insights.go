@@ -114,7 +114,7 @@ func enrichDeploymentLastSeen(
 	}
 	entries, err := obssummary.GetMany(ctx, cache, ids)
 	if err != nil {
-		log.Warn("Insights last-used cache read", "error", err)
+		log.Warn("insights: last-used cache read", "error", err)
 	}
 	for i := range deployments.Deployments {
 		entry := entries[deployments.Deployments[i].DeploymentID]
@@ -220,7 +220,7 @@ func insightsMemberProfiles(log *logger.Logger, accountStore *account.AccountSto
 	}
 	profiles, err := accountStore.GetPersonalProfiles(userIDs)
 	if err != nil {
-		log.Warn("Failed to fetch member profiles for insights", "error", err, "account_id", accountID)
+		log.Warn("insights: fetch member profiles for insights failed", "error", err, "account_id", accountID)
 		profiles = map[string]account.PersonalProfile{}
 	}
 	out := make(map[string]insightsMemberProfile, len(members))

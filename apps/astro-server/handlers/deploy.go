@@ -214,13 +214,13 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 			}
 		}
 		if err := deployStore.UpdateDisplayNameWithTx(dep.ID, name, txFn); err != nil {
-			log.Error("failed to update display name", "deployment_id", dep.ID, "error", err)
+			log.Error("deploy: update display name failed", "deployment_id", dep.ID, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
 			return
 		}
 		if fgaQueue, ok := queue.(deploymentFGAQueue); ok && fgaRecorded {
 			if err := fgaQueue.InsertDeploymentFGAReconcileJob(c.Request.Context(), dep.ID); err != nil {
-				log.Warn("Failed to enqueue deployment FGA reconciliation",
+				log.Warn("deploy: enqueue deployment FGA reconciliation failed",
 					"deployment_id", dep.ID,
 					"desired_state", authz.DeploymentFGARegistered,
 					"error", err,
@@ -279,7 +279,7 @@ func validateDeployTargetCluster(
 		return true
 	}
 	if clusterStore == nil {
-		log.Error("Deploy specifies cluster_id but clusterStore is not configured", "cluster_id", clusterID)
+		log.Error("deploy: specifies cluster_id but clusterStore is not configured", "cluster_id", clusterID)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster store not configured"})
 		return false
 	}
@@ -296,7 +296,7 @@ func validateDeployTargetCluster(
 			})
 			return false
 		}
-		log.Error("Failed to look up cluster", "cluster_id", clusterID, "error", lookupErr)
+		log.Error("deploy: look up cluster failed", "cluster_id", clusterID, "error", lookupErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cluster lookup failed"})
 		return false
 	}
@@ -305,7 +305,7 @@ func validateDeployTargetCluster(
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "kubernetes client not configured"})
 			return false
 		}
-		log.Warn("Deploy rejected: cluster unhealthy",
+		log.Warn("deploy: rejected, cluster unhealthy",
 			"cluster_id", clusterID,
 			"error", healthErr,
 		)
@@ -523,7 +523,7 @@ func prepareDeployment(
 	}
 	buildID := submittedSpec.Source.Build
 
-	log.Info("Processing deployment spec",
+	log.Info("deploy: processing deployment spec",
 		"agent", agentName,
 		"build", buildID,
 		"source_account", sourceAccountName,
@@ -734,7 +734,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
-			log.Error("Failed to parse deployment spec", "error", err)
+			log.Error("deploy: parse deployment spec failed", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid deployment spec",
 				"details": err.Error(),
@@ -786,7 +786,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		agentImage := dctx.resolveResult.Spec.Agent.Image
 		if perr := imagePreflighter.PreflightWithBuildID(c.Request.Context(), agentImage, dctx.buildID); perr != nil {
 			if nf, isNF := k8s.AsImageNotFound(perr); isNF {
-				log.Warn("Deploy rejected: agent image not found in registry",
+				log.Warn("deploy: rejected, agent image not found in registry",
 					"agent", dctx.agentName,
 					"build", dctx.buildID,
 					"image", nf.Image,
@@ -801,7 +801,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				})
 				return
 			}
-			log.Warn("Image preflight returned unexpected error (failing open)", "error", perr)
+			log.Warn("deploy: image preflight returned unexpected error (failing open)", "error", perr)
 		}
 
 		// Validate knowledge store bindings authoritatively.
@@ -848,14 +848,14 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		stripped := deployment.StripSecretVariableValues(dctx.resolveResult.Spec)
 		specJSON, marshalErr := json.Marshal(stripped)
 		if marshalErr != nil {
-			log.Error("Failed to marshal stripped spec for storage", "error", marshalErr)
+			log.Error("deploy: marshal stripped spec for storage failed", "error", marshalErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec"})
 			return
 		}
 
 		enc, encErr := vault.Encryptor(c.Request.Context())
 		if encErr != nil {
-			log.Error("Failed to create encryptor", "error", encErr)
+			log.Error("deploy: create encryptor failed", "error", encErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store deployment secrets"})
 			return
 		}
@@ -894,7 +894,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		applyAuth := authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil
 		ingressCfg, ingressErr := clustercfg.Resolve(c.Request.Context(), k8sReg, cfg.Deployment, submittedSpec.Target.ClusterID)
 		if ingressErr != nil {
-			log.Error("Failed to resolve cluster ingress config", "error", ingressErr, "cluster_id", submittedSpec.Target.ClusterID)
+			log.Error("deploy: resolve cluster ingress config failed", "error", ingressErr, "cluster_id", submittedSpec.Target.ClusterID)
 			c.JSON(http.StatusBadRequest, gin.H{"error": ingressErr.Error()})
 			return
 		}
@@ -947,7 +947,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 				c.JSON(http.StatusConflict, gin.H{"error": storeErr.Error()})
 				return
 			}
-			log.Error("Failed to save deployment record", "error", storeErr)
+			log.Error("deploy: save deployment record failed", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
 		}
@@ -958,7 +958,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		if !dctx.isUpdate {
 			go func() {
 				if err := agentIndex.MarkNameReserved(dctx.sourceAccountID, dctx.agentName); err != nil {
-					log.Warn("Failed to mark blueprint name as reserved", "agent", dctx.agentName, "error", err)
+					log.Warn("deploy: mark blueprint name as reserved failed", "agent", dctx.agentName, "error", err)
 				}
 			}()
 		}
@@ -966,10 +966,10 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		// Copy the blueprint's avatar and colors to the new deployment (best-effort).
 		if avatarStore != nil && !dctx.isUpdate {
 			if copied, copyErr := avatarStore.CopyAgentToDeployment(c.Request.Context(), dctx.sourceAccountName, dctx.agentName, dctx.deploymentID); copyErr != nil {
-				log.Warn("Failed to copy blueprint avatar to deployment", "error", copyErr, "deployment_id", dctx.deploymentID)
+				log.Warn("deploy: copy blueprint avatar to deployment failed", "error", copyErr, "deployment_id", dctx.deploymentID)
 			} else if copied {
 				if _, err := deployStore.TouchAvatarUpdatedAt(dctx.deploymentID); err != nil {
-					log.Warn("Failed to stamp deployment avatar_updated_at after copy", "error", err, "deployment_id", dctx.deploymentID)
+					log.Warn("deploy: stamp deployment avatar_updated_at after copy failed", "error", err, "deployment_id", dctx.deploymentID)
 				}
 			}
 			if agent, err := agentIndex.Get(dctx.sourceAccountID, dctx.agentName); err == nil && agent.AvatarColors != nil {
@@ -979,14 +979,14 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 
 		// Enqueue deploy job (separate from DB transaction; UniqueOpts prevents duplicates)
 		if err := queue.InsertDeployJob(c.Request.Context(), dctx.deploymentID, params.ClusterID); err != nil {
-			log.Error("Failed to enqueue deploy job", "error", err, "deployment_id", dctx.deploymentID)
+			log.Error("deploy: enqueue deploy job failed", "error", err, "deployment_id", dctx.deploymentID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
 		}
 		if fgaRecorded {
 			if fgaQueue, ok := queue.(deploymentFGAQueue); ok {
 				if err := fgaQueue.InsertDeploymentFGAReconcileJob(c.Request.Context(), dctx.deploymentID); err != nil {
-					log.Warn("Failed to enqueue deployment FGA reconciliation",
+					log.Warn("deploy: enqueue deployment FGA reconciliation failed",
 						"deployment_id", dctx.deploymentID,
 						"desired_state", authz.DeploymentFGARegistered,
 						"error", err,
@@ -999,7 +999,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		// Without this bust the cached list still reflects pre-deploy state.
 		_ = deploycache.Invalidate(c.Request.Context(), cache, dctx.acct.ID)
 
-		log.Info("Deployment queued",
+		log.Info("deploy: deployment queued",
 			"deployment_id", dctx.deploymentID,
 			"agent", dctx.agentName,
 			"build", dctx.buildID,
@@ -1060,7 +1060,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 
 		// Parse request body
 		if err := c.ShouldBindJSON(&req); err != nil {
-			log.Error("Failed to parse undeploy request", "error", err)
+			log.Error("deploy: parse undeploy request failed", "error", err)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "invalid request",
 				"details": err.Error(),
@@ -1103,7 +1103,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 			return
 		}
 
-		log.Info("Received undeploy request",
+		log.Info("deploy: received undeploy request",
 			"deployment_id", req.DeploymentID,
 			"agent", dep.AgentName,
 			"namespace", dep.Namespace,
@@ -1112,12 +1112,12 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 
 		// Set status to undeploying and enqueue async undeploy job
 		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep); err != nil {
-			log.Error("Failed to enqueue undeploy job", "error", err)
+			log.Error("deploy: enqueue undeploy job failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return
 		}
 
-		log.Info("Undeploy queued",
+		log.Info("deploy: undeploy queued",
 			"deployment_id", dep.ID,
 			"namespace", dep.Namespace,
 		)
@@ -1596,7 +1596,7 @@ func CountDeployments(
 			count, err = deployStore.CountVisibleDeploymentsByAccount(acct.ID)
 		}
 		if err != nil {
-			log.Error("Failed to count deployments", "error", err)
+			log.Error("deploy: count deployments failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count deployments"})
 			return
 		}
@@ -1647,7 +1647,7 @@ func ListDeploymentsSummary(
 
 		accounts, err := accountStore.GetAccountsForUser(user.ID)
 		if err != nil {
-			log.Error("Failed to get accounts for user", "error", err, "user_id", user.ID)
+			log.Error("deploy: get accounts for user failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get accounts"})
 			return
 		}
@@ -1666,7 +1666,7 @@ func ListDeploymentsSummary(
 
 		summaries, err := deployStore.GetSummariesForAccounts(accountIDs)
 		if err != nil {
-			log.Error("Failed to get deployment summaries", "error", err, "user_id", user.ID)
+			log.Error("deploy: get deployment summaries failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment summaries"})
 			return
 		}
@@ -1675,7 +1675,7 @@ func ListDeploymentsSummary(
 			func(summary *deploymentstore.DeploymentSummary) string { return summary.ID },
 		)
 		if err != nil {
-			log.Error("Failed to filter deployment summaries", "error", err, "user_id", user.ID)
+			log.Error("deploy: filter deployment summaries failed", "error", err, "user_id", user.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment summaries"})
 			return
 		}
@@ -1776,7 +1776,7 @@ func enrichDeploymentRows(
 	}
 
 	if messagingURLs, merr := dependencies.deployments.GetMessagingURLsContext(ctx, depIDs); merr != nil {
-		dependencies.log.Warn("Failed to load messaging URLs", "error", merr)
+		dependencies.log.Warn("deploy: load messaging URLs failed", "error", merr)
 	} else {
 		for i, d := range allDeployments {
 			if url, ok := messagingURLs[d.ID]; ok {
@@ -1789,7 +1789,7 @@ func enrichDeploymentRows(
 
 	messagingWebConfigured := make(map[string]bool)
 	if webConfigured, werr := dependencies.deployments.GetMessagingWebConfigured(ctx, depIDs); werr != nil {
-		dependencies.log.Warn("Failed to load messaging web configured flags", "error", werr)
+		dependencies.log.Warn("deploy: load messaging web configured flags failed", "error", werr)
 	} else {
 		messagingWebConfigured = webConfigured
 	}
@@ -1797,7 +1797,7 @@ func enrichDeploymentRows(
 	if dependencies.audit != nil && len(allDeployments) > 0 {
 		latestMap, err := dependencies.audit.LatestPerResource(ctx, scope.id, "deployment", depIDs)
 		if err != nil {
-			dependencies.log.Warn("Failed to load audit timestamps for deployments", "error", err)
+			dependencies.log.Warn("deploy: load audit timestamps for deployments failed", "error", err)
 		} else {
 			for i, d := range allDeployments {
 				if latest, ok := latestMap[d.ID]; ok {
@@ -1815,7 +1815,7 @@ func enrichDeploymentRows(
 			depIDs,
 		)
 		if err != nil {
-			dependencies.log.Warn("Failed to load deployment authors", "error", err)
+			dependencies.log.Warn("deploy: load deployment authors failed", "error", err)
 		} else {
 			for i, d := range allDeployments {
 				if latest, ok := deployMap[d.ID]; ok {
@@ -1947,7 +1947,7 @@ func ListDeployments(
 		// Get authenticated user from context
 		user, exists := middleware.GetUser(c)
 		if !exists {
-			log.Error("User not found in context")
+			log.Error("deploy: user not found in context")
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "authentication required",
 			})
@@ -1999,7 +1999,7 @@ func ListDeployments(
 		if accountName == "" {
 			accounts, err := accountStore.GetAccountsForUser(user.ID)
 			if err != nil {
-				log.Error("Failed to load accounts for user", "error", err, "user_id", user.ID)
+				log.Error("deploy: load accounts for user failed", "error", err, "user_id", user.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load accounts"})
 				return
 			}
@@ -2027,7 +2027,7 @@ func ListDeployments(
 						buildIDs,
 					)
 					if err != nil {
-						log.Warn("Failed to load deployments for account in cross-account list", "account_id", a.ID, "error", err)
+						log.Warn("deploy: load deployments for account in cross-account list failed", "account_id", a.ID, "error", err)
 						return nil
 					}
 					perAccount[i] = summaries
@@ -2049,7 +2049,7 @@ func ListDeployments(
 				func(summary AgentDeploymentSummary) string { return summary.ID },
 			)
 			if err != nil {
-				log.Error("Failed to filter cross-account deployments", "error", err, "user_id", user.ID)
+				log.Error("deploy: filter cross-account deployments failed", "error", err, "user_id", user.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
 				return
 			}
@@ -2080,7 +2080,7 @@ func ListDeployments(
 			return
 		}
 
-		log.Info("Listing deployments",
+		log.Info("deploy: listing deployments",
 			"account", accountName,
 			"user_id", user.ID,
 		)
@@ -2117,7 +2117,7 @@ func ListDeployments(
 			}
 		}
 		if err != nil {
-			log.Error("Failed to load deployments from DB", "error", err)
+			log.Error("deploy: load deployments from DB failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to list deployments",
 				"details": err.Error(),
@@ -2129,7 +2129,7 @@ func ListDeployments(
 			func(summary AgentDeploymentSummary) string { return summary.ID },
 		)
 		if err != nil {
-			log.Error("Failed to filter deployments", "error", err, "account_id", acct.ID)
+			log.Error("deploy: filter deployments failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list deployments"})
 			return
 		}
@@ -2137,12 +2137,12 @@ func ListDeployments(
 		if len(buildIDs) == 0 && !visibility.EnforcesAccount(acct.ID) {
 			body, marshalErr := json.Marshal(response)
 			if marshalErr != nil {
-				log.Error("Failed to encode deployment list", "account_id", acct.ID, "error", marshalErr)
+				log.Error("deploy: encode deployment list failed", "account_id", acct.ID, "error", marshalErr)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to encode deployments"})
 				return
 			}
 			if cacheErr := deploycache.Put(c.Request.Context(), cache, acct.ID, body); cacheErr != nil {
-				log.Warn("Failed to cache deployment list", "account_id", acct.ID, "error", cacheErr)
+				log.Warn("deploy: cache deployment list failed", "account_id", acct.ID, "error", cacheErr)
 			}
 			c.Data(http.StatusOK, "application/json", body)
 			return
@@ -2200,7 +2200,7 @@ func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, acco
 	}
 	latest, err := agentIdx.BatchLatestBuildIDs(refs)
 	if err != nil {
-		log.Warn("Failed to load latest build IDs for deployments", "error", err)
+		log.Warn("deploy: load latest build IDs for deployments failed", "error", err)
 		return
 	}
 
@@ -2275,7 +2275,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		// enrichDeployment so the detail page's "created" timestamp doesn't
 		// jump on every redeploy.
 		if firstEventAt, evErr := deployStore.GetDeploymentFirstEventAt(dbDep.ID); evErr != nil {
-			log.Warn("Failed to load first deployment event", "error", evErr, "deployment_id", dbDep.ID)
+			log.Warn("deploy: load first deployment event failed", "error", evErr, "deployment_id", dbDep.ID)
 		} else if firstEventAt != nil {
 			record.CreatedAt = firstEventAt.Format(time.RFC3339)
 		}
@@ -2283,7 +2283,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		if auditStore != nil {
 			latestMap, auditErr := auditStore.LatestPerResource(c.Request.Context(), dbDep.AccountID, "deployment", []string{dbDep.ID})
 			if auditErr != nil {
-				log.Warn("Failed to load audit timestamps for deployment", "error", auditErr)
+				log.Warn("deploy: load audit timestamps for deployment failed", "error", auditErr)
 			} else if latest, ok := latestMap[dbDep.ID]; ok {
 				record.UpdatedAt = latest.UpdatedAt.Format(time.RFC3339)
 				record.UpdatedBy = latest.ActorID
@@ -2297,7 +2297,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 				[]string{dbDep.ID},
 			)
 			if deployAuditErr != nil {
-				log.Warn("Failed to load deployment author", "error", deployAuditErr)
+				log.Warn("deploy: load deployment author failed", "error", deployAuditErr)
 			} else if latest, ok := deployMap[dbDep.ID]; ok {
 				record.DeployedBy = latest.ActorID
 			}
@@ -2332,7 +2332,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		// the deployed spec immediately, with no rolling-update lag.
 		envByRole, envErr := deployStore.LoadDecryptedBuildEnv(c.Request.Context(), dbDep, vault)
 		if envErr != nil {
-			log.Warn("LoadDecryptedBuildEnv failed", "error", envErr, "deployment_id", dbDep.ID)
+			log.Warn("deploy: loadDecryptedBuildEnv failed", "error", envErr, "deployment_id", dbDep.ID)
 		}
 		assignEnvToWorkloads(record.Workloads, envByRole)
 
@@ -2351,7 +2351,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 				Name: "messaging", Type: "messaging", URL: override, Ready: true,
 			})
 		} else if messagingURLs, merr := deployStore.GetMessagingURLsContext(c.Request.Context(), []string{dbDep.ID}); merr != nil {
-			log.Warn("Failed to load messaging URL for deployment", "error", merr, "deployment_id", dbDep.ID)
+			log.Warn("deploy: load messaging URL for deployment failed", "error", merr, "deployment_id", dbDep.ID)
 		} else if url, ok := messagingURLs[dbDep.ID]; ok {
 			record.ExternalURLs = append(record.ExternalURLs, ServiceEndpointInfo{
 				Name: "messaging", Type: "messaging", URL: url, Ready: true,
@@ -2389,7 +2389,7 @@ func GetDeploymentRuntime(log *logger.Logger, accountStore *account.AccountStore
 		// runtime, which the UI renders as "loading"), never a 503.
 		snap, _, err := deployStore.GetRuntimeSnapshot(dbDep.ID)
 		if err != nil {
-			log.Warn("GetRuntimeSnapshot failed", "deployment_id", dbDep.ID, "error", err)
+			log.Warn("deploy: getRuntimeSnapshot failed", "deployment_id", dbDep.ID, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read runtime"})
 			return
 		}
@@ -2744,15 +2744,15 @@ func containerStatusesFromSnapshot(cs []deploymentstore.RuntimeContainer) []Cont
 func loadRecordIntentFromDB(log *logger.Logger, deployStore *deploymentstore.Store, deploymentID string) (workloads []WorkloadSpec, components []string, desiredReplicas int32, messagingConfigured bool) {
 	summaries, err := deployStore.GetWorkloadSummaries(deploymentID)
 	if err != nil {
-		log.Warn("GetWorkloadSummaries failed", "deployment_id", deploymentID, "error", err)
+		log.Warn("deploy: getWorkloadSummaries failed", "deployment_id", deploymentID, "error", err)
 	}
 	sidecars, err := deployStore.GetSidecars(deploymentID)
 	if err != nil {
-		log.Warn("GetSidecars failed", "deployment_id", deploymentID, "error", err)
+		log.Warn("deploy: getSidecars failed", "deployment_id", deploymentID, "error", err)
 	}
 	workloadURLs, err := deployStore.GetWorkloadIngresses(deploymentID)
 	if err != nil {
-		log.Warn("GetWorkloadIngresses failed", "deployment_id", deploymentID, "error", err)
+		log.Warn("deploy: getWorkloadIngresses failed", "deployment_id", deploymentID, "error", err)
 	}
 
 	seenComp := make(map[string]struct{}, len(summaries)+len(sidecars))
@@ -2983,12 +2983,12 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 
 		depList, err := clientset.AppsV1().Deployments(dep.Namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 		if err != nil {
-			log.Error("Failed to list deployments for restart", "error", err, "namespace", dep.Namespace)
+			log.Error("deploy: list deployments for restart failed", "error", err, "namespace", dep.Namespace)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list workloads", "details": err.Error()})
 			return
 		}
 		for _, d := range depList.Items {
-			log.Info("Initiating rolling restart for Deployment",
+			log.Info("deploy: initiating rolling restart for Deployment",
 				"deployment", d.Name,
 				"namespace", dep.Namespace,
 				"replicas", d.Spec.Replicas,
@@ -2996,11 +2996,11 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 				"user", user.ID,
 			)
 			if _, patchErr := clientset.AppsV1().Deployments(dep.Namespace).Patch(ctx, d.Name, k8stypes.StrategicMergePatchType, patchPayload, metav1.PatchOptions{}); patchErr != nil {
-				log.Error("Failed to patch Deployment for rolling restart", "error", patchErr, "deployment", d.Name)
+				log.Error("deploy: patch Deployment for rolling restart failed", "error", patchErr, "deployment", d.Name)
 				continue
 			}
 			restarted = append(restarted, d.Name)
-			log.Info("Rolling restart patch applied — K8s will start new pod before terminating old",
+			log.Info("deploy: rolling restart patch applied — K8s will start new pod before terminating old",
 				"deployment", d.Name,
 				"namespace", dep.Namespace,
 				"strategy", "RollingUpdate",
@@ -3010,10 +3010,10 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 
 		stsList, err := clientset.AppsV1().StatefulSets(dep.Namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
 		if err != nil {
-			log.Warn("Failed to list StatefulSets for restart", "error", err, "namespace", dep.Namespace)
+			log.Warn("deploy: list StatefulSets for restart failed", "error", err, "namespace", dep.Namespace)
 		} else {
 			for _, ss := range stsList.Items {
-				log.Info("Initiating rolling restart for StatefulSet",
+				log.Info("deploy: initiating rolling restart for StatefulSet",
 					"statefulset", ss.Name,
 					"namespace", dep.Namespace,
 					"replicas", ss.Spec.Replicas,
@@ -3021,11 +3021,11 @@ func RestartDeployment(log *logger.Logger, accountStore *account.AccountStore, c
 					"user", user.ID,
 				)
 				if _, patchErr := clientset.AppsV1().StatefulSets(dep.Namespace).Patch(ctx, ss.Name, k8stypes.StrategicMergePatchType, patchPayload, metav1.PatchOptions{}); patchErr != nil {
-					log.Error("Failed to patch StatefulSet for rolling restart", "error", patchErr, "statefulset", ss.Name)
+					log.Error("deploy: patch StatefulSet for rolling restart failed", "error", patchErr, "statefulset", ss.Name)
 					continue
 				}
 				restarted = append(restarted, ss.Name)
-				log.Info("Rolling restart patch applied — K8s will start new pod before terminating old",
+				log.Info("deploy: rolling restart patch applied — K8s will start new pod before terminating old",
 					"statefulset", ss.Name,
 					"namespace", dep.Namespace,
 					"strategy", "RollingUpdate",
@@ -3073,13 +3073,13 @@ func RestartPod(log *logger.Logger, accountStore *account.AccountStore, cfg *con
 		podName := c.Param("pod")
 		err = k8sClient.Clientset().CoreV1().Pods(dep.Namespace).Delete(c.Request.Context(), podName, metav1.DeleteOptions{})
 		if err != nil {
-			log.Error("Failed to delete pod", "error", err, "pod", podName, "namespace", dep.Namespace)
+			log.Error("deploy: delete pod failed", "error", err, "pod", podName, "namespace", dep.Namespace)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restart pod", "details": err.Error()})
 			return
 		}
 
 		user, _ := middleware.GetUser(c)
-		log.Info("Pod restarted (deleted)", "pod", podName, "namespace", dep.Namespace, "user", user.ID)
+		log.Info("deploy: pod restarted (deleted)", "pod", podName, "namespace", dep.Namespace, "user", user.ID)
 
 		evt := auditlog.FromGinContext(c, dep.AccountID)
 		evt.Action = auditlog.DeploymentRestartPod
@@ -3113,7 +3113,7 @@ func GetDeploymentEvents(log *logger.Logger, accountStore *account.AccountStore,
 
 		snap, _, err := deployStore.GetRuntimeSnapshot(dep.ID)
 		if err != nil {
-			log.Error("Failed to read events snapshot", "error", err, "deployment_id", dep.ID)
+			log.Error("deploy: read events snapshot failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read deployment events"})
 			return
 		}
@@ -3329,13 +3329,13 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			backend = "k8s"
 		}
 
-		log.Debug("SSE stream requested",
+		log.Debug("deploy: SSE stream requested",
 			"deployment", dep.ID, "namespace", dep.Namespace,
 			"workload", workloadName, "container", containerName, "pod", podName,
 			"backend", backend)
 
 		if resolvedLoki == nil && k8sClient == nil {
-			log.Warn("SSE stream rejected: no log backend configured", "deployment", dep.ID)
+			log.Warn("deploy: SSE stream rejected, no log backend configured", "deployment", dep.ID)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "log backend not configured"})
 			return
 		}
@@ -3357,13 +3357,13 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		// handshake before we block on Loki dial or K8s pod resolution.
 		fmt.Fprintf(c.Writer, "event: ready\ndata: {}\n\n") //nolint:errcheck
 		flusher.Flush()
-		log.Debug("SSE ready event sent", "deployment", dep.ID)
+		log.Debug("deploy: SSE ready event sent", "deployment", dep.ID)
 
 		writeEvent := func(ll loki.LogLine) bool {
 			payload, _ := json.Marshal(lokiLineToEntry(ll, loc))
 			_, writeErr := fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", ll.Timestamp.UnixNano(), payload)
 			if writeErr != nil {
-				log.Debug("SSE write failed, client likely disconnected", "deployment", dep.ID, "error", writeErr)
+				log.Debug("deploy: SSE write failed, client likely disconnected", "deployment", dep.ID, "error", writeErr)
 				return false
 			}
 			flusher.Flush()
@@ -3373,7 +3373,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		writeStatusEvent := func(status string) bool {
 			_, err := fmt.Fprintf(c.Writer, "event: status\ndata: {\"status\":%q}\n\n", status)
 			if err != nil {
-				log.Debug("SSE status write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				log.Debug("deploy: SSE status write failed, client likely disconnected", "deployment", dep.ID, "error", err)
 				return false
 			}
 			flusher.Flush()
@@ -3381,10 +3381,10 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		}
 
 		writeErrorEvent := func(message string) {
-			log.Debug("SSE sending error event", "deployment", dep.ID, "message", message)
+			log.Debug("deploy: SSE sending error event", "deployment", dep.ID, "message", message)
 			_, err := fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":%q}\n\n", message)
 			if err != nil {
-				log.Debug("SSE error write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				log.Debug("deploy: SSE error write failed, client likely disconnected", "deployment", dep.ID, "error", err)
 				return
 			}
 			flusher.Flush()
@@ -3393,7 +3393,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		writeHeartbeat := func() bool {
 			_, err := fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {}\n\n")
 			if err != nil {
-				log.Debug("SSE heartbeat write failed, client likely disconnected", "deployment", dep.ID, "error", err)
+				log.Debug("deploy: SSE heartbeat write failed, client likely disconnected", "deployment", dep.ID, "error", err)
 				return false
 			}
 			flusher.Flush()
@@ -3407,7 +3407,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			case <-time.After(500 * time.Millisecond):
 				return true
 			case <-c.Request.Context().Done():
-				log.Debug("SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
+				log.Debug("deploy: SSE client disconnected during Loki reconnect backoff", "deployment", dep.ID)
 				return false
 			}
 		}
@@ -3425,7 +3425,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				if !writeStatusEvent("connecting") {
 					return
 				}
-				log.Debug("Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
+				log.Debug("deploy: Loki tail dialing", "deployment", dep.ID, "attempt", connectCount,
 					"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 
 				ch, tailErr := resolvedLoki.TailLogs(c.Request.Context(), loki.QueryParams{
@@ -3438,12 +3438,12 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				})
 				if tailErr != nil {
 					if firstConnect {
-						log.Error("Loki tail initial dial failed", "error", tailErr,
+						log.Error("deploy: Loki tail initial dial failed", "error", tailErr,
 							"deployment", dep.ID, "namespace", dep.Namespace)
 						writeErrorEvent("failed to connect to log stream")
 						return
 					}
-					log.Warn("Loki tail reconnect failed, retrying", "error", tailErr,
+					log.Warn("deploy: Loki tail reconnect failed, retrying", "error", tailErr,
 						"deployment", dep.ID, "attempt", connectCount)
 					if !reconnectPause() {
 						return
@@ -3454,14 +3454,14 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				if !writeStatusEvent("streaming") {
 					return
 				}
-				log.Debug("Loki tail connected", "deployment", dep.ID, "attempt", connectCount)
+				log.Debug("deploy: Loki tail connected", "deployment", dep.ID, "attempt", connectCount)
 
 			inner:
 				for {
 					select {
 					case ll, ok := <-ch:
 						if !ok {
-							log.Debug("Loki tail channel closed, will reconnect", "deployment", dep.ID)
+							log.Debug("deploy: Loki tail channel closed, will reconnect", "deployment", dep.ID)
 							if !writeStatusEvent("reconnecting") {
 								return
 							}
@@ -3475,7 +3475,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 							return
 						}
 					case <-c.Request.Context().Done():
-						log.Debug("SSE client disconnected", "deployment", dep.ID)
+						log.Debug("deploy: SSE client disconnected", "deployment", dep.ID)
 						return
 					}
 				}
@@ -3488,21 +3488,21 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 
 		// K8s fallback: resolve pod then stream with Follow=true.
 		if podName == "" && workloadName != "" {
-			log.Debug("Resolving pod for K8s stream", "deployment", dep.ID,
+			log.Debug("deploy: resolving pod for K8s stream", "deployment", dep.ID,
 				"namespace", dep.Namespace, "workload", workloadName, "container", containerName)
 			resolved, resolveErr := resolvePodForStream(c.Request.Context(), k8sClient, dep.Namespace, workloadName, containerName)
 			if resolveErr != nil {
-				log.Error("Failed to list pods for stream", "error", resolveErr,
+				log.Error("deploy: list pods for stream failed", "error", resolveErr,
 					"deployment", dep.ID, "namespace", dep.Namespace, "workload", workloadName)
 				writeErrorEvent("failed to list pods")
 				return
 			}
 			podName = resolved
-			log.Debug("Resolved pod for K8s stream", "deployment", dep.ID, "pod", podName)
+			log.Debug("deploy: resolved pod for K8s stream", "deployment", dep.ID, "pod", podName)
 		}
 
 		if podName == "" {
-			log.Warn("SSE stream rejected: no pod or workload specified", "deployment", dep.ID)
+			log.Warn("deploy: SSE stream rejected, no pod or workload specified", "deployment", dep.ID)
 			writeErrorEvent("pod or workload required")
 			return
 		}
@@ -3516,10 +3516,10 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		if !writeStatusEvent("connecting") {
 			return
 		}
-		log.Debug("K8s pod log stream starting", "deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
+		log.Debug("deploy: K8s pod log stream starting", "deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 		stream, streamErr := k8sClient.Clientset().CoreV1().Pods(dep.Namespace).GetLogs(podName, logOpts).Stream(c.Request.Context())
 		if streamErr != nil {
-			log.Error("Failed to stream pod logs", "error", streamErr,
+			log.Error("deploy: stream pod logs failed", "error", streamErr,
 				"deployment", dep.ID, "namespace", dep.Namespace, "pod", podName)
 			writeErrorEvent("failed to stream pod logs")
 			return
@@ -3528,7 +3528,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 		if !writeStatusEvent("streaming") {
 			return
 		}
-		log.Debug("K8s pod log stream connected", "deployment", dep.ID, "pod", podName)
+		log.Debug("deploy: K8s pod log stream connected", "deployment", dep.ID, "pod", podName)
 
 		// Pipe scanner into a channel so we can select with the heartbeat ticker.
 		lines := make(chan loki.LogLine)
@@ -3552,9 +3552,9 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 				}
 			}
 			if err := scanner.Err(); err != nil {
-				log.Debug("K8s pod log scanner error", "deployment", dep.ID, "pod", podName, "error", err)
+				log.Debug("deploy: K8s pod log scanner error", "deployment", dep.ID, "pod", podName, "error", err)
 			} else {
-				log.Debug("K8s pod log stream ended", "deployment", dep.ID, "pod", podName)
+				log.Debug("deploy: K8s pod log stream ended", "deployment", dep.ID, "pod", podName)
 			}
 		}()
 
@@ -3565,7 +3565,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 			select {
 			case ll, ok := <-lines:
 				if !ok {
-					log.Debug("K8s log channel closed, ending SSE stream", "deployment", dep.ID, "pod", podName)
+					log.Debug("deploy: K8s log channel closed, ending SSE stream", "deployment", dep.ID, "pod", podName)
 					return
 				}
 				if !writeEvent(ll) {
@@ -3576,7 +3576,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 					return
 				}
 			case <-c.Request.Context().Done():
-				log.Debug("SSE client disconnected", "deployment", dep.ID)
+				log.Debug("deploy: SSE client disconnected", "deployment", dep.ID)
 				return
 			}
 		}
@@ -3615,7 +3615,7 @@ func validatedLineagePublisher(log *logger.Logger, accountStore *account.Account
 			return true
 		}
 		if err := v.ValidateLineage(candidateID, dep.AgentName, dep.BuildID); err != nil {
-			log.Warn("Deployment lineage tuple invalid for candidate publisher account",
+			log.Warn("deploy: deployment lineage tuple invalid for candidate publisher account",
 				"deployment_id", dep.ID,
 				"candidate_account_id", candidateID,
 				"agent_name", dep.AgentName,
@@ -3630,7 +3630,7 @@ func validatedLineagePublisher(log *logger.Logger, accountStore *account.Account
 	finalizePublisher := func(candidateID string) (pubID string, pubName string) {
 		acct, err := accountStore.GetByID(candidateID)
 		if err != nil {
-			log.Warn("Failed to resolve lineage publisher account id",
+			log.Warn("deploy: resolve lineage publisher account id failed",
 				"deployment_id", dep.ID, "account_id", candidateID, "error", err)
 		}
 		if acct != nil {
@@ -3660,7 +3660,7 @@ func validatedLineagePublisher(log *logger.Logger, accountStore *account.Account
 	if srcName := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON); srcName != "" {
 		acct, err := accountStore.GetByName(srcName)
 		if err != nil {
-			log.Debug("Legacy spec source.account lookup failed",
+			log.Debug("deploy: legacy spec source.account lookup failed",
 				"deployment_id", dep.ID,
 				"source_account_name", srcName,
 				"error", err,
@@ -3759,7 +3759,7 @@ func generateTemplate(
 		agentVersion, err = agentIndex.GetLatestVersion(accountID, name)
 	}
 	if err != nil {
-		log.Error("Failed to get agent build", "error", err)
+		log.Error("deploy: get agent build failed", "error", err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error":      "no builds found for agent",
 			"error_code": "build_not_found",
@@ -3770,13 +3770,13 @@ func generateTemplate(
 
 	specBytes, err := json.Marshal(agentVersion.Spec)
 	if err != nil {
-		log.Error("Failed to marshal stored spec", "error", err, "account", acct.Name, "agent", name)
+		log.Error("deploy: marshal stored spec failed", "error", err, "account", acct.Name, "agent", name)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to process spec", "details": err.Error()})
 		return nil, nil, false
 	}
 	var astroSpec spec.AstroSpec
 	if err := json.Unmarshal(specBytes, &astroSpec); err != nil {
-		log.Error("Failed to unmarshal spec into AstroSpec", "error", err, "account", acct.Name, "agent", name, "raw", string(specBytes))
+		log.Error("deploy: unmarshal spec into AstroSpec failed", "error", err, "account", acct.Name, "agent", name, "raw", string(specBytes))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse spec", "details": err.Error()})
 		return nil, nil, false
 	}
@@ -3792,7 +3792,7 @@ func generateTemplate(
 		MessagingImage:    cfg.Deployment.MessagingImage,
 	})
 	if err != nil {
-		log.Error("Failed to generate deployment template", "error", err)
+		log.Error("deploy: generate deployment template failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "failed to generate deployment template",
 			"details": err.Error(),
@@ -3836,7 +3836,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 		if req.DeploymentID != "" {
 			existing, err := deployStore.GetDeploymentByID(req.DeploymentID)
 			if err != nil {
-				log.Error("Failed to get deployment", "error", err, "deployment_id", req.DeploymentID)
+				log.Error("deploy: get deployment failed", "error", err, "deployment_id", req.DeploymentID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up deployment"})
 				return
 			}
@@ -3854,7 +3854,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 
 			targetAcct, err := accountStore.GetByID(existing.AccountID)
 			if err != nil {
-				log.Error("Failed to look up deployment target account", "error", err, "account_id", existing.AccountID)
+				log.Error("deploy: look up deployment target account failed", "error", err, "account_id", existing.AccountID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up account"})
 				return
 			}
@@ -3869,7 +3869,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			if req.Revision > 0 {
 				rev, revErr := deployStore.GetRevisionByNumber(req.DeploymentID, req.Revision)
 				if revErr != nil {
-					log.Error("Failed to get revision", "error", revErr, "deployment_id", req.DeploymentID, "revision", req.Revision)
+					log.Error("deploy: get revision failed", "error", revErr, "deployment_id", req.DeploymentID, "revision", req.Revision)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get revision"})
 					return
 				}
@@ -3910,7 +3910,7 @@ func PostDeploymentTemplate(log *logger.Logger, agentIndex *agentindex.Index, ac
 			// template doesn't carry stored values any more.
 			storedVars, err := deployStore.GetDeploymentVariables(req.DeploymentID)
 			if err != nil {
-				log.Error("Failed to get deployment variables", "error", err, "deployment_id", req.DeploymentID)
+				log.Error("deploy: get deployment variables failed", "error", err, "deployment_id", req.DeploymentID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment variables"})
 				return
 			}
@@ -4113,7 +4113,7 @@ func mergeDeploymentPrefill(log *logger.Logger, template *deployment.AstroDeploy
 	// this, the template generator's StandardResources seed wins and
 	// Configure resets every existing deployment back to defaults.
 	if prov, err := deployStore.GetAgentProvisioning(existing.ID); err != nil {
-		log.Error("Failed to load agent provisioning", "error", err, "deployment_id", existing.ID)
+		log.Error("deploy: load agent provisioning failed", "error", err, "deployment_id", existing.ID)
 	} else if prov != nil {
 		// Empty CPU/Memory means the row predates the resources columns;
 		// keep the generated StandardResources rather than zeroing them.
@@ -4399,7 +4399,7 @@ func validateAuthorizationSpec(ds *deployment.AstroDeploymentSpec) []string {
 func mergeAuthorizationFromStore(log *logger.Logger, authzStore *authorizationstore.Store, deploymentID string, template *deployment.AstroDeploymentSpec) {
 	grants, err := authzStore.ListGrants(deploymentID)
 	if err != nil {
-		log.Error("Failed to list authorization grants", "error", err, "deployment_id", deploymentID)
+		log.Error("deploy: list authorization grants failed", "error", err, "deployment_id", deploymentID)
 		return
 	}
 
@@ -4477,7 +4477,7 @@ func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountSt
 
 		d, err := deployStore.GetActiveDeployment(acct.ID, agentName)
 		if err != nil {
-			log.Error("Failed to get active deployment", "error", err)
+			log.Error("deploy: get active deployment failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment"})
 			return
 		}
@@ -4491,7 +4491,7 @@ func GetActiveDeploymentSpec(log *logger.Logger, accountStore *account.AccountSt
 
 		var specObj json.RawMessage
 		if err := json.Unmarshal([]byte(d.DeploymentSpecJSON), &specObj); err != nil {
-			log.Error("Failed to parse stored deployment spec", "error", err)
+			log.Error("deploy: parse stored deployment spec failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse stored spec"})
 			return
 		}
@@ -4539,7 +4539,7 @@ func GetDeploymentHistory(
 
 		history, err := deployStore.GetDeploymentHistoryByRevisions(acct.ID, agentName)
 		if err != nil {
-			log.Error("Failed to get deployment history", "error", err)
+			log.Error("deploy: get deployment history failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
 			return
 		}
@@ -4556,7 +4556,7 @@ func GetDeploymentHistory(
 				func(record deploymentstore.RevisionHistoryRecord) string { return record.DeploymentID },
 			)
 			if visibilityErr != nil {
-				log.Error("Failed to filter deployment history", "error", visibilityErr, "account_id", acct.ID)
+				log.Error("deploy: filter deployment history failed", "error", visibilityErr, "account_id", acct.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get deployment history"})
 				return
 			}
@@ -4643,7 +4643,7 @@ func GetConfigMapData(log *logger.Logger, accountStore *account.AccountStore, cf
 		cmName := c.Param("cmname")
 		cm, err := k8sClient.Clientset().CoreV1().ConfigMaps(dep.Namespace).Get(c.Request.Context(), cmName, metav1.GetOptions{})
 		if err != nil {
-			log.Error("Failed to get configmap", "error", err, "configmap", cmName, "namespace", dep.Namespace)
+			log.Error("deploy: get configmap failed", "error", err, "configmap", cmName, "namespace", dep.Namespace)
 			c.JSON(http.StatusNotFound, gin.H{"error": "configmap not found"})
 			return
 		}
@@ -4678,7 +4678,7 @@ func GetSecretKeys(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		secretName := c.Param("secretname")
 		secret, err := k8sClient.Clientset().CoreV1().Secrets(dep.Namespace).Get(c.Request.Context(), secretName, metav1.GetOptions{})
 		if err != nil {
-			log.Error("Failed to get secret", "error", err, "secret", secretName, "namespace", dep.Namespace)
+			log.Error("deploy: get secret failed", "error", err, "secret", secretName, "namespace", dep.Namespace)
 			c.JSON(http.StatusNotFound, gin.H{"error": "secret not found"})
 			return
 		}
@@ -4737,14 +4737,14 @@ func StopDeployment(log *logger.Logger, accountStore *account.AccountStore, k8sR
 		}
 
 		if err := k8s.StopNamespaceWorkloads(c.Request.Context(), k8sClient.Clientset(), dep.Namespace); err != nil {
-			log.Error("Failed to stop deployment workloads", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
+			log.Error("deploy: stop deployment workloads failed", "error", err, "namespace", dep.Namespace, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop deployment"})
 			return
 		}
 		k8scache.InvalidateNamespace(c.Request.Context(), cache, dep.Namespace)
 
 		if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusStopped}); err != nil {
-			log.Error("Failed to mark deployment stopped", "error", err, "deployment_id", dep.ID)
+			log.Error("deploy: mark deployment stopped failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
 			return
 		}
@@ -4800,7 +4800,7 @@ func CancelDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 			deploymentstore.StatusPending, deploymentstore.StatusProvisioning, deploymentstore.StatusDeploying,
 		)
 		if err != nil {
-			log.Error("Failed to mark deployment failed after cancel", "error", err, "deployment_id", dep.ID)
+			log.Error("deploy: mark deployment failed after cancel failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update deployment status"})
 			return
 		}
@@ -4866,7 +4866,7 @@ func WakeUpDeployment(log *logger.Logger, accountStore *account.AccountStore, de
 		}
 
 		if err := queue.InsertWakeUpJob(c.Request.Context(), dep.ID, dep.EffectiveClusterID()); err != nil {
-			log.Error("Failed to enqueue wakeup job", "error", err, "deployment_id", dep.ID)
+			log.Error("deploy: enqueue wakeup job failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule wakeup"})
 			return
 		}
@@ -4933,13 +4933,13 @@ func RollbackDeployment(log *logger.Logger, accountStore *account.AccountStore, 
 		// SetCurrentRevision atomically sets revision, status=pending, and records event.
 		// Job enqueue happens after commit (store uses database/sql, River uses pgx).
 		if err := deployStore.SetCurrentRevision(dep.ID, req.Revision, nil); err != nil {
-			log.Error("Failed to set revision", "error", err, "deployment_id", dep.ID, "revision", req.Revision)
+			log.Error("deploy: set revision failed", "error", err, "deployment_id", dep.ID, "revision", req.Revision)
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
 		if err := queue.InsertDeployJob(c.Request.Context(), dep.ID, dep.EffectiveClusterID()); err != nil {
-			log.Error("Failed to enqueue rollback deploy job", "error", err, "deployment_id", dep.ID)
+			log.Error("deploy: enqueue rollback deploy job failed", "error", err, "deployment_id", dep.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule rollback"})
 			return
 		}
