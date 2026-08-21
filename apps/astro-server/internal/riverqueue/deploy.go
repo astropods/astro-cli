@@ -95,7 +95,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 			errDetails = nil
 		}
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: applyErr.Error(), ErrorDetails: errDetails}); err != nil {
-			w.log.Warn("deploy: mark deployment as failed failed", "error", err, "deployment_id", dep.ID)
+			w.log.Warn("deploy: update deployment status failed", "error", err, "deployment_id", dep.ID, "status", deploymentstore.StatusFailed)
 		}
 		// Status change → deploy cache for the account is stale.
 		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -110,7 +110,7 @@ func (w *DeployWorker) Work(ctx context.Context, job *river.Job[DeployArgs]) err
 			w.log.Warn("deploy: marshal error details failed", "error", jsonErr, "deployment_id", dep.ID)
 		}
 		if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "partial failure", ErrorDetails: errJSON}); err != nil {
-			w.log.Warn("deploy: mark deployment as partially failed failed", "error", err, "deployment_id", dep.ID)
+			w.log.Warn("deploy: update deployment status failed", "error", err, "deployment_id", dep.ID, "status", deploymentstore.StatusFailed, "reason", "partial failure")
 		}
 		_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 		return nil // no retry — user needs to fix the spec

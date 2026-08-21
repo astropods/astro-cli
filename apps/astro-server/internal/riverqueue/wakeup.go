@@ -62,7 +62,7 @@ func (w *WakeUpWorker) Work(ctx context.Context, job *river.Job[WakeUpArgs]) err
 
 	if _, err := w.deployer.Apply(ctx, dep); err != nil {
 		if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: err.Error()}); sErr != nil {
-			w.log.Warn("wakeup: mark deployment as failed failed", "error", sErr, "deployment_id", dep.ID)
+			w.log.Warn("wakeup: update deployment status failed", "error", sErr, "deployment_id", dep.ID, "status", deploymentstore.StatusFailed)
 		}
 		return fmt.Errorf("wakeup apply failed: %w", err)
 	}

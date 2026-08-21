@@ -83,7 +83,7 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 			)
 		} else {
 			if sErr := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusFailed, ErrorMsg: "undeploy failed: " + err.Error()}); sErr != nil {
-				w.log.Warn("undeploy: mark deployment as failed failed", "error", sErr, "deployment_id", dep.ID)
+				w.log.Warn("undeploy: update deployment status failed", "error", sErr, "deployment_id", dep.ID, "status", deploymentstore.StatusFailed)
 			}
 			_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
 			return fmt.Errorf("teardown failed: %w", err)
