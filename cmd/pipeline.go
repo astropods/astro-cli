@@ -413,8 +413,6 @@ func (p *PushPipeline) PrintSuccess() {
 	lines = append(lines, "")
 	lines = append(lines, "  "+bold.Render(p.cfg.AgentName)+"  "+dim.Render("tag "+p.tag))
 
-	// A URL wrapped across two lines is no longer clickable, so when it does not
-	// fit the box we print it below the frame on a line of its own.
 	urlLine := "  " + dim.Render("View online → ") + link.Render(agentURL)
 	urlBelowBox := ""
 	if limit := theme.BoxContentWidth(); limit > 0 && lipgloss.Width(urlLine) > limit {

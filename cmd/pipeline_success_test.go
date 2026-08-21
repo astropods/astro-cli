@@ -22,7 +22,6 @@ func successPipeline() *PushPipeline {
 	return p
 }
 
-// boxRows returns the rendered frame rows of a success box.
 func boxRows(out string) []string {
 	var rows []string
 	for _, line := range strings.Split(out, "\n") {
