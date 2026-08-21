@@ -80,6 +80,9 @@ type insightsRequestParams struct {
 	// key's own dev-tool spend is reported (members see only themselves). Set
 	// from the caller's role, not a query param.
 	RestrictDevtoolToKey string
+	// ClassificationEnabled advertises the source detail page. Off, the dev-tool
+	// row renders without a link, because the page it points at 404s.
+	ClassificationEnabled bool
 	// TableDays scopes the tables to the selected range instead of the whole
 	// window. Zero means account-wide.
 	TableDays int
@@ -286,7 +289,7 @@ func buildInsightsViewWithParams(
 		_, tableFrom, tableTo := insightsPeriod(asOf, params.TableDays)
 		tableDeps = sliceInsightsDeployments(depRows, tableFrom, tableTo)
 	}
-	agentRows, agentTotal := buildInsightsAgentRows(accountName, tableDeps, members, identityByUser)
+	agentRows, agentTotal := buildInsightsAgentRows(accountName, tableDeps, members, identityByUser, params.ClassificationEnabled)
 	peopleRows, peopleTotal := buildInsightsPeopleRows(accountName, userRows, depRows, members)
 
 	return InsightsResponse{
@@ -565,7 +568,7 @@ func buildInsightsSeriesLabels(rows []DeploymentSummaryEntry) map[string]string 
 	return labels
 }
 
-func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile, identityByUser map[string]UserIdentity) ([]InsightsAgentRow, float64) {
+func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryEntry, members map[string]insightsMemberProfile, identityByUser map[string]UserIdentity, classificationEnabled bool) ([]InsightsAgentRow, float64) {
 	totalCost := 0.0
 	for _, row := range deployments {
 		totalCost += row.CostUSD
@@ -609,7 +612,7 @@ func buildInsightsAgentRows(accountName string, deployments []DeploymentSummaryE
 		if ad, ok := devtoolAdapterByKey(dep.DevtoolSourceKey); ok {
 			// Aggregated local dev-tool usage: system-kind, brand icon, and a link
 			// to the source detail page rather than to a deployment.
-			identity = devtoolIdentity(ad, accountName)
+			identity = devtoolIdentity(ad, accountName, classificationEnabled)
 		}
 		if dep.IsUnattributed {
 			identity = unattributedIdentity()

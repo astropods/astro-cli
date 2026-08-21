@@ -10,7 +10,10 @@ import (
 // Key is a server-owned organization experiment identifier.
 type Key string
 
-const FineGrainedAccess Key = "fine_grained_access"
+const (
+	FineGrainedAccess         Key = "fine_grained_access"
+	PromptClassificationStats Key = "prompt_classification_stats"
+)
 
 // Store persists organization experiment choices. A missing row is disabled.
 type Store struct {

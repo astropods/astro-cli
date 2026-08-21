@@ -11,6 +11,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -37,6 +38,8 @@ func GetAccountInsights(
 	slackStore *slackidentity.Store,
 	rollups *insightsrollup.Store,
 	cache k8scache.Cache,
+	orgRoles orgRoleLookup,
+	classificationGate *experiment.Gate,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -63,8 +66,13 @@ func GetAccountInsights(
 		// Daily facts make a range change a window change, so the tables respect
 		// the range chip above them.
 		params.TableDays = parseInsightsTableDays(c)
-		if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:admin") {
+		if !insightsSeesEveryone(c, accountStore, orgRoles, acct, user) {
 			params.RestrictDevtoolToKey = "member:" + user.ID
+		}
+		if on, gerr := classificationGate.Enabled(c.Request.Context(), acct.ID); gerr == nil {
+			params.ClassificationEnabled = on
+		} else {
+			log.Warn("insights: experiment check failed", "error", gerr, "account_id", acct.ID)
 		}
 
 		resp, err := ComputeInsightsFromRollups(c.Request.Context(), log,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/classification"
+	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -80,6 +81,8 @@ func GetAccountInsightsSource(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	classifications *classification.Store,
+	orgRoles orgRoleLookup,
+	classificationGate *experiment.Gate,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -102,10 +105,26 @@ func GetAccountInsightsSource(
 			c.JSON(http.StatusNotFound, gin.H{"error": "unknown source"})
 			return
 		}
+		// Not found rather than forbidden: to an account without the experiment
+		// the page does not exist, and saying "forbidden" would advertise it.
+		on, gerr := classificationGate.Enabled(c.Request.Context(), acct.ID)
+		if gerr != nil {
+			// A read failure is not an absent page; the client turns 404 into a
+			// route-level not-found the reader cannot retry out of.
+			log.Error("insights source: experiment check failed", "error", gerr, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read experiment"})
+			return
+		}
+		if !on {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
 
-		// Charts stay account-wide; only the named breakdown is gated.
+		// The whole page is scoped, not just the named breakdown: charts built
+		// from everyone's prompts would report the account's work/personal split
+		// to a reader who may not see who is behind it.
 		viewer := sourceViewer{}
-		if !middleware.HasAccountPermission(c, accountStore, acct, user, "org:admin") {
+		if !insightsSeesEveryone(c, accountStore, orgRoles, acct, user) {
 			viewer.Restricted = true
 			viewer.ActorKey = user.ID
 		}
@@ -165,11 +184,23 @@ func computeInsightsSource(
 	asOf := now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
 	widest := widestInsightsRange()
 	rows, err := classifications.Aggregates(
-		ctx, accountID, ad.Key, asOf.AddDate(0, 0, -(widest.days-1)), asOf)
+		ctx, accountID, ad.Key, asOf.AddDate(0, 0, -(widest.days-1)), asOf, viewer.ActorKey)
 	if err != nil {
 		return resp, err
 	}
-	resp.Coverage.ContentAvailable = len(rows) > 0
+	// Account-scoped on purpose: the reader's own rows are restricted below, and
+	// reporting their emptiness as "collection is off" sends them to a setting in
+	// a console Astro does not control.
+	from := asOf.AddDate(0, 0, -(widest.days - 1))
+	accountHasContent, err := classifications.HasAggregates(ctx, accountID, ad.Key, from, asOf)
+	if err != nil {
+		return resp, err
+	}
+	resp.Coverage.ContentAvailable = accountHasContent
+
+	// Nothing of the reader's own where the account has plenty: their dev-tool
+	// address is not attributed to them, which is not the same as no prompts.
+	viewer.Unresolved = viewer.Restricted && accountHasContent && len(rows) == 0
 
 	// Presence, not a total — rows repeat per axis.
 	var anyTraces bool
@@ -196,16 +227,17 @@ func computeInsightsSource(
 // Ranked by prompts, so the cap drops the quietest, and TotalCount reports it.
 const maxSourcePeople = 100
 
-// Restricted with an empty ActorKey means the viewer's dev-tool address is not
-// linked, so nothing can be attributed to them.
 type sourceViewer struct {
 	Restricted bool
 	ActorKey   string
+	// Unresolved reports a restricted reader that nothing attributes to, on an
+	// account that does have classified prompts.
+	Unresolved bool
 	Members    map[string]insightsMemberProfile
 }
 
-// Folds the rows the charts already fetched into one row per developer. The
-// restriction is applied here, not in SQL, because the charts need every actor.
+// Folds the rows the charts already fetched into one row per developer. They
+// arrive scoped to the reader, so nothing is filtered here.
 func buildSourcePeople(
 	rows []classification.AggRow,
 	from time.Time,
@@ -215,7 +247,7 @@ func buildSourcePeople(
 	out := InsightsSourcePeople{
 		Rows:             []InsightsSourcePersonRow{},
 		RestrictedToSelf: viewer.Restricted,
-		ViewerUnresolved: viewer.Restricted && viewer.ActorKey == "",
+		ViewerUnresolved: viewer.Unresolved,
 	}
 	if out.ViewerUnresolved {
 		return out
@@ -237,9 +269,6 @@ func buildSourcePeople(
 		}
 		// The day narrows this breakdown only; the charts keep the range.
 		if day != "" && r.Day.UTC().Format(time.DateOnly) != day {
-			continue
-		}
-		if viewer.Restricted && r.ActorKey != viewer.ActorKey {
 			continue
 		}
 		p := people[r.ActorKey]

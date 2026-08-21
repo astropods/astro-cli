@@ -239,7 +239,10 @@ function identityNameTooltip(identity: InsightsIdentityRef): Pick<InsightsIdenti
   };
 }
 
-function IdentityAvatar({
+/** Avatar for a discriminated identity — member, Slack user, dev-tool source or
+ *  unidentified address. Exported alongside IdentityLabel so a person is drawn
+ *  the same wherever they are listed. */
+export function IdentityAvatar({
   identity,
   className,
   size = 24,

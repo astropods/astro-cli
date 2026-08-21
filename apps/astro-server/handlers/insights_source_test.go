@@ -280,8 +280,14 @@ func TestBuildSourcePeopleDoesNotDoubleCountAcrossAxes(t *testing.T) {
 
 // A member sees their own row and nobody else's, while the charts above stay
 // account-wide.
-func TestBuildSourcePeopleRestrictsToViewer(t *testing.T) {
-	people := buildSourcePeople(peopleRows, parseInsightsDate("2026-08-01"),
+// A restricted reader's rows are narrowed in SQL, so the fold sees only what
+// they may see and reports the restriction rather than re-applying it.
+func TestBuildSourcePeopleReportsRestriction(t *testing.T) {
+	own := []classification.AggRow{
+		actorRow("2026-08-11", "purpose", "work", "member", "user_quiet", 2, 0.20),
+		actorRow("2026-08-11", "purpose", "personal", "member", "user_quiet", 8, 0.80),
+	}
+	people := buildSourcePeople(own, parseInsightsDate("2026-08-01"),
 		sourceViewer{Restricted: true, ActorKey: "user_quiet"}, "")
 
 	if len(people.Rows) != 1 || people.Rows[0].Key != "user_quiet" {
@@ -291,21 +297,38 @@ func TestBuildSourcePeopleRestrictsToViewer(t *testing.T) {
 		t.Error("restriction must be reported so the page can say so")
 	}
 	if people.ViewerUnresolved {
-		t.Error("a viewer with a matching actor is resolved")
+		t.Error("a viewer with a linked address is resolved")
 	}
 }
 
 // A restricted viewer whose dev-tool address is not linked matches no row. That
 // is not "no prompts" — the page must be able to tell the reader why.
+// Unresolved means the account has classified prompts but none attribute to
+// this reader. Keying it off an unset actor key never fired, because the
+// handler always sets one; keying it off a mirrored WorkOS email never fired
+// either, because nearly every member has one.
 func TestBuildSourcePeopleFlagsUnresolvedViewer(t *testing.T) {
-	people := buildSourcePeople(peopleRows, parseInsightsDate("2026-08-01"),
-		sourceViewer{Restricted: true}, "")
+	people := buildSourcePeople(nil, parseInsightsDate("2026-08-01"),
+		sourceViewer{Restricted: true, ActorKey: "user_quiet", Unresolved: true}, "")
 
 	if !people.ViewerUnresolved {
-		t.Error("an unlinked viewer must be flagged, not shown an empty table")
+		t.Error("an unlinked viewer must be flagged, not shown an empty page")
 	}
 	if len(people.Rows) != 0 {
 		t.Errorf("rows = %+v, want none", people.Rows)
+	}
+}
+
+// An admin sees everyone and is never flagged unresolved, whatever addresses
+// are linked to them.
+func TestBuildSourcePeopleUnrestrictedIsNeverUnresolved(t *testing.T) {
+	people := buildSourcePeople(peopleRows, parseInsightsDate("2026-08-01"), sourceViewer{}, "")
+	if people.RestrictedToSelf || people.ViewerUnresolved {
+		t.Errorf("unrestricted viewer = restricted:%v unresolved:%v, want both false",
+			people.RestrictedToSelf, people.ViewerUnresolved)
+	}
+	if len(people.Rows) != 2 {
+		t.Errorf("rows = %d, want both developers", len(people.Rows))
 	}
 }
 

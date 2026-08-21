@@ -221,7 +221,7 @@ export interface AccountOrgsResponse {
   orgs: AccountOrg[];
 }
 
-export interface FineGrainedAccessExperimentResponse {
+export interface ExperimentResponse {
   experiment: "fine_grained_access";
   enabled: boolean;
 }
@@ -2627,21 +2627,23 @@ class ApiClient {
     );
   }
 
-  async getFineGrainedAccessExperiment(account: string): Promise<FineGrainedAccessExperimentResponse> {
-    return this.request<FineGrainedAccessExperimentResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/fine-grained-access`,
+  async getAccountExperiment(account: string, experiment: string): Promise<ExperimentResponse> {
+    return this.request<ExperimentResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/${encodeURIComponent(experiment)}`,
     );
   }
 
-  async updateFineGrainedAccessExperiment(
+  async updateAccountExperiment(
     account: string,
+    experiment: string,
     enabled: boolean,
-  ): Promise<FineGrainedAccessExperimentResponse> {
-    return this.request<FineGrainedAccessExperimentResponse>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/fine-grained-access`,
-      { method: 'PUT', body: JSON.stringify({ enabled }) },
+  ): Promise<ExperimentResponse> {
+    return this.request<ExperimentResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/experiments/${encodeURIComponent(experiment)}`,
+      { method: "PUT", body: JSON.stringify({ enabled }) },
     );
   }
+
 
   async getAccountMembers(account: string, opts?: { includePending?: boolean }): Promise<AccountMembersResponse> {
     const params = opts?.includePending ? '?include_pending=true' : '';

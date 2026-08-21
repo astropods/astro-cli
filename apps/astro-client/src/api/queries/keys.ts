@@ -16,8 +16,8 @@ export const accountKeys = {
   members: (account: string) => ['accounts', account, 'members'] as const,
   pendingMembers: (account: string) => ['accounts', account, 'members', 'include-pending'] as const,
   orgs: (account: string) => ['accounts', account, 'orgs'] as const,
-  fineGrainedAccessExperiment: (account: string) =>
-    ['accounts', account, 'experiments', 'fine-grained-access'] as const,
+  experiment: (account: string, experiment: string) =>
+    ['accounts', account, 'experiments', experiment] as const,
 };
 
 const blueprintAccountPrefix = (account: string) => ['agents', 'account', account] as const;
@@ -88,6 +88,9 @@ export const observabilityKeys = {
     ['observability', 'deployment-summaries', account] as const,
   visibleDeploymentSummaries: (deploymentIDs: string[]) =>
     ['observability', 'deployment-summaries', 'visible', deploymentIDs] as const,
+  // Prefix for everything Insights reads for one account, so a change that
+  // alters what the server returns can invalidate it in one call.
+  insightsAll: (account: string) => ['observability', 'insights', account] as const,
   insights: (account: string, params?: Record<string, string | undefined>) =>
     params
       ? (['observability', 'insights', account, params] as const)

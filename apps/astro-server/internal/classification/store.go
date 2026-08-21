@@ -11,7 +11,12 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 )
+
+// Shares insights_usage_daily's key space, so the two fact tables join.
+const ActorKindMember = insightsrollup.ActorKindMember
 
 // Axis is a distinct type so a label or source cannot be passed positionally.
 type Axis string
@@ -317,18 +322,29 @@ type AggRow struct {
 	CostUSD   float64
 }
 
-// Inclusive day range. Rows carry their actor unfiltered — the caller folds
-// them, and gates the per-developer view.
+// Inclusive day range.
+//
+// restrictActorKey narrows to one member. It is applied here rather than in the
+// caller so a reader who may not see their colleagues never has those rows in
+// process — which also means the charts built from these rows describe only
+// what that reader is allowed to see.
 func (s *Store) Aggregates(
 	ctx context.Context,
 	accountID, source string,
 	from, to time.Time,
+	restrictActorKey string,
 ) ([]AggRow, error) {
+	args := []any{accountID, source, from.UTC().Truncate(24 * time.Hour), to.UTC().Truncate(24 * time.Hour)}
+	where := "account_id = $1 AND source = $2 AND day >= $3 AND day <= $4"
+	if restrictActorKey != "" {
+		args = append(args, ActorKindMember, restrictActorKey)
+		where += fmt.Sprintf(" AND actor_kind = $%d AND actor_key = $%d", len(args)-1, len(args))
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT day, axis, label, actor_kind, actor_key, traces, cost_usd
 		FROM insights_classification_daily
-		WHERE account_id = $1 AND source = $2 AND day >= $3 AND day <= $4`,
-		accountID, source, from.UTC().Truncate(24*time.Hour), to.UTC().Truncate(24*time.Hour))
+		WHERE `+where, args...)
 	if err != nil {
 		return nil, fmt.Errorf("classification: aggregates: %w", err)
 	}
@@ -348,6 +364,23 @@ func (s *Store) Aggregates(
 		return nil, fmt.Errorf("classification: iterate aggregates: %w", err)
 	}
 	return out, nil
+}
+
+// HasAggregates reports whether the account has any classified rows in the
+// window, ignoring who they belong to. Distinguishes "nothing collected here"
+// from "nothing attributable to this reader", which call for different answers.
+func (s *Store) HasAggregates(ctx context.Context, accountID, source string, from, to time.Time) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM insights_classification_daily
+			WHERE account_id = $1 AND source = $2 AND day >= $3 AND day <= $4
+		)`,
+		accountID, source, from.UTC().Truncate(24*time.Hour), to.UTC().Truncate(24*time.Hour)).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("classification: has aggregates: %w", err)
+	}
+	return exists, nil
 }
 
 // Floors the backfill: telemetry cannot predate its ingest key. Revoked keys

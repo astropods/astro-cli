@@ -980,6 +980,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	deploymentStore := deps.Stores.Deployment
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
 	fgaExperiment := experiment.NewGate(experimentStore, experiment.FineGrainedAccess)
+	classificationExperiment := experiment.NewGate(experimentStore, experiment.PromptClassificationStats)
+	// Shared so the TTL holds across requests. Left nil without WorkOS: a typed
+	// nil in the interface would defeat the lookup's own nil guard.
+	var insightsOrgRoles *handlers.CachedOrgRoles
+	if orgSync != nil {
+		insightsOrgRoles = handlers.NewCachedOrgRoles(orgSync)
+	}
 	deploymentFGALiveRollout := authz.NewConditionalResourceGate(
 		deploymentFGA != nil && (cfg.FGAShadowEnabled || cfg.FGAEnforcementEnabled),
 		resourceAccounts,
@@ -1329,6 +1336,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(409, &handlers.ErrorResponse{}),
 			)
 
+			// Experiments are read and set by anyone who administers the
+			// account. They sit apart from accountAdmin because that group also
+			// carries account rename and delete, which stay owner-only. An
+			// individual switch may still demand more — see experimentsBySlug.
+			accountExperiments := protected.Group("/accounts/:account")
+			accountExperiments.Use(middleware.ResolveAccount(accountStore))
+			accountExperiments.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+
 			// Account-scoped routes (owner/admin)
 			accountAdmin := protected.Group("/accounts/:account")
 			accountAdmin.Use(middleware.ResolveAccount(accountStore))
@@ -1399,18 +1414,18 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.QueryParam("limit", "Page size (default 50, max 200)", false),
 					oapispec.Response(200, &handlers.AuditLogListResponse{}),
 				)
-				api.GET(accountAdmin, "/experiments/fine-grained-access", "Get fine-grained access experiment", handlers.GetFineGrainedAccessExperiment(log, experimentStore),
+				api.GET(accountExperiments, "/experiments/:experiment", "Get an account experiment", handlers.GetAccountExperiment(log, experimentStore, accountStore),
 					oapispec.Tags("Accounts", "Experiments"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
+					oapispec.Response(200, &handlers.ExperimentResponse{}),
 				)
-				api.PUT(accountAdmin, "/experiments/fine-grained-access", "Update fine-grained access experiment", handlers.UpdateFineGrainedAccessExperiment(log, experimentStore, auditStore, deploymentDiscovery),
+				api.PUT(accountExperiments, "/experiments/:experiment", "Update an account experiment", handlers.UpdateAccountExperiment(log, experimentStore, auditStore, deploymentDiscovery, accountStore),
 					oapispec.Tags("Accounts", "Experiments"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
-					oapispec.Body(&handlers.UpdateFineGrainedAccessExperimentRequest{}),
-					oapispec.Response(200, &handlers.FineGrainedAccessExperimentResponse{}),
+					oapispec.Body(&handlers.UpdateExperimentRequest{}),
+					oapispec.Response(200, &handlers.ExperimentResponse{}),
 				)
 				api.POST(accountAdmin, "/access-groups", "Create access group", accessGroupHandler.Create,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
@@ -2527,7 +2542,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache),
+			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache, insightsOrgRoles, classificationExperiment),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2545,7 +2560,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("days", "Range the tables cover: 7, 14, 30 or 90; omitted means account-wide", false),
 				oapispec.Response(200, &handlers.InsightsResponse{}),
 			)
-			api.GET(protected, "/accounts/:account/insights/sources/:source", "Get a dev-tool source's classification breakdown", handlers.GetAccountInsightsSource(log, accountStore, classification.NewStore(db)),
+			api.GET(protected, "/accounts/:account/insights/sources/:source", "Get a dev-tool source's classification breakdown", handlers.GetAccountInsightsSource(log, accountStore, classification.NewStore(db), insightsOrgRoles, classificationExperiment),
 				oapispec.Tags("Observability"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),

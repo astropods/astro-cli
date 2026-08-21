@@ -29,14 +29,17 @@ var devtoolAdapters = []devtoolAdapter{
 //
 // Absolute and account-stamped: the table only routes an href beginning with
 // "/" client-side, and a plain anchor reloads the page, dropping the scope.
-func devtoolIdentity(ad devtoolAdapter, accountName string) InsightsIdentityRef {
-	return InsightsIdentityRef{
+func devtoolIdentity(ad devtoolAdapter, accountName string, linkToDetail bool) InsightsIdentityRef {
+	ref := InsightsIdentityRef{
 		Kind:    "system",
 		Label:   ad.Label,
 		Icon:    ad.Icon,
-		Href:    "/insights/sources/" + ad.Key + "?account=" + url.QueryEscape(accountName),
 		Tooltip: "Aggregated local dev-tool usage (" + ad.Label + ") across developers, not a deployed agent.",
 	}
+	if linkToDetail {
+		ref.Href = "/insights/sources/" + ad.Key + "?account=" + url.QueryEscape(accountName)
+	}
+	return ref
 }
 
 // devtoolActorFor maps a dev-tool email onto the actor key space

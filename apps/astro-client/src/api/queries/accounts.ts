@@ -6,7 +6,7 @@ import type {
   AccountMembersResponse,
   AccountOrgsResponse,
 } from '../../lib/api';
-import { accountKeys } from './keys';
+import { accountKeys, observabilityKeys } from './keys';
 
 function isAccountOrgsQueryKey(queryKey: readonly unknown[]) {
   return (
@@ -153,23 +153,35 @@ export function useAccountOrgs(account: string, opts?: { enabled?: boolean }) {
   });
 }
 
-export function useFineGrainedAccessExperiment(account: string) {
+/** Server-owned account experiment slugs, as the API names them. Distinct from
+ *  the localStorage toggles in @/lib/experiments. */
+export const PROMPT_CLASSIFICATION_STATS = "prompt-classification-stats";
+export const FINE_GRAINED_ACCESS = "fine-grained-access";
+
+/** One account experiment by URL slug. A missing row reads as disabled, so the
+ *  query settling with enabled=false is the off state, not an error. */
+export function useAccountExperiment(account: string, experiment: string) {
   return useQuery({
-    queryKey: accountKeys.fineGrainedAccessExperiment(account),
-    queryFn: () => api.getFineGrainedAccessExperiment(account),
-    enabled: !!account,
+    queryKey: accountKeys.experiment(account, experiment),
+    queryFn: () => api.getAccountExperiment(account, experiment),
+    enabled: !!account && !!experiment,
   });
 }
 
-export function useUpdateFineGrainedAccessExperiment(account: string) {
+export function useUpdateAccountExperiment(account: string, experiment: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (enabled: boolean) => api.updateFineGrainedAccessExperiment(account, enabled),
+    mutationFn: (enabled: boolean) => api.updateAccountExperiment(account, experiment, enabled),
     onSuccess: (data) => {
-      queryClient.setQueryData(accountKeys.fineGrainedAccessExperiment(account), data);
+      queryClient.setQueryData(accountKeys.experiment(account, experiment), data);
+      // Experiments gate what the server returns elsewhere — the classification
+      // switch changes the Insights page model and makes the source payload
+      // 404 — and those queries are cached for five minutes.
+      queryClient.invalidateQueries({ queryKey: observabilityKeys.insightsAll(account) });
     },
   });
 }
+
 
 export function useUpdateAccountDisplayName() {
   const queryClient = useQueryClient();

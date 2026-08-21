@@ -307,3 +307,55 @@ func TestSetCursorsPartialKeepsCadenceWhenThePassMoved(t *testing.T) {
 		t.Fatalf("expectations: %v", err)
 	}
 }
+
+// The restriction on Aggregates is what stops a member reading a colleague's
+// work/personal split, and it is enforced only here.
+func TestAggregatesUnrestrictedBindsNoActor(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectQuery(`SELECT day, axis, label, actor_kind, actor_key, traces, cost_usd`).
+		WithArgs("acct", SourceClaudeCode, testDay, testDay).
+		WillReturnRows(sqlmock.NewRows([]string{"day", "axis", "label", "actor_kind", "actor_key", "traces", "cost_usd"}))
+
+	if _, err := store.Aggregates(context.Background(), "acct", SourceClaudeCode, testDay, testDay, ""); err != nil {
+		t.Fatalf("Aggregates: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+func TestAggregatesRestrictedBindsMemberActor(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectQuery(`actor_kind = \$5 AND actor_key = \$6`).
+		WithArgs("acct", SourceClaudeCode, testDay, testDay, ActorKindMember, "user_1").
+		WillReturnRows(sqlmock.NewRows([]string{"day", "axis", "label", "actor_kind", "actor_key", "traces", "cost_usd"}).
+			AddRow(testDay, "purpose", "work", ActorKindMember, "user_1", int64(3), 1.5))
+
+	got, err := store.Aggregates(context.Background(), "acct", SourceClaudeCode, testDay, testDay, "user_1")
+	if err != nil {
+		t.Fatalf("Aggregates: %v", err)
+	}
+	if len(got) != 1 || got[0].ActorKey != "user_1" {
+		t.Fatalf("got %+v, want the viewer's row", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}
+
+// Emptiness for one reader is not emptiness for the account, and the page says
+// different things about each.
+func TestHasAggregatesIgnoresActor(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectQuery(`SELECT EXISTS`).
+		WithArgs("acct", SourceClaudeCode, testDay, testDay).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	got, err := store.HasAggregates(context.Background(), "acct", SourceClaudeCode, testDay, testDay)
+	if err != nil || !got {
+		t.Fatalf("HasAggregates = %v, %v; want true", got, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}

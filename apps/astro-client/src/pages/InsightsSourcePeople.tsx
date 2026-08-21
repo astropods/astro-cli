@@ -1,6 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Info, X } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -17,7 +16,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { IdentityLabel } from "@/components/activity/TopSpendersTable";
+import { IdentityAvatar, IdentityLabel } from "@/components/activity/TopSpendersTable";
 import { categoryColor } from "@/components/activity/model-colors";
 import { formatCompact, formatCost, formatDateShort } from "@/lib/format-utils";
 import { cn } from "@/lib/utils";
@@ -121,18 +120,6 @@ export function PeopleTable({
   // stopping before the last column.
   const columnCount = 1 + (filter ? 2 : 1 + axes.length) + 1;
 
-  if (people.viewer_unresolved) {
-    return (
-      <Card className="flex flex-col items-center justify-center gap-1 p-8 text-center">
-        <p className="text-body text-foreground">We can&apos;t tell which prompts are yours</p>
-        <p className="max-w-md text-body-sm text-muted-foreground">
-          The email your coding tool reports isn&apos;t linked to your account yet, so none of
-          these prompts can be attributed to you. Link it from your account settings and this
-          fills in.
-        </p>
-      </Card>
-    );
-  }
 
   const header = (
     <div className="flex flex-wrap items-center gap-3">
@@ -153,12 +140,6 @@ export function PeopleTable({
             <X className="size-3" aria-hidden />
             <span className="sr-only">Clear category filter</span>
           </button>
-        )}
-        {people.restricted_to_self && (
-          <span className="inline-flex items-center gap-1.5 text-mono-sm text-faint-foreground">
-            <Info className="size-3" aria-hidden />
-            Account admins see everyone
-          </span>
         )}
         {day && (
           <button
@@ -262,7 +243,10 @@ export function PeopleTable({
                       )}
                       aria-hidden
                     />
-                    <IdentityLabel identity={row.identity} />
+                    <IdentityLabel
+                      identity={row.identity}
+                      icon={<IdentityAvatar identity={row.identity} className="size-5" size={20} />}
+                    />
                   </div>
                 </TableCell>
                 {filter ? (

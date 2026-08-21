@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import {
   ResponsiveContainer,
   BarChart,
@@ -19,6 +19,7 @@ import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { useAccountInsightsSource } from "@/api/queries/observability";
 import { observabilityKeys } from "@/api/queries/keys";
 import { getPageAccount } from "@/lib/api.server";
+import { ApiRequestError } from "@/lib/api";
 import { getIntegrationIconUrl } from "@/lib/assets";
 import { useResolvedTheme } from "@/lib/theme";
 import { formatCost, formatCompact, formatDateShort } from "@/lib/format-utils";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { AccountScopeFilter } from "@/components/AccountScopeFilter";
+import { InlineBadge } from "@/components/InlineBadge";
 import { TimeRangeSelector } from "@/components/activity/TimeRangeSelector";
 import { PillToggle } from "@/components/activity/PillToggle";
 import { SettledContentReveal } from "@/components/ui/content-reveal";
@@ -69,10 +71,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const ctx = await getPageAccount(request);
   const source = params.source ?? "";
   if (!ctx || !source) return { account: null, source, insights: null };
-  const insights = await ctx.api
-    .getAccountInsightsSource(ctx.accountName, source)
-    .catch(() => null);
-  return { account: ctx.accountName, source, insights };
+  try {
+    const insights = await ctx.api.getAccountInsightsSource(ctx.accountName, source);
+    return { account: ctx.accountName, source, insights };
+  } catch (error) {
+    // The server answers 404 for an unknown source and for an account without
+    // the experiment, so the page is genuinely absent rather than empty. Other
+    // failures stay soft: the query below retries and the page renders its own
+    // error state.
+    if (error instanceof ApiRequestError && error.status === 404) {
+      throw new Response("Not Found", { status: 404 });
+    }
+    return { account: ctx.accountName, source, insights: null };
+  }
 }
 
 // Only an account change is different data; the rest slice a loaded payload.
@@ -103,7 +114,12 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
     usePersistentSearchParams("insights-source", SOURCE_FILTER_PARAMS);
   const resolvedTheme = useResolvedTheme();
 
-  const { account, paramAccount, setScopeAccount } = useInsightsScopeAccount(searchParams, setSearchParams);
+  const { account, paramAccount } = useInsightsScopeAccount(searchParams, setSearchParams);
+  const navigate = useNavigate();
+  // Back to the index rather than staying here: this page 404s for an account
+  // without the experiment, and that lands outside the app shell.
+  const switchAccount = (next: string) =>
+    navigate(`/insights?account=${encodeURIComponent(next)}`);
 
   // Separate key: the day narrows only the table, and drilling back out is cached.
   const [day, setDay] = useState<string | null>(null);
@@ -112,6 +128,13 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
 
   const range = searchParams.get("range") ?? DEFAULT_RANGE;
   const costUnavailable = payload?.coverage.cost_unavailable ?? false;
+  // Scopes the charts as well as the table, so it is stated once at the top.
+  const restrictedToSelf = payload?.ranges[range]?.people.restricted_to_self ?? false;
+  const viewerUnresolved = payload?.ranges[range]?.people.viewer_unresolved ?? false;
+  const period = payload?.ranges[range]?.period;
+  const dateLabel = period
+    ? `${formatDateShort(period.start)} – ${formatDateShort(period.end)}`
+    : undefined;
   // Every axis with data, in declared order; all render together.
   const shownAxes = useMemo(() => {
     const byKey = payload?.ranges[range]?.axes ?? {};
@@ -166,10 +189,11 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
             {icon
               ? <img src={getIntegrationIconUrl(icon, resolvedTheme)} alt="" className="size-7 shrink-0 object-contain" />
               : <Bot className="size-7 shrink-0 text-muted-foreground" aria-hidden />}
-            {label}
+            {label} for
           </span>
         }
-        adornment={<AccountScopeFilter value={account} onChange={setScopeAccount} className="-ml-1" />}
+        adornment={<AccountScopeFilter value={account} onChange={switchAccount} className="-ml-1" />}
+        description="Prompt classification is experimental and may not always be accurate."
         action={
           <div className="flex flex-wrap items-center gap-2">
             {!costUnavailable && (
@@ -181,7 +205,12 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
                 className="w-fit"
               />
             )}
-            <TimeRangeSelector value={range} onChange={(r) => setParam("range", r)} />
+            <TimeRangeSelector
+              value={range}
+              onChange={(r) => setParam("range", r)}
+              leading={dateLabel}
+              size="lg"
+            />
           </div>
         }
       />
@@ -191,12 +220,17 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
       ) : (
         <SettledContentReveal transitionKey={revealKey} settled={!!payload}>
           <div className="flex flex-col gap-6">
-            {payload && <CoverageNotice payload={payload} />}
+            {payload && <CoverageNotice payload={payload} restricted={restrictedToSelf} />}
 
             {shownAxes.length > 0 ? (
               shownAxes.map(({ ref, axis }) => (
                 <section key={ref.key} className="flex flex-col gap-3">
-                  <h2 className="text-heading-3 text-foreground">{ref.label}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-heading-3 text-foreground">{ref.label}</h2>
+                    <InlineBadge variant="soft" className="border-border-strong text-muted-foreground">
+                      Beta
+                    </InlineBadge>
+                  </div>
                   <div className="grid gap-4 @4xl:grid-cols-[1fr_360px]">
                     <LabelChart
                       axisKey={ref.key}
@@ -217,14 +251,23 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
                   </div>
                 </section>
               ))
+            ) : viewerUnresolved ? (
+              // Reached whenever a restricted reader has nothing attributed to
+              // them, which is also when no axis renders — so this cannot live
+              // inside the people table.
+              <EmptyCard
+                title="We can't tell which prompts are yours"
+                body="The email your coding tool reports isn't linked to your account, so none of these prompts can be attributed to you. Account owners and admins see everyone's."
+              />
+            ) : payload?.coverage.content_available === false ? (
+              <EmptyCard
+                title="Nothing classified yet"
+                body="Prompt collection is turned off for this tool, so there are no prompts to categorise. It's enabled in your Anthropic admin console, not in Astro AI."
+              />
             ) : (
               <EmptyCard
                 title="Nothing classified yet"
-                body={
-                  payload?.coverage.content_available === false
-                    ? "Prompt collection is turned off for this tool, so there are no prompts to categorise. It's enabled in your Anthropic admin console, not in Astro AI."
-                    : "No prompts in this range have been categorised yet."
-                }
+                body="No prompts in this range have been categorised yet."
               />
             )}
 
@@ -248,9 +291,12 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
 }
 
 // A partial window has to be stated, or it reads as "nobody used this".
-function CoverageNotice({ payload }: { payload: InsightsSourceResponse }) {
+function CoverageNotice({ payload, restricted }: { payload: InsightsSourceResponse; restricted: boolean }) {
   const { coverage } = payload;
   const notes: string[] = [];
+  if (restricted) {
+    notes.push("You're seeing your own usage. Account owners and admins see everyone's.");
+  }
   if (!coverage.backfill_complete && coverage.classified_from) {
     notes.push(`Still categorising older history — complete from ${coverage.classified_from}.`);
   }

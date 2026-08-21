@@ -636,11 +636,13 @@ func TestDevtoolSpendRidesTheAgentLineage(t *testing.T) {
 		"u_alpha": {userID: "u_alpha", username: "alpha", displayName: "Alpha Person"},
 	}
 
+	withClassification := normalizeInsightsRequestParams(defaultInsightsRequestParams())
+	withClassification.ClassificationEnabled = true
 	view := buildInsightsViewWithParams("acme",
 		AccountObservabilitySummaryResponse{},
 		deployments, users, members,
 		[]DevtoolSourceRef{{Key: ad.Key, Label: ad.Label, Icon: ad.Icon}},
-		now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+		now, withClassification)
 
 	assertInsightsSurfacesAgree(t, view, 6)
 
@@ -673,6 +675,19 @@ func TestDevtoolSpendRidesTheAgentLineage(t *testing.T) {
 	if row.Identity.Icon != ad.Icon {
 		t.Errorf("identity icon = %q, want %q", row.Identity.Icon, ad.Icon)
 	}
+	// The detail page 404s without the experiment, so the row must not offer a
+	// link into it.
+	gated := buildInsightsViewWithParams("acme",
+		AccountObservabilitySummaryResponse{},
+		deployments, users, members,
+		[]DevtoolSourceRef{{Key: ad.Key, Label: ad.Label, Icon: ad.Icon}},
+		now, normalizeInsightsRequestParams(defaultInsightsRequestParams()))
+	for _, r := range gated.Tables.Agents.Rows {
+		if r.Key == ad.Key && r.Identity.Href != "" {
+			t.Errorf("href = %q without the experiment, want none", r.Identity.Href)
+		}
+	}
+
 	// requests == 0 is expected for a dev-tool source, so the not-instrumented
 	// warning must not fire.
 	if row.NotInstrumented {
