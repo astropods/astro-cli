@@ -225,30 +225,6 @@ func (s *AccountStore) GetByWorkOSOrganizationID(orgID string) (*Account, error)
 	return acct, nil
 }
 
-// SetClusterID assigns an additional cluster to an account, or clears placement when
-// clusterID is empty (routes deploys to the primary cluster).
-func (s *AccountStore) SetClusterID(accountID, clusterID string) error {
-	var cid sql.NullString
-	if clusterID != "" {
-		cid = sql.NullString{String: clusterID, Valid: true}
-	}
-	res, err := s.db.Exec(`
-		UPDATE accounts SET cluster_id = $1, updated_at = now()
-		WHERE id = $2 AND deleted_at IS NULL
-	`, cid, accountID)
-	if err != nil {
-		return fmt.Errorf("set account cluster_id: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("set account cluster_id rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", accountID)
-	}
-	return nil
-}
-
 // SetWorkOSOrganizationID links an account to a WorkOS organization.
 func (s *AccountStore) SetWorkOSOrganizationID(accountID, orgID string) error {
 	_, err := s.db.Exec(`
@@ -270,7 +246,7 @@ func (s *AccountStore) GetAccountsForUser(userID string) ([]AccountWithRole, err
 // GetAccountsForUserContext is the cancellable form used by request hot paths.
 func (s *AccountStore) GetAccountsForUserContext(ctx context.Context, userID string) ([]AccountWithRole, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), COALESCE(a.cluster_id, ''), a.created_at, a.updated_at, a.display_name, a.avatar_updated_at
+		SELECT a.id, a.name, a.type, COALESCE(ao.workos_org_id, ''), a.created_at, a.updated_at, a.display_name, a.avatar_updated_at
 		FROM accounts a
 		JOIN account_members am ON a.id = am.account_id
 		LEFT JOIN account_organizations ao ON ao.account_id = a.id
@@ -286,7 +262,7 @@ func (s *AccountStore) GetAccountsForUserContext(ctx context.Context, userID str
 	for rows.Next() {
 		var a AccountWithRole
 		var avatarUpdatedAt sql.NullTime
-		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.ClusterID, &a.CreatedAt, &a.UpdatedAt, &a.DisplayName, &avatarUpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.WorkOSOrganizationID, &a.CreatedAt, &a.UpdatedAt, &a.DisplayName, &avatarUpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan account: %w", err)
 		}
 		if avatarUpdatedAt.Valid {

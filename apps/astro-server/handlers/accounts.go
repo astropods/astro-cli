@@ -92,7 +92,6 @@ type AccountWithRoleResponse struct {
 	Type                 string         `json:"type"`
 	DisplayName          string         `json:"display_name"`
 	WorkOSOrganizationID string         `json:"workos_org_id,omitempty"`
-	ClusterID            string         `json:"cluster_id,omitempty"`
 	Agents               []AgentSummary `json:"agents,omitempty"`
 }
 
@@ -755,7 +754,6 @@ func GetProfile(log *logger.Logger, accountStore *account.AccountStore, agentInd
 				Type:                 a.Type,
 				DisplayName:          a.DisplayName,
 				WorkOSOrganizationID: a.WorkOSOrganizationID,
-				ClusterID:            a.ClusterID,
 			}
 
 			// Include agent summaries for each account

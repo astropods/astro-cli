@@ -38,9 +38,9 @@ var (
 	// violated constraint isn't one of the two known ones below. Deregister
 	// should normally return one of the more specific errors instead.
 	ErrInUse = errors.New("cluster is still referenced by accounts or deployments")
-	// ErrInUseByAccounts means an account still has this cluster set as its
-	// cluster_id (accounts_cluster_id_fkey) — independent of whether that
-	// account has any deployments here.
+	// ErrInUseByAccounts means an account is still bound to this cluster
+	// (account_clusters_cluster_id_fkey), independent of whether that account
+	// has any deployments here.
 	ErrInUseByAccounts = errors.New("cluster still has accounts pinned to it")
 	// ErrInUseByDeployments means a deployment row still references this
 	// cluster (deployments_cluster_id_fkey), regardless of deployment status.
@@ -392,7 +392,7 @@ func (s *Store) tryDeleteCluster(ctx context.Context, id string) error {
 	if err != nil {
 		if pgCode(err) == pgForeignKeyViolation {
 			switch pgConstraint(err) {
-			case "accounts_cluster_id_fkey":
+			case "account_clusters_cluster_id_fkey", "accounts_cluster_id_fkey":
 				return ErrInUseByAccounts
 			case "deployments_cluster_id_fkey":
 				return ErrInUseByDeployments

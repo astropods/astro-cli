@@ -391,15 +391,19 @@ func TestDeregister_SelfHealsStaleUndeployedRows(t *testing.T) {
 }
 
 func TestDeregister_InUseByAccounts(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := New(db)
+	for _, constraint := range []string{"account_clusters_cluster_id_fkey", "accounts_cluster_id_fkey"} {
+		t.Run(constraint, func(t *testing.T) {
+			db, mock, _ := sqlmock.New()
+			store := New(db)
 
-	mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
-		WithArgs("us-east-1-managed").
-		WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: "accounts_cluster_id_fkey"})
+			mock.ExpectExec("DELETE FROM clusters WHERE id = \\$1").
+				WithArgs("us-east-1-managed").
+				WillReturnError(&pq.Error{Code: pgForeignKeyViolation, Constraint: constraint})
 
-	if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByAccounts) {
-		t.Errorf("expected ErrInUseByAccounts, got %v", err)
+			if err := store.Deregister(context.Background(), "us-east-1-managed"); !errors.Is(err, ErrInUseByAccounts) {
+				t.Errorf("expected ErrInUseByAccounts, got %v", err)
+			}
+		})
 	}
 }
 

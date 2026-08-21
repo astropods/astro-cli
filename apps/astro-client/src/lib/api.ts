@@ -192,8 +192,6 @@ export interface Account {
   avatar_url?: string;
   role?: string;
   organization_id?: string; // WorkOS org ID, present on organization accounts
-  /** Placement cluster (e.g. "eu"); empty = primary US cluster */
-  cluster_id?: string;
   agents?: BlueprintSummary[];
   account_number?: number;
   bio?: string;

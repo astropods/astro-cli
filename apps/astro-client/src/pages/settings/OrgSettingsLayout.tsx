@@ -9,8 +9,6 @@ import {
   SidebarBody,
 } from '@/components/ui/sidebar-layout'
 import { useAuth } from '@/lib/auth'
-import { isEuAccount } from '@/lib/account-cluster'
-import { Tag } from '@/components/Tag'
 
 function OrgSettingsContent() {
   const { orgSlug = '' } = useParams()
@@ -116,7 +114,6 @@ function OrgSettingsContent() {
               >
                 {displayName}
               </span>
-              {isEuAccount(org) && <Tag color="blue" className="mt-1 shrink-0">EU</Tag>}
             </h1>
           </div>
           <SidebarNav label="Org settings" className="md:w-48">

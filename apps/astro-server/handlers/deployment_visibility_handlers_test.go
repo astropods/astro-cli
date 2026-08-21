@@ -195,8 +195,8 @@ func expectAccountMembership(mock sqlmock.Sqlmock) {
 func expectAccountList(mock sqlmock.Sqlmock) {
 	now := time.Now()
 	mock.ExpectQuery(`(?s)JOIN account_members am.*WHERE am.user_id`).WithArgs("user-1").WillReturnRows(
-		sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at"}).
-			AddRow("acct-1", "acme", "organization", "org-1", "", now, now, "Acme", nil),
+		sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name", "avatar_updated_at"}).
+			AddRow("acct-1", "acme", "organization", "org-1", now, now, "Acme", nil),
 	)
 }
 

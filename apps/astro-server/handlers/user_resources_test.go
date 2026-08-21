@@ -118,11 +118,11 @@ func expectCrossAccountMemberships(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`FROM accounts a`).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "cluster_id", "created_at",
+			"id", "name", "type", "workos_org_id", "created_at",
 			"updated_at", "display_name", "avatar_updated_at",
 		}).
-			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha", nil).
-			AddRow("acct-2", "beta", "organization", "", "", now, now, "Beta", nil))
+			AddRow("acct-1", "alpha", "organization", "", now, now, "Alpha", nil).
+			AddRow("acct-2", "beta", "organization", "", now, now, "Beta", nil))
 }
 
 type recordingCache struct {

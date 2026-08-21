@@ -42,7 +42,6 @@ type AccountWithRole struct {
 	Name                 string     `json:"name"`
 	Type                 string     `json:"type"`
 	WorkOSOrganizationID string     `json:"workos_org_id,omitempty"`
-	ClusterID            string     `json:"cluster_id,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
 	DisplayName          string     `json:"display_name"`

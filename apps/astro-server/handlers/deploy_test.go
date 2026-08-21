@@ -1074,8 +1074,8 @@ func TestListDeployments_OmittedAccount_StampsAccountContext(t *testing.T) {
 	// GetAccountsForUser → one account.
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
-		}).AddRow("acct-1", "myorg", "organization", "", "", now, now, "MyOrg", nil))
+			"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
+		}).AddRow("acct-1", "myorg", "organization", "", now, now, "MyOrg", nil))
 
 	// GetVisibleDeploymentsByAccountAndBuilds → one deployment.
 	deployMock.ExpectQuery(`build_id = ANY`).
@@ -1136,10 +1136,10 @@ func TestListDeployments_OmittedAccount_AggregatesAcrossAccounts(t *testing.T) {
 	// GetAccountsForUser → two accounts.
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
+			"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
 		}).
-			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha", nil).
-			AddRow("acct-2", "beta", "personal", "", "", now, now, "Beta", nil))
+			AddRow("acct-1", "alpha", "organization", "", now, now, "Alpha", nil).
+			AddRow("acct-2", "beta", "personal", "", now, now, "Beta", nil))
 
 	// GetVisibleDeploymentsByAccountAndBuilds → one deployment per account.
 	depCols := []string{
@@ -1264,10 +1264,10 @@ func TestListDeployments_BuildIDFilter_CrossAccount(t *testing.T) {
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
+			"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
 		}).
-			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha", nil).
-			AddRow("acct-2", "beta", "personal", "", "", now, now, "Beta", nil))
+			AddRow("acct-1", "alpha", "organization", "", now, now, "Alpha", nil).
+			AddRow("acct-2", "beta", "personal", "", now, now, "Beta", nil))
 
 	depCols := []string{
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
@@ -1324,10 +1324,10 @@ func TestListDeployments_OmittedAccount_PartialFailureKeepsSuccessfulAccount(t *
 
 	accountMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "type", "workos_org_id", "cluster_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
+			"id", "name", "type", "workos_org_id", "created_at", "updated_at", "display_name", "avatar_updated_at",
 		}).
-			AddRow("acct-1", "alpha", "organization", "", "", now, now, "Alpha", nil).
-			AddRow("acct-bad", "broken", "organization", "", "", now, now, "Broken", nil))
+			AddRow("acct-1", "alpha", "organization", "", now, now, "Alpha", nil).
+			AddRow("acct-bad", "broken", "organization", "", now, now, "Broken", nil))
 
 	depCols := []string{
 		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
