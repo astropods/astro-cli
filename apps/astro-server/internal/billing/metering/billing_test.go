@@ -551,6 +551,52 @@ func TestStartBilling_UpsertOnRedeploy(t *testing.T) {
 	}
 }
 
+func TestStartBilling_ActiveRowKeepsAnchor(t *testing.T) {
+	db := setupSQLiteDB(t)
+	srv, _, _ := collectEvents(t)
+	log := logger.New("error", "json")
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
+
+	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
+
+	anchor := time.Now().Add(-40 * time.Minute).UTC().Truncate(time.Second)
+	db.Exec(`INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas)
+		VALUES ('dep-1', 'agent', 1, ?, '1', '2Gi', 1)`, anchor)
+
+	m.StartBilling(context.Background(), "dep-1", []WorkloadInfo{
+		{Component: "agent", CPURequest: "1", MemoryRequest: "2Gi", Replicas: 1},
+	})
+
+	var got time.Time
+	db.QueryRow("SELECT last_emitted_at FROM deployment_billing_state WHERE deployment_id = 'dep-1' AND component = 'agent'").Scan(&got)
+	if !got.UTC().Truncate(time.Second).Equal(anchor) {
+		t.Errorf("anchor = %v, want %v — unbilled active time was discarded", got, anchor)
+	}
+}
+
+func TestStartBilling_InactiveRowResetsAnchor(t *testing.T) {
+	db := setupSQLiteDB(t)
+	srv, _, _ := collectEvents(t)
+	log := logger.New("error", "json")
+	m := NewBillingStateManager(NewProvider(NewClient(srv.URL)), db, log)
+
+	db.Exec(`INSERT INTO deployments (id, account_id, agent_name, namespace, status) VALUES ('dep-1', 'acct-1', 'my-agent', 'ns-1', 'active')`)
+
+	anchor := time.Now().Add(-40 * time.Minute).UTC()
+	db.Exec(`INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas)
+		VALUES ('dep-1', 'agent', 0, ?, '1', '2Gi', 1)`, anchor)
+
+	m.StartBilling(context.Background(), "dep-1", []WorkloadInfo{
+		{Component: "agent", CPURequest: "1", MemoryRequest: "2Gi", Replicas: 1},
+	})
+
+	var got time.Time
+	db.QueryRow("SELECT last_emitted_at FROM deployment_billing_state WHERE deployment_id = 'dep-1' AND component = 'agent'").Scan(&got)
+	if !got.After(anchor.Add(time.Minute)) {
+		t.Errorf("anchor = %v, want reset to now — a stopped period must not be billed", got)
+	}
+}
+
 func TestStopBilling_MultipleComponents_AllDeactivated(t *testing.T) {
 	db := setupSQLiteDB(t)
 	srv, received, mu := collectEvents(t)

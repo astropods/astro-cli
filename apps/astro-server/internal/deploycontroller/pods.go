@@ -18,9 +18,10 @@ import (
 // with a specific reason instead of a generic "ProgressDeadlineExceeded".
 const podFailureGrace = 90 * time.Second
 
-// crashLoopRestartLimit: CrashLoopBackOff counts as failure only past this many
-// restarts, so a container that crashed once and is retrying isn't failed.
-const crashLoopRestartLimit = 3
+const (
+	crashLoopRestartLimit = 3
+	crashLoopStableWindow = 5 * time.Minute
+)
 
 // permanentWaitReasons are container waiting reasons that do not self-resolve
 // without operator action (a fixed image reference, a fresh build).
@@ -38,15 +39,9 @@ var permanentWaitReasons = map[string]bool{
 	"CreateContainerConfigError": true,
 }
 
-// enrichFromPods overrides a still-settling workload status to failed when one
-// of its pods is permanently wedged, attaching the specific pod reason. Already
-// ready/complete/failed statuses are returned unchanged. The pod set is selected
-// by the workload's own label selector.
 func enrichFromPods(pl corelisters.PodLister, ns string, sel *metav1.LabelSelector, ws deploymentstore.WorkloadStatus) deploymentstore.WorkloadStatus {
 	switch ws.Phase {
-	case deploymentstore.WorkloadPhaseReady,
-		deploymentstore.WorkloadPhaseComplete,
-		deploymentstore.WorkloadPhaseFailed:
+	case deploymentstore.WorkloadPhaseComplete, deploymentstore.WorkloadPhaseFailed:
 		return ws
 	}
 	if pl == nil || sel == nil {
@@ -60,7 +55,11 @@ func enrichFromPods(pl corelisters.PodLister, ns string, sel *metav1.LabelSelect
 	if err != nil {
 		return ws
 	}
-	if reason, msg := classifyPods(pods); reason != "" {
+	classify := classifyPods
+	if ws.Phase == deploymentstore.WorkloadPhaseReady {
+		classify = classifyUnstablePods
+	}
+	if reason, msg := classify(pods); reason != "" {
 		ws.Phase = deploymentstore.WorkloadPhaseFailed
 		ws.Reason = reason
 		ws.Message = msg
@@ -68,8 +67,6 @@ func enrichFromPods(pl corelisters.PodLister, ns string, sel *metav1.LabelSelect
 	return ws
 }
 
-// classifyPods returns the first permanent failure found across the pods, or
-// ("","") when none is wedged.
 func classifyPods(pods []*corev1.Pod) (reason, message string) {
 	for _, p := range pods {
 		if r, m := classifyPodFailure(p); r != "" {
@@ -79,19 +76,46 @@ func classifyPods(pods []*corev1.Pod) (reason, message string) {
 	return "", ""
 }
 
-// classifyPodFailure inspects one pod's scheduling condition and its init + main
-// container statuses and returns a (reason, message) when it is permanently
-// wedged. Pods mid-deletion or already succeeded are ignored.
+func classifyUnstablePods(pods []*corev1.Pod) (reason, message string) {
+	for _, p := range pods {
+		if p == nil || p.DeletionTimestamp != nil || !podReady(p) {
+			continue
+		}
+		for _, cs := range allContainerStatuses(p) {
+			if cs.RestartCount > crashLoopRestartLimit && !runStable(cs) {
+				return "CrashLoopBackOff", fmt.Sprintf("%s restarted %d times", cs.Name, cs.RestartCount)
+			}
+		}
+	}
+	return "", ""
+}
+
+func runStable(cs corev1.ContainerStatus) bool {
+	r := cs.State.Running
+	return r != nil && time.Since(r.StartedAt.Time) >= crashLoopStableWindow
+}
+
+func podReady(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func allContainerStatuses(p *corev1.Pod) []corev1.ContainerStatus {
+	all := append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...)
+	return append(all, p.Status.ContainerStatuses...)
+}
+
 func classifyPodFailure(pod *corev1.Pod) (reason, message string) {
 	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodSucceeded {
 		return "", ""
 	}
 	age := time.Since(pod.CreationTimestamp.Time)
 
-	all := append([]corev1.ContainerStatus{}, pod.Status.InitContainerStatuses...)
-	all = append(all, pod.Status.ContainerStatuses...)
-	for _, cs := range all {
-		// OOMKilled surfaces as a terminated state (current or last).
+	for _, cs := range allContainerStatuses(pod) {
 		if oom := oomKilled(cs); oom {
 			return "OOMKilled", fmt.Sprintf("container %s was OOMKilled", cs.Name)
 		}

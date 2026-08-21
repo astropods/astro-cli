@@ -39,9 +39,6 @@ type WorkloadInfo struct {
 	Replicas      int
 }
 
-// StartBilling records that a deployment's workloads are now consuming compute.
-// Called when a deployment transitions to active. No CU-hours are emitted — the
-// anchor timestamp is set so the next stop or heartbeat event can calculate the delta.
 func (m *BillingStateManager) StartBilling(ctx context.Context, deploymentID string, workloads []WorkloadInfo) {
 	if m == nil {
 		return
@@ -56,7 +53,10 @@ func (m *BillingStateManager) StartBilling(ctx context.Context, deploymentID str
 			INSERT INTO deployment_billing_state (deployment_id, component, billing_active, last_emitted_at, cpu_request, memory_request, replicas)
 			VALUES ($1, $2, true, $3, $4, $5, $6)
 			ON CONFLICT (deployment_id, component) DO UPDATE
-			SET billing_active = true, last_emitted_at = $3, cpu_request = $4, memory_request = $5, replicas = $6, stopped_at = NULL
+			SET billing_active = true,
+			    last_emitted_at = CASE WHEN deployment_billing_state.billing_active
+			                           THEN deployment_billing_state.last_emitted_at ELSE $3 END,
+			    cpu_request = $4, memory_request = $5, replicas = $6, stopped_at = NULL
 		`, deploymentID, w.Component, now, w.CPURequest, w.MemoryRequest, replicas)
 		if err != nil {
 			m.log.Error("billing: start billing state failed", "error", err, "deployment_id", deploymentID, "component", w.Component)

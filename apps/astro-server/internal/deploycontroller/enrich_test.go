@@ -12,8 +12,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 )
 
-// podListerWith builds a PodLister backed by the given pods, matching how the
-// informer-backed lister indexes by namespace.
 func podListerWith(pods ...*corev1.Pod) corelisters.PodLister {
 	idx := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
 		cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
@@ -36,6 +34,23 @@ func labeledPod(ns, name string, labels map[string]string, cs corev1.ContainerSt
 	}
 }
 
+func readyPod(ns, name string, labels map[string]string, cs corev1.ContainerStatus) *corev1.Pod {
+	p := labeledPod(ns, name, labels, cs, time.Hour)
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	return p
+}
+
+func runningContainer(name string, restarts int32, runFor time.Duration) corev1.ContainerStatus {
+	return corev1.ContainerStatus{
+		Name:         name,
+		Ready:        true,
+		RestartCount: restarts,
+		State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{
+			StartedAt: metav1.NewTime(time.Now().Add(-runFor)),
+		}},
+	}
+}
+
 func TestEnrichFromPods(t *testing.T) {
 	const ns = "acct-1"
 	sel := &metav1.LabelSelector{MatchLabels: map[string]string{"app": "agent"}}
@@ -43,6 +58,8 @@ func TestEnrichFromPods(t *testing.T) {
 
 	running := corev1.ContainerStatus{Name: "app", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}}
 	wedged := corev1.ContainerStatus{Name: "app", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}
+	restartedRecently := runningContainer("app", 7, 30*time.Second)
+	restartedLongAgo := runningContainer("app", 7, 30*time.Minute)
 
 	tests := []struct {
 		name       string
@@ -53,9 +70,56 @@ func TestEnrichFromPods(t *testing.T) {
 		wantReason string
 	}{
 		{
-			name:      "ready workload short-circuits — not flipped by a wedged pod",
+			name:      "ready workload not flipped by a wedged, not-ready pod",
 			in:        deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
 			lister:    podListerWith(labeledPod(ns, "agent-0", appLabels, wedged, 5*time.Minute)),
+			sel:       sel,
+			wantPhase: deploymentstore.WorkloadPhaseReady,
+		},
+		{
+			name:       "ready workload whose ready pod is between crashes → failed",
+			in:         deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
+			lister:     podListerWith(readyPod(ns, "agent-0", appLabels, restartedRecently)),
+			sel:        sel,
+			wantPhase:  deploymentstore.WorkloadPhaseFailed,
+			wantReason: "CrashLoopBackOff",
+		},
+		{
+			name:      "ready workload whose ready pod outlasted the stable window → ready",
+			in:        deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
+			lister:    podListerWith(readyPod(ns, "agent-0", appLabels, restartedLongAgo)),
+			sel:       sel,
+			wantPhase: deploymentstore.WorkloadPhaseReady,
+		},
+		{
+			name:      "ready workload with a few restarts → ready",
+			in:        deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
+			lister:    podListerWith(readyPod(ns, "agent-0", appLabels, runningContainer("app", crashLoopRestartLimit, time.Second))),
+			sel:       sel,
+			wantPhase: deploymentstore.WorkloadPhaseReady,
+		},
+		{
+			name: "rollout: crash-looping old pod is not ready, new pod is → ready",
+			in:   deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
+			lister: podListerWith(
+				labeledPod(ns, "agent-old", appLabels, corev1.ContainerStatus{
+					Name: "app", RestartCount: 9,
+					State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				}, 20*time.Minute),
+				readyPod(ns, "agent-new", appLabels, runningContainer("app", 0, 10*time.Second)),
+			),
+			sel:       sel,
+			wantPhase: deploymentstore.WorkloadPhaseReady,
+		},
+		{
+			name: "ready workload whose unstable pod is terminating → ready",
+			in:   deploymentstore.WorkloadStatus{Phase: deploymentstore.WorkloadPhaseReady},
+			lister: podListerWith(func() *corev1.Pod {
+				p := readyPod(ns, "agent-0", appLabels, restartedRecently)
+				now := metav1.Now()
+				p.DeletionTimestamp = &now
+				return p
+			}()),
 			sel:       sel,
 			wantPhase: deploymentstore.WorkloadPhaseReady,
 		},
