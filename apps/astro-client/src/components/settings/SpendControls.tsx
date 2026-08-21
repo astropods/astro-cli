@@ -151,7 +151,7 @@ function SpendControlsForm({ account }: { account: string }) {
       setEdits({});
 
       const stopped = results.some(
-        (r) => r.status === "fulfilled" && r.value.limit_lift_failed === true,
+        (r) => r.status === "fulfilled" && r.value?.limit_lift_failed === true,
       );
       setStillStopped(stopped);
 
