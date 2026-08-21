@@ -41,7 +41,8 @@ func workloadByKind(t *testing.T, store *Store, depID, kind string) *Workload {
 
 // ── S1: workload types ────────────────────────────────────────────────────────
 
-func TestSaveNormalizedSpec_S1_AgentIsDeployment(t *testing.T) {
+// Every agent gets a default shared persistent disk, so it is a StatefulSet.
+func TestSaveNormalizedSpec_S1_AgentIsStatefulSet(t *testing.T) {
 	db := testDB(t)
 	store := NewStore(db)
 	depID := saveSpec(t, store, ensureTestAccount(t, db), "s1-agent", agentOnlySpec("s1-agent"), nil)
@@ -50,8 +51,8 @@ func TestSaveNormalizedSpec_S1_AgentIsDeployment(t *testing.T) {
 	if w == nil {
 		t.Fatal("agent workload not found")
 	}
-	if w.WorkloadType != "deployment" {
-		t.Errorf("want deployment, got %q", w.WorkloadType)
+	if w.WorkloadType != "statefulset" {
+		t.Errorf("want statefulset, got %q", w.WorkloadType)
 	}
 	if w.Image != "img:b1" {
 		t.Errorf("image: want img:b1, got %q", w.Image)
@@ -155,8 +156,8 @@ func TestSaveNormalizedSpec_S2_PersistentKnowledgeGetsVolume(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM deployment_volumes v JOIN deployment_workloads w ON v.workload_id = w.id WHERE w.deployment_id = $1`, depID).Scan(&n); err != nil {
 		t.Fatalf("count volumes: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("want 1 volume for persistent knowledge, got %d", n)
+	if n != 2 {
+		t.Errorf("want 2 volumes (the agent's default disk and persistent knowledge), got %d", n)
 	}
 }
 
@@ -173,8 +174,9 @@ func TestSaveNormalizedSpec_S2_NonPersistentKnowledgeHasNoVolume(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM deployment_volumes v JOIN deployment_workloads w ON v.workload_id = w.id WHERE w.deployment_id = $1`, depID).Scan(&n); err != nil {
 		t.Fatalf("count volumes: %v", err)
 	}
-	if n != 0 {
-		t.Errorf("want 0 volumes for non-persistent knowledge, got %d", n)
+	// Only the agent's default disk: non-persistent knowledge adds none.
+	if n != 1 {
+		t.Errorf("want 1 volume (the agent's default disk only), got %d", n)
 	}
 }
 
@@ -235,7 +237,7 @@ func TestSaveNormalizedSpec_S9_MessagingTarget(t *testing.T) {
 	ds := specWithIngestions("s9", map[string]deployment.Variable{
 		"SLACK_TOKEN": {Value: "xoxb", Secret: true, Targets: []string{"interface.slack"}},
 	})
-	depID := saveSpec(t, store, ensureTestAccount(t, db), "s9", ds, nil)
+	depID := saveSpec(t, store, ensureTestAccount(t, db), "s9", ds, testEncryptor(t))
 	rows := buildEnvRows(t, db, depID)
 
 	r, ok := rows["messaging|SLACK_TOKEN"]
@@ -380,25 +382,24 @@ func TestSaveNormalizedSpec_S15_UpdateDeployClears(t *testing.T) {
 		t.Fatalf("first save: %v", err)
 	}
 
-	// Second call to SaveNormalizedSpec on same deployment (simulating re-deploy)
-	tx, err := db.Begin()
+	// A redeploy goes through UpdateDeploymentPending, which clears the prior
+	// normalized rows before the callback writes the new ones. Calling
+	// SaveNormalizedSpec on its own collides on the workload-name index.
+	_, err = store.UpdateDeploymentPending(SaveDeploymentParams{
+		ID: depID2, AccountID: accountID, AgentName: "s15b",
+		BuildID: "b1", Namespace: "ns-s15b", SpecJSON: `{}`,
+	}, func(tx *sql.Tx, id string) error {
+		return SaveNormalizedSpec(tx, id, &deployment.AstroDeploymentSpec{
+			Spec:   "deployment/v1",
+			Source: deployment.DeploymentSource{Name: "s15b", Build: "b1"},
+			Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
+			Variables: map[string]deployment.Variable{
+				"AFTER": {Value: "v2", Targets: []string{"agent"}},
+			},
+		}, nil, nil)
+	})
 	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	err = SaveNormalizedSpec(tx, depID2, &deployment.AstroDeploymentSpec{
-		Spec:   "deployment/v1",
-		Source: deployment.DeploymentSource{Name: "s15b", Build: "b1"},
-		Agent:  deployment.DeploymentAgent{Image: "img:b1", Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}}, Replicas: 1},
-		Variables: map[string]deployment.Variable{
-			"AFTER": {Value: "v2", Targets: []string{"agent"}},
-		},
-	}, nil, nil)
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("second SaveNormalizedSpec: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit: %v", err)
+		t.Fatalf("redeploy: %v", err)
 	}
 
 	rows := buildEnvRows(t, db, depID2)
@@ -848,7 +849,7 @@ func TestGetDeploymentVariables_V6_SecretFlagPreserved(t *testing.T) {
 		"SECRET_VAR": {Value: "s", Secret: true, Targets: []string{"agent"}},
 		"PLAIN_VAR":  {Value: "p", Secret: false, Targets: []string{"agent"}},
 	}
-	depID := saveSpec(t, store, ensureTestAccount(t, db), "v6", ds, nil)
+	depID := saveSpec(t, store, ensureTestAccount(t, db), "v6", ds, testEncryptor(t))
 
 	vars, err := store.GetDeploymentVariables(depID)
 	if err != nil {

@@ -175,14 +175,15 @@ run_tests() {
     go test -tags k8s -race -timeout 5m -v ./e2e/...
 }
 
-# Postgres-only integration tests (//go:build integration).
+# Postgres-only integration tests: the //go:build integration suite plus the
+# internal packages whose tests need a real database.
 # Skips the kind/vcluster setup that the k8s tier needs.
 run_integration_tests() {
   info "Running Postgres-only integration tests..."
   cd "$ROOT/apps/astro-server"
 
   DATABASE_URL="$DATABASE_URL" \
-    go test -tags integration -race -timeout 5m -v ./e2e/...
+    go test -tags integration -race -timeout 5m -v ./e2e/... ./internal/...
 }
 
 # --- main ---

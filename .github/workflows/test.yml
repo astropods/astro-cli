@@ -242,13 +242,16 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@v1.13.0
 
+      # ./internal/... too: several packages there test SQL against a real
+      # database and skip themselves without DATABASE_URL, so the unit job runs
+      # them as no-ops. This is the job that has one.
       - name: Run integration tests
         working-directory: apps/astro-server
         run: |
           if [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            gotestsum --format pkgname -- -tags integration -race ./e2e/...
+            gotestsum --format pkgname -- -tags integration -race ./e2e/... ./internal/...
           else
-            gotestsum --format pkgname -- -tags integration ./e2e/...
+            gotestsum --format pkgname -- -tags integration ./e2e/... ./internal/...
           fi
 
   test-go-k8s:

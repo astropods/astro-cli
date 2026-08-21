@@ -88,6 +88,22 @@ func targetingSpec() *deployment.AstroDeploymentSpec {
 	}
 }
 
+// testEncryptor is a working envelope encryptor. A secret variable cannot be
+// stored without one, so any spec declaring one has to pass it: nil is not a
+// plaintext fallback, it is an error.
+func testEncryptor(t *testing.T) *envelope.Encryptor {
+	t.Helper()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("read random key: %v", err)
+	}
+	enc, err := envelope.NewTestEncryptor(key)
+	if err != nil {
+		t.Fatalf("new test encryptor: %v", err)
+	}
+	return enc
+}
+
 func saveSpec(t *testing.T, store *Store, accountID string, name string, ds *deployment.AstroDeploymentSpec, enc *envelope.Encryptor) string {
 	t.Helper()
 	depID := newID()
@@ -157,12 +173,12 @@ func TestSaveNormalizedSpec_FullSpec_Workloads(t *testing.T) {
 		byName[w.Name] = w
 	}
 
-	// agent → Deployment
+	// agent → StatefulSet: every agent gets a default shared disk.
 	if byKind["agent"] == nil {
 		t.Fatal("agent workload missing")
 	}
-	if byKind["agent"].WorkloadType != "deployment" {
-		t.Errorf("agent.workload_type: want deployment, got %q", byKind["agent"].WorkloadType)
+	if byKind["agent"].WorkloadType != "statefulset" {
+		t.Errorf("agent.workload_type: want statefulset, got %q", byKind["agent"].WorkloadType)
 	}
 	if byKind["agent"].Replicas != 1 {
 		t.Errorf("agent.replicas: want 1, got %d", byKind["agent"].Replicas)
@@ -225,8 +241,8 @@ func TestSaveNormalizedSpec_FullSpec_Workloads(t *testing.T) {
 		WHERE w.deployment_id = $1`, depID).Scan(&volCount); err != nil {
 		t.Fatalf("count volumes: %v", err)
 	}
-	if volCount != 1 {
-		t.Errorf("volumes: want 1 (persistent db only), got %d", volCount)
+	if volCount != 2 {
+		t.Errorf("volumes: want 2 (the agent's default disk and the persistent db), got %d", volCount)
 	}
 
 	// S3: services — each workload has at least one service
@@ -248,7 +264,7 @@ func TestSaveNormalizedSpec_BuildEnv_Targeting(t *testing.T) {
 	store := NewStore(db)
 
 	ds := targetingSpec()
-	depID := saveSpec(t, store, accountID, "be-target", ds, nil)
+	depID := saveSpec(t, store, accountID, "be-target", ds, testEncryptor(t))
 
 	rows := buildEnvRows(t, db, depID)
 
@@ -351,15 +367,17 @@ func TestSaveNormalizedSpec_BuildEnv_UpdateDeployClears(t *testing.T) {
 		t.Fatalf("after first save: want 1 row, got %d", n)
 	}
 
-	// S15: second deploy with SECOND_VAR — first save's rows must be cleared
-	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
+	// S15: a redeploy with SECOND_VAR must clear the first save's rows. It goes
+	// through UpdateDeploymentPending, which owns that cleanup; a second insert
+	// collides on the display-name index instead.
+	_, err = store.UpdateDeploymentPending(SaveDeploymentParams{
 		ID: depID, AccountID: accountID, AgentName: "update-test",
 		BuildID: "b2", Namespace: "ns-update", SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
 		return SaveNormalizedSpec(tx, id, baseSpec("SECOND_VAR", "v2"), nil, nil)
 	})
 	if err != nil {
-		t.Fatalf("second save: %v", err)
+		t.Fatalf("redeploy: %v", err)
 	}
 
 	rows := buildEnvRows(t, db, depID)

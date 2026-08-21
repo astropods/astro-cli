@@ -16,10 +16,10 @@ import (
 )
 
 // encryptResolution prepares a Resolution's value for storage in
-// deployment_build_env. Non-secret rows are stored plaintext so the API
-// can read them without KMS access. Secret rows go through enc.Encrypt,
-// which is nil-safe and passes plaintext through when KMS isn't
-// configured (local dev) — no branching on KMS state here.
+// deployment_build_env. Non-secret rows are stored plaintext so the API can read
+// them without KMS access. A secret row needs a working encryptor: enc.Encrypt
+// refuses rather than falling back to plaintext, so a caller that may store a
+// secret has to supply one.
 func encryptResolution(enc *envelope.Encryptor, r deployment.Resolution) ([]byte, []byte, error) {
 	if !r.IsSecret {
 		return []byte(r.Value), nil, nil
@@ -953,7 +953,10 @@ func (s *Store) GetDeploymentVariables(deploymentID string) ([]Variable, error) 
 		case role == "messaging":
 			p.targets["interface"] = true
 		case strings.HasPrefix(role, "ingestion:"):
-			p.targets["ingestion"] = true
+			// Keep the component name. A spec target of "ingestion.<name>"
+			// narrows to one component, so reporting bare "ingestion" would
+			// widen it to every declared one on the way back out.
+			p.targets["ingestion."+strings.TrimPrefix(role, "ingestion:")] = true
 		}
 	}
 	if err := rows.Err(); err != nil {

@@ -1,6 +1,7 @@
 package deploymentstore
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -35,8 +36,13 @@ func TestGetCurrentRevision(t *testing.T) {
 	if rev.BuildID != "build-1" {
 		t.Errorf("build_id mismatch: got %q, want 'build-1'", rev.BuildID)
 	}
-	if string(rev.SpecJSON) != `{"spec":"v1"}` {
-		t.Errorf("spec_json mismatch: got %q", string(rev.SpecJSON))
+	// jsonb reformats on the way out, so compare the decoded value.
+	var gotSpec map[string]any
+	if err := json.Unmarshal(rev.SpecJSON, &gotSpec); err != nil {
+		t.Fatalf("spec_json is not valid JSON: %v", err)
+	}
+	if gotSpec["spec"] != "v1" {
+		t.Errorf("spec_json mismatch: got %s", rev.SpecJSON)
 	}
 }
 

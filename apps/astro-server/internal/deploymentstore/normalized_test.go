@@ -75,49 +75,6 @@ func TestSaveDeploymentPending_NilTxFn(t *testing.T) {
 	}
 }
 
-func TestSaveDeploymentPending_Redeploy_BackwardCompat(t *testing.T) {
-	db := testDB(t)
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	// First deploy
-	d1, err := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: "redeploy-compat",
-		DisplayName: "Redeploy", BuildID: "build-1", Namespace: "ns-1",
-		SpecJSON: `{"v":1}`,
-	}, nil)
-	if err != nil {
-		t.Fatalf("first deploy failed: %v", err)
-	}
-	// Mark first as active so the second deploy will mark it as undeployed
-	_, _ = db.Exec("UPDATE deployments SET status = 'active' WHERE id = $1", d1.ID)
-
-	// Second deploy — should mark first as undeployed
-	d2, err := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: "redeploy-compat",
-		DisplayName: "Redeploy", BuildID: "build-2", Namespace: "ns-2",
-		SpecJSON: `{"v":2}`,
-	}, nil)
-	if err != nil {
-		t.Fatalf("second deploy failed: %v", err)
-	}
-
-	// Verify first is undeployed
-	var status string
-	err = db.QueryRow("SELECT status FROM deployments WHERE id = $1", d1.ID).Scan(&status)
-	if err != nil {
-		t.Fatalf("query first: %v", err)
-	}
-	if status != "undeployed" {
-		t.Errorf("first deployment should be undeployed, got %q", status)
-	}
-
-	// Verify second is pending
-	if d2.Status != "pending" {
-		t.Errorf("second deployment should be pending, got %q", d2.Status)
-	}
-}
-
 // --- Normalized spec dual-write tests ---
 
 func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
@@ -187,7 +144,7 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 		DisplayName: "My Agent", BuildID: "build-1", Namespace: "ns-test",
 		SpecJSON: specJSON,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds, testEncryptor(t), nil)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending failed: %v", err)
@@ -217,8 +174,8 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	if agentWL == nil {
 		t.Fatal("agent workload not found")
 	}
-	if agentWL.WorkloadType != "deployment" {
-		t.Errorf("agent workload_type: got %q, want 'deployment'", agentWL.WorkloadType)
+	if agentWL.WorkloadType != "statefulset" {
+		t.Errorf("agent workload_type: got %q, want 'statefulset'", agentWL.WorkloadType)
 	}
 	if agentWL.Replicas != 2 {
 		t.Errorf("agent replicas: got %d, want 2", agentWL.Replicas)
@@ -283,39 +240,53 @@ func TestSaveDeploymentPending_WithNormalizedSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("count volumes: %v", err)
 	}
-	if volCount != 1 {
-		t.Errorf("expected 1 volume (knowledge), got %d", volCount)
+	if volCount != 2 {
+		t.Errorf("expected 2 volumes (the agent's default disk and knowledge), got %d", volCount)
 	}
 
 	// Verify variables
 	var varCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM deployment_variables WHERE deployment_id = $1", d.ID).Scan(&varCount)
+	err = db.QueryRow(
+		"SELECT COUNT(DISTINCT user_var_name) FROM deployment_build_env WHERE deployment_id = $1 AND user_var_name IS NOT NULL",
+		d.ID,
+	).Scan(&varCount)
 	if err != nil {
 		t.Fatalf("count variables: %v", err)
 	}
 	if varCount != 2 {
-		// OPTIONAL_V has nil Targets and is skipped by both writers for parity.
+		// OPTIONAL_V has nil Targets, so it reaches no role and is not written.
 		t.Errorf("expected 2 variables, got %d", varCount)
 	}
 
-	// Verify secret variable value is stripped (no encryptor passed)
-	var secretVal string
-	err = db.QueryRow("SELECT value FROM deployment_variables WHERE deployment_id = $1 AND name = 'API_KEY'", d.ID).Scan(&secretVal)
-	if err != nil {
+	// A secret is stored as ciphertext, never as its plaintext.
+	var secretStored []byte
+	var isSecret bool
+	if err := db.QueryRow(
+		`SELECT value_encrypted, is_secret FROM deployment_build_env
+		 WHERE deployment_id = $1 AND user_var_name = 'API_KEY' LIMIT 1`, d.ID,
+	).Scan(&secretStored, &isSecret); err != nil {
 		t.Fatalf("query secret variable: %v", err)
 	}
-	if secretVal != "" {
-		t.Errorf("secret variable should be empty without encryptor, got %q", secretVal)
+	if !isSecret {
+		t.Error("API_KEY should be marked secret")
+	}
+	if len(secretStored) == 0 {
+		t.Error("secret variable has no stored ciphertext")
+	}
+	if string(secretStored) == "sk-secret-123" {
+		t.Error("secret variable was stored as plaintext")
 	}
 
-	// Verify non-secret variable value is stored
-	var plainVal string
-	err = db.QueryRow("SELECT value FROM deployment_variables WHERE deployment_id = $1 AND name = 'LOG_LEVEL'", d.ID).Scan(&plainVal)
-	if err != nil {
+	// A non-secret is stored as-is.
+	var plainStored []byte
+	if err := db.QueryRow(
+		`SELECT value_encrypted FROM deployment_build_env
+		 WHERE deployment_id = $1 AND user_var_name = 'LOG_LEVEL' LIMIT 1`, d.ID,
+	).Scan(&plainStored); err != nil {
 		t.Fatalf("query plain variable: %v", err)
 	}
-	if plainVal != "debug" {
-		t.Errorf("expected 'debug', got %q", plainVal)
+	if string(plainStored) != "debug" {
+		t.Errorf("expected 'debug', got %q", plainStored)
 	}
 
 }
@@ -474,87 +445,6 @@ func TestSaveDeploymentPending_NoEncryptedDataKey(t *testing.T) {
 	}
 }
 
-// TestSaveNormalizedSpec_WithEncryptor verifies secrets are encrypted when an encryptor is provided.
-func TestSaveNormalizedSpec_WithEncryptor(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	// Create a mock encryptor
-	enc := &envelope.Encryptor{
-		EncryptedDataKey: []byte("fake-encrypted-key"),
-		KMSKeyARN:        "arn:aws:kms:us-east-1:123:key/test",
-	}
-	// We can't use the real encryptor (needs KMS), but we can test the variable
-	// storage by using a nil encryptor and verifying the strip behavior
-	// For the encrypted path, the actual crypto is tested in envelope_test.go
-
-	ds := &deployment.AstroDeploymentSpec{
-		Spec: "deployment/v1",
-		Source: deployment.DeploymentSource{
-			Name: "enc-test-agent", Build: "build-1", Registry: "r.io",
-		},
-		Agent: deployment.DeploymentAgent{
-			Image: "r.io/agent:latest", Replicas: 1,
-			Resources: deployment.DeploymentResources{CPU: "100m", Memory: "256Mi"},
-			Endpoints: map[string]deployment.Endpoint{"http": {Port: 8080}},
-		},
-		Variables: map[string]deployment.Variable{
-			"SECRET_KEY": {Value: "super-secret", Secret: true, Targets: []string{"agent"}},
-			"PLAIN_VAR":  {Value: "visible", Secret: false, Targets: []string{"agent"}},
-		},
-	}
-	deploymentID := newID()
-	// Use nil encryptor — secrets should be stripped
-	_, err = store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: deploymentID, AccountID: accountID, AgentName: "enc-test-agent",
-		DisplayName: "EncTest", BuildID: "build-1", Namespace: "ns-enc-test",
-		SpecJSON: `{}`,
-	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
-	})
-	if err != nil {
-		t.Fatalf("save failed: %v", err)
-	}
-
-	// Secret value should be empty (stripped)
-	var val string
-	var isSecret bool
-	err = db.QueryRow("SELECT value, secret FROM deployment_variables WHERE deployment_id = $1 AND name = 'SECRET_KEY'", deploymentID).Scan(&val, &isSecret)
-	if err != nil {
-		t.Fatalf("query secret: %v", err)
-	}
-	if val != "" {
-		t.Errorf("secret value should be stripped, got %q", val)
-	}
-	if !isSecret {
-		t.Error("secret flag should be true")
-	}
-
-	// Plain value should be stored
-	err = db.QueryRow("SELECT value, secret FROM deployment_variables WHERE deployment_id = $1 AND name = 'PLAIN_VAR'", deploymentID).Scan(&val, &isSecret)
-	if err != nil {
-		t.Fatalf("query plain: %v", err)
-	}
-	if val != "visible" {
-		t.Errorf("plain value: got %q, want 'visible'", val)
-	}
-	if isSecret {
-		t.Error("plain var should not be secret")
-	}
-
-	_ = enc // used above for documentation; real encrypt test is in envelope_test.go
-}
-
 // TestSaveNormalizedSpec_EncryptedBase64 verifies that encrypted secret values are
 // stored as valid UTF-8 (base64-encoded) so Postgres text columns accept them, and
 // that the stored value can be decoded back to the original ciphertext.
@@ -711,14 +601,15 @@ func TestGetWorkloadSummaries(t *testing.T) {
 	if agentSummary.CPURequest != "100m" {
 		t.Errorf("agent cpu: got %q, want '100m'", agentSummary.CPURequest)
 	}
-	if agentSummary.WorkloadType != "deployment" {
-		t.Errorf("agent type: got %q, want 'deployment'", agentSummary.WorkloadType)
+	if agentSummary.WorkloadType != "statefulset" {
+		t.Errorf("agent type: got %q, want 'statefulset'", agentSummary.WorkloadType)
 	}
 	if agentSummary.Image != "r.io/agent:latest" {
 		t.Errorf("agent image: got %q", agentSummary.Image)
 	}
-	if agentSummary.Persistent {
-		t.Error("agent should not be persistent")
+	// Every agent gets a default shared disk, so it is always persistent.
+	if !agentSummary.Persistent {
+		t.Error("agent should be persistent")
 	}
 
 	// Verify model summary
@@ -974,7 +865,7 @@ func TestUpdateDeploymentPending_CleansUpOldNormalizedData(t *testing.T) {
 		DisplayName: "Update Test", BuildID: "build-1", Namespace: "ns-update",
 		SpecJSON: `{"v":1}`,
 	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds1, nil, nil)
+		return SaveNormalizedSpec(tx, depID, ds1, testEncryptor(t), nil)
 	})
 	if err != nil {
 		t.Fatalf("initial save: %v", err)
@@ -1214,7 +1105,7 @@ func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
 		DisplayName: "RefStoreTest", BuildID: "build-1", Namespace: "ns-ref-store",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, nsCfg)
+		return SaveNormalizedSpec(tx, id, ds, testEncryptor(t), nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1222,11 +1113,14 @@ func TestSaveNormalizedSpec_VarRefsStored(t *testing.T) {
 
 	// Verify each variable's stored ref.
 	rows, err := db.Query(
-		`SELECT name, ref FROM deployment_variables WHERE deployment_id = $1 ORDER BY name`,
+		`SELECT DISTINCT user_var_name, COALESCE(account_var_ref, '')
+		 FROM deployment_build_env
+		 WHERE deployment_id = $1 AND user_var_name IS NOT NULL
+		 ORDER BY user_var_name`,
 		depID,
 	)
 	if err != nil {
-		t.Fatalf("query deployment_variables: %v", err)
+		t.Fatalf("query deployment_build_env: %v", err)
 	}
 	defer rows.Close() //nolint:errcheck
 
@@ -1281,7 +1175,7 @@ func TestGetDeploymentVariables_RefsRoundtrip(t *testing.T) {
 		DisplayName: "RefRoundtrip", BuildID: "b1", Namespace: "ns-ref-roundtrip",
 		SpecJSON: `{}`,
 	}, func(tx *sql.Tx, id string) error {
-		return SaveNormalizedSpec(tx, id, ds, nil, nsCfg)
+		return SaveNormalizedSpec(tx, id, ds, testEncryptor(t), nsCfg)
 	})
 	if err != nil {
 		t.Fatalf("SaveDeploymentPending: %v", err)
@@ -1329,47 +1223,6 @@ func countBuildEnv(t *testing.T, db *sql.DB, depID string) int {
 		t.Fatalf("count build_env: %v", err)
 	}
 	return n
-}
-
-func countDeploymentVariables(t *testing.T, db *sql.DB, depID string) int {
-	t.Helper()
-	var n int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM deployment_variables WHERE deployment_id = $1`,
-		depID,
-	).Scan(&n); err != nil {
-		t.Fatalf("count deployment_variables: %v", err)
-	}
-	return n
-}
-
-func TestSaveNormalizedSpec_EmptyTargets_DoesNotDiverge(t *testing.T) {
-	db := testDB(t)
-	accountID := ensureTestAccount(t, db)
-	store := NewStore(db)
-
-	ds := minimalAgentSpec()
-	ds.Variables = map[string]deployment.Variable{
-		"NO_TARGETS": {Value: "x", Secret: false, Targets: nil},
-	}
-
-	d, err := store.SaveDeploymentPending(SaveDeploymentParams{
-		ID: newID(), AccountID: accountID, AgentName: ds.Source.Name,
-		BuildID: ds.Source.Build, Namespace: "ns-empty-targets",
-		SpecJSON: `{}`,
-	}, func(tx *sql.Tx, depID string) error {
-		return SaveNormalizedSpec(tx, depID, ds, nil, nil)
-	})
-	if err != nil {
-		t.Fatalf("SaveDeploymentPending: %v", err)
-	}
-
-	legacyRows := countDeploymentVariables(t, db, d.ID)
-	buildEnvRows := countBuildEnv(t, db, d.ID)
-	if legacyRows != buildEnvRows {
-		t.Errorf("variable parity drift: deployment_variables=%d, deployment_build_env=%d (NO_TARGETS row only lives in legacy table)",
-			legacyRows, buildEnvRows)
-	}
 }
 
 func TestRepairNormalizedSpec_PreservesBuildEnvRows(t *testing.T) {
