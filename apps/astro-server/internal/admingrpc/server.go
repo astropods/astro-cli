@@ -24,6 +24,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clustercfg"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
@@ -64,8 +65,24 @@ type adminJobQueue interface {
 	ResumeQueue(ctx context.Context, name string) error
 }
 
+// clusterBindingStore is the account_clusters surface the account RPCs use.
+// It is an interface so a test can state what the table did rather than which
+// statements ran: a store that grows a query should not break a test about an
+// admin action.
+type clusterBindingStore interface {
+	List(accountID string) ([]account.ClusterBinding, error)
+	Add(accountID, clusterID string, setDefault bool) error
+	Remove(accountID, clusterID string) error
+	SetDefault(accountID, clusterID string) error
+}
+
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
+
+	// clusters resolves an unrecorded routing target; bindings is the account's
+	// cluster table. Both come from New, so a test supplies its own bindings.
+	clusters clusterid.Resolver
+	bindings clusterBindingStore
 
 	log            *logger.Logger
 	deployStore    *deploymentstore.Store
@@ -205,7 +222,13 @@ func New(
 	k8sRegistry *k8s.Registry,
 	cache k8scache.Cache,
 ) *Server {
+	clusters := clusterid.Resolver{}
+	if k8sRegistry != nil {
+		clusters = clusterid.New(k8sRegistry.DefaultClusterID())
+	}
 	return &Server{
+		clusters:     clusters,
+		bindings:     account.NewClusterBindings(db, clusters),
 		log:          log,
 		deployStore:  deployStore,
 		k8sClient:    k8sClient,
@@ -668,7 +691,7 @@ func (s *Server) ListDeployments(ctx context.Context, req *adminv1.ListDeploymen
 		if d.CurrentRevision != nil {
 			ad.CurrentRevision = int32(*d.CurrentRevision) //nolint:gosec // revision numbers are small
 		}
-		populateAdminDeploymentPlacement(ad, d.EffectiveClusterID(), d.AccountClusterID, d.Status, s.clusters())
+		s.populateAdminDeploymentPlacement(ad, &d.Deployment, d.AccountClusterIDs)
 
 		results = append(results, ad)
 	}
@@ -711,13 +734,16 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	}
 
 	// Look up account name, placement, and owner
-	var accountName, accountClusterID, ownerUserID string
+	var accountName, ownerUserID string
+	var accountClusterIDs pq.StringArray
 	_ = s.db.QueryRow(`
-		SELECT a.name, COALESCE(a.cluster_id, ''),
+		SELECT a.name,
+		       COALESCE((SELECT array_agg(ac.cluster_id ORDER BY ac.is_default DESC, ac.cluster_id)
+		                 FROM account_clusters ac WHERE ac.account_id = a.id), '{}'),
 		       COALESCE((SELECT user_id FROM account_members WHERE account_id = a.id ORDER BY created_at ASC LIMIT 1), '')
 		FROM accounts a WHERE a.id = $1`,
 		dep.AccountID,
-	).Scan(&accountName, &accountClusterID, &ownerUserID)
+	).Scan(&accountName, &accountClusterIDs, &ownerUserID)
 
 	var ownerEmail string
 	if ownerUserID != "" && s.workosClient != nil {
@@ -748,7 +774,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 	if dep.CurrentRevision != nil {
 		ad.CurrentRevision = int32(*dep.CurrentRevision) //nolint:gosec // revision numbers are small
 	}
-	populateAdminDeploymentPlacement(ad, dep.EffectiveClusterID(), accountClusterID, dep.Status, s.clusters())
+	s.populateAdminDeploymentPlacement(ad, dep, accountClusterIDs)
 
 	// Fetch events
 	var protoEvents []*adminv1.AdminDeploymentEvent
@@ -856,7 +882,7 @@ func (s *Server) GetDeployment(ctx context.Context, req *adminv1.GetDeploymentRe
 		Workloads:         protoWorkloads,
 		ExpectedServices:  protoServices,
 		ExpectedIngresses: protoIngresses,
-		PlacementHint:     placementHintMessage(accountClusterID, dep.EffectiveClusterID(), s.clusters()),
+		PlacementHint:     placementHintMessage(accountClusterIDs, dep.EffectiveClusterID(), s.clusters),
 	}
 
 	// Include adapters from the stored deployment spec (default to empty list)
@@ -1552,8 +1578,10 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 			a.deleted_at,
 			a.created_at,
 			a.updated_at,
-			COALESCE(a.cluster_id, '') AS cluster_id,
-			COALESCE(bs.status, '') AS billing_status
+			COALESCE((SELECT ac.cluster_id FROM account_clusters ac
+			          WHERE ac.account_id = a.id AND ac.is_default), '') AS cluster_id,
+			COALESCE(bs.status, '') AS billing_status,
+			(SELECT COUNT(*)::int FROM account_clusters ac WHERE ac.account_id = a.id) AS cluster_count
 		FROM accounts a
 		LEFT JOIN account_billing_status bs ON bs.account_id = a.id
 		ORDER BY a.deleted_at NULLS FIRST, a.created_at DESC
@@ -1568,7 +1596,7 @@ func (s *Server) ListAccounts(ctx context.Context, _ *adminv1.ListAccountsReques
 		var acct adminv1.AdminAccount
 		var deletedAt sql.NullTime
 		var createdAt, updatedAt time.Time
-		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID, &acct.BillingStatus); err != nil {
+		if err := rows.Scan(&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse, &deletedAt, &createdAt, &updatedAt, &acct.ClusterID, &acct.BillingStatus, &acct.ClusterCount); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if deletedAt.Valid {
@@ -1612,7 +1640,9 @@ func (s *Server) GetAccount(ctx context.Context, req *adminv1.GetAccountRequest)
 			a.deleted_at,
 			a.created_at,
 			a.updated_at,
-			COALESCE(a.cluster_id, '') AS cluster_id,
+			COALESCE((SELECT ac.cluster_id FROM account_clusters ac
+			          WHERE ac.account_id = a.id AND ac.is_default), '') AS cluster_id,
+			(SELECT COUNT(*)::int FROM account_clusters ac WHERE ac.account_id = a.id) AS cluster_count,
 			COALESCE(a.metronome_customer_id, '') AS metronome_customer_id,
 			COALESCE(a.stripe_customer_id, '') AS stripe_customer_id,
 			COALESCE(a.bifrost_customer_id, '') AS bifrost_customer_id,
@@ -1621,7 +1651,7 @@ func (s *Server) GetAccount(ctx context.Context, req *adminv1.GetAccountRequest)
 		WHERE a.id = $1
 	`, req.AccountID).Scan(
 		&acct.ID, &acct.Name, &acct.Type, &acct.OwnerUserID, &acct.MemberCount, &acct.HasLangfuse,
-		&deletedAt, &createdAt, &updatedAt, &acct.ClusterID,
+		&deletedAt, &createdAt, &updatedAt, &acct.ClusterID, &acct.ClusterCount,
 		&billing.MetronomeCustomerID, &billing.StripeCustomerID, &billing.BifrostCustomerID,
 		&langfuseProjectID,
 	)
@@ -2347,22 +2377,28 @@ func (s *Server) ReapplyDeployment(ctx context.Context, req *adminv1.ReapplyDepl
 		return nil, fmt.Errorf("deployment is being undeployed")
 	}
 
-	var accountClusterID string
-	if err := s.db.QueryRow(`SELECT COALESCE(cluster_id, '') FROM accounts WHERE id = $1`, dep.AccountID).
-		Scan(&accountClusterID); err != nil {
-		return nil, fmt.Errorf("load account cluster: %w", err)
+	allowed, err := s.bindings.List(dep.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("list account clusters: %w", err)
+	}
+	allowedClusterIDs := make([]string, 0, len(allowed))
+	for _, b := range allowed {
+		allowedClusterIDs = append(allowedClusterIDs, b.ClusterID)
 	}
 
 	routingClusterID := dep.EffectiveClusterID()
 
-	if !s.clusters().Same(accountClusterID, routingClusterID) {
+	// An orphaned deployment cannot just be re-applied where it sits. Move it to
+	// the account's default cluster, or to the primary when it has no bindings.
+	if placementOrphaned(allowedClusterIDs, routingClusterID) {
 		if s.queue == nil {
 			return nil, fmt.Errorf("queue not configured; cannot migrate cluster placement")
 		}
-		if err := s.queue.InsertMigrateDeploymentClusterJob(ctx, dep.ID, accountClusterID, routingClusterID); err != nil {
+		targetClusterID := account.DefaultClusterID(allowed)
+		if err := s.queue.InsertMigrateDeploymentClusterJob(ctx, dep.ID, targetClusterID, routingClusterID); err != nil {
 			return nil, fmt.Errorf("enqueue cluster migration: %w", err)
 		}
-		msg := s.placementUpdateMessage(routingClusterID, accountClusterID)
+		msg := s.placementUpdateMessage(routingClusterID, targetClusterID)
 		return &adminv1.ReapplyDeploymentResponse{
 			Status:                  "reapplying",
 			ClusterPlacementUpdated: true,

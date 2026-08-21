@@ -92,7 +92,7 @@ export function MigrationsPage() {
             <code className="text-xs">deployment.migrate_cluster</code> / <code className="text-xs">deployment.deploy</code> jobs.
             For placement alignment use{" "}
             <Link to="/admin/deployments?mismatch=1" className="text-honey-dark hover:underline">
-              Deployments (mismatch)
+              Deployments (orphaned)
             </Link>
             . Fast migrate rows are normal — that job only
             updates routing and enqueues <code className="text-xs">deployment.deploy</code>.
@@ -103,7 +103,7 @@ export function MigrationsPage() {
           <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
             <div>
-              <span className="font-medium">{data?.mismatch_count} placement mismatch(es)</span>
+              <span className="font-medium">{data?.mismatch_count} orphaned placement(s)</span>
               {" — "}
               <Link to="/admin/deployments?mismatch=1" className="font-medium text-honey-dark hover:underline">
                 View on Deployments

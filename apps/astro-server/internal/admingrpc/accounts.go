@@ -2,155 +2,104 @@ package admingrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
-	"github.com/astropods/astro/apps/astro-server/internal/clusterplacement"
-	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 )
 
-// SetAccountCluster assigns or clears the additional cluster placement for an
-// account. It only updates the account row — existing deployments keep
-// routing to whatever cluster they're already on. Use MigrateAccountDeployments
-// to move them onto the new cluster, whenever that's wanted.
-func (s *Server) SetAccountCluster(ctx context.Context, req *adminv1.SetAccountClusterRequest) (*adminv1.SetAccountClusterResponse, error) {
+// ListAccountClusters returns the clusters an account may deploy to.
+func (s *Server) ListAccountClusters(ctx context.Context, req *adminv1.ListAccountClustersRequest) (*adminv1.AccountClusterList, error) {
 	if req.AccountID == "" {
 		return nil, fmt.Errorf("account_id is required")
 	}
+	return s.accountClusterList(req.AccountID)
+}
 
-	clusterID := req.ClusterID
-	if clusterID != "" {
-		if s.clusterStore == nil {
-			return nil, fmt.Errorf("cluster store not configured")
-		}
-		if _, err := s.clusterStore.Get(ctx, clusterID); err != nil {
-			return nil, clusterStoreErr(err)
-		}
+// AddAccountCluster allows a cluster for an account, optionally as its default.
+func (s *Server) AddAccountCluster(ctx context.Context, req *adminv1.AddAccountClusterRequest) (*adminv1.AccountClusterList, error) {
+	if req.AccountID == "" || req.ClusterID == "" {
+		return nil, fmt.Errorf("account_id and cluster_id are required")
 	}
 
-	acctStore := account.NewAccountStore(s.db)
-	acct, err := acctStore.GetByID(req.AccountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
-	}
-	if acct == nil {
-		return nil, fmt.Errorf("account not found: %s", req.AccountID)
-	}
-
-	oldClusterID := ""
-	if acct.ClusterID != nil {
-		oldClusterID = *acct.ClusterID
-	}
-
-	if err := acctStore.SetClusterID(req.AccountID, clusterID); err != nil {
+	if err := s.bindings.Add(req.AccountID, req.ClusterID, req.SetDefault); err != nil {
 		return nil, err
 	}
 
-	if s.auditStore != nil {
-		evt := auditlog.ForAdmin(req.AccountID, "grpc")
-		evt.Action = auditlog.AccountSetCluster
-		evt.ResourceType = "account"
-		evt.ResourceID = req.AccountID
-		if clusterID == "" {
-			evt.Description = "Admin cleared account cluster placement (primary)"
-		} else {
-			evt.Description = "Admin set account cluster placement to " + clusterID
-		}
-		evt.Metadata = map[string]any{
-			"cluster_id":     clusterID,
-			"old_cluster_id": oldClusterID,
-		}
-		s.auditStore.LogAsync(s.log, evt)
-	}
+	s.logAccountClusterAudit(req.AccountID, auditlog.AccountSetCluster,
+		"Admin allowed cluster "+req.ClusterID+" for account",
+		map[string]any{"cluster_id": req.ClusterID, "set_default": req.SetDefault})
 
-	return &adminv1.SetAccountClusterResponse{
-		Status:    "updated",
-		ClusterID: clusterID,
-	}, nil
+	return s.accountClusterList(req.AccountID)
 }
 
-// MigrateAccountDeployments enqueues migration jobs for the account's
-// active/failed/pending deployments that still route to a cluster other than
-// the account's current one. Safe to call independently of SetAccountCluster,
-// and safe to retry if a prior call only partially enqueued.
-func (s *Server) MigrateAccountDeployments(ctx context.Context, req *adminv1.MigrateAccountDeploymentsRequest) (*adminv1.MigrateAccountDeploymentsResponse, error) {
-	if req.AccountID == "" {
-		return nil, fmt.Errorf("account_id is required")
-	}
-	if s.deployStore == nil {
-		return nil, fmt.Errorf("deployment store not configured")
-	}
-	if s.queue == nil {
-		return nil, fmt.Errorf("queue not configured")
+// RemoveAccountCluster refuses while the account still has deployments there.
+func (s *Server) RemoveAccountCluster(ctx context.Context, req *adminv1.RemoveAccountClusterRequest) (*adminv1.AccountClusterList, error) {
+	if req.AccountID == "" || req.ClusterID == "" {
+		return nil, fmt.Errorf("account_id and cluster_id are required")
 	}
 
-	acctStore := account.NewAccountStore(s.db)
-	acct, err := acctStore.GetByID(req.AccountID)
-	if err != nil {
-		return nil, fmt.Errorf("get account: %w", err)
-	}
-	if acct == nil {
-		return nil, fmt.Errorf("account not found: %s", req.AccountID)
-	}
-	clusterID := ""
-	if acct.ClusterID != nil {
-		clusterID = *acct.ClusterID
-	}
-
-	toMigrate, err := clusterplacement.ListDeploymentsNeedingMigration(s.deployStore, req.AccountID, clusterID, s.clusters())
-	if err != nil {
-		return nil, fmt.Errorf("list deployments for migration: %w", err)
-	}
-
-	deploymentIDs, err := enqueueAccountClusterMigrations(ctx, s.queue, clusterID, toMigrate)
-	if err != nil {
+	if err := s.bindings.Remove(req.AccountID, req.ClusterID); err != nil {
+		if errors.Is(err, account.ErrClusterInUse) {
+			return nil, fmt.Errorf("%w: move or undeploy them before unbinding it", err)
+		}
 		return nil, err
 	}
 
-	if len(deploymentIDs) > 0 {
-		_ = deploycache.Invalidate(ctx, s.cache, req.AccountID)
-	}
+	s.logAccountClusterAudit(req.AccountID, auditlog.AccountSetCluster,
+		"Admin disallowed cluster "+req.ClusterID+" for account",
+		map[string]any{"cluster_id": req.ClusterID})
 
-	if s.auditStore != nil {
-		evt := auditlog.ForAdmin(req.AccountID, "grpc")
-		evt.Action = auditlog.AccountSetCluster
-		evt.ResourceType = "account"
-		evt.ResourceID = req.AccountID
-		evt.Description = "Admin migrated account deployments to " + clusterID
-		evt.Metadata = map[string]any{
-			"cluster_id":          clusterID,
-			"migrations_enqueued": len(deploymentIDs),
-			"deployment_ids":      deploymentIDs,
-		}
-		s.auditStore.LogAsync(s.log, evt)
-	}
-
-	return &adminv1.MigrateAccountDeploymentsResponse{
-		MigrationsEnqueued: int32(len(deploymentIDs)), //nolint:gosec // bounded by account deployment count
-		DeploymentIds:      deploymentIDs,
-	}, nil
+	return s.accountClusterList(req.AccountID)
 }
 
-func enqueueAccountClusterMigrations(
-	ctx context.Context,
-	q adminJobQueue,
-	targetClusterID string,
-	deps []*deploymentstore.Deployment,
-) ([]string, error) {
-	deploymentIDs := make([]string, 0, len(deps))
-	for _, dep := range deps {
-		sourceClusterID := dep.EffectiveClusterID()
-		if err := q.InsertMigrateDeploymentClusterJob(ctx, dep.ID, targetClusterID, sourceClusterID); err != nil {
-			return deploymentIDs, fmt.Errorf(
-				"enqueued %d/%d migration jobs before failure on deployment %s: %w",
-				len(deploymentIDs), len(deps), dep.ID, err,
-			)
-		}
-		deploymentIDs = append(deploymentIDs, dep.ID)
+// SetAccountDefaultCluster moves the default flag to an already-allowed cluster.
+func (s *Server) SetAccountDefaultCluster(ctx context.Context, req *adminv1.SetAccountDefaultClusterRequest) (*adminv1.AccountClusterList, error) {
+	if req.AccountID == "" || req.ClusterID == "" {
+		return nil, fmt.Errorf("account_id and cluster_id are required")
 	}
-	return deploymentIDs, nil
+
+	if err := s.bindings.SetDefault(req.AccountID, req.ClusterID); err != nil {
+		return nil, err
+	}
+
+	s.logAccountClusterAudit(req.AccountID, auditlog.AccountSetCluster,
+		"Admin set default cluster to "+req.ClusterID,
+		map[string]any{"cluster_id": req.ClusterID})
+
+	return s.accountClusterList(req.AccountID)
+}
+
+func (s *Server) accountClusterList(accountID string) (*adminv1.AccountClusterList, error) {
+	allowed, err := s.bindings.List(accountID)
+	if err != nil {
+		return nil, err
+	}
+	out := &adminv1.AccountClusterList{}
+	for _, b := range allowed {
+		out.Clusters = append(out.Clusters, &adminv1.AccountCluster{
+			ClusterID:   b.ClusterID,
+			Region:      b.Region,
+			RegionLabel: b.RegionLabel,
+			RegionFlag:  b.RegionFlag,
+			IsDefault:   b.IsDefault,
+		})
+	}
+	return out, nil
+}
+
+func (s *Server) logAccountClusterAudit(accountID, action, description string, metadata map[string]any) {
+	if s.auditStore == nil {
+		return
+	}
+	evt := auditlog.ForAdmin(accountID, "grpc")
+	evt.Action = action
+	evt.ResourceType = "account"
+	evt.ResourceID = accountID
+	evt.Description = description
+	evt.Metadata = metadata
+	s.auditStore.LogAsync(s.log, evt)
 }

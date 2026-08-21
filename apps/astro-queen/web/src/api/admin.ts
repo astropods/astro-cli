@@ -26,8 +26,7 @@ import type {
   CheckClusterHealthResponse,
   RefreshClusterPullSecretsResponse,
   GetClusterBlockersResponse,
-  SetAccountClusterResponse,
-  MigrateAccountDeploymentsResponse,
+  AccountClusterList,
   InvalidateCachesResponse,
   RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
@@ -275,39 +274,61 @@ export function useRenameAccount() {
   });
 }
 
-export function useSetAccountCluster() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, clusterId }: { id: string; clusterId: string }) =>
-      api.put<SetAccountClusterResponse>(
-        `/api/admin/accounts/${encodeURIComponent(id)}/cluster`,
-        { cluster_id: clusterId },
+export function useAccountClusters(id: string) {
+  return useQuery({
+    queryKey: adminKeys.accountClusters(id),
+    queryFn: () =>
+      api.get<AccountClusterList>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/clusters`,
       ),
-    onSuccess: (_data, { id }) => {
-      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
-      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
-    },
+    enabled: !!id,
   });
 }
 
-/** Enqueues migration jobs for an account's deployments not yet on its
- * current cluster. Independent of useSetAccountCluster — call whenever
- * ready, not just right after a cluster change. */
-export function useMigrateAccountDeployments() {
+function accountClusterMutationKeys(qc: ReturnType<typeof useQueryClient>, id: string) {
+  qc.invalidateQueries({ queryKey: adminKeys.accountClusters(id) });
+  qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+  qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+  qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+}
+
+export function useAddAccountCluster() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      api.post<MigrateAccountDeploymentsResponse>(
-        `/api/admin/accounts/${encodeURIComponent(id)}/migrate-cluster`,
+    mutationFn: ({ id, clusterId, setDefault }: { id: string; clusterId: string; setDefault?: boolean }) =>
+      api.post<AccountClusterList>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/clusters`,
+        { cluster_id: clusterId, set_default: setDefault ?? false },
       ),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
-      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
-      qc.invalidateQueries({ queryKey: adminKeys.migrations() });
-      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
-    },
+    onSuccess: (_data, { id }) => accountClusterMutationKeys(qc, id),
   });
 }
+
+/** Fails while the account still has deployments on the cluster; migrate them
+ * first so a policy change never orphans running work. */
+export function useRemoveAccountCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, clusterId }: { id: string; clusterId: string }) =>
+      api.del<AccountClusterList>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/clusters/${encodeURIComponent(clusterId)}`,
+      ),
+    onSuccess: (_data, { id }) => accountClusterMutationKeys(qc, id),
+  });
+}
+
+export function useSetAccountDefaultCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, clusterId }: { id: string; clusterId: string }) =>
+      api.put<AccountClusterList>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/default-cluster`,
+        { cluster_id: clusterId },
+      ),
+    onSuccess: (_data, { id }) => accountClusterMutationKeys(qc, id),
+  });
+}
+
 
 export function useClusterMigrations(mismatchesOnly: boolean) {
   return useQuery({

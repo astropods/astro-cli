@@ -12,8 +12,10 @@ import {
   useRecoverAccountBifrost,
   useClusters,
   useRenameAccount,
-  useSetAccountCluster,
-  useMigrateAccountDeployments,
+  useAccountClusters,
+  useAddAccountCluster,
+  useRemoveAccountCluster,
+  useSetAccountDefaultCluster,
   useInvalidateAccountCaches,
   useQuotaRequests,
   useApproveQuotaRequest,
@@ -44,8 +46,6 @@ import {
 } from "lucide-react";
 import { formatDateTime, truncateUUID } from "@/lib/utils";
 import { FEATURE_LABELS } from "@/pages/quota-requests";
-
-const PRIMARY_CLUSTER_VALUE = "__primary__";
 
 const BILLING_STATUS_STYLES: Record<string, string> = {
   active: "bg-green-500/10 text-green-600",
@@ -87,7 +87,7 @@ export function AccountDetailPage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BillingCard billing={billing} accountId={account.id} />
-        <PlacementCard accountId={account.id} clusterId={account.cluster_id ?? ""} disabled={isDeleted} />
+        <PlacementCard accountId={account.id} disabled={isDeleted} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -597,79 +597,114 @@ function IdRow({ label, value, href }: { label: string; value: string; href?: st
   );
 }
 
-function PlacementCard({ accountId, clusterId, disabled }: { accountId: string; clusterId: string; disabled: boolean }) {
+function PlacementCard({ accountId, disabled }: { accountId: string; disabled: boolean }) {
   const { data: clustersData } = useClusters();
-  const setClusterMut = useSetAccountCluster();
-  const migrateMut = useMigrateAccountDeployments();
-  const additionalClusters = (clustersData?.clusters ?? []).filter((c) => !c.is_primary);
-  const [pending, setPending] = useState<string | null>(null);
+  const { data: allowedData } = useAccountClusters(accountId);
+  const addMut = useAddAccountCluster();
+  const removeMut = useRemoveAccountCluster();
+  const setDefaultMut = useSetAccountDefaultCluster();
+  const [toAdd, setToAdd] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
 
-  const savedValue = clusterId === "" ? PRIMARY_CLUSTER_VALUE : clusterId;
-  const effective = pending ?? savedValue;
-  const dirty = effective !== savedValue;
+  const allowed = allowedData?.clusters ?? [];
+  const allowedIds = new Set(allowed.map((c) => c.cluster_id));
+  const addable = (clustersData?.clusters ?? []).filter((c) => !allowedIds.has(c.id));
+  const busy = addMut.isPending || removeMut.isPending || setDefaultMut.isPending;
 
-  const save = () => {
-    const target = effective === PRIMARY_CLUSTER_VALUE ? "" : effective;
-    setClusterMut.mutate(
-      { id: accountId, clusterId: target },
+  const add = () => {
+    if (!toAdd) return;
+    addMut.mutate(
+      { id: accountId, clusterId: toAdd, setDefault: allowed.length === 0 },
       {
         onSuccess: () => {
-          setPending(null);
-          setMessage("Cluster updated. Existing deployments stay put until migrated separately.");
+          setToAdd("");
+          setMessage("Cluster allowed. Deploys can target it once a user picks it.");
         },
-        onError: (e) => setMessage(`Cluster change failed: ${(e as Error).message}`),
+        onError: (e) => setMessage(`Could not allow cluster: ${(e as Error).message}`),
       },
     );
   };
 
-  const migrate = () => {
-    migrateMut.mutate(accountId, {
-      onSuccess: (resp) => {
-        const count = resp.migrations_enqueued ?? 0;
-        setMessage(count > 0
-          ? `${count} deployment migration${count === 1 ? "" : "s"} queued. Track in Admin → Migrations.`
-          : "No deployment migrations needed — everything is already on this cluster.");
+  const remove = (clusterId: string) => {
+    removeMut.mutate(
+      { id: accountId, clusterId },
+      {
+        onSuccess: () => setMessage(`${clusterId} is no longer allowed for this account.`),
+        onError: (e) => setMessage(`Could not remove cluster: ${(e as Error).message}`),
       },
-      onError: (e) => setMessage(`Migration failed: ${(e as Error).message}`),
-    });
+    );
+  };
+
+  const makeDefault = (clusterId: string) => {
+    setDefaultMut.mutate(
+      { id: accountId, clusterId },
+      {
+        onSuccess: () => setMessage(`${clusterId} is now the default for new deploys.`),
+        onError: (e) => setMessage(`Could not set default: ${(e as Error).message}`),
+      },
+    );
   };
 
   return (
     <Section title="Cluster placement">
-      <div className="flex items-center gap-2">
-        <Select value={effective} onValueChange={(v) => { setPending(v); setMessage(null); }} disabled={disabled || setClusterMut.isPending}>
+      <div className="space-y-1">
+        {allowed.length === 0 && (
+          <p className="text-xs text-muted-foreground/70">
+            No clusters allowed. New deploys route to the primary cluster.
+          </p>
+        )}
+        {allowed.map((c) => (
+          <div key={c.cluster_id} className="flex items-center gap-2 text-xs">
+            <span className="font-mono">{c.cluster_id}</span>
+            {c.region && <span className="text-muted-foreground/60">{c.region}</span>}
+            {c.is_default ? (
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">default</span>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-1.5 text-[10px]"
+                disabled={disabled || busy}
+                onClick={() => makeDefault(c.cluster_id)}
+                title="Route new deploys here when the user picks no cluster"
+              >
+                Make default
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={disabled || busy}
+              onClick={() => remove(c.cluster_id)}
+              title="Disallow this cluster. Fails while deployments still run on it."
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <Select value={toAdd} onValueChange={(v) => { setToAdd(v); setMessage(null); }} disabled={disabled || busy || addable.length === 0}>
           <SelectTrigger className="h-7 w-56 text-xs">
-            <SelectValue placeholder="Primary (default)" />
+            <SelectValue placeholder={addable.length === 0 ? "No clusters left to add" : "Add a cluster…"} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={PRIMARY_CLUSTER_VALUE}>Primary (default)</SelectItem>
-            {additionalClusters.map((c) => (
-              <SelectItem key={c.id} value={c.id}>{c.id}</SelectItem>
+            {addable.map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.id}
+                {c.is_primary ? " — default cluster" : ""}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        {dirty && (
-          <>
-            <Button size="sm" className="h-7 px-2 text-xs" disabled={setClusterMut.isPending} onClick={save}>
-              {setClusterMut.isPending ? "Saving…" : "Save"}
-            </Button>
-            <Button variant="ghost" size="icon-xs" onClick={() => setPending(null)} title="Cancel">
-              <X className="size-3" />
-            </Button>
-          </>
+        {toAdd && (
+          <Button size="sm" className="h-7 px-2 text-xs" disabled={busy} onClick={add}>
+            {addMut.isPending ? "Adding…" : "Add"}
+          </Button>
         )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={disabled || migrateMut.isPending}
-          onClick={migrate}
-          title="Enqueue migration jobs for deployments not yet on this account's current cluster"
-        >
-          {migrateMut.isPending ? "Migrating…" : "Migrate deployments"}
-        </Button>
       </div>
+
       {message && <p className="mt-2 text-[11px] text-muted-foreground">{message}</p>}
     </Section>
   );

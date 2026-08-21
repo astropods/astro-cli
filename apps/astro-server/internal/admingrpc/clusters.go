@@ -283,10 +283,11 @@ func (s *Server) RefreshClusterPullSecrets(ctx context.Context, req *adminv1.Ref
 		return nil, status.Error(codes.FailedPrecondition, "proxy registry host not configured")
 	}
 
-	defaultID := s.k8sRegistry.DefaultClusterID()
-	isDefault := req.ClusterID == "" || req.ClusterID == defaultID
+	clusters := s.clusters
+	defaultID := clusters.Primary()
+	isDefault := clusters.IsPrimary(req.ClusterID)
 
-	targetID := req.ClusterID
+	targetID := clusters.Canonical(req.ClusterID)
 	var client k8s.ClusterClient
 	if isDefault {
 		if defaultID == "" {
@@ -313,13 +314,7 @@ func (s *Server) RefreshClusterPullSecrets(ctx context.Context, req *adminv1.Ref
 		return nil, status.Error(codes.FailedPrecondition, "cluster has no pull credential yet")
 	}
 
-	// deployments.cluster_id is NULL for the default cluster regardless of
-	// which form the caller sent — normalize to "" for the query.
-	namespaceClusterID := targetID
-	if isDefault {
-		namespaceClusterID = ""
-	}
-	namespaces, err := s.deployStore.ListActiveNamespacesForCluster(ctx, namespaceClusterID)
+	namespaces, err := s.deployStore.ListActiveNamespacesForCluster(ctx, targetID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list namespaces: %v", err)
 	}

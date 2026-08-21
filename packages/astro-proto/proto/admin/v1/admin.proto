@@ -55,8 +55,10 @@ service AdminService {
   rpc RecoverAccountLangfuse(RecoverAccountLangfuseRequest) returns (RecoverAccountLangfuseResponse);
   rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
-  rpc SetAccountCluster(SetAccountClusterRequest) returns (SetAccountClusterResponse);
-  rpc MigrateAccountDeployments(MigrateAccountDeploymentsRequest) returns (MigrateAccountDeploymentsResponse);
+  rpc ListAccountClusters(ListAccountClustersRequest) returns (AccountClusterList);
+  rpc AddAccountCluster(AddAccountClusterRequest) returns (AccountClusterList);
+  rpc RemoveAccountCluster(RemoveAccountClusterRequest) returns (AccountClusterList);
+  rpc SetAccountDefaultCluster(SetAccountDefaultClusterRequest) returns (AccountClusterList);
   rpc UpdateCluster(UpdateClusterRequest) returns (UpdateClusterResponse);
   rpc CheckClusterHealth(CheckClusterHealthRequest) returns (CheckClusterHealthResponse);
   rpc RefreshClusterPullSecrets(RefreshClusterPullSecretsRequest) returns (RefreshClusterPullSecretsResponse);
@@ -93,9 +95,11 @@ message AdminDeployment {
   int32 current_revision = 11;
   string owner_email = 12;
   string cluster_id = 13;           // deployments.cluster_id; empty = primary
-  string account_cluster_id = 14;   // accounts.cluster_id; empty = primary
-  bool placement_mismatch = 15;     // account vs deployment routing differ
+  reserved 14;                      // was account_cluster_id, before an account could hold a set
+  reserved "account_cluster_id";
+  bool placement_orphaned = 15;     // deployment's cluster is not on the account's allowed list
   string account_id = 16;           // owning account UUID
+  repeated string account_cluster_ids = 17; // the account's allowed clusters
 }
 
 message AdminDeploymentEvent {
@@ -784,8 +788,9 @@ message AdminAccount {
   string deleted_at = 8;
   string created_at = 9;
   string updated_at = 10;
-  string cluster_id = 11; // empty = primary cluster
+  string cluster_id = 11; // the account's default cluster; empty = primary
   string billing_status = 12; // active | past_due | suspended; empty = never billed
+  int32 cluster_count = 13;   // how many clusters the account is allowed to use
 }
 
 message ListAccountsResponse {
@@ -970,27 +975,36 @@ message RenameAccountResponse {
   string status = 1;
 }
 
-message SetAccountClusterRequest {
-  string account_id = 1;
-  string cluster_id = 2; // empty clears placement (primary)
+message AccountCluster {
+  string cluster_id = 1;
+  string region = 2;
+  bool is_default = 3;
+  string region_label = 4;
+  string region_flag = 5;
 }
 
-message SetAccountClusterResponse {
-  string status = 1;
+message AccountClusterList {
+  repeated AccountCluster clusters = 1;
+}
+
+message ListAccountClustersRequest {
+  string account_id = 1;
+}
+
+message AddAccountClusterRequest {
+  string account_id = 1;
   string cluster_id = 2;
-  // Setting the cluster no longer migrates deployments as a side effect —
-  // see MigrateAccountDeployments.
-  reserved 3, 4;
-  reserved "migrations_enqueued", "deployment_ids";
+  bool set_default = 3;
 }
 
-message MigrateAccountDeploymentsRequest {
+message RemoveAccountClusterRequest {
   string account_id = 1;
+  string cluster_id = 2;
 }
 
-message MigrateAccountDeploymentsResponse {
-  int32 migrations_enqueued = 1;
-  repeated string deployment_ids = 2;
+message SetAccountDefaultClusterRequest {
+  string account_id = 1;
+  string cluster_id = 2;
 }
 
 message UpdateClusterRequest {

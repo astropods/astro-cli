@@ -94,8 +94,8 @@ export function DeploymentDetailPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              const mismatchNote = dep.placement_mismatch
-                ? "\n\nRouting will be synced to the account cluster before redeploy. Existing pods may stay on the previous cluster until the deploy worker finishes."
+              const mismatchNote = dep.placement_orphaned
+                ? "\n\nThis deployment runs on a cluster the account no longer allows. It will move to the account's default cluster before redeploy. Existing pods may stay on the previous cluster until the deploy worker finishes."
                 : "";
               if (confirm(`Redeploy this deployment? This will rebuild and apply all K8s resources.${mismatchNote}`)) {
                 reapplyMut.mutate(id!, {
@@ -161,11 +161,11 @@ export function DeploymentDetailPage() {
             </span>
             <span>
               Cluster{" "}
-              <span className={cn("font-mono", dep.placement_mismatch ? "font-medium text-amber-700" : "text-foreground")}>
+              <span className={cn("font-mono", dep.placement_orphaned ? "font-medium text-amber-700" : "text-foreground")}>
                 {formatClusterId(dep.cluster_id)}
               </span>
-              {dep.placement_mismatch && (
-                <span className="text-amber-700"> ≠ {formatClusterId(dep.account_cluster_id)}</span>
+              {dep.placement_orphaned && (
+                <span className="text-amber-700"> not allowed ({(dep.account_cluster_ids ?? []).map(formatClusterId).join(", ") || "none"})</span>
               )}
             </span>
             <span>Owner <span className="text-foreground">{dep.owner_email || "-"}</span></span>
@@ -188,7 +188,7 @@ export function DeploymentDetailPage() {
           </div>
         </div>
       )}
-      {data.placement_hint && dep.placement_mismatch && (
+      {data.placement_hint && dep.placement_orphaned && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/50 p-3 text-xs text-amber-950">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
           <p>{data.placement_hint}</p>

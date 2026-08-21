@@ -52,12 +52,12 @@ function filterDeployments(
         !d.deployment_id.toLowerCase().includes(q) &&
         !(d.owner_email ?? "").toLowerCase().includes(q) &&
         !formatClusterId(d.cluster_id).toLowerCase().includes(q) &&
-        !formatClusterId(d.account_cluster_id).toLowerCase().includes(q)
+        !(d.account_cluster_ids ?? []).some((id) => formatClusterId(id).toLowerCase().includes(q))
       ) return false;
     }
     if (status !== "all" && d.status !== status) return false;
     if (!deploymentMatchesClusterFilter(d.cluster_id, cluster)) return false;
-    if (mismatchOnly && !d.placement_mismatch) return false;
+    if (mismatchOnly && !d.placement_orphaned) return false;
     return true;
   });
 }
@@ -184,7 +184,7 @@ export function DeploymentsPage() {
             checked={mismatchOnly}
             onChange={(e) => setMismatchFilter(e.target.checked)}
           />
-          Placement mismatch only
+          Orphaned placement only
         </label>
         <span className="ml-auto text-xs text-muted-foreground">
           {filtered.length} deployment{filtered.length !== 1 ? "s" : ""}
@@ -452,13 +452,14 @@ function BulkActions({ deployments, onDone, disabled }: { deployments: AdminDepl
 }
 
 function PlacementMismatchBadge({ deployment }: { deployment: AdminDeployment }) {
-  if (!deployment.placement_mismatch) return null;
-  const tooltip = `Account: ${formatClusterId(deployment.account_cluster_id)} · Deployment: ${formatClusterId(deployment.cluster_id)}. Redeploy does not change cluster.`;
+  if (!deployment.placement_orphaned) return null;
+  const allowed = (deployment.account_cluster_ids ?? []).map(formatClusterId).join(", ") || "none";
+  const tooltip = `Deployment runs on ${formatClusterId(deployment.cluster_id)}, which this account no longer allows (allowed: ${allowed}). Redeploy moves it to the account default.`;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="ml-1 inline-block cursor-help rounded-full bg-amber-100/60 px-1.5 py-0.5 text-[10px] text-amber-800">
-          mismatch
+          orphaned
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[280px] text-xs">
@@ -467,6 +468,7 @@ function PlacementMismatchBadge({ deployment }: { deployment: AdminDeployment })
     </Tooltip>
   );
 }
+
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {

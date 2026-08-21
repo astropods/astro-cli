@@ -120,14 +120,14 @@ func TestResolve_MessagingHardcodedKnobs(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"GRPC_ENABLED":         "true",
-		"GRPC_LISTEN_ADDR":     ":9090",
-		"STORAGE_TYPE":         "memory",
-		"DEPLOYMENT_MODE":      "all",
-		"SLACK_ENABLED":        "true",
-		"WEB_ENABLED":          "true",
-		"WEB_LISTEN_ADDR":      ":8090",
-		"ASTRO_AUTHZ_TOKEN":    "jwt-token",
+		"GRPC_ENABLED":      "true",
+		"GRPC_LISTEN_ADDR":  ":9090",
+		"STORAGE_TYPE":      "memory",
+		"DEPLOYMENT_MODE":   "all",
+		"SLACK_ENABLED":     "true",
+		"WEB_ENABLED":       "true",
+		"WEB_LISTEN_ADDR":   ":8090",
+		"ASTRO_AUTHZ_TOKEN": "jwt-token",
 	}
 	for k, wantVal := range want {
 		got := findResolution(rs, RoleMessaging, k)

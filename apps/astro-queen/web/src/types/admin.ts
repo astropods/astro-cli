@@ -19,8 +19,8 @@ export interface AdminDeployment {
   current_revision?: number;
   owner_email?: string;
   cluster_id?: string;
-  account_cluster_id?: string;
-  placement_mismatch?: boolean;
+  account_cluster_ids?: string[];
+  placement_orphaned?: boolean;
   account_id?: string;
 }
 
@@ -314,8 +314,9 @@ export interface AdminAccount {
   deleted_at?: string;
   created_at: string;
   updated_at: string;
-  cluster_id?: string;
+  cluster_id?: string; // the account's default cluster; "" = primary
   billing_status?: string; // active | past_due | suspended; "" = never billed
+  cluster_count?: number;
 }
 
 export interface ListAccountsResponse {
@@ -557,14 +558,16 @@ export interface RefreshClusterPullSecretsResponse {
   failed_namespaces?: string[];
 }
 
-export interface SetAccountClusterResponse {
-  status?: string;
-  cluster_id?: string;
+export interface AccountCluster {
+  cluster_id: string;
+  region?: string;
+  region_label?: string;
+  region_flag?: string;
+  is_default?: boolean;
 }
 
-export interface MigrateAccountDeploymentsResponse {
-  migrations_enqueued?: number;
-  deployment_ids?: string[];
+export interface AccountClusterList {
+  clusters?: AccountCluster[];
 }
 
 export interface InvalidateCachesResponse {

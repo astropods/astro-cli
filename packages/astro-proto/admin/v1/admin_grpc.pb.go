@@ -58,8 +58,10 @@ type AdminServiceClient interface {
 	DeregisterCluster(ctx context.Context, in *DeregisterClusterRequest, opts ...grpc.CallOption) (*DeregisterClusterResponse, error)
 	GetClusterBlockers(ctx context.Context, in *GetClusterBlockersRequest, opts ...grpc.CallOption) (*GetClusterBlockersResponse, error)
 	ListClusters(ctx context.Context, in *ListClustersRequest, opts ...grpc.CallOption) (*ListClustersResponse, error)
-	SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error)
-	MigrateAccountDeployments(ctx context.Context, in *MigrateAccountDeploymentsRequest, opts ...grpc.CallOption) (*MigrateAccountDeploymentsResponse, error)
+	ListAccountClusters(ctx context.Context, in *ListAccountClustersRequest, opts ...grpc.CallOption) (*AccountClusterList, error)
+	AddAccountCluster(ctx context.Context, in *AddAccountClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error)
+	RemoveAccountCluster(ctx context.Context, in *RemoveAccountClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error)
+	SetAccountDefaultCluster(ctx context.Context, in *SetAccountDefaultClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error)
 	UpdateCluster(ctx context.Context, in *UpdateClusterRequest, opts ...grpc.CallOption) (*UpdateClusterResponse, error)
 	CheckClusterHealth(ctx context.Context, in *CheckClusterHealthRequest, opts ...grpc.CallOption) (*CheckClusterHealthResponse, error)
 	RefreshClusterPullSecrets(ctx context.Context, in *RefreshClusterPullSecretsRequest, opts ...grpc.CallOption) (*RefreshClusterPullSecretsResponse, error)
@@ -432,17 +434,33 @@ func (c *adminServiceClient) ListClusters(ctx context.Context, in *ListClustersR
 	return out, nil
 }
 
-func (c *adminServiceClient) SetAccountCluster(ctx context.Context, in *SetAccountClusterRequest, opts ...grpc.CallOption) (*SetAccountClusterResponse, error) {
-	out := new(SetAccountClusterResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAccountCluster", in, out, opts...); err != nil {
+func (c *adminServiceClient) ListAccountClusters(ctx context.Context, in *ListAccountClustersRequest, opts ...grpc.CallOption) (*AccountClusterList, error) {
+	out := new(AccountClusterList)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAccountClusters", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *adminServiceClient) MigrateAccountDeployments(ctx context.Context, in *MigrateAccountDeploymentsRequest, opts ...grpc.CallOption) (*MigrateAccountDeploymentsResponse, error) {
-	out := new(MigrateAccountDeploymentsResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/MigrateAccountDeployments", in, out, opts...); err != nil {
+func (c *adminServiceClient) AddAccountCluster(ctx context.Context, in *AddAccountClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error) {
+	out := new(AccountClusterList)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/AddAccountCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) RemoveAccountCluster(ctx context.Context, in *RemoveAccountClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error) {
+	out := new(AccountClusterList)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RemoveAccountCluster", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SetAccountDefaultCluster(ctx context.Context, in *SetAccountDefaultClusterRequest, opts ...grpc.CallOption) (*AccountClusterList, error) {
+	out := new(AccountClusterList)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAccountDefaultCluster", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -693,8 +711,10 @@ type AdminServiceServer interface {
 	DeregisterCluster(context.Context, *DeregisterClusterRequest) (*DeregisterClusterResponse, error)
 	GetClusterBlockers(context.Context, *GetClusterBlockersRequest) (*GetClusterBlockersResponse, error)
 	ListClusters(context.Context, *ListClustersRequest) (*ListClustersResponse, error)
-	SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error)
-	MigrateAccountDeployments(context.Context, *MigrateAccountDeploymentsRequest) (*MigrateAccountDeploymentsResponse, error)
+	ListAccountClusters(context.Context, *ListAccountClustersRequest) (*AccountClusterList, error)
+	AddAccountCluster(context.Context, *AddAccountClusterRequest) (*AccountClusterList, error)
+	RemoveAccountCluster(context.Context, *RemoveAccountClusterRequest) (*AccountClusterList, error)
+	SetAccountDefaultCluster(context.Context, *SetAccountDefaultClusterRequest) (*AccountClusterList, error)
 	UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error)
 	CheckClusterHealth(context.Context, *CheckClusterHealthRequest) (*CheckClusterHealthResponse, error)
 	RefreshClusterPullSecrets(context.Context, *RefreshClusterPullSecretsRequest) (*RefreshClusterPullSecretsResponse, error)
@@ -885,11 +905,17 @@ func (UnimplementedAdminServiceServer) ListClusters(context.Context, *ListCluste
 	return nil, status.Errorf(codes.Unimplemented, "method ListClusters not implemented")
 }
 
-func (UnimplementedAdminServiceServer) SetAccountCluster(context.Context, *SetAccountClusterRequest) (*SetAccountClusterResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetAccountCluster not implemented")
+func (UnimplementedAdminServiceServer) ListAccountClusters(context.Context, *ListAccountClustersRequest) (*AccountClusterList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAccountClusters not implemented")
 }
-func (UnimplementedAdminServiceServer) MigrateAccountDeployments(context.Context, *MigrateAccountDeploymentsRequest) (*MigrateAccountDeploymentsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method MigrateAccountDeployments not implemented")
+func (UnimplementedAdminServiceServer) AddAccountCluster(context.Context, *AddAccountClusterRequest) (*AccountClusterList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddAccountCluster not implemented")
+}
+func (UnimplementedAdminServiceServer) RemoveAccountCluster(context.Context, *RemoveAccountClusterRequest) (*AccountClusterList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveAccountCluster not implemented")
+}
+func (UnimplementedAdminServiceServer) SetAccountDefaultCluster(context.Context, *SetAccountDefaultClusterRequest) (*AccountClusterList, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountDefaultCluster not implemented")
 }
 
 func (UnimplementedAdminServiceServer) UpdateCluster(context.Context, *UpdateClusterRequest) (*UpdateClusterResponse, error) {
@@ -1629,32 +1655,62 @@ func _AdminService_ListClusters_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_SetAccountCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetAccountClusterRequest)
+func _AdminService_ListAccountClusters_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAccountClustersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).SetAccountCluster(ctx, in)
+		return srv.(AdminServiceServer).ListAccountClusters(ctx, in)
 	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAccountCluster"}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAccountClusters"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).SetAccountCluster(ctx, req.(*SetAccountClusterRequest))
+		return srv.(AdminServiceServer).ListAccountClusters(ctx, req.(*ListAccountClustersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AdminService_MigrateAccountDeployments_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MigrateAccountDeploymentsRequest)
+func _AdminService_AddAccountCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAccountClusterRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AdminServiceServer).MigrateAccountDeployments(ctx, in)
+		return srv.(AdminServiceServer).AddAccountCluster(ctx, in)
 	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/MigrateAccountDeployments"}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/AddAccountCluster"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).MigrateAccountDeployments(ctx, req.(*MigrateAccountDeploymentsRequest))
+		return srv.(AdminServiceServer).AddAccountCluster(ctx, req.(*AddAccountClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_RemoveAccountCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveAccountClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).RemoveAccountCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RemoveAccountCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).RemoveAccountCluster(ctx, req.(*RemoveAccountClusterRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SetAccountDefaultCluster_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountDefaultClusterRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetAccountDefaultCluster(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAccountDefaultCluster"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetAccountDefaultCluster(ctx, req.(*SetAccountDefaultClusterRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2081,8 +2137,10 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "DeregisterCluster", Handler: _AdminService_DeregisterCluster_Handler},
 		{MethodName: "GetClusterBlockers", Handler: _AdminService_GetClusterBlockers_Handler},
 		{MethodName: "ListClusters", Handler: _AdminService_ListClusters_Handler},
-		{MethodName: "SetAccountCluster", Handler: _AdminService_SetAccountCluster_Handler},
-		{MethodName: "MigrateAccountDeployments", Handler: _AdminService_MigrateAccountDeployments_Handler},
+		{MethodName: "ListAccountClusters", Handler: _AdminService_ListAccountClusters_Handler},
+		{MethodName: "AddAccountCluster", Handler: _AdminService_AddAccountCluster_Handler},
+		{MethodName: "RemoveAccountCluster", Handler: _AdminService_RemoveAccountCluster_Handler},
+		{MethodName: "SetAccountDefaultCluster", Handler: _AdminService_SetAccountDefaultCluster_Handler},
 		{MethodName: "UpdateCluster", Handler: _AdminService_UpdateCluster_Handler},
 		{MethodName: "CheckClusterHealth", Handler: _AdminService_CheckClusterHealth_Handler},
 		{MethodName: "RefreshClusterPullSecrets", Handler: _AdminService_RefreshClusterPullSecrets_Handler},

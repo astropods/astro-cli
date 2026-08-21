@@ -49,21 +49,31 @@ func (s *Server) ListClusterMigrations(ctx context.Context, req *adminv1.ListClu
 func (s *Server) countPlacementMismatches(ctx context.Context) (int32, error) {
 	var count int32
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)::int
-		FROM deployments d
-		JOIN accounts a ON a.id = d.account_id
-		WHERE d.status <> 'undeployed'
-		  AND COALESCE(NULLIF(a.cluster_id, ''), '') IS DISTINCT FROM COALESCE(NULLIF(d.cluster_id, ''), '')
-	`).Scan(&count)
+		SELECT COUNT(*)::int FROM deployments d
+		WHERE `+orphanedDeploymentPredicate).Scan(&count)
 	return count, err
 }
 
-const mismatchDeploymentsSubquerySQL = `
-		SELECT d.id FROM deployments d
-		JOIN accounts a ON a.id = d.account_id
-		WHERE d.status <> 'undeployed'
-		  AND COALESCE(NULLIF(a.cluster_id, ''), '') IS DISTINCT FROM COALESCE(NULLIF(d.cluster_id, ''), '')
+// account.IsAllowed restated in SQL, because it runs in the database. It is the
+// only copy of that rule, so a change there has to land here too. An account
+// with no bindings is unrestricted; once it has any, the set is exhaustive and
+// the primary is no exception to it. A row with no cluster recorded predates the
+// placement backfill and is left alone rather than guessed at, so this takes no
+// configuration: the two tables are the whole answer.
+const orphanedDeploymentPredicate = `
+		d.status <> 'undeployed'
+		  AND d.cluster_id IS NOT NULL
+		  AND d.cluster_id <> ''
+		  AND EXISTS (
+		        SELECT 1 FROM account_clusters ac WHERE ac.account_id = d.account_id
+		      )
+		  AND NOT EXISTS (
+		        SELECT 1 FROM account_clusters ac
+		        WHERE ac.account_id = d.account_id AND ac.cluster_id = d.cluster_id
+		      )
 	`
+
+const mismatchDeploymentsSubquery = `SELECT d.id FROM deployments d WHERE ` + orphanedDeploymentPredicate
 
 // Event filters use fixed prefixes from clusterplacement.*EventMessage helpers (not ILIKE wildcards).
 const clusterMigrationEventsWhereSQL = `
@@ -85,7 +95,7 @@ const clusterMigrationEventsMismatchQuery = `
 		JOIN deployments d ON d.id = e.deployment_id
 		JOIN accounts a ON a.id = d.account_id
 		WHERE ` + clusterMigrationEventsWhereSQL + `
-		  AND e.deployment_id IN (` + mismatchDeploymentsSubquerySQL + `)
+		  AND e.deployment_id IN (` + mismatchDeploymentsSubquery + `)
 		ORDER BY e.created_at DESC LIMIT $1`
 
 func (s *Server) listClusterMigrationEvents(ctx context.Context, mismatchesOnly bool) ([]*adminv1.ClusterMigrationEvent, error) {
@@ -93,8 +103,9 @@ func (s *Server) listClusterMigrationEvents(ctx context.Context, mismatchesOnly 
 	if mismatchesOnly {
 		query = clusterMigrationEventsMismatchQuery
 	}
+	args := []any{clusterMigrationEventsLimit}
 
-	rows, err := s.db.QueryContext(ctx, query, clusterMigrationEventsLimit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +182,7 @@ const clusterMigrationJobsMismatchQuery = `
 		LEFT JOIN deployments d ON d.id = j.args->>'deployment_id'
 		LEFT JOIN accounts a ON a.id = d.account_id
 		WHERE ` + clusterMigrationJobsWhereSQL + `
-		  AND j.args->>'deployment_id' IN (` + mismatchDeploymentsSubquerySQL + `)
+		  AND j.args->>'deployment_id' IN (` + mismatchDeploymentsSubquery + `)
 		ORDER BY j.created_at DESC LIMIT $1`
 
 func (s *Server) listClusterMigrationJobs(ctx context.Context, mismatchesOnly bool) ([]*adminv1.ClusterMigrationJob, error) {
@@ -179,8 +190,9 @@ func (s *Server) listClusterMigrationJobs(ctx context.Context, mismatchesOnly bo
 	if mismatchesOnly {
 		query = clusterMigrationJobsMismatchQuery
 	}
+	args := []any{clusterMigrationJobsLimit}
 
-	rows, err := s.db.QueryContext(ctx, query, clusterMigrationJobsLimit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

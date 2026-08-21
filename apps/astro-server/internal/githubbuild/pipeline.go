@@ -9,12 +9,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/readmeassets"
-	spec "github.com/astropods/astro-spec"
 )
 
 // GitHubBuildConfig holds all parameters for a GitHub build pipeline.

@@ -40,23 +40,23 @@ type ListDeploymentsRequest struct {
 }
 
 type AdminDeployment struct {
-	Name              string              `json:"name,omitempty"`
-	BuildID           string              `json:"build_id,omitempty"`
-	Namespace         string              `json:"namespace,omitempty"`
-	Status            string              `json:"status,omitempty"`
-	CreatedAt         string              `json:"created_at,omitempty"`
-	AccountName       string              `json:"account_name,omitempty"`
-	Components        []string            `json:"components,omitempty"`
-	DeploymentID      string              `json:"deployment_id,omitempty"`
-	ErrorMessage      string              `json:"error_message,omitempty"`
-	ErrorDetails      []map[string]string `json:"error_details,omitempty"`
-	StatusChangedAt   string              `json:"status_changed_at,omitempty"`
-	CurrentRevision   int32               `json:"current_revision,omitempty"`
-	OwnerEmail        string              `json:"owner_email,omitempty"`
-	ClusterID         string              `json:"cluster_id,omitempty"`
-	AccountClusterID  string              `json:"account_cluster_id,omitempty"`
-	PlacementMismatch bool                `json:"placement_mismatch,omitempty"`
-	AccountId         string              `json:"account_id,omitempty"`
+	Name                 string              `json:"name,omitempty"`
+	BuildID              string              `json:"build_id,omitempty"`
+	Namespace            string              `json:"namespace,omitempty"`
+	Status               string              `json:"status,omitempty"`
+	CreatedAt            string              `json:"created_at,omitempty"`
+	AccountName          string              `json:"account_name,omitempty"`
+	Components           []string            `json:"components,omitempty"`
+	DeploymentID         string              `json:"deployment_id,omitempty"`
+	ErrorMessage         string              `json:"error_message,omitempty"`
+	ErrorDetails         []map[string]string `json:"error_details,omitempty"`
+	StatusChangedAt      string              `json:"status_changed_at,omitempty"`
+	CurrentRevision      int32               `json:"current_revision,omitempty"`
+	OwnerEmail           string              `json:"owner_email,omitempty"`
+	ClusterID            string              `json:"cluster_id,omitempty"`
+	PlacementOrphaned    bool                `json:"placement_orphaned,omitempty"`
+	AccountId            string              `json:"account_id,omitempty"`
+	AccountClusterIDs    []string            `json:"account_cluster_ids,omitempty"`
 }
 
 type AdminDeploymentEvent struct {
@@ -287,6 +287,7 @@ type AdminAccount struct {
 	UpdatedAt     string `json:"updated_at,omitempty"`
 	ClusterID     string `json:"cluster_id,omitempty"`
 	BillingStatus string `json:"billing_status,omitempty"`
+	ClusterCount  int32  `json:"cluster_count,omitempty"`
 }
 
 type ListAccountsResponse struct {
@@ -1012,23 +1013,36 @@ type ListClustersResponse struct {
 	Clusters []*RegisteredCluster `json:"clusters,omitempty"`
 }
 
-type SetAccountClusterRequest struct {
+type AccountCluster struct {
+	ClusterID   string `json:"cluster_id,omitempty"`
+	Region      string `json:"region,omitempty"`
+	IsDefault   bool   `json:"is_default,omitempty"`
+	RegionLabel string `json:"region_label,omitempty"`
+	RegionFlag  string `json:"region_flag,omitempty"`
+}
+
+type AccountClusterList struct {
+	Clusters []*AccountCluster `json:"clusters,omitempty"`
+}
+
+type ListAccountClustersRequest struct {
+	AccountID string `json:"account_id,omitempty"`
+}
+
+type AddAccountClusterRequest struct {
+	AccountID  string `json:"account_id,omitempty"`
+	ClusterID  string `json:"cluster_id,omitempty"`
+	SetDefault bool   `json:"set_default,omitempty"`
+}
+
+type RemoveAccountClusterRequest struct {
 	AccountID string `json:"account_id,omitempty"`
 	ClusterID string `json:"cluster_id,omitempty"`
 }
 
-type SetAccountClusterResponse struct {
-	Status    string `json:"status,omitempty"`
-	ClusterID string `json:"cluster_id,omitempty"`
-}
-
-type MigrateAccountDeploymentsRequest struct {
+type SetAccountDefaultClusterRequest struct {
 	AccountID string `json:"account_id,omitempty"`
-}
-
-type MigrateAccountDeploymentsResponse struct {
-	MigrationsEnqueued int32    `json:"migrations_enqueued,omitempty"`
-	DeploymentIds      []string `json:"deployment_ids,omitempty"`
+	ClusterID string `json:"cluster_id,omitempty"`
 }
 
 type UpdateClusterRequest struct {

@@ -19,8 +19,10 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/accounts/{id}/langfuse/recover", s.handleRecoverAccountLangfuse)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
-	mux.HandleFunc("PUT /api/admin/accounts/{id}/cluster", s.handleSetAccountCluster)
-	mux.HandleFunc("POST /api/admin/accounts/{id}/migrate-cluster", s.handleMigrateAccountDeployments)
+	mux.HandleFunc("GET /api/admin/accounts/{id}/clusters", s.handleListAccountClusters)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/clusters", s.handleAddAccountCluster)
+	mux.HandleFunc("DELETE /api/admin/accounts/{id}/clusters/{clusterId}", s.handleRemoveAccountCluster)
+	mux.HandleFunc("PUT /api/admin/accounts/{id}/default-cluster", s.handleSetAccountDefaultCluster)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/invalidate-cache", s.handleInvalidateAccountCaches)
 	mux.HandleFunc("POST /api/admin/invalidate-cache", s.handleInvalidateAllCaches)
 	mux.HandleFunc("GET /api/admin/deployments", s.handleListDeployments)
@@ -181,18 +183,9 @@ func (s *Server) handleRenameAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleSetAccountCluster(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	var body struct {
-		ClusterID string `json:"cluster_id"`
-	}
-	if err := readJSON(r, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	resp, err := s.admin.SetAccountCluster(r.Context(), &adminv1.SetAccountClusterRequest{
-		AccountID: id,
-		ClusterID: body.ClusterID,
+func (s *Server) handleListAccountClusters(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.ListAccountClusters(r.Context(), &adminv1.ListAccountClustersRequest{
+		AccountID: r.PathValue("id"),
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
@@ -201,10 +194,50 @@ func (s *Server) handleSetAccountCluster(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleMigrateAccountDeployments(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	resp, err := s.admin.MigrateAccountDeployments(r.Context(), &adminv1.MigrateAccountDeploymentsRequest{
-		AccountID: id,
+func (s *Server) handleAddAccountCluster(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClusterID  string `json:"cluster_id"`
+		SetDefault bool   `json:"set_default"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.AddAccountCluster(r.Context(), &adminv1.AddAccountClusterRequest{
+		AccountID:  r.PathValue("id"),
+		ClusterID:  body.ClusterID,
+		SetDefault: body.SetDefault,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRemoveAccountCluster(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.RemoveAccountCluster(r.Context(), &adminv1.RemoveAccountClusterRequest{
+		AccountID: r.PathValue("id"),
+		ClusterID: r.PathValue("clusterId"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetAccountDefaultCluster(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ClusterID string `json:"cluster_id"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.SetAccountDefaultCluster(r.Context(), &adminv1.SetAccountDefaultClusterRequest{
+		AccountID: r.PathValue("id"),
+		ClusterID: body.ClusterID,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)
