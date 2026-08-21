@@ -56,9 +56,6 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 			LIMIT $2
 		`, lastID, batchSize)
 		if err != nil {
-			// Return the error so River retries with backoff — a run that fails
-			// because the column isn't in place yet must recover, not be marked
-			// done. Per-deployment failures below stay log-and-continue.
 			return fmt.Errorf("query deployments: %w", err)
 		}
 
@@ -73,7 +70,11 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 			lastID = p.id
 			batch = append(batch, p)
 		}
+		iterErr := rows.Err()
 		_ = rows.Close()
+		if iterErr != nil {
+			return fmt.Errorf("iterate deployments: %w", iterErr)
+		}
 		if len(batch) == 0 {
 			break
 		}
@@ -113,8 +114,6 @@ func (w *ProviderBackfillWorker) Work(ctx context.Context, _ *river.Job[Provider
 				}
 			}
 
-			// Settle provider-less knowledge/model rows (custom containers) to ''
-			// so the deployment stops matching the scan on subsequent runs.
 			if _, err := w.db.ExecContext(ctx, `
 				UPDATE deployment_workloads
 				SET provider = ''

@@ -52,7 +52,7 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 		`, lastID, batchSize)
 		if err != nil {
 			w.log.Error("avatar backfill: query accounts failed", "error", err)
-			return nil // Don't retry — transient DB issues shouldn't wedge the queue
+			return nil
 		}
 
 		var batchCount int
@@ -81,14 +81,18 @@ func (w *AvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[AvatarBack
 			}
 			totalProcessed++
 		}
+		iterErr := rows.Err()
 		_ = rows.Close()
+		if iterErr != nil {
+			w.log.Error("avatar backfill: iterate account rows failed", "error", iterErr)
+			return nil
+		}
 
 		if batchCount == 0 {
 			break
 		}
 	}
 
-	// Backfill colors for accounts that have avatars but no colors yet.
 	colorProcessed, colorSkipped, colorFailed := w.backfillAccountColors(ctx)
 
 	w.log.Info("avatar backfill: completed",

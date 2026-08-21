@@ -61,8 +61,6 @@ func (w *BlueprintAvatarBackfillWorker) Work(ctx context.Context, _ *river.Job[B
 	return nil
 }
 
-// backfillBlueprints generates and uploads a placeholder avatar for every
-// non-archived blueprint that doesn't already have one in storage.
 func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) (processed, skipped, failed int) {
 	const batchSize = 100
 	var (
@@ -122,7 +120,6 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 			if _, err := w.db.ExecContext(ctx, `UPDATE agents SET avatar_updated_at = now() WHERE account_id = $1::uuid AND name = $2`, accountID, agentName); err != nil {
 				w.log.Warn("blueprint avatar backfill: stamp avatar_updated_at", "account", accountName, "name", agentName, "error", err)
 			}
-			// Extract colors immediately while we have the JPEG bytes.
 			if colors, err := colorextract.ExtractFromJPEG(jpegBytes); err != nil {
 				w.log.Warn("blueprint avatar backfill: extract colors", "account", accountName, "name", agentName, "error", err)
 			} else if j, err := json.Marshal(colors); err != nil {
@@ -132,7 +129,12 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 			}
 			processed++
 		}
+		iterErr := rows.Err()
 		_ = rows.Close()
+		if iterErr != nil {
+			w.log.Error("blueprint avatar backfill: iterate agent rows failed", "error", iterErr)
+			return processed, skipped, failed
+		}
 
 		if batchCount == 0 {
 			break
@@ -141,13 +143,6 @@ func (w *BlueprintAvatarBackfillWorker) backfillBlueprints(ctx context.Context) 
 	return processed, skipped, failed
 }
 
-// backfillDeployments copies the blueprint's avatar to each deployment that
-// doesn't already have one, generating a placeholder when the blueprint itself
-// no longer has one.
-//
-// The avatar is keyed by the account that owns the blueprint, which is
-// source_account_id on a cross-account deploy and account_id otherwise. This is
-// the same lineage rule the deploy path and deploymentstore use.
 func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context) (processed, skipped, failed int) {
 	const batchSize = 100
 	var lastID string
@@ -193,9 +188,6 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 				continue
 			}
 			if !copied {
-				// A deployment outlives its blueprint, so an archived or deleted
-				// one leaves nothing to copy. Render from the seed the blueprint
-				// pass uses to land the same image a copy would have produced.
 				jpegBytes, err := identitygen.GenerateIdentityJPEG(identitygen.IdentityOptions{
 					Seed: ownerName + "/" + agentName,
 				})
@@ -224,7 +216,12 @@ func (w *BlueprintAvatarBackfillWorker) backfillDeployments(ctx context.Context)
 			}
 			processed++
 		}
+		iterErr := rows.Err()
 		_ = rows.Close()
+		if iterErr != nil {
+			w.log.Error("blueprint avatar backfill: iterate deployment rows failed", "error", iterErr)
+			return processed, skipped, failed
+		}
 
 		if batchCount == 0 {
 			break
