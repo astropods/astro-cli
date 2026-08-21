@@ -53,12 +53,6 @@ func (a *Authorizer) canonicalClusterID(clusterID string) string {
 	return clusterID
 }
 
-// isPrimaryRequest reports whether clusterID names the primary cluster, under
-// either the reserved sentinel or the configured default cluster's real id.
-func (a *Authorizer) isPrimaryRequest(clusterID string) bool {
-	return clusterID == PrimaryClusterID || (a.defaultClusterID != "" && clusterID == a.defaultClusterID)
-}
-
 // Authenticate reports whether secret matches the stored hash for clusterID.
 // For the primary it compares against the configured hash; for an additional
 // cluster it loads clusters.pull_key_hash — every row present is usable, there's
@@ -108,36 +102,24 @@ func (a *Authorizer) ResolveHomedAccount(ctx context.Context, namespace, cluster
 	}
 	query := fmt.Sprintf(`
 		SELECT a.id,
-		       EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id AND ac.cluster_id = $2),
-		       EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id)
+		       EXISTS (SELECT 1 FROM account_clusters ac WHERE ac.account_id = a.id AND ac.cluster_id = $2)
 		FROM accounts a WHERE a.%s = $1 AND a.deleted_at IS NULL`, column)
 
 	var (
-		id          string
-		bound       bool
-		hasBindings bool
+		id    string
+		bound bool
 	)
-	if err := a.db.QueryRowContext(ctx, query, namespace, a.canonicalClusterID(clusterID)).Scan(&id, &bound, &hasBindings); err != nil {
+	if err := a.db.QueryRowContext(ctx, query, namespace, a.canonicalClusterID(clusterID)).Scan(&id, &bound); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", false, nil
 		}
 		return "", false, fmt.Errorf("failed to resolve account %q: %w", namespace, err)
 	}
 
-	if bound {
+	// With no cluster config the primary has no clusters row, so nothing can be
+	// bound to it and an exhaustive check would refuse every account.
+	if !bound && clusterID == PrimaryClusterID && a.defaultClusterID == "" {
 		return id, true, nil
 	}
-	if !a.isPrimaryRequest(clusterID) {
-		return id, false, nil
-	}
-	// Nothing can be bound to a primary with no clusters row, so an exhaustive
-	// check would demand a binding no operator can create.
-	if a.defaultClusterID == "" {
-		return id, true, nil
-	}
-	// An account nothing has bound yet routes to the primary: that is the
-	// binding astro-server records the first time it materializes the set.
-	// Reading it as unrestricted instead would let any authenticated cluster
-	// pull for every account no one has read.
-	return id, !hasBindings, nil
+	return id, bound, nil
 }
