@@ -17,6 +17,9 @@ import (
 // provisionSweepLimit caps accounts enqueued per tick.
 const provisionSweepLimit = 200
 
+// defaultSpendLimitCents is $20 in the cents the provider stores thresholds in.
+const defaultSpendLimitCents = 2000
+
 // BillingProvisionArgs puts one account on the rate card and grants its signup
 // credit.
 type BillingProvisionArgs struct {
@@ -138,6 +141,16 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 			return nil
 		}
 	}
+	// Read before the stamp, so a re-provision does not reimpose a cleared cap.
+	seeded, err := w.accounts.IsBillingProvisioned(acct.ID)
+	if err != nil {
+		return err
+	}
+	if !seeded {
+		if err := w.seedSpendLimit(ctx, acct.ID, customerID, plan); err != nil {
+			return err
+		}
+	}
 	if err := w.accounts.MarkBillingProvisioned(acct.ID); err != nil {
 		return err
 	}
@@ -165,6 +178,19 @@ func (w *BillingProvisionWorker) Work(ctx context.Context, job *river.Job[Billin
 	}
 
 	w.log.Info("billing provisioned", "account_id", acct.ID, "customer_id", customerID)
+	return nil
+}
+
+func (w *BillingProvisionWorker) seedSpendLimit(ctx context.Context, accountID, customerID string, plan billing.Plan) error {
+	writer, ok := w.provider.(billing.SpendThresholdWriter)
+	// A cap would suspend the internal accounts the unlimited plan exempts.
+	if !ok || customerID == "" || plan == billing.PlanUnlimited {
+		return nil
+	}
+	if err := writer.SetCustomerSpendThreshold(ctx, customerID, billing.SpendThresholdLimit, defaultSpendLimitCents); err != nil {
+		return fmt.Errorf("seed default spend limit: %w", err)
+	}
+	w.log.Info("billing default spend limit set", "account_id", accountID, "cents", defaultSpendLimitCents)
 	return nil
 }
 

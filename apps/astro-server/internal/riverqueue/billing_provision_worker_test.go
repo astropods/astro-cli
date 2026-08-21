@@ -2,6 +2,8 @@ package riverqueue
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +25,8 @@ type fakeProvisioner struct {
 	provisionErr    error
 	provisionCalls  int
 	plan            billing.Plan
+	spendLimits     []float64
+	spendLimitErr   error
 }
 
 func (f *fakeProvisioner) CreateCustomer(context.Context, billing.Account) (string, error) {
@@ -36,6 +40,17 @@ func (f *fakeProvisioner) ProvisionCustomer(_ context.Context, _, _ string, plan
 	return f.provisioned, f.provisionErr
 }
 
+func (f *fakeProvisioner) SetCustomerSpendThreshold(_ context.Context, _ string, kind billing.SpendThresholdKind, amount float64) error {
+	if kind == billing.SpendThresholdLimit {
+		f.spendLimits = append(f.spendLimits, amount)
+	}
+	return f.spendLimitErr
+}
+
+func (f *fakeProvisioner) ClearCustomerSpendThreshold(context.Context, string, billing.SpendThresholdKind) error {
+	return nil
+}
+
 const (
 	acctRe          = `SELECT a\.id, a\.name, a\.type`
 	getCustomerRe   = `SELECT metronome_customer_id FROM accounts`
@@ -44,6 +59,7 @@ const (
 	creatorEmailRe  = `SELECT me\.email\s+FROM account_member_emails`
 	bifrostIDRe     = `SELECT bifrost_customer_id FROM accounts`
 	markProvisionRe = `UPDATE accounts SET billing_provisioned_at`
+	readStampRe     = `SELECT billing_provisioned_at FROM accounts`
 	creatorRe       = `SELECT user_id FROM account_members`
 	claimCreditRe   = `INSERT INTO billing_credit_grants`
 )
@@ -56,6 +72,14 @@ func expectCreatorEmail(mock sqlmock.Sqlmock, email string) {
 		rows = rows.AddRow(email)
 	}
 	mock.ExpectQuery(creatorEmailRe).WillReturnRows(rows)
+}
+
+func expectStamp(mock sqlmock.Sqlmock, stamped bool) {
+	var at any
+	if stamped {
+		at = time.Unix(0, 0)
+	}
+	mock.ExpectQuery(readStampRe).WillReturnRows(sqlmock.NewRows([]string{"billing_provisioned_at"}).AddRow(at))
 }
 
 // expectCreditClaim stands in for the per-person credit ledger. holder is the
@@ -117,6 +141,7 @@ func TestProvisionWorker_StampsOnceWhenProvisioned(t *testing.T) {
 	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -162,6 +187,7 @@ func TestProvisionWorker_PersistsNewCustomerID(t *testing.T) {
 	mock.ExpectQuery(ownerEmailRe).WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("owner@example.com"))
 	mock.ExpectExec(setCustomerRe).WithArgs("cus_new", sqlmock.AnyArg(), "acct_1").WillReturnResult(sqlmock.NewResult(0, 1))
 	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -198,6 +224,7 @@ func TestProvisionWorker_SignupCreditGoesToTheFirstAccountOnly(t *testing.T) {
 			expectCreatorEmail(mock, "owner@example.com")
 			mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 			expectCreditClaim(mock, tc.holder)
+			expectStamp(mock, false)
 			mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 			if err := runProvision(t, w); err != nil {
@@ -221,6 +248,7 @@ func TestProvisionWorker_NoCreatorMeansNoCredit(t *testing.T) {
 	expectCreatorEmail(mock, "owner@example.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	mock.ExpectQuery(creatorRe).WillReturnRows(sqlmock.NewRows([]string{"user_id"}))
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -245,6 +273,7 @@ func TestProvisionWorker_InternalOwnerTakesUnlimitedAndKeepsTheClaim(t *testing.
 	expectCreatorEmail(mock, "Employee@Postman.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	// No credit-claim expectation: reaching the ledger at all is the bug.
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -269,6 +298,7 @@ func TestProvisionWorker_OutsideOwnerKeepsTheStandardPlan(t *testing.T) {
 	expectCreatorEmail(mock, "someone@gmail.com")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -318,6 +348,7 @@ func TestProvisionWorker_UnverifiedCreatorDoesNotEarnUnlimited(t *testing.T) {
 	expectCreatorEmail(mock, "")
 	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
 	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
 	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := runProvision(t, w); err != nil {
@@ -343,5 +374,87 @@ func TestCreditSignal_OnlyTheNoCreditPlanLatches(t *testing.T) {
 		if got := creditSignal(plan); got != want {
 			t.Errorf("creditSignal(%q) = %q, want %q", plan, got, want)
 		}
+	}
+}
+
+// Thresholds are cents, so dollars would cap the account a hundred times too low.
+func TestProvisionWorker_SeedsDefaultSpendLimit(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if want := []float64{2000}; len(p.spendLimits) != 1 || p.spendLimits[0] != want[0] {
+		t.Errorf("spend limits set = %v, want %v cents", p.spendLimits, want)
+	}
+}
+
+// An operator credit grant re-runs this job, and reseeding reimposes a cleared cap.
+func TestProvisionWorker_DoesNotReseedSpendLimitOnAlreadyProvisionedAccount(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, true)
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(p.spendLimits) != 0 {
+		t.Errorf("reseeded the spend limit on a provisioned account: %v", p.spendLimits)
+	}
+}
+
+func TestProvisionWorker_UnlimitedPlanTakesNoSpendLimit(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true}
+	w, mock := provisionWorker(t, p)
+	w.unlimitedDomains = []string{"postman.com"}
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "employee@postman.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectStamp(mock, false)
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := runProvision(t, w); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if len(p.spendLimits) != 0 {
+		t.Errorf("capped an unlimited account at %v cents", p.spendLimits)
+	}
+}
+
+// The stamp removes the account from the sweep, so a failed seed must not stamp.
+func TestProvisionWorker_FailedSeedLeavesAccountUnstamped(t *testing.T) {
+	p := &fakeProvisioner{provisioned: true, spendLimitErr: errors.New("provider down")}
+	w, mock := provisionWorker(t, p)
+
+	expectAccount(mock)
+	expectCreatorEmail(mock, "owner@example.com")
+	mock.ExpectQuery(getCustomerRe).WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cus_1"))
+	expectCreditClaim(mock, "acct_1")
+	expectStamp(mock, false)
+	// Expected so it can be asserted unfulfilled. Omitting it makes sqlmock error
+	// on the stamp, and the test passes either way.
+	mock.ExpectExec(markProvisionRe).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := runProvision(t, w)
+	if err == nil || !strings.Contains(err.Error(), "seed default spend limit") {
+		t.Fatalf("Work error = %v, want the seed failure so the job retries", err)
+	}
+	if mock.ExpectationsWereMet() == nil {
+		t.Fatal("the account was stamped despite the failed seed")
 	}
 }

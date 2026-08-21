@@ -975,6 +975,16 @@ func (s *AccountStore) GetAccountsPendingBillingProvision(limit int) ([]Account,
 	return accounts, rows.Err()
 }
 
+// IsBillingProvisioned reports whether the account has already been stamped.
+func (s *AccountStore) IsBillingProvisioned(accountID string) (bool, error) {
+	var at sql.NullTime
+	err := s.db.QueryRow(`SELECT billing_provisioned_at FROM accounts WHERE id = $1`, accountID).Scan(&at)
+	if err != nil {
+		return false, fmt.Errorf("failed to read billing provisioned stamp: %w", err)
+	}
+	return at.Valid, nil
+}
+
 // MarkBillingProvisioned stamps an account as provisioned.
 func (s *AccountStore) MarkBillingProvisioned(accountID string) error {
 	_, err := s.db.Exec(`UPDATE accounts SET billing_provisioned_at = now() WHERE id = $1`, accountID)
