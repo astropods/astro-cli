@@ -53,15 +53,15 @@ func boundClusters(t *testing.T, b *account.ClusterBindings, accountID string) m
 	return out
 }
 
-func TestClusterBindingsListMaterializesThePrimaryOnce(t *testing.T) {
+// Account creation and the startup backfill own the binding set. A read that
+// also wrote is what made an empty set ambiguous between "no cluster is
+// registered" and "nobody has read this account yet".
+func TestClusterBindingsListDoesNotBind(t *testing.T) {
 	db := testDB(t)
 	bindings, accountID := bindingFixture(t, db)
 
-	if got := boundClusters(t, bindings, accountID); !got["itest-primary"] {
-		t.Fatalf("bindings = %v, want the primary bound and default", got)
-	}
-	if got := boundClusters(t, bindings, accountID); len(got) != 1 || !got["itest-primary"] {
-		t.Fatalf("bindings = %v, want exactly the primary", got)
+	if got := boundClusters(t, bindings, accountID); len(got) != 0 {
+		t.Fatalf("bindings = %v, want a read to leave the account unbound", got)
 	}
 }
 
