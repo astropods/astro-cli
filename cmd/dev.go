@@ -645,11 +645,7 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
 		lines = append(lines, dim.Render("Ctrl+C to stop"))
 	}
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(theme.Primary).
-		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
+	box := theme.Box(lines)
 
 	fmt.Println()
 	fmt.Println(box)
