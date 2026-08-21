@@ -89,6 +89,37 @@ func TestRegistry_Get_EmptyID(t *testing.T) {
 	}
 }
 
+// A local cluster's row carries placeholder EKS coordinates, so rebuilding a
+// client from it would dial an endpoint that resolves to nothing. Get must
+// hand back the primary the registry was constructed with instead.
+func TestRegistry_Get_DefaultClusterIDReturnsPrimary(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	primary := &fakeClient{id: "primary"}
+	r := &Registry{
+		primary:          primary,
+		defaultClusterID: "docker-desktop",
+		clusterStore:     clusterstore.New(db),
+		cache:            make(map[string]ClusterClient),
+		log:              logger.New("error", "json"),
+	}
+
+	got, err := r.Get(context.Background(), "docker-desktop")
+	if err != nil {
+		t.Fatalf("Get(default): %v", err)
+	}
+	if got != primary {
+		t.Fatalf("Get(default) = %p, want primary %p", got, primary)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expected no cluster row read: %v", err)
+	}
+}
+
 func TestRegistry_Get_NoClusterStore(t *testing.T) {
 	r := newRegistryDirect(&fakeClient{id: "p"})
 	_, err := r.Get(context.Background(), "any-id")

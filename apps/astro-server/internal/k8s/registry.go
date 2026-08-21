@@ -182,15 +182,22 @@ func (r *Registry) DefaultClusterID() string {
 	return r.defaultClusterID
 }
 
-// Get returns a ClusterClient for an additional cluster id. The id must be
-// non-empty. Registered rows use EKS-style coordinates; the client is built
-// with ClientModeEKS using the row's name, endpoint, and region.
+// Get returns a ClusterClient for a cluster id. The id must be non-empty.
+// Registered rows use EKS-style coordinates; the client is built with
+// ClientModeEKS using the row's name, endpoint, and region.
+//
+// The cluster astro-server runs on is the exception: it already has a client,
+// built the way its mode demands. Rebuilding it from the row would force EKS
+// coordinates onto a local kubeconfig cluster, which has none that resolve.
 func (r *Registry) Get(ctx context.Context, id string) (ClusterClient, error) {
 	if r == nil {
 		return nil, fmt.Errorf("registry: nil")
 	}
 	if id == "" {
 		return nil, fmt.Errorf("registry.Get: empty cluster id")
+	}
+	if id == r.defaultClusterID {
+		return r.primary, nil
 	}
 
 	r.mu.RLock()
