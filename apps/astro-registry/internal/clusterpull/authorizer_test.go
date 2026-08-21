@@ -70,7 +70,8 @@ func TestResolveHomedAccount(t *testing.T) {
 		clusterID    string
 		wantColumn   string
 		wantLookupID string
-		allowed      bool
+		bound        bool
+		hasBindings  bool
 		found        bool
 		wantID       string
 		wantHomed    bool
@@ -82,7 +83,8 @@ func TestResolveHomedAccount(t *testing.T) {
 			wantColumn:   "name",
 			wantLookupID: "cluster-a",
 			found:        true,
-			allowed:      true,
+			bound:        true,
+			hasBindings:  true,
 			wantID:       "acct-1",
 			wantHomed:    true,
 		},
@@ -93,15 +95,37 @@ func TestResolveHomedAccount(t *testing.T) {
 			wantColumn:   "name",
 			wantLookupID: "cluster-b",
 			found:        true,
+			hasBindings:  true,
 			wantID:       "acct-1",
 			wantHomed:    false,
 		},
 		{
-			name:         "the default cluster is checked like any other",
+			name:         "an account confined elsewhere is refused on the primary",
 			namespace:    "acme",
 			clusterID:    defaultCluster,
 			wantColumn:   "name",
 			wantLookupID: defaultCluster,
+			found:        true,
+			hasBindings:  true,
+			wantID:       "acct-1",
+			wantHomed:    false,
+		},
+		{
+			name:         "an unbound account routes to the primary",
+			namespace:    "acme",
+			clusterID:    defaultCluster,
+			wantColumn:   "name",
+			wantLookupID: defaultCluster,
+			found:        true,
+			wantID:       "acct-1",
+			wantHomed:    true,
+		},
+		{
+			name:         "an unbound account is not homed on an additional cluster",
+			namespace:    "acme",
+			clusterID:    "cluster-a",
+			wantColumn:   "name",
+			wantLookupID: "cluster-a",
 			found:        true,
 			wantID:       "acct-1",
 			wantHomed:    false,
@@ -113,7 +137,8 @@ func TestResolveHomedAccount(t *testing.T) {
 			wantColumn:   "name",
 			wantLookupID: defaultCluster,
 			found:        true,
-			allowed:      true,
+			bound:        true,
+			hasBindings:  true,
 			wantID:       "acct-1",
 			wantHomed:    true,
 		},
@@ -124,7 +149,8 @@ func TestResolveHomedAccount(t *testing.T) {
 			wantColumn:   "id",
 			wantLookupID: "cluster-a",
 			found:        true,
-			allowed:      true,
+			bound:        true,
+			hasBindings:  true,
 			wantID:       "acct-1",
 			wantHomed:    true,
 		},
@@ -148,7 +174,8 @@ func TestResolveHomedAccount(t *testing.T) {
 
 			q := mock.ExpectQuery(`WHERE a\.`+tc.wantColumn+` = \$1`).WithArgs(tc.namespace, tc.wantLookupID)
 			if tc.found {
-				q.WillReturnRows(sqlmock.NewRows([]string{"id", "allowed"}).AddRow("acct-1", tc.allowed))
+				q.WillReturnRows(sqlmock.NewRows([]string{"id", "bound", "has_bindings"}).
+					AddRow("acct-1", tc.bound, tc.hasBindings))
 			} else {
 				q.WillReturnError(sql.ErrNoRows)
 			}
@@ -168,18 +195,19 @@ func TestResolveHomedAccount(t *testing.T) {
 	}
 }
 
-// An unregistered primary has no clusters row, so it cannot appear in
-// account_clusters and the binding check is skipped entirely.
-func TestResolveHomedAccount_UnregisteredPrimarySkipsBindings(t *testing.T) {
+// An unregistered primary has no clusters row, so it can never appear in
+// account_clusters and an exhaustive check would refuse every bound account.
+func TestResolveHomedAccount_UnregisteredPrimaryIgnoresBindings(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close() //nolint:errcheck
 
-	mock.ExpectQuery(`SELECT a\.id FROM accounts a WHERE a\.name = \$1`).
-		WithArgs("acme").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("acct-1"))
+	mock.ExpectQuery(`WHERE a\.name = \$1`).
+		WithArgs("acme", PrimaryClusterID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "bound", "has_bindings"}).
+			AddRow("acct-1", false, true))
 
 	az := NewAuthorizer(db, "", "")
 	id, homed, err := az.ResolveHomedAccount(context.Background(), "acme", PrimaryClusterID)
@@ -189,29 +217,26 @@ func TestResolveHomedAccount_UnregisteredPrimarySkipsBindings(t *testing.T) {
 	if id != "acct-1" || !homed {
 		t.Fatalf("got (%q, %v), want (acct-1, true)", id, homed)
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
-	}
 }
 
-// "No bindings means unrestricted" is decided in SQL, so a stubbed boolean
-// cannot show it holds. Assert the predicate the database actually receives.
-func TestResolveHomedAccountQueryMirrorsIsAllowed(t *testing.T) {
+// Whether an account has any bindings decides the unbound case, and it is read
+// in SQL, so a stubbed boolean cannot show the query asks for it.
+func TestResolveHomedAccountQueryReadsBothBindingFacts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close() //nolint:errcheck
 
-	mock.ExpectQuery(`NOT EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id\)\s+OR EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id AND ac\.cluster_id = \$2\)`).
+	mock.ExpectQuery(`EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id AND ac\.cluster_id = \$2\),\s+EXISTS \(SELECT 1 FROM account_clusters ac WHERE ac\.account_id = a\.id\)`).
 		WithArgs("acme", "cluster-a").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "allowed"}).AddRow("acct-1", true))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "bound", "has_bindings"}).AddRow("acct-1", true, true))
 
 	az := NewAuthorizer(db, "", "preview-managed-eks")
 	if _, _, err := az.ResolveHomedAccount(context.Background(), "acme", "cluster-a"); err != nil {
 		t.Fatalf("ResolveHomedAccount: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("query did not carry both branches of the allowed rule: %v", err)
+		t.Errorf("query did not read both binding facts: %v", err)
 	}
 }
