@@ -662,7 +662,8 @@ func runAPI(
 func backfillPrimaryBindings(ctx context.Context, bindings *account.ClusterBindings, log *logger.Logger) {
 	n, err := bindings.BackfillPrimaryBindings(ctx)
 	if err != nil {
-		log.Warn("account cluster binding backfill failed", "error", err)
+		log.Error("account cluster binding backfill failed; accounts without a binding are refused image pulls until the next leader election retries this",
+			"error", err)
 		return
 	}
 	if n > 0 {
@@ -673,7 +674,8 @@ func backfillPrimaryBindings(ctx context.Context, bindings *account.ClusterBindi
 func backfillPrimaryPlacement(ctx context.Context, store *deploymentstore.Store, clusters clusterid.Resolver, log *logger.Logger) {
 	res, err := store.BackfillPrimaryClusterID(ctx, clusters.Primary())
 	if err != nil {
-		log.Warn("cluster placement backfill failed", "error", err)
+		log.Error("cluster placement backfill failed; deployments with no cluster recorded stay invisible to per-cluster queries until the next leader election retries this",
+			"error", err)
 		return
 	}
 	if res.Recorded > 0 {
