@@ -12,6 +12,7 @@ import (
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -81,7 +82,8 @@ func TestDeletedAccountEndsTheJobWithoutWritingState(t *testing.T) {
 	}
 
 	if err := w.Work(t.Context(), &river.Job[InsightsRollupAccountArgs]{
-		Args: InsightsRollupAccountArgs{AccountID: "acct_gone"},
+		JobRow: &rivertype.JobRow{Attempt: 1},
+		Args:   InsightsRollupAccountArgs{AccountID: "acct_gone"},
 	}); err != nil {
 		t.Fatalf("Work() = %v, want nil so River stops retrying", err)
 	}

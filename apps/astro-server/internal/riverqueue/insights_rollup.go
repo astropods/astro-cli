@@ -81,7 +81,7 @@ type InsightsRollupWorker struct {
 
 func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[InsightsRollupArgs]) error {
 	if w.queue == nil || w.langfuseStore == nil {
-		w.log.Debug("Insights rollup skipped: queue or langfuse store not wired")
+		w.log.Debug("insights rollup: skipped, queue or langfuse store not wired")
 		return nil
 	}
 
@@ -89,7 +89,7 @@ func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[Insights
 	if err != nil {
 		// Cheap DB query — bubble up so River retries rather than waiting a full
 		// day for the next tick after a transient blip.
-		w.log.Error("Insights rollup: list accounts", "error", err)
+		w.log.Error("insights rollup: list accounts failed", "error", err)
 		return fmt.Errorf("list account IDs: %w", err)
 	}
 
@@ -109,7 +109,7 @@ func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[Insights
 			InsightsRollupAccountArgs{AccountID: accountID, Reconcile: job.Args.Reconcile},
 			opts,
 		); ierr != nil {
-			w.log.Warn("Insights rollup: enqueue per-account job",
+			w.log.Warn("insights rollup: enqueue per-account job failed",
 				"account_id", accountID, "error", ierr)
 			enqueueErrs++
 			continue
@@ -117,7 +117,7 @@ func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[Insights
 		enqueued++
 	}
 
-	w.log.Info("Insights rollup discovery completed",
+	w.log.Info("insights rollup: discovery completed",
 		"enqueued", enqueued, "enqueue_errors", enqueueErrs,
 		"forced", job.Args.Force, "reconcile", job.Args.Reconcile)
 	return nil
@@ -139,7 +139,7 @@ type InsightsRollupAccountWorker struct {
 
 func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[InsightsRollupAccountArgs]) error {
 	if w.producer == nil || w.rollups == nil {
-		w.log.Debug("Insights rollup skipped: producer or store not wired")
+		w.log.Debug("insights rollup: skipped, producer or store not wired")
 		return nil
 	}
 	accountID := job.Args.AccountID
@@ -162,26 +162,47 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 
 	days := insightsrollup.DaysToRoll(state, time.Now())
 	if len(days) == 0 {
+		w.log.Debug("insights rollup: nothing to roll",
+			"account_id", accountID,
+			"watermark", watermarkLabel(state))
 		return nil
 	}
 
-	for _, day := range days {
-		if err := w.producer.RollUpDay(ctx, accountID, day); err != nil {
+	w.log.Debug("insights rollup: planned",
+		"account_id", accountID,
+		"attempt", job.Attempt,
+		"watermark", watermarkLabel(state),
+		"reconcile", job.Args.Reconcile,
+		"day_count", len(days),
+		"first_day", days[0].Format(time.DateOnly),
+		"last_day", days[len(days)-1].Format(time.DateOnly),
+		"budget", budgetLabel(ctx))
+
+	runStart := time.Now()
+	for i, day := range days {
+		dayStart := time.Now()
+		err := w.producer.RollUpDay(ctx, accountID, day)
+		if err != nil {
 			if errors.Is(err, insightsrollup.ErrAccountGone) {
 				// Deleted after discovery enqueued this. Return before touching the
 				// state table: there is no coverage to claim, and after a hard delete
 				// the row the watermark and the failure would go into is gone.
-				w.log.Info("Insights rollup: account deleted; skipping",
+				w.log.Info("insights rollup: account deleted, skipping",
 					"account_id", accountID)
 				return nil
 			}
 			// Stop at the first failure rather than pressing on: advancing past a
 			// gap would leave a hole no later tick revisits, because the
 			// watermark would claim the day was done.
-			w.log.Warn("Insights rollup: day failed, holding watermark",
-				"account_id", accountID, "day", day.Format(time.DateOnly), "error", err)
+			w.log.Warn("insights rollup: day failed, holding watermark",
+				"account_id", accountID, "day", day.Format(time.DateOnly),
+				"attempt", job.Attempt,
+				"day_index", i+1, "day_count", len(days),
+				"elapsed", time.Since(runStart).Round(time.Millisecond).String(),
+				"budget_left", budgetLabel(ctx),
+				"error", err)
 			if rerr := w.rollups.RecordFailure(ctx, accountID, insightsrollup.SourceAgents, err.Error()); rerr != nil {
-				w.log.Warn("Insights rollup: record failure", "account_id", accountID, "error", rerr)
+				w.log.Warn("insights rollup: could not record the failure", "account_id", accountID, "error", rerr)
 			}
 			// Rejected credentials fail identically on every attempt, so spending
 			// River's retry budget on them just repeats the same call with
@@ -190,12 +211,20 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 			// outage. The watermark still holds, so no coverage is claimed, and
 			// consecutive_errors keeps climbing until someone fixes the account.
 			if isUpstreamAuthFailure(err) {
-				w.log.Error("Insights rollup: upstream rejected the account's credentials; no data will be rolled up until they are fixed",
+				w.log.Error("insights rollup: upstream rejected the credentials, holding until they are fixed",
 					"account_id", accountID, "error", err)
 				return nil
 			}
 			return fmt.Errorf("roll up %s for %s: %w", day.Format(time.DateOnly), accountID, err)
 		}
+		w.log.Debug("insights rollup: day completed",
+			"account_id", accountID,
+			"day", day.Format(time.DateOnly),
+			"day_index", i+1,
+			"day_count", len(days),
+			"duration", time.Since(dayStart).Round(time.Millisecond).String(),
+			"elapsed", time.Since(runStart).Round(time.Millisecond).String(),
+			"budget_left", budgetLabel(ctx))
 	}
 
 	lastComplete := days[len(days)-1]
@@ -203,10 +232,29 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 		return fmt.Errorf("advance watermark for %s: %w", accountID, err)
 	}
 
-	w.log.Info("Insights rollup completed",
+	w.log.Info("insights rollup: completed",
 		"account_id", accountID, "days", len(days),
+		"took", time.Since(runStart).Round(time.Millisecond).String(),
 		"through", lastComplete.Format(time.DateOnly))
 	return nil
+}
+
+func watermarkLabel(state insightsrollup.State) string {
+	if state.RolledUpThrough.IsZero() {
+		return "none"
+	}
+	return state.RolledUpThrough.UTC().Format(time.DateOnly)
+}
+
+// budgetLabel reports what is left of River's job timeout. A roll-up spends one
+// deadline across every day it planned, so the number that explains a timeout
+// is the shared remainder, not any single day's duration.
+func budgetLabel(ctx context.Context) string {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return "none"
+	}
+	return time.Until(deadline).Round(time.Millisecond).String()
 }
 
 func isUpstreamAuthFailure(err error) bool {

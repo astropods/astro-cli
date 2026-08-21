@@ -53,15 +53,50 @@ func (p *InsightsRollupProducer) RollUpDay(ctx context.Context, accountID string
 	if err != nil {
 		return fmt.Errorf("insights rollup: load account %s: %w", accountID, err)
 	}
+	agentsStart := time.Now()
 	if err := p.RollUpAgentsDay(ctx, acct, day); err != nil {
 		return err
 	}
-	return p.RollUpDevtoolsDay(ctx, accountID, day)
+	agentsDuration := time.Since(agentsStart)
+
+	devtoolsStart := time.Now()
+	err = p.RollUpDevtoolsDay(ctx, accountID, day)
+	p.Log.Debug("insights rollup: day sources rolled",
+		"account_id", accountID,
+		"day", day.UTC().Format(time.DateOnly),
+		"agents_duration", agentsDuration.Round(time.Millisecond).String(),
+		"devtools_duration", time.Since(devtoolsStart).Round(time.Millisecond).String())
+	return err
 }
 
 // rollupQueryTimeout bounds one day's upstream fetch. Generous compared to the
 // read path's 30s because nothing is waiting on it.
 const rollupQueryTimeout = 60 * time.Second
+
+// timedMetrics reports what one upstream query cost. A roll-up is almost
+// entirely these calls, so their count and latency are what explain a run that
+// runs out of time.
+func (p *InsightsRollupProducer) timedMetrics(
+	ctx context.Context,
+	client *langfuse.Client,
+	grain string,
+	q langfuse.MetricsQuery,
+) (*langfuse.MetricsResponse, error) {
+	start := time.Now()
+	resp, err := client.GetMetrics(ctx, q)
+	rows := 0
+	if resp != nil {
+		rows = len(resp.Data)
+	}
+	p.Log.Debug("insights rollup: langfuse query",
+		"grain", grain,
+		"view", q.View,
+		"from", q.FromTimestamp,
+		"rows", rows,
+		"duration", time.Since(start).Round(time.Millisecond).String(),
+		"failed", err != nil)
+	return resp, err
+}
 
 // RollUpAgentsDay writes the 'usage' and 'model' grain rows for one account-day
 // of agent spend, then returns. It does not touch the watermark — the caller
@@ -134,7 +169,7 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 	// because hourly buckets cost 24x for no product gain.
 	dims := []langfuse.MetricsDimension{{Field: "tags"}, {Field: "userId"}}
 
-	countResp, err := client.GetMetrics(ctx, langfuse.MetricsQuery{
+	countResp, err := p.timedMetrics(ctx, client, "usage:count", langfuse.MetricsQuery{
 		View:          "traces",
 		Metrics:       []langfuse.MetricsQueryField{{Measure: "count", Aggregation: "count"}},
 		Dimensions:    dims,
@@ -144,7 +179,7 @@ func (p *InsightsRollupProducer) fetchUsageGrain(
 	if err != nil {
 		return nil, fmt.Errorf("insights rollup: usage grain (count): %w", err)
 	}
-	usageResp, err := client.GetMetrics(ctx, langfuse.MetricsQuery{
+	usageResp, err := p.timedMetrics(ctx, client, "usage:cost_tokens", langfuse.MetricsQuery{
 		View: "traces",
 		Metrics: []langfuse.MetricsQueryField{
 			{Measure: "totalCost", Aggregation: "sum"},
@@ -264,7 +299,7 @@ func (p *InsightsRollupProducer) deploymentIDFromTags(acct *account.Account, raw
 	case 1:
 		return found[0]
 	default:
-		p.Log.Error("Insights rollup: trace carries multiple deployment tags — agent attribution is ambiguous",
+		p.Log.Error("insights rollup: trace carries multiple deployment tags, agent attribution is ambiguous",
 			"account_id", acct.ID, "tags", strings.Join(found, ","), "using", found[0])
 		return found[0]
 	}
@@ -281,7 +316,7 @@ func (p *InsightsRollupProducer) fetchModelGrain(
 	client *langfuse.Client,
 	from, to string,
 ) ([]insightsrollup.Fact, error) {
-	resp, err := client.GetMetrics(ctx, langfuse.MetricsQuery{
+	resp, err := p.timedMetrics(ctx, client, "model", langfuse.MetricsQuery{
 		View: "observations",
 		Metrics: []langfuse.MetricsQueryField{
 			{Measure: "totalCost", Aggregation: "sum"},
@@ -342,7 +377,7 @@ func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountI
 		} else {
 			// Attribution degrades to unidentified rows rather than failing the
 			// roll-up; total spend is still correct.
-			p.Log.Warn("Insights rollup: member email lookup failed; dev-tool spend will be unattributed",
+			p.Log.Warn("insights rollup: member email lookup failed, dev-tool spend will be unattributed",
 				"account_id", accountID, "error", err)
 		}
 	}
@@ -351,7 +386,15 @@ func (p *InsightsRollupProducer) RollUpDevtoolsDay(ctx context.Context, accountI
 	defer cancel()
 
 	for _, ad := range devtoolAdapters {
+		start := time.Now()
 		facts, err := p.fetchDevtoolGrain(ctx, client, ad, accountID, day, emailToUserID)
+		p.Log.Debug("insights rollup: devtool source fetched",
+			"account_id", accountID,
+			"source", ad.Key,
+			"day", day.UTC().Format(time.DateOnly),
+			"facts", len(facts),
+			"duration", time.Since(start).Round(time.Millisecond).String(),
+			"failed", err != nil)
 		if err != nil {
 			return err
 		}
@@ -381,7 +424,7 @@ func (p *InsightsRollupProducer) fetchDevtoolGrain(
 		return nil, nil
 	}
 	if usage.costUnavailable() {
-		p.Log.Warn("Insights rollup: dev-tool tokens reported but cost is zero; model is likely unpriced in Langfuse",
+		p.Log.Warn("insights rollup: dev-tool tokens reported but cost is zero, model is likely unpriced upstream",
 			"source", ad.Key, "account_id", accountID, "day", day.UTC().Format(time.DateOnly))
 	}
 
