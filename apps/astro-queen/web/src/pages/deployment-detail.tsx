@@ -167,6 +167,9 @@ export function DeploymentDetailPage() {
               {dep.placement_orphaned && (
                 <span className="text-amber-700"> not allowed ({(dep.account_cluster_ids ?? []).map(formatClusterId).join(", ") || "none"})</span>
               )}
+              {dep.migrating_to_cluster_id && (
+                <span className="text-blue-700"> → moving to <span className="font-mono">{formatClusterId(dep.migrating_to_cluster_id)}</span></span>
+              )}
             </span>
             <span>Owner <span className="text-foreground">{dep.owner_email || "-"}</span></span>
             <span>

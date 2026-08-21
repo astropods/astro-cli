@@ -57,6 +57,7 @@ type AdminDeployment struct {
 	PlacementOrphaned    bool                `json:"placement_orphaned,omitempty"`
 	AccountId            string              `json:"account_id,omitempty"`
 	AccountClusterIDs    []string            `json:"account_cluster_ids,omitempty"`
+	MigratingToClusterID string              `json:"migrating_to_cluster_id,omitempty"`
 }
 
 type AdminDeploymentEvent struct {

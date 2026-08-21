@@ -277,6 +277,7 @@ export function DeploymentsPage() {
                     <td className="px-2 py-0.5">
                       <span className="font-mono text-muted-foreground">{formatClusterId(d.cluster_id)}</span>
                       <PlacementMismatchBadge deployment={d} />
+                      <MigratingBadge deployment={d} />
                     </td>
                     <td className="px-2 py-0.5 text-muted-foreground">{d.owner_email || "-"}</td>
                     <td className="px-2 py-0.5 font-mono text-xs text-muted-foreground">{d.build_id ? truncateUUID(d.build_id) : "-"}</td>
@@ -469,6 +470,22 @@ function PlacementMismatchBadge({ deployment }: { deployment: AdminDeployment })
   );
 }
 
+function MigratingBadge({ deployment }: { deployment: AdminDeployment }) {
+  if (!deployment.migrating_to_cluster_id) return null;
+  const to = formatClusterId(deployment.migrating_to_cluster_id);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="ml-1 inline-block cursor-help rounded-full bg-blue-100/60 px-1.5 py-0.5 text-[10px] text-blue-800">
+          → {to}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs">
+        {`Moving to ${to}. It still routes to ${formatClusterId(deployment.cluster_id)} until the migration tears that down and deploys.`}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {

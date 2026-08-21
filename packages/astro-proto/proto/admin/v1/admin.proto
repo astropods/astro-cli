@@ -100,6 +100,9 @@ message AdminDeployment {
   bool placement_orphaned = 15;     // deployment's cluster is not on the account's allowed list
   string account_id = 16;           // owning account UUID
   repeated string account_cluster_ids = 17; // the account's allowed clusters
+  // Cluster a pending deployment is moving to; empty when it is not moving.
+  // Derived from the deployment's spec against cluster_id, not a stored column.
+  string migrating_to_cluster_id = 18;
 }
 
 message AdminDeploymentEvent {

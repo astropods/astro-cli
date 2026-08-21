@@ -6,9 +6,23 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 )
 
-// PatchDeploymentSpecClusterID updates target.cluster_id in stored deployment spec JSON.
+func InFlightMove(dep *deploymentstore.Deployment, clusters clusterid.Resolver) string {
+	if dep == nil || dep.Status != deploymentstore.StatusPending {
+		return ""
+	}
+	var stored deployment.AstroDeploymentSpec
+	if err := json.Unmarshal([]byte(dep.DeploymentSpecJSON), &stored); err != nil {
+		return ""
+	}
+	if clusters.Same(stored.Target.ClusterID, dep.EffectiveClusterID()) {
+		return ""
+	}
+	return clusters.Canonical(stored.Target.ClusterID)
+}
+
 func PatchDeploymentSpecClusterID(specJSON, clusterID string, clusters clusterid.Resolver) (string, error) {
 	var ds deployment.AstroDeploymentSpec
 	if err := json.Unmarshal([]byte(specJSON), &ds); err != nil {

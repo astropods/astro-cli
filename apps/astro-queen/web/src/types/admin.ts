@@ -21,6 +21,7 @@ export interface AdminDeployment {
   cluster_id?: string;
   account_cluster_ids?: string[];
   placement_orphaned?: boolean;
+  migrating_to_cluster_id?: string;
   account_id?: string;
 }
 

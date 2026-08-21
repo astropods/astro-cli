@@ -32,6 +32,7 @@ func (s *Server) populateAdminDeploymentPlacement(ad *adminv1.AdminDeployment, d
 	}
 	ad.ClusterID = dep.EffectiveClusterID()
 	ad.AccountClusterIDs = accountClusterIDs
+	ad.MigratingToClusterID = clusterplacement.InFlightMove(dep, s.clusters)
 	// An undeployed deployment has its cluster_id cleared (nothing runs there
 	// anymore, nothing to redeploy) and would otherwise spuriously flag against
 	// whatever clusters the account currently allows.
