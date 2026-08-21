@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -59,23 +60,24 @@ type AccountOwner struct {
 
 // AccountResponse represents an account in API responses
 type AccountResponse struct {
-	ID             string             `json:"id"`
-	Name           string             `json:"name"`
-	Type           string             `json:"type"`
-	DisplayName    string             `json:"display_name"`
-	Owner          *AccountOwner      `json:"owner,omitempty"`
-	Invitations    []org.InviteResult `json:"invitations,omitempty"`
-	CreatedAt      string             `json:"created_at"`
-	UpdatedAt      string             `json:"updated_at"`
-	AccountNumber  *int               `json:"account_number,omitempty"`
-	Bio            string             `json:"bio,omitempty"`
-	Location       string             `json:"location,omitempty"`
-	LocalTimezone  string             `json:"local_timezone,omitempty"`
-	Pronouns       string             `json:"pronouns,omitempty"`
-	Website        string             `json:"website,omitempty"`
-	SocialLinks    []string           `json:"social_links"`
-	BlueprintOrder []string           `json:"blueprint_order,omitempty"`
-	AvatarURL      string             `json:"avatar_url,omitempty"`
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	Type            string                   `json:"type"`
+	DisplayName     string                   `json:"display_name"`
+	Owner           *AccountOwner            `json:"owner,omitempty"`
+	Invitations     []org.InviteResult       `json:"invitations,omitempty"`
+	CreatedAt       string                   `json:"created_at"`
+	UpdatedAt       string                   `json:"updated_at"`
+	AccountNumber   *int                     `json:"account_number,omitempty"`
+	Bio             string                   `json:"bio,omitempty"`
+	Location        string                   `json:"location,omitempty"`
+	LocalTimezone   string                   `json:"local_timezone,omitempty"`
+	Pronouns        string                   `json:"pronouns,omitempty"`
+	Website         string                   `json:"website,omitempty"`
+	SocialLinks     []string                 `json:"social_links"`
+	BlueprintOrder  []string                 `json:"blueprint_order,omitempty"`
+	AvatarURL       string                   `json:"avatar_url,omitempty"`
+	AllowedClusters []account.ClusterBinding `json:"allowed_clusters,omitempty"`
 }
 
 // AccountOrgResponse represents an org account in the profile orgs list.
@@ -320,7 +322,8 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 }
 
 // GetAccount handles GET /api/v1/accounts/:account (public)
-func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, workos *auth.WorkOSClient) gin.HandlerFunc {
+func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarStore *avatar.Store, workos *auth.WorkOSClient, clusters clusterid.Resolver) gin.HandlerFunc {
+	bindings := accountStore.Clusters(clusters)
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -354,6 +357,12 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 
 		if avatarStore != nil {
 			resp.AvatarURL = avatarStore.AvatarURL(acct.Name, acct.AvatarUpdatedAt)
+		}
+
+		if allowed, err := bindings.List(acct.ID); err != nil {
+			log.Error("Failed to list account clusters", "error", err, "account_id", acct.ID)
+		} else {
+			resp.AllowedClusters = allowed
 		}
 
 		// Best-effort: look up owner profile for personal accounts

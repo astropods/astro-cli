@@ -1160,7 +1160,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		}
 
 		// Account endpoints (public read)
-		api.GET(v1, "/accounts/:account", "Get account details", handlers.GetAccount(log, accountStore, avatarStore, authHandler.GetWorkOSClient()),
+		api.GET(v1, "/accounts/:account", "Get account details", handlers.GetAccount(log, accountStore, avatarStore, authHandler.GetWorkOSClient(), clusterid.New(cfg.Deployment.DefaultClusterID)),
 			oapispec.Tags("Accounts"),
 			oapispec.PathParam("account", "Account name"),
 			oapispec.Response(200, &handlers.AccountResponse{}),

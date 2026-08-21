@@ -182,6 +182,15 @@ export interface AccountPublic {
   blueprint_order?: string[];
   avatar_url?: string;
   avatar_colors?: AvatarColors;
+  allowed_clusters?: AllowedCluster[];
+}
+
+export interface AllowedCluster {
+  cluster_id: string;
+  region?: string;
+  region_label?: string;
+  region_flag?: string;
+  is_default?: boolean;
 }
 
 export interface Account {

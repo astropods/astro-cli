@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -1033,5 +1035,77 @@ func TestUpdateAccount_BlueprintOrderEmpty(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestGetAccount_IncludesAllowedClusters(t *testing.T) {
+	router, store, mock := setupAccountTestRouter()
+	log := logger.New("error", "json")
+	router.GET("/api/v1/accounts/:account", GetAccount(log, store, nil, nil, clusterid.New("cluster-default")))
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow("acct-1", "acme", "organization", nil, nil, now, now)...))
+	mock.ExpectQuery("SELECT ac.cluster_id, c.region, ac.is_default").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"cluster_id", "region", "is_default"}).
+			AddRow("cluster-a", "eu-west-1", true))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/acme", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp AccountResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.AllowedClusters) != 1 {
+		t.Fatalf("allowed_clusters = %+v, want one entry", resp.AllowedClusters)
+	}
+	got := resp.AllowedClusters[0]
+	if got.ClusterID != "cluster-a" || !got.IsDefault {
+		t.Errorf("unexpected binding: %+v", got)
+	}
+	if got.RegionLabel != "Europe (Ireland)" || got.RegionFlag != "🇮🇪" {
+		t.Errorf("region should be labelled and flagged: %+v", got)
+	}
+}
+
+func TestGetAccount_ClusterReadFailureIsNotFatal(t *testing.T) {
+	router, store, mock := setupAccountTestRouter()
+	log := logger.New("error", "json")
+	router.GET("/api/v1/accounts/:account", GetAccount(log, store, nil, nil, clusterid.New("cluster-default")))
+
+	now := time.Now()
+	mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).
+			AddRow(account.SQLMockScanRow("acct-1", "acme", "organization", nil, nil, now, now)...))
+	mock.ExpectQuery("SELECT ac.cluster_id, c.region, ac.is_default").
+		WithArgs("acct-1").
+		WillReturnError(errors.New("connection reset"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/acme", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp AccountResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.Name != "acme" {
+		t.Errorf("account payload should still render: %+v", resp)
+	}
+	if len(resp.AllowedClusters) != 0 {
+		t.Errorf("allowed_clusters = %+v, want empty", resp.AllowedClusters)
 	}
 }
