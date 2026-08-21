@@ -181,3 +181,24 @@ func TestRecordFailurePreservesWatermark(t *testing.T) {
 		t.Fatalf("expectations: %v", err)
 	}
 }
+
+// RecordProgress must leave the error columns alone. Advance resets them, and a
+// run that rolled some days has not earned that reset: if partial progress
+// cleared consecutive_errors, an account failing on the same day forever would
+// hold its counter at zero and never look unhealthy.
+func TestRecordProgressLeavesErrorStateAlone(t *testing.T) {
+	store, mock := newMockStore(t)
+	mock.ExpectExec("INSERT INTO insights_rollup_state").
+		WithArgs("acct_1", SourceAgents, "2026-06-20").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	day := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	if err := store.RecordProgress(context.Background(), "acct_1", SourceAgents, day); err != nil {
+		t.Fatalf("RecordProgress: %v", err)
+	}
+	// Three bound arguments and no reason string is the observable difference
+	// from RecordFailure and Advance, both of which write the error columns.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("expectations: %v", err)
+	}
+}

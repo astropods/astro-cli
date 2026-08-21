@@ -60,7 +60,11 @@ type InsightsRollupAccountArgs struct {
 func (InsightsRollupAccountArgs) Kind() string { return "insights.rollup_account" }
 
 func (InsightsRollupAccountArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: queueInsights}
+	// River's default of 25 lets a broken account re-query upstream 25 times
+	// before anyone sees a discarded job. A roll-up that has not succeeded in
+	// five tries is waiting on a fix, not on another attempt, and the daily tick
+	// re-enqueues it regardless.
+	return river.InsertOpts{Queue: queueInsights, MaxAttempts: 5}
 }
 
 func init() {
@@ -126,15 +130,31 @@ func (w *InsightsRollupWorker) Work(ctx context.Context, job *river.Job[Insights
 // InsightsRollupAccountWorker rolls up one account: every complete day from the
 // watermark (minus the trailing re-roll window) through yesterday.
 //
-// The watermark advances only after every day behind it has committed, so it can
-// never claim coverage the facts don't support. A failure holds it in place and
-// is recorded — a stalled watermark is a visible state that surfaces to the page
-// as `as_of`, rather than a silently stale cache entry.
+// The watermark advances one day at a time, after that day's facts commit, so it
+// can never claim coverage the facts don't support. A failure holds it in place
+// and is recorded — a stalled watermark is a visible state that surfaces to the
+// page as `as_of`, rather than a silently stale cache entry.
+//
+// Advancing per day is also what makes a run resumable. A run that dies partway
+// keeps the days it finished, so the next attempt starts where it stopped
+// instead of repeating the same opening days until it expires again.
 type InsightsRollupAccountWorker struct {
 	river.WorkerDefaults[InsightsRollupAccountArgs]
 	producer InsightsRollupProducer
 	rollups  *insightsrollup.Store
 	log      *logger.Logger
+}
+
+// Timeout sizes the deadline to the work. A cold account backfills
+// MaxBackfillDays days, each a few upstream round trips, so the job is minutes
+// long by construction; River's one-minute default expires around day 28 of 90
+// and every attempt dies in the same place. Nothing waits on a roll-up, so the
+// budget can be generous.
+//
+// The bound that stops a wedged run is per day, not per job: RollUpAgentsDay
+// caps one day's fetch, which only means anything while it is shorter than this.
+func (w *InsightsRollupAccountWorker) Timeout(*river.Job[InsightsRollupAccountArgs]) time.Duration {
+	return 15 * time.Minute
 }
 
 func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[InsightsRollupAccountArgs]) error {
@@ -201,7 +221,10 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 				"elapsed", time.Since(runStart).Round(time.Millisecond).String(),
 				"budget_left", budgetLabel(ctx),
 				"error", err)
-			if rerr := w.rollups.RecordFailure(ctx, accountID, insightsrollup.SourceAgents, err.Error()); rerr != nil {
+			bookkeeping, cancel := bookkeepingCtx(ctx)
+			rerr := w.rollups.RecordFailure(bookkeeping, accountID, insightsrollup.SourceAgents, err.Error())
+			cancel()
+			if rerr != nil {
 				w.log.Warn("insights rollup: could not record the failure", "account_id", accountID, "error", rerr)
 			}
 			// Rejected credentials fail identically on every attempt, so spending
@@ -216,6 +239,9 @@ func (w *InsightsRollupAccountWorker) Work(ctx context.Context, job *river.Job[I
 				return nil
 			}
 			return fmt.Errorf("roll up %s for %s: %w", day.Format(time.DateOnly), accountID, err)
+		}
+		if err := w.rollups.RecordProgress(ctx, accountID, insightsrollup.SourceAgents, day); err != nil {
+			return fmt.Errorf("record progress for %s: %w", accountID, err)
 		}
 		w.log.Debug("insights rollup: day completed",
 			"account_id", accountID,
@@ -244,6 +270,19 @@ func watermarkLabel(state insightsrollup.State) string {
 		return "none"
 	}
 	return state.RolledUpThrough.UTC().Format(time.DateOnly)
+}
+
+// bookkeepingTimeout bounds the state write that follows a failure. Short,
+// because it is one indexed upsert and the job is already over its budget.
+const bookkeepingTimeout = 5 * time.Second
+
+// bookkeepingCtx detaches from the job deadline so a failure can be written
+// down. The deadline is itself the most common failure, and reusing the expired
+// context means the one row that explains the outage is the one guaranteed not
+// to land: consecutive_errors stays at zero and last_error stays empty for
+// precisely the accounts that are stuck.
+func bookkeepingCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
 }
 
 // budgetLabel reports what is left of River's job timeout. A roll-up spends one

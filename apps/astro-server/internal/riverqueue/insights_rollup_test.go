@@ -117,6 +117,107 @@ func TestReconcileIgnoresTheWatermark(t *testing.T) {
 	}
 }
 
+// A run that dies partway must keep the days it finished. Without a per-day
+// watermark write, a backfill longer than the job timeout redoes the same
+// opening days on every attempt and never reaches the end: the watermark only
+// moved after all 90 days, which is the point the run never got to.
+func TestPartialRunKeepsTheDaysItFinished(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("SELECT rolled_up_through").
+		WithArgs("acct_1", insightsrollup.SourceAgents).
+		WillReturnError(sql.ErrNoRows)
+
+	// Two days commit, the third fails. Each committed day writes its own
+	// watermark; the failure records itself and stops the run.
+	const committed = 2
+	for i := range committed {
+		mock.ExpectExec("INSERT INTO insights_rollup_state").
+			WithArgs("acct_1", insightsrollup.SourceAgents, dayOffsetFromBackfillStart(i)).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+	mock.ExpectExec("INSERT INTO insights_rollup_state").
+		WithArgs("acct_1", insightsrollup.SourceAgents, "upstream is down").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	var seen int
+	w := &InsightsRollupAccountWorker{
+		producer: producerFunc(func(_ context.Context, _ string, _ time.Time) error {
+			seen++
+			if seen > committed {
+				return errors.New("upstream is down")
+			}
+			return nil
+		}),
+		rollups: insightsrollup.NewStore(db),
+		log:     logger.New("error", "json"),
+	}
+
+	if err := w.Work(t.Context(), &river.Job[InsightsRollupAccountArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 1},
+		Args:   InsightsRollupAccountArgs{AccountID: "acct_1"},
+	}); err == nil {
+		t.Fatal("Work() = nil, want an error so River retries the remaining days")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected database calls: %v", err)
+	}
+}
+
+// dayOffsetFromBackfillStart returns the nth day a cold account rolls, formatted
+// the way the store binds it. A cold run starts MaxBackfillDays back from
+// yesterday, which is what DaysToRoll plans when there is no watermark.
+func dayOffsetFromBackfillStart(n int) string {
+	yesterday := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
+	start := yesterday.AddDate(0, 0, -(insightsrollup.MaxBackfillDays - 1))
+	return start.AddDate(0, 0, n).Format(time.DateOnly)
+}
+
+// The failure write must outlive the deadline that caused the failure. Reusing
+// the job context means the row explaining a timeout is the one write
+// guaranteed to fail, so consecutive_errors stays at zero and last_error stays
+// empty for exactly the accounts that are stuck.
+func TestFailureIsRecordedAfterTheJobDeadlinePasses(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("SELECT rolled_up_through").
+		WithArgs("acct_1", insightsrollup.SourceAgents).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec("INSERT INTO insights_rollup_state").
+		WithArgs("acct_1", insightsrollup.SourceAgents, "context deadline exceeded").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// The deadline has to expire *during* the run, the way it does in production:
+	// the state read succeeds, then the first day burns what is left.
+	budgeted, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	w := &InsightsRollupAccountWorker{
+		producer: producerFunc(func(ctx context.Context, _ string, _ time.Time) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}),
+		rollups: insightsrollup.NewStore(db),
+		log:     logger.New("error", "json"),
+	}
+
+	_ = w.Work(budgeted, &river.Job[InsightsRollupAccountArgs]{
+		JobRow: &rivertype.JobRow{Attempt: 8},
+		Args:   InsightsRollupAccountArgs{AccountID: "acct_1"},
+	})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("failure was not recorded past the deadline: %v", err)
+	}
+}
+
 // The args must round-trip through JSON, because the admin console sends them as
 // JSON against the schema derived from the zero value. A missing tag would make
 // the flag unsettable from the one place it exists to be used.

@@ -198,7 +198,7 @@ flowchart TD
   R --> Q["query producer, one day at a time"]
 
   Q -->|"success"| U["upsert (account, day, source) rows<br/>full replace in a tx — idempotent"]
-  U --> ADV["advance watermark to<br/>last complete day"]
+  U --> ADV["advance watermark to<br/>that day, then next day"]
 
   Q -->|"upstream failure"| HOLD["leave watermark<br/>record error, retry with backoff"]
 
@@ -206,6 +206,7 @@ flowchart TD
 ```
 
 - **Trailing re-roll window** (default 3 days) absorbs late arrivals without re-reading history.
+- **The watermark advances per day, not per run.** A 90-day backfill costs minutes of upstream round trips, so a run that dies partway has to keep the days it finished. Advancing only at the end makes a backfill longer than the job timeout unable to finish at all: every attempt repeats the same opening days and expires in the same place.
 - **Full replace per `(account, day, source, grain)`** inside a transaction makes every run idempotent — reruns and overlapping ticks converge to the same state. No merge semantics to get wrong. The delete-and-insert must be scoped by `grain` as well, or a producer that emits one grain wipes the others for that day.
 - **Weekly reconcile** re-rolls 90 days to catch drift and upstream backfills. Correctness does not depend on every incremental run succeeding.
 - **A stalled watermark is a first-class, visible state**, not a silently stale cache entry.

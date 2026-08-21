@@ -260,6 +260,31 @@ func (s *Store) State(ctx context.Context, accountID, source string) (State, err
 	return st, nil
 }
 
+// RecordProgress moves the watermark to through and leaves the error state
+// alone. A run that rolls some of its planned days and stops has earned the
+// coverage, so losing it would mean a backfill longer than one job timeout can
+// never finish: every attempt would redo the same opening days and expire in
+// the same place.
+//
+// The error state is deliberately untouched. Partial progress does not prove
+// the account is healthy, so consecutive_errors must keep counting until a run
+// completes every day it planned. That is what Advance is for.
+func (s *Store) RecordProgress(ctx context.Context, accountID, source string, through time.Time) error {
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO insights_rollup_state
+		   (account_id, source, rolled_up_through, last_run_at)
+		 VALUES ($1, $2, $3, now())
+		 ON CONFLICT (account_id, source) DO UPDATE SET
+		   rolled_up_through = GREATEST(
+		     EXCLUDED.rolled_up_through,
+		     COALESCE(insights_rollup_state.rolled_up_through, EXCLUDED.rolled_up_through)),
+		   last_run_at = now()`,
+		accountID, source, through.UTC().Format(time.DateOnly)); err != nil {
+		return fmt.Errorf("insightsrollup: record progress: %w", err)
+	}
+	return nil
+}
+
 // Advance moves the watermark to through and clears the error state. Callers
 // advance only after every day up to `through` has been committed, so the
 // watermark never claims more than the facts support.
