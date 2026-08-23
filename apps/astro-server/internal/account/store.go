@@ -97,43 +97,6 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 	return &acct, nil
 }
 
-// CreateWithoutOwner creates a new account with no initial member.
-// Used when syncing externally-created WorkOS organizations.
-func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, error) {
-	if err := ValidateAccountName(name); err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	var acct Account
-	err := s.db.QueryRow(`
-		INSERT INTO accounts (name, type, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, type, created_at, updated_at
-	`, name, accountType, now, now).Scan(
-		&acct.ID, &acct.Name, &acct.Type, &acct.CreatedAt, &acct.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create account: %w", err)
-	}
-
-	// Seed the profile row so account_number is assigned at registration time
-	_, err = s.db.Exec(`
-		INSERT INTO account_profile (account_id, social_links)
-		VALUES ($1, '{}')
-		ON CONFLICT (account_id) DO NOTHING
-	`, acct.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to seed account profile: %w", err)
-	}
-
-	if err := BindPrimary(s.db, acct.ID, s.clusters.Primary()); err != nil {
-		return nil, err
-	}
-
-	return &acct, nil
-}
-
 func (s *AccountStore) SetOwner(accountID, userID string) error {
 	_, err := s.db.Exec(`
 		UPDATE accounts SET owner_user_id = $1, updated_at = now() WHERE id = $2
