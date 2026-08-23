@@ -229,13 +229,6 @@ func (q *Queue) Start(ctx context.Context) error {
 		queueEvalJudge,
 		queueEvaluation,
 	})
-
-	// One pass per process start, not a schedule: the backfill has a finite end,
-	// and a deploy is what picks up anything the last pass missed. A failed
-	// enqueue costs the pass, not the boot.
-	if _, err := q.Insert(ctx, AccountOwnerBackfillArgs{}, nil); err != nil {
-		q.log.Warn("river: enqueue account owner backfill failed", "error", err)
-	}
 	return nil
 }
 

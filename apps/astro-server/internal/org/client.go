@@ -112,6 +112,8 @@ func (c *Client) CreateMembership(ctx context.Context, workosOrgID, userID, role
 	return membershipFromWorkOS(m), nil
 }
 
+const membershipPageSize = 100
+
 // ListMemberships lists memberships for an organization.
 // Includes both active and pending memberships so that invited users
 // whose membership hasn't been activated yet are still visible.
@@ -131,6 +133,29 @@ func (c *Client) ListMemberships(ctx context.Context, workosOrgID string, opts L
 		result = append(result, membershipFromWorkOS(m))
 	}
 	return result, nil
+}
+
+func (c *Client) ListAllMemberships(ctx context.Context, workosOrgID string) ([]Membership, error) {
+	var all []Membership
+	var after string
+	for {
+		resp, err := c.um.ListOrganizationMemberships(ctx, usermanagement.ListOrganizationMembershipsOpts{
+			OrganizationID: workosOrgID,
+			Statuses:       []usermanagement.OrganizationMembershipStatus{usermanagement.Active, usermanagement.PendingOrganizationMembership},
+			Limit:          membershipPageSize,
+			After:          after,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("workos: list memberships: %w", err)
+		}
+		for _, m := range resp.Data {
+			all = append(all, membershipFromWorkOS(m))
+		}
+		if len(resp.Data) == 0 || resp.ListMetadata.After == "" {
+			return all, nil
+		}
+		after = resp.ListMetadata.After
+	}
 }
 
 // ListMembershipsForUser lists all organization memberships for a user.

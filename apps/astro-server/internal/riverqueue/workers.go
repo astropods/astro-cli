@@ -515,13 +515,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "ProviderBackfillWorker", "period", "24h")
 
-	addWorkerWithCatalogCheck(log, workers, &AccountOwnerBackfillWorker{
-		db:  cfg.DB,
-		org: cfg.OrgClient,
-		log: log,
-	})
-	log.Info("river: registered worker", "worker", "AccountOwnerBackfillWorker", "trigger", "startup")
-
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{
 		db:            cfg.DB,

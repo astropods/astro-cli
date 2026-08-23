@@ -16,7 +16,7 @@ func TestCreate_Success(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO accounts").
-		WithArgs("myorg", "organization", "My Org", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("myorg", "organization", "My Org", "user-1", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "display_name", "created_at", "updated_at"}).
 			AddRow("acct-1", "myorg", "organization", "My Org", time.Now(), time.Now()))
 	mock.ExpectExec("INSERT INTO account_members").
@@ -193,6 +193,38 @@ func TestSetWorkOSOrganizationID(t *testing.T) {
 	err := store.SetWorkOSOrganizationID("acct-1", "org_123")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSetOwnerIfUnset_LeavesAnExistingOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("UPDATE accounts SET owner_user_id = \\$1, updated_at = now\\(\\)\\s+WHERE id = \\$2 AND owner_user_id IS NULL").
+		WithArgs("user-2", "acct-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	if err := store.SetOwnerIfUnset("acct-1", "user-2"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected statements: %v", err)
+	}
+}
+
+func TestReplaceOwner_OnlyWhileThePreviousOwnerHoldsIt(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := NewAccountStore(db)
+
+	mock.ExpectExec("UPDATE accounts SET owner_user_id = \\$1, updated_at = now\\(\\)\\s+WHERE id = \\$2 AND owner_user_id = \\$3").
+		WithArgs("user-2", "acct-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.ReplaceOwner("acct-1", "user-1", "user-2"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected statements: %v", err)
 	}
 }
 

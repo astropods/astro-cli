@@ -87,6 +87,12 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 		return nil, fmt.Errorf("failed to add local member: %w", err)
 	}
 
+	if role == "owner" {
+		if err := s.accountStore.SetOwnerIfUnset(accountID, userID); err != nil {
+			return nil, err
+		}
+	}
+
 	return &account.AccountMember{
 		AccountID:          accountID,
 		UserID:             userID,
@@ -136,20 +142,17 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole,
 		if currentMembership.RoleSlug == "owner" && callerRole != "owner" {
 			return ErrOwnerManagementForbidden
 		}
+		var successor string
 		if currentMembership.RoleSlug == "owner" && newRole != "owner" {
-			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
+			memberships, err := s.client.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
 			if err != nil {
 				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
 			}
-			ownerCount := 0
-			for _, m := range memberships {
-				if m.RoleSlug == "owner" && m.Status == "active" {
-					ownerCount++
-				}
-			}
-			if ownerCount <= 1 {
+			owners := activeOwners(memberships)
+			if len(owners) <= 1 {
 				return fmt.Errorf("cannot change role: account must have at least one owner")
 			}
+			successor = earliestOwnerExcluding(owners, userID)
 		}
 
 		updated, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole)
@@ -161,6 +164,12 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole,
 			return fmt.Errorf("role update was not applied: expected %q but got %q", newRole, updated.RoleSlug)
 		}
 
+		if newRole == "owner" {
+			return s.accountStore.SetOwner(accountID, userID)
+		}
+		if successor != "" {
+			return s.accountStore.ReplaceOwner(accountID, userID, successor)
+		}
 		return nil
 	})
 	return previousRole, err
@@ -217,20 +226,17 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 		if membership.RoleSlug == "owner" && callerRole != "owner" {
 			return ErrOwnerManagementForbidden
 		}
+		var successor string
 		if membership.RoleSlug == "owner" {
-			memberships, err := s.client.ListMemberships(ctx, acct.WorkOSOrganizationID, ListOpts{Limit: 100})
+			memberships, err := s.client.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
 			if err != nil {
 				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
 			}
-			ownerCount := 0
-			for _, m := range memberships {
-				if m.RoleSlug == "owner" && m.Status == "active" {
-					ownerCount++
-				}
-			}
-			if ownerCount <= 1 {
+			owners := activeOwners(memberships)
+			if len(owners) <= 1 {
 				return fmt.Errorf("cannot remove member: account must have at least one owner")
 			}
+			successor = earliestOwnerExcluding(owners, userID)
 		}
 
 		if err := s.client.DeleteMembership(ctx, member.WorkOSMembershipID); err != nil {
@@ -241,8 +247,37 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
 		}
 
+		if successor != "" {
+			if err := s.accountStore.ReplaceOwner(accountID, userID, successor); err != nil {
+				return err
+			}
+		}
+
 		return s.accountStore.RemoveMember(accountID, userID)
 	})
+}
+
+func activeOwners(memberships []Membership) []Membership {
+	var owners []Membership
+	for _, m := range memberships {
+		if m.RoleSlug == "owner" && m.Status == "active" {
+			owners = append(owners, m)
+		}
+	}
+	return owners
+}
+
+func earliestOwnerExcluding(owners []Membership, userID string) string {
+	var earliest Membership
+	for _, m := range owners {
+		if m.UserID == userID {
+			continue
+		}
+		if earliest.UserID == "" || m.CreatedAt < earliest.CreatedAt {
+			earliest = m
+		}
+	}
+	return earliest.UserID
 }
 
 // GetMembershipRoles returns a map of WorkOS organization ID → role slug for all
@@ -297,6 +332,12 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 		); err != nil {
 			return fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
 		}
+
+		if m.RoleSlug == "owner" {
+			if err := s.accountStore.SetOwnerIfUnset(acct.ID, m.UserID); err != nil {
+				return fmt.Errorf("failed to record owner for account %s: %w", acct.ID, err)
+			}
+		}
 	}
 
 	return nil
@@ -348,7 +389,7 @@ func (s *Sync) SendBulkInvitations(ctx context.Context, workosOrgID, inviterUser
 // findMembershipForUser searches WorkOS memberships for the given org and returns
 // the one matching the specified user ID.
 func (s *Sync) findMembershipForUser(ctx context.Context, workosOrgID, userID string) (Membership, error) {
-	memberships, err := s.client.ListMemberships(ctx, workosOrgID, ListOpts{Limit: 100})
+	memberships, err := s.client.ListAllMemberships(ctx, workosOrgID)
 	if err != nil {
 		return Membership{}, fmt.Errorf("failed to list memberships: %w", err)
 	}

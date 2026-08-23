@@ -57,10 +57,10 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 	now := time.Now()
 	var acct Account
 	err = tx.QueryRow(`
-		INSERT INTO accounts (name, type, display_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO accounts (name, type, display_name, owner_user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, name, type, display_name, created_at, updated_at
-	`, name, accountType, displayName, now, now).Scan(
+	`, name, accountType, displayName, ownerUserID, now, now).Scan(
 		&acct.ID, &acct.Name, &acct.Type, &acct.DisplayName, &acct.CreatedAt, &acct.UpdatedAt,
 	)
 	if err != nil {
@@ -132,6 +132,38 @@ func (s *AccountStore) CreateWithoutOwner(name, accountType string) (*Account, e
 	}
 
 	return &acct, nil
+}
+
+func (s *AccountStore) SetOwner(accountID, userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET owner_user_id = $1, updated_at = now() WHERE id = $2
+	`, userID, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set account owner: %w", err)
+	}
+	return nil
+}
+
+func (s *AccountStore) SetOwnerIfUnset(accountID, userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET owner_user_id = $1, updated_at = now()
+		 WHERE id = $2 AND owner_user_id IS NULL
+	`, userID, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to set account owner: %w", err)
+	}
+	return nil
+}
+
+func (s *AccountStore) ReplaceOwner(accountID, previousUserID, userID string) error {
+	_, err := s.db.Exec(`
+		UPDATE accounts SET owner_user_id = $1, updated_at = now()
+		 WHERE id = $2 AND owner_user_id = $3
+	`, userID, accountID, previousUserID)
+	if err != nil {
+		return fmt.Errorf("failed to replace account owner: %w", err)
+	}
+	return nil
 }
 
 // scanAccount scans an account row with the workos_org_id and deleted_at columns.
