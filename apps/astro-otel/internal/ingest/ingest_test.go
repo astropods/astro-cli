@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -112,6 +114,60 @@ func TestMapLangfuseIdentityAbsent(t *testing.T) {
 	out := mapLangfuseIdentity([]*commonpb.KeyValue{strAttr("service.name", "svc")})
 	if find(out, attrLangfuseUserID) != nil || find(out, attrLangfuseSessID) != nil {
 		t.Fatalf("added langfuse identity keys with no source attrs: %+v", out)
+	}
+}
+
+func TestStripDatapointAttrCoversEveryDatapointKind(t *testing.T) {
+	withAttrs := func() []*commonpb.KeyValue {
+		return []*commonpb.KeyValue{strAttr(sessionIDKey, "sess-1"), strAttr("model", "sonnet")}
+	}
+	metrics := []*metricspb.Metric{
+		{Name: "gauge", Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{
+			DataPoints: []*metricspb.NumberDataPoint{{Attributes: withAttrs()}}}}},
+		{Name: "sum", Data: &metricspb.Metric_Sum{Sum: &metricspb.Sum{
+			DataPoints: []*metricspb.NumberDataPoint{{Attributes: withAttrs()}}}}},
+		{Name: "histogram", Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{
+			DataPoints: []*metricspb.HistogramDataPoint{{Attributes: withAttrs()}}}}},
+		{Name: "exphistogram", Data: &metricspb.Metric_ExponentialHistogram{
+			ExponentialHistogram: &metricspb.ExponentialHistogram{
+				DataPoints: []*metricspb.ExponentialHistogramDataPoint{{Attributes: withAttrs()}}}}},
+		{Name: "summary", Data: &metricspb.Metric_Summary{Summary: &metricspb.Summary{
+			DataPoints: []*metricspb.SummaryDataPoint{{Attributes: withAttrs()}}}}},
+	}
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource:     &resourcepb.Resource{Attributes: withAttrs()},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: metrics}},
+		}},
+	}
+
+	stripDatapointAttr(req, sessionIDKey)
+
+	got := map[string][]*commonpb.KeyValue{}
+	for _, m := range req.ResourceMetrics[0].ScopeMetrics[0].Metrics {
+		switch d := m.GetData().(type) {
+		case *metricspb.Metric_Gauge:
+			got[m.Name] = d.Gauge.DataPoints[0].Attributes
+		case *metricspb.Metric_Sum:
+			got[m.Name] = d.Sum.DataPoints[0].Attributes
+		case *metricspb.Metric_Histogram:
+			got[m.Name] = d.Histogram.DataPoints[0].Attributes
+		case *metricspb.Metric_ExponentialHistogram:
+			got[m.Name] = d.ExponentialHistogram.DataPoints[0].Attributes
+		case *metricspb.Metric_Summary:
+			got[m.Name] = d.Summary.DataPoints[0].Attributes
+		}
+	}
+	if len(got) != len(metrics) {
+		t.Fatalf("expected %d datapoint kinds, read back %d", len(metrics), len(got))
+	}
+	for name, attrs := range got {
+		if find(attrs, sessionIDKey) != nil {
+			t.Errorf("%s: session.id survived on the datapoint", name)
+		}
+		if find(attrs, "model") == nil {
+			t.Errorf("%s: dropped an unrelated attribute", name)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -279,8 +280,123 @@ func TestPromptText(t *testing.T) {
 	if got := promptText(nil); got != "" {
 		t.Errorf("nil = %q, want empty", got)
 	}
-	if got := promptText(map[string]any{"role": "user"}); got != `{"role":"user"}` {
-		t.Errorf("object = %q", got)
+	if got := promptText(map[string]any{"role": "user"}); got != "" {
+		t.Errorf("object = %q, want empty", got)
+	}
+	if got := promptText([]any{"tool", "result"}); got != "" {
+		t.Errorf("array = %q, want empty", got)
+	}
+}
+
+func TestPromptTraceNamesAdmitsOnlyTheInteractionTrace(t *testing.T) {
+	if !promptTraceNames["claude_code.interaction"] {
+		t.Error("claude_code.interaction should be classified")
+	}
+	for _, name := range []string{
+		"tool_result", "assistant_response", "claude_code.llm_request", "user_prompt", "",
+	} {
+		if promptTraceNames[name] {
+			t.Errorf("%s should not be classified", name)
+		}
+	}
+}
+
+func tr(id, session, prompt string, minute int) promptTrace {
+	return promptTrace{
+		id:        id,
+		sessionID: session,
+		prompt:    prompt,
+		userEmail: "dev@example.com",
+		at:        time.Date(2026, 8, 24, 10, minute, 0, 0, time.UTC),
+	}
+}
+
+func TestGroupConversationsJoinsASessionInTimeOrder(t *testing.T) {
+	// Out of order: Langfuse paging order is not turn order.
+	got := groupConversations([]promptTrace{
+		tr("t2", "s1", "second", 2),
+		tr("t1", "s1", "first", 1),
+		tr("t3", "s1", "third", 3),
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(got))
+	}
+	if got[0].text != "first\nsecond\nthird" {
+		t.Errorf("text = %q", got[0].text)
+	}
+	if len(got[0].traces) != 3 {
+		t.Errorf("traces = %d, want 3", len(got[0].traces))
+	}
+}
+
+func TestGroupConversationsSeparatesSessions(t *testing.T) {
+	got := groupConversations([]promptTrace{
+		tr("t1", "s1", "alpha", 1),
+		tr("t2", "s2", "beta", 2),
+		tr("t3", "s1", "gamma", 3),
+	})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 conversations, got %d", len(got))
+	}
+	byID := map[string]conversation{}
+	for _, c := range got {
+		byID[c.id] = c
+	}
+	if byID["s1"].text != "alpha\ngamma" {
+		t.Errorf("s1 text = %q", byID["s1"].text)
+	}
+	if byID["s2"].text != "beta" {
+		t.Errorf("s2 text = %q", byID["s2"].text)
+	}
+}
+
+func TestGroupConversationsKeepsUnsessionedPromptsApart(t *testing.T) {
+	got := groupConversations([]promptTrace{
+		tr("t1", "", "alpha", 1),
+		tr("t2", "", "beta", 2),
+	})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 conversations, got %d", len(got))
+	}
+	for _, c := range got {
+		if len(c.traces) != 1 {
+			t.Errorf("conversation %s holds %d prompts, want 1", c.id, len(c.traces))
+		}
+	}
+}
+
+func TestGroupConversationsCapsConversationLength(t *testing.T) {
+	long := strings.Repeat("x", maxConversationChars)
+	got := groupConversations([]promptTrace{
+		tr("t1", "s1", long, 1),
+		tr("t2", "s1", long, 2),
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 conversation, got %d", len(got))
+	}
+	if len(got[0].text) > maxConversationChars {
+		t.Errorf("text is %d chars, over the %d cap", len(got[0].text), maxConversationChars)
+	}
+	// The cap bounds the request, not the rows the verdict is written to.
+	if len(got[0].traces) != 2 {
+		t.Errorf("traces = %d, want 2", len(got[0].traces))
+	}
+}
+
+func TestConversationPendingWhenAnyPromptIsUnlabelled(t *testing.T) {
+	c := conversation{traces: []promptTrace{tr("t1", "s1", "a", 1), tr("t2", "s1", "b", 2)}}
+	done := map[string]map[classification.Axis]bool{
+		"t1": {classification.AxisPurpose: true},
+	}
+	if !conversationPending(c, done, workclassifier.AxisPurpose) {
+		t.Error("a conversation with one unlabelled prompt should be pending")
+	}
+	done["t2"] = map[classification.Axis]bool{classification.AxisPurpose: true}
+	if conversationPending(c, done, workclassifier.AxisPurpose) {
+		t.Error("a fully labelled conversation should not be pending")
+	}
+	if !conversationPending(c, done, workclassifier.AxisTopic) {
+		t.Error("another axis should still be pending")
 	}
 }
 

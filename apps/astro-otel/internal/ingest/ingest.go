@@ -24,6 +24,7 @@ import (
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -206,11 +207,11 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	for _, rm := range req.GetResourceMetrics() {
 		if rm.Resource != nil {
-			// session.id would explode label cardinality; drop it defensively
-			// (managed settings already set OTEL_METRICS_INCLUDE_SESSION_ID=false).
 			rm.Resource.Attributes = stampIdentity(dropAttr(rm.Resource.Attributes, sessionIDKey), accountID)
 		}
 	}
+	// Unbounded: one new VictoriaMetrics series per session, kept forever.
+	stripDatapointAttr(&req, sessionIDKey)
 
 	out, err := proto.Marshal(&req)
 	if err != nil {
@@ -469,6 +470,38 @@ func upsert(attrs []*commonpb.KeyValue, key string, val *commonpb.AnyValue) []*c
 		}
 	}
 	return append(attrs, &commonpb.KeyValue{Key: key, Value: val})
+}
+
+// Each datapoint kind holds its own attribute slice, so all five are walked.
+func stripDatapointAttr(req *colmetricspb.ExportMetricsServiceRequest, key string) {
+	for _, rm := range req.GetResourceMetrics() {
+		for _, sm := range rm.GetScopeMetrics() {
+			for _, m := range sm.GetMetrics() {
+				switch d := m.GetData().(type) {
+				case *metricspb.Metric_Gauge:
+					for _, dp := range d.Gauge.GetDataPoints() {
+						dp.Attributes = dropAttr(dp.Attributes, key)
+					}
+				case *metricspb.Metric_Sum:
+					for _, dp := range d.Sum.GetDataPoints() {
+						dp.Attributes = dropAttr(dp.Attributes, key)
+					}
+				case *metricspb.Metric_Histogram:
+					for _, dp := range d.Histogram.GetDataPoints() {
+						dp.Attributes = dropAttr(dp.Attributes, key)
+					}
+				case *metricspb.Metric_ExponentialHistogram:
+					for _, dp := range d.ExponentialHistogram.GetDataPoints() {
+						dp.Attributes = dropAttr(dp.Attributes, key)
+					}
+				case *metricspb.Metric_Summary:
+					for _, dp := range d.Summary.GetDataPoints() {
+						dp.Attributes = dropAttr(dp.Attributes, key)
+					}
+				}
+			}
+		}
+	}
 }
 
 func dropAttr(attrs []*commonpb.KeyValue, key string) []*commonpb.KeyValue {

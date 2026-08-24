@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/classification"
@@ -289,9 +290,15 @@ func (p *ClassificationProducer) processDay(
 
 type promptTrace struct {
 	id        string
+	sessionID string
 	prompt    string
 	userEmail string
 	at        time.Time
+}
+
+// The claude-code tag also matches tool/response records; user_prompt duplicates this.
+var promptTraceNames = map[string]bool{
+	"claude_code.interaction": true,
 }
 
 func fetchDayTraces(
@@ -312,16 +319,21 @@ func fetchDayTraces(
 			return out, fmt.Errorf("classification: fetch traces: %w", err)
 		}
 		for _, tr := range resp.Data {
+			if !promptTraceNames[tr.Name] {
+				continue
+			}
 			text := promptText(tr.Input)
 			if text == "" {
-				// Content collection off or redacted at ingest — never classifiable.
+				// Content collection off, redacted at ingest, or not a prompt.
 				continue
 			}
 			at, err := time.Parse(time.RFC3339, tr.Timestamp)
 			if err != nil {
 				at = start
 			}
-			out = append(out, promptTrace{id: tr.ID, prompt: text, userEmail: tr.UserID, at: at})
+			out = append(out, promptTrace{
+				id: tr.ID, sessionID: tr.SessionID, prompt: text, userEmail: tr.UserID, at: at,
+			})
 		}
 		// Bounds the fetch itself, so a bad totalPages cannot page until timeout.
 		if len(out) >= budget || offset/tracePageSize >= maxTracePages {
@@ -334,7 +346,56 @@ func fetchDayTraces(
 	return out, nil
 }
 
-// classifyTraces sends only what is missing to inference, then persists.
+// One session's prompts, newline-joined — the shape the heads were trained on.
+type conversation struct {
+	id     string
+	traces []promptTrace
+	text   string
+}
+
+// Past the predictor's own truncation point, so the rest is only request weight.
+const maxConversationChars = 8000
+
+// A prompt with no session id becomes a conversation of one. Midnight splits a session.
+func groupConversations(traces []promptTrace) []conversation {
+	order := make([]string, 0, len(traces))
+	byID := map[string][]promptTrace{}
+	for _, t := range traces {
+		// Not "": that would fuse every unsessioned prompt into one conversation.
+		key := t.sessionID
+		if key == "" {
+			key = t.id
+		}
+		if _, seen := byID[key]; !seen {
+			order = append(order, key)
+		}
+		byID[key] = append(byID[key], t)
+	}
+
+	out := make([]conversation, 0, len(order))
+	for _, id := range order {
+		group := byID[id]
+		sort.SliceStable(group, func(i, j int) bool { return group[i].at.Before(group[j].at) })
+		var sb strings.Builder
+		for i, t := range group {
+			if sb.Len() >= maxConversationChars {
+				break
+			}
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(t.prompt)
+		}
+		text := sb.String()
+		if len(text) > maxConversationChars {
+			text = text[:maxConversationChars]
+		}
+		out = append(out, conversation{id: id, traces: group, text: text})
+	}
+	return out
+}
+
+// Rows stay per prompt: the day's cost is apportioned by row count.
 func (p *ClassificationProducer) classifyTraces(
 	ctx context.Context,
 	accountID, source string,
@@ -344,6 +405,7 @@ func (p *ClassificationProducer) classifyTraces(
 	if len(traces) == 0 {
 		return 0, nil
 	}
+	convs := groupConversations(traces)
 	ids := make([]string, len(traces))
 	for i, t := range traces {
 		ids[i] = t.id
@@ -362,28 +424,33 @@ func (p *ClassificationProducer) classifyTraces(
 	// already been billed for.
 	var sent int
 	for _, axis := range workclassifier.Axes {
-		pending := make([]promptTrace, 0, min(len(traces), perAxis))
-		for _, t := range traces {
-			if done[t.id][classification.Axis(axis)] {
+		pending := make([]conversation, 0, len(convs))
+		prompts := 0
+		for _, c := range convs {
+			if !conversationPending(c, done, axis) {
 				continue
 			}
-			if len(pending) >= perAxis {
+			if prompts > 0 && prompts+len(c.traces) > perAxis {
 				break
 			}
-			pending = append(pending, t)
+			pending = append(pending, c)
+			prompts += len(c.traces)
 		}
 		if len(pending) == 0 {
 			continue
 		}
 		texts := make([]string, len(pending))
-		for i, t := range pending {
-			texts[i] = t.prompt
+		for i, c := range pending {
+			texts[i] = c.text
 		}
 		// Predictions are positional, and a partial batch returns a prefix, so
 		// pending is trimmed to what came back.
 		preds, err := p.Classifier.Classify(ctx, axis, texts)
-		sent += len(preds)
-		if saveErr := p.saveAxis(ctx, accountID, source, axis, pending[:len(preds)], preds); saveErr != nil {
+		labelled := pending[:min(len(preds), len(pending))]
+		for _, c := range labelled {
+			sent += len(c.traces)
+		}
+		if saveErr := p.saveAxis(ctx, accountID, source, axis, labelled, preds); saveErr != nil {
 			return sent, saveErr
 		}
 		if err != nil {
@@ -393,11 +460,21 @@ func (p *ClassificationProducer) classifyTraces(
 	return sent, nil
 }
 
+func conversationPending(c conversation, done map[string]map[classification.Axis]bool, axis workclassifier.Axis) bool {
+	for _, t := range c.traces {
+		if !done[t.id][classification.Axis(axis)] {
+			return true
+		}
+	}
+	return false
+}
+
+// preds is positional against convs, and a prefix of it when a batch failed partway.
 func (p *ClassificationProducer) saveAxis(
 	ctx context.Context,
 	accountID, source string,
 	axis workclassifier.Axis,
-	pending []promptTrace,
+	convs []conversation,
 	preds []workclassifier.Prediction,
 ) error {
 	if len(preds) == 0 {
@@ -405,25 +482,29 @@ func (p *ClassificationProducer) saveAxis(
 	}
 	known := knownLabels(axis)
 	results := make([]classification.Result, 0, len(preds))
-	for i, pr := range preds {
+	for i, c := range convs {
+		if i >= len(preds) {
+			break
+		}
+		pr := preds[i]
 		label := pr.Label
 		if !known[label] {
-			// A prompt the predictor refused arrives with no label at all.
-			// Both cases record the axis fallback, because skipping the row
-			// re-sends the prompt to inference every tick.
+			// Refused conversations record the fallback; skipping re-sends them every tick.
 			p.Log.Warn("classification: unusable label from classifier",
 				"axis", axis, "label", pr.Label, "account_id", accountID)
 			label = workclassifier.Fallback[axis]
 		}
-		results = append(results, classification.Result{
-			UnitKind:   classification.UnitTurn,
-			UnitID:     pending[i].id,
-			Axis:       classification.Axis(axis),
-			Label:      label,
-			Score:      pr.Score,
-			OccurredAt: pending[i].at,
-			UserEmail:  pending[i].userEmail,
-		})
+		for _, t := range c.traces {
+			results = append(results, classification.Result{
+				UnitKind:   classification.UnitTurn,
+				UnitID:     t.id,
+				Axis:       classification.Axis(axis),
+				Label:      label,
+				Score:      pr.Score,
+				OccurredAt: t.at,
+				UserEmail:  t.userEmail,
+			})
+		}
 	}
 	return p.Classifications.SaveResults(ctx, accountID, source, p.Classifier.ModelVersion(), results)
 }
@@ -493,20 +574,12 @@ func attributeCost(
 	return facts
 }
 
-// trace.input is a string for dev-tool traces but typed any for agent payloads.
+// trace.input is typed any for agent payloads; a dev-tool prompt is always a string.
 func promptText(input any) string {
-	switch v := input.(type) {
-	case nil:
-		return ""
-	case string:
-		return v
-	default:
-		b, err := json.Marshal(v)
-		if err != nil {
-			return ""
-		}
-		return string(b)
+	if s, ok := input.(string); ok {
+		return s
 	}
+	return ""
 }
 
 func knownLabels(axis workclassifier.Axis) map[string]bool {

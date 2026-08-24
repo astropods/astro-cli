@@ -29,7 +29,7 @@ const (
 
 func (a Axis) valid() bool { return a == AxisPurpose || a == AxisTopic || a == AxisTask }
 
-// Only UnitTurn is produced today — Claude Code sends no session id.
+// Only UnitTurn: a row per prompt, labelled with its conversation's verdict.
 type UnitKind string
 
 const UnitTurn UnitKind = "turn"

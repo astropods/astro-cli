@@ -62,7 +62,7 @@ const NEW_SOURCE_HOTLINK_PARAMS = ['new'] as const
 /** Content-collection options that append logs-signal settings to the block. */
 type CollectionOptions = { collectPrompts: boolean; storeToolCalls: boolean }
 
-/** Builds the Anthropic managed-settings env block for a freshly created key. */
+/** Builds the Anthropic managed-settings document for a freshly created key. */
 function managedSettingsBlock(endpoint: string, token: string, opts: CollectionOptions): string {
   const vars: [string, string][] = [
     ['CLAUDE_CODE_ENABLE_TELEMETRY', '1'],
@@ -72,13 +72,14 @@ function managedSettingsBlock(endpoint: string, token: string, opts: CollectionO
     ['OTEL_EXPORTER_OTLP_PROTOCOL', 'http/protobuf'],
     ['OTEL_EXPORTER_OTLP_ENDPOINT', endpoint || UNSET_ENDPOINT_PLACEHOLDER],
     ['OTEL_EXPORTER_OTLP_HEADERS', `Authorization=Bearer ${token}`],
-    ['OTEL_METRICS_INCLUDE_SESSION_ID', 'false'],
+    // Gates session.id on logs/traces too; needs astro-otel's datapoint strip first.
+    ['OTEL_METRICS_INCLUDE_SESSION_ID', 'true'],
   ]
   // Prompt/response text and tool inputs ride the logs signal, off unless opted in.
   if (opts.collectPrompts || opts.storeToolCalls) vars.push(['OTEL_LOGS_EXPORTER', 'otlp'])
   if (opts.collectPrompts) vars.push(['OTEL_LOG_USER_PROMPTS', '1'])
   if (opts.storeToolCalls) vars.push(['OTEL_LOG_TOOL_DETAILS', '1'])
-  return vars.map(([k, v]) => `${k.padEnd(36)}= ${v}`).join('\n')
+  return JSON.stringify({ env: Object.fromEntries(vars) }, null, 2)
 }
 
 // Mirrors the server's normalizeEmails check so invalid input is caught before submit.

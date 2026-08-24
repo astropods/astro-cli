@@ -37,11 +37,13 @@ Model version is pinned in `astro-infra` at `terraform.tfvars` (`work_classifier
 
 `fine_tune.py` trains purpose and topic at conversation level (`conv_text()` joins all turns) with `MAXLEN = 256`. Task is per-turn with an 8-turn context window.
 
-We classify **per trace**. One Claude Code trace is one `claude_code.interaction` — a single user prompt plus its full response — and `trace.input` carries the prompt verbatim.
+We classify **per conversation**: a day's prompts are grouped by `trace.sessionId`, joined oldest-first with newlines, and sent as one text. The verdict is then written to a row per prompt, because the day's cost is apportioned by row count — a row per conversation would weigh a 20-prompt session the same as one throwaway question.
 
-This is a deliberate mismatch with training, accepted for two reasons: the 256-token cap means the heads effectively saw only the opening one to three prompts of a conversation anyway, so a single substantive prompt is near-distribution; and Claude Code is not currently sending a session id, so conversation grouping does not exist to classify against. Expect softer accuracy on terse, ambiguous prompts.
+**Trace names are filtered.** The `claude-code` tag also matches the `tool_result`, `assistant_response` and `claude_code.llm_request` records astro-otel synthesizes. Only `claude_code.interaction` is classified — `user_prompt` is promoted onto that trace by the transform, so admitting it too would double-count a prompt and its share of spend. `promptText` does not marshal non-string input.
 
-`unit_kind` is retained in the schema so session-level rows can land later without migration.
+**Rollout.** Claude Code attaches `session.id` only when `OTEL_METRICS_INCLUDE_SESSION_ID` is set, and admins adopt that per-console. A prompt with no session id becomes a single-prompt conversation, so coverage never drops during the rollout. A session spanning midnight is split, because the pass reads and seals one day at a time.
+
+`unit_kind` is retained for a future one-row-per-conversation shape, which would need a weight column and a migration.
 
 ## Data flow
 
@@ -162,7 +164,7 @@ The per-key email exclusions on `otel_ingest_tokens` are the opt-out and work wi
 ## Open items
 
 - **Model version drift.** The Foundry API exposes no version; astro-server's config value must be updated whenever `work_classifier_versions` changes in `astro-infra`. Needs a runbook note, or a version endpoint on the serving side.
-- **Session grouping.** `OTEL_METRICS_INCLUDE_SESSION_ID` (misleadingly named — it gates traces and logs too) is `false` in the managed-settings block, which is why `sessionId` is null. Flipping it would enable conversation-level classification, but `session.id` lands on metric *datapoint* attributes, which astro-otel does not strip (it only clears resource attributes) — so flipping it without a datapoint-level strip pipes unbounded cardinality into VictoriaMetrics.
+- **Session-id rollout.** Done in code: `stripDatapointAttr` clears `session.id` from metric datapoints and the managed-settings block sets the flag to `true`. **Deploy astro-otel first**, or session ids reach VictoriaMetrics unguarded. Existing accounts still need an admin to re-paste the block.
 - **Exact cost attribution.** Wiring `claude_code.api_request` into `synthesizeSpan` would give per-trace cost and enable token-weighted segment splits.
 - **Task axis.** Deferred pending model work and session grouping.
 - **No auth on the serving side.** Prompt text is POSTed unauthenticated (IP-allowlisted per astro-infra decision 0007), and requests carry no account identifier, so a Foundry-side incident cannot be scoped to affected accounts. `Client.predict` is the single chokepoint if that changes.
