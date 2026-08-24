@@ -315,6 +315,8 @@ Proposed PR8.3/8.4 API surface; exact paths follow existing server conventions d
 - Show every organization deployment, every organization member, organization roles, and effective deployment roles.
 - Distinguish direct, group-derived, and organization-inherited access so operators can explain why a member is allowed.
 - Resolve data through Astro's admin backend; Queen does not call WorkOS directly and does not mutate assignments in this PR.
+- Load access evidence only when an operator opens a deployment's Access tab; do not attach WorkOS calls to Queen's frequently refreshed deployment-detail request.
+- Page the complete WorkOS organization roster and use permission-index lookups rather than one permission request per member so large organizations remain inspectable.
 
 ### PR9 — Preview proof, hardening, and cleanup
 

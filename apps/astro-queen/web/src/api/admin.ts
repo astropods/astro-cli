@@ -5,6 +5,7 @@ import { adminKeys } from "./keys";
 import type {
   ListDeploymentsResponse,
   GetDeploymentResponse,
+  GetDeploymentAccessResponse,
   ListAccountsResponse,
   GetAccountResponse,
   MetronomeAliasStatus,
@@ -75,6 +76,19 @@ export function useDeployment(id: string) {
       }
       return 5_000;
     },
+  });
+}
+
+export function useDeploymentAccess(id: string, enabled = true) {
+  return useQuery({
+    queryKey: adminKeys.deploymentAccess(id),
+    queryFn: () =>
+      api.get<GetDeploymentAccessResponse>(
+        `/api/admin/deployments/${encodeURIComponent(id)}/access`
+      ),
+    enabled: !!id && enabled,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 }
 

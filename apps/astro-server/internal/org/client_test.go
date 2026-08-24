@@ -79,3 +79,45 @@ func TestClassifyOrganizationError(t *testing.T) {
 		t.Fatalf("classifyOrganizationError() = %v, did not want ErrOrganizationNotFound", err)
 	}
 }
+
+func TestListMembershipsPagePreservesCursorAndRoles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/user_management/organization_memberships" {
+			t.Fatalf("path = %q", request.URL.Path)
+		}
+		if got := request.URL.Query().Get("organization_id"); got != "org_123" {
+			t.Fatalf("organization_id = %q", got)
+		}
+		if got := request.URL.Query().Get("after"); got != "om_before" {
+			t.Fatalf("after = %q", got)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(response).Encode(map[string]any{
+			"data": []map[string]any{{
+				"id": "om_123", "user_id": "user_123", "organization_id": "org_123",
+				"role":   map[string]string{"slug": "admin"},
+				"roles":  []map[string]string{{"slug": "admin"}, {"slug": "support"}},
+				"status": "active",
+			}},
+			"list_metadata": map[string]any{"before": "om_before", "after": "om_after"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer server.Close()
+
+	userManagement := usermanagement.NewClient("sk_test")
+	userManagement.Endpoint = server.URL
+	client := &Client{um: userManagement}
+	page, err := client.ListMembershipsPage(context.Background(), "org_123", ListOpts{Limit: 25, After: "om_before"})
+	if err != nil {
+		t.Fatalf("ListMembershipsPage() error = %v", err)
+	}
+	if page.NextCursor != "om_after" || len(page.Memberships) != 1 {
+		t.Fatalf("ListMembershipsPage() = %+v", page)
+	}
+	got := page.Memberships[0]
+	if got.RoleSlug != "admin" || len(got.RoleSlugs) != 2 || got.RoleSlugs[1] != "support" {
+		t.Fatalf("membership roles = %q / %v", got.RoleSlug, got.RoleSlugs)
+	}
+}

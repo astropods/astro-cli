@@ -118,6 +118,13 @@ const membershipPageSize = 100
 // Includes both active and pending memberships so that invited users
 // whose membership hasn't been activated yet are still visible.
 func (c *Client) ListMemberships(ctx context.Context, workosOrgID string, opts ListOpts) ([]Membership, error) {
+	page, err := c.ListMembershipsPage(ctx, workosOrgID, opts)
+	return page.Memberships, err
+}
+
+// ListMembershipsPage lists one page of organization memberships with the
+// cursor required to continue without truncating large organizations.
+func (c *Client) ListMembershipsPage(ctx context.Context, workosOrgID string, opts ListOpts) (MembershipPage, error) {
 	resp, err := c.um.ListOrganizationMemberships(ctx, usermanagement.ListOrganizationMembershipsOpts{
 		OrganizationID: workosOrgID,
 		Statuses:       []usermanagement.OrganizationMembershipStatus{usermanagement.Active, usermanagement.PendingOrganizationMembership},
@@ -126,13 +133,13 @@ func (c *Client) ListMemberships(ctx context.Context, workosOrgID string, opts L
 		Before:         opts.Before,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("workos: list memberships: %w", err)
+		return MembershipPage{}, fmt.Errorf("workos: list memberships: %w", err)
 	}
 	result := make([]Membership, 0, len(resp.Data))
 	for _, m := range resp.Data {
 		result = append(result, membershipFromWorkOS(m))
 	}
-	return result, nil
+	return MembershipPage{Memberships: result, NextCursor: resp.ListMetadata.After}, nil
 }
 
 func (c *Client) ListAllMemberships(ctx context.Context, workosOrgID string) ([]Membership, error) {
@@ -297,11 +304,19 @@ func (c *Client) ListOrganizationRoles(ctx context.Context, workosOrgID string) 
 // --- Helpers ---
 
 func membershipFromWorkOS(m usermanagement.OrganizationMembership) Membership {
+	roleSlugs := make([]string, 0, len(m.Roles))
+	for _, role := range m.Roles {
+		roleSlugs = append(roleSlugs, role.Slug)
+	}
+	if len(roleSlugs) == 0 && m.Role.Slug != "" {
+		roleSlugs = append(roleSlugs, m.Role.Slug)
+	}
 	return Membership{
 		ID:             m.ID,
 		UserID:         m.UserID,
 		OrganizationID: m.OrganizationID,
 		RoleSlug:       m.Role.Slug,
+		RoleSlugs:      roleSlugs,
 		Status:         string(m.Status),
 		CreatedAt:      m.CreatedAt,
 		UpdatedAt:      m.UpdatedAt,

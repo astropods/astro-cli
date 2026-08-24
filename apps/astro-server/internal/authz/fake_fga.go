@@ -16,6 +16,7 @@ type FakeFGA struct {
 	ListRoleAssignmentsFunc      func(context.Context, string, ResourceRef) ([]RoleAssignment, error)
 	ListGroupRoleAssignmentsFunc func(context.Context, string) ([]RoleAssignment, error)
 	ListResourcesFunc            func(context.Context, string, Action, ResourceRef) ([]ResourceRef, error)
+	ListMembershipsFunc          func(context.Context, string, ResourceRef, Action) ([]string, error)
 	CheckFunc                    func(context.Context, string, Action, ResourceRef) (bool, error)
 	ListPermissionsFunc          func(context.Context, string, ResourceRef) ([]Action, error)
 }
@@ -23,6 +24,7 @@ type FakeFGA struct {
 var _ FGA = (*FakeFGA)(nil)
 var _ AccessAssignments = (*FakeFGA)(nil)
 var _ ResourceDiscovery = (*FakeFGA)(nil)
+var _ ResourceMembershipDiscovery = (*FakeFGA)(nil)
 
 func (f *FakeFGA) RegisterResource(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
 	if f.RegisterResourceFunc == nil {
@@ -78,6 +80,13 @@ func (f *FakeFGA) ListResources(ctx context.Context, membershipID string, action
 		return nil, errors.New("unexpected FGA resource discovery")
 	}
 	return f.ListResourcesFunc(ctx, membershipID, action, parent)
+}
+
+func (f *FakeFGA) ListMemberships(ctx context.Context, organizationID string, resource ResourceRef, action Action) ([]string, error) {
+	if f.ListMembershipsFunc == nil {
+		return nil, errors.New("unexpected FGA membership discovery")
+	}
+	return f.ListMembershipsFunc(ctx, organizationID, resource, action)
 }
 
 func (f *FakeFGA) Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error) {

@@ -34,6 +34,7 @@ var _ FGA = (*WorkOSFGA)(nil)
 var _ AccessAssignments = (*WorkOSFGA)(nil)
 var _ ResourceDiscovery = (*WorkOSFGA)(nil)
 var _ Groups = (*WorkOSFGA)(nil)
+var _ ResourceMembershipDiscovery = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -314,6 +315,39 @@ func (f *WorkOSFGA) workOSParentResource(ctx context.Context, parent ResourceRef
 	}
 	resourceID, _ := resolved.(string)
 	return workos.AuthorizationParentResourceByID{ID: resourceID}, nil
+}
+
+func (f *WorkOSFGA) ListMemberships(ctx context.Context, organizationID string, resource ResourceRef, action Action) ([]string, error) {
+	if organizationID == "" {
+		return nil, errors.New("organization id is required")
+	}
+	if action == "" {
+		return nil, errors.New("action is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return nil, err
+	}
+
+	assignment := workos.AuthorizationAssignmentIndirect
+	iterator := f.authorization.ListMembershipsForResourceByExternalID(
+		ctx,
+		organizationID,
+		string(resource.Type),
+		resource.ExternalID,
+		&workos.AuthorizationListMembershipsForResourceByExternalIDParams{
+			PermissionSlug: string(action),
+			Assignment:     &assignment,
+		},
+	)
+	membershipIDs := make([]string, 0)
+	for iterator.Next() {
+		membershipIDs = append(membershipIDs, iterator.Current().ID)
+	}
+	if err := iterator.Err(); err != nil {
+		err = classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound)
+		return nil, fmt.Errorf("list WorkOS memberships with permission %q on %s:%s: %w", action, resource.Type, resource.ExternalID, err)
+	}
+	return membershipIDs, nil
 }
 
 func (f *WorkOSFGA) Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error) {

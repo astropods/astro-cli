@@ -436,6 +436,34 @@ func TestWorkOSFGAListRoleAssignments(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAListMembershipsUsesEffectiveAccess(t *testing.T) {
+	t.Parallel()
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organizations/org_123/resources/deployment/dep_123/organization_memberships" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if got := request.URL.Query().Get("permission_slug"); got != "deployment:read" {
+			t.Fatalf("permission_slug = %q", got)
+		}
+		if got := request.URL.Query().Get("assignment"); got != "indirect" {
+			t.Fatalf("assignment = %q, want indirect", got)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data":          []map[string]any{{"id": "om_direct"}, {"id": "om_inherited"}},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	memberships, err := fga.ListMemberships(context.Background(), "org_123", DeploymentResource("dep_123"), ActionDeploymentRead)
+	if err != nil {
+		t.Fatalf("ListMemberships() error = %v", err)
+	}
+	if want := []string{"om_direct", "om_inherited"}; !reflect.DeepEqual(memberships, want) {
+		t.Fatalf("ListMemberships() = %v, want %v", memberships, want)
+	}
+}
+
 func TestWorkOSFGAListGroupRoleAssignments(t *testing.T) {
 	t.Parallel()
 	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
@@ -476,6 +504,10 @@ func TestWorkOSFGAListAssignmentsClassifiesMissingResource(t *testing.T) {
 		name string
 		call func(*WorkOSFGA) error
 	}{
+		{name: "effective membership", call: func(fga *WorkOSFGA) error {
+			_, err := fga.ListMemberships(context.Background(), "org_123", DeploymentResource("dep_123"), ActionDeploymentRead)
+			return err
+		}},
 		{name: "membership", call: func(fga *WorkOSFGA) error {
 			_, err := fga.ListRoleAssignments(context.Background(), "org_123", DeploymentResource("dep_123"))
 			return err
@@ -731,6 +763,27 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 			},
 		},
 		{
+			name: "list memberships with empty organization id",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListMemberships(context.Background(), "", DeploymentResource("dep_123"), ActionDeploymentRead)
+				return err
+			},
+		},
+		{
+			name: "list memberships with empty action",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListMemberships(context.Background(), "org_123", DeploymentResource("dep_123"), "")
+				return err
+			},
+		},
+		{
+			name: "list memberships with empty resource",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.ListMemberships(context.Background(), "org_123", ResourceRef{}, ActionDeploymentRead)
+				return err
+			},
+		},
+		{
 			name: "list resources with empty parent",
 			call: func(fga *WorkOSFGA) error {
 				_, err := fga.ListResources(context.Background(), "om_123", ActionDeploymentRead, ResourceRef{})
@@ -821,6 +874,9 @@ func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	}
 	if _, err := (&FakeFGA{}).ListGroupRoleAssignments(context.Background(), "group_123"); err == nil {
 		t.Fatal("ListGroupRoleAssignments() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).ListMemberships(context.Background(), "org_123", DeploymentResource("dep_123"), ActionDeploymentRead); err == nil {
+		t.Fatal("ListMemberships() error = nil, want unexpected-call error")
 	}
 }
 

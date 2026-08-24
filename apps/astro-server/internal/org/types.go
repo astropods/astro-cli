@@ -9,13 +9,19 @@ type Organization struct {
 
 // Membership represents a WorkOS organization membership
 type Membership struct {
-	ID             string `json:"id"`
-	UserID         string `json:"user_id"`
-	OrganizationID string `json:"organization_id"`
-	RoleSlug       string `json:"role_slug"`
-	Status         string `json:"status"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID             string   `json:"id"`
+	UserID         string   `json:"user_id"`
+	OrganizationID string   `json:"organization_id"`
+	RoleSlug       string   `json:"role_slug"`
+	RoleSlugs      []string `json:"role_slugs,omitempty"`
+	Status         string   `json:"status"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
+}
+
+type MembershipPage struct {
+	Memberships []Membership
+	NextCursor  string
 }
 
 // Invitation represents a WorkOS organization invitation

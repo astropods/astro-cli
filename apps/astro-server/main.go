@@ -621,6 +621,7 @@ func runAPI(
 
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
+	adminSrv.SetDeploymentAccessInspector(deploymentFGA, orgClient)
 	adminSrv.SetPrometheusClient(promClient)
 	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
 	evalDeployer := &deployer.Deployer{

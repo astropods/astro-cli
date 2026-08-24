@@ -21,9 +21,9 @@ vi.mock("sonner", () => ({
 beforeEach(() => {
   mockSpend.mockReset();
   mockMutate.mockReset();
-  mockMutate.mockResolvedValue(undefined);
+  mockMutate.mockResolvedValue({ available: true });
   mockUsageMutate.mockReset();
-  mockUsageMutate.mockResolvedValue(undefined);
+  mockUsageMutate.mockResolvedValue({ available: true });
   mockToastError.mockReset();
 });
 
@@ -222,7 +222,9 @@ describe("SpendControls usage rows", () => {
 
   it("keeps the edits for a row that failed and clears the ones that landed", async () => {
     mockUsageMutate.mockImplementation(({ metric }: { metric: string }) =>
-      metric === "gateway" ? Promise.reject(new Error("provider unavailable")) : Promise.resolve(),
+      metric === "gateway"
+        ? Promise.reject(new Error("provider unavailable"))
+        : Promise.resolve({ available: true }),
     );
     renderControls(spend());
     const user = userEvent.setup();

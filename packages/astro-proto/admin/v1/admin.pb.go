@@ -77,6 +77,27 @@ type ListDeploymentsResponse struct {
 	Count       int32              `json:"count,omitempty"`
 }
 
+type GetDeploymentAccessRequest struct {
+	DeploymentId string `json:"deployment_id,omitempty"`
+}
+
+type AdminDeploymentAccessMember struct {
+	UserID            string   `json:"user_id,omitempty"`
+	Email             string   `json:"email,omitempty"`
+	MembershipStatus  string   `json:"membership_status,omitempty"`
+	OrganizationRoles []string `json:"organization_roles,omitempty"`
+	DeploymentRoles   []string `json:"deployment_roles,omitempty"`
+	Permissions       []string `json:"permissions,omitempty"`
+	Sources           []string `json:"sources,omitempty"`
+}
+
+type GetDeploymentAccessResponse struct {
+	Status      string                         `json:"status,omitempty"`
+	Message     string                         `json:"message,omitempty"`
+	Permissions []string                       `json:"permissions,omitempty"`
+	Members     []*AdminDeploymentAccessMember `json:"members,omitempty"`
+}
+
 type GetClusterStatusRequest struct {
 	Namespace string `json:"namespace,omitempty"`
 }

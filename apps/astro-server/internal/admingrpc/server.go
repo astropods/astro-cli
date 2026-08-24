@@ -100,6 +100,10 @@ type Server struct {
 	auditStore   *auditlog.Store
 	workosClient *auth.WorkOSClient
 
+	deploymentAccessAssignments deploymentAccessAssignments
+	deploymentAccessMemberships deploymentAccessMemberships
+	organizationMemberships     organizationMembershipLister
+
 	// alertStore backs the observation-alert admin surface (ListAlerts and the
 	// clear/mute/unmute actions). Constructed in New from the shared db.
 	alertStore *observation.Store

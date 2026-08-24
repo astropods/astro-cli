@@ -27,6 +27,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/invalidate-cache", s.handleInvalidateAllCaches)
 	mux.HandleFunc("GET /api/admin/deployments", s.handleListDeployments)
 	mux.HandleFunc("GET /api/admin/deployments/{id}", s.handleGetDeployment)
+	mux.HandleFunc("GET /api/admin/deployments/{id}/access", s.handleGetDeploymentAccess)
 	mux.HandleFunc("DELETE /api/admin/deployments/{id}", s.handleDeleteDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/restart", s.handleRestartDeployment)
 	mux.HandleFunc("GET /api/admin/cluster-status", s.handleGetClusterStatus)
@@ -292,6 +293,17 @@ func (s *Server) handleGetDeployment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	resp, err := s.admin.GetDeployment(r.Context(), &adminv1.GetDeploymentRequest{
 		DeploymentId: id,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetDeploymentAccess(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.GetDeploymentAccess(r.Context(), &adminv1.GetDeploymentAccessRequest{
+		DeploymentId: r.PathValue("id"),
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

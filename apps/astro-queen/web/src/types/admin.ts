@@ -90,6 +90,25 @@ export interface GetDeploymentResponse {
   placement_hint?: string;
 }
 
+export type DeploymentAccessStatus = "available" | "personal" | "not_configured" | "not_registered";
+
+export interface AdminDeploymentAccessMember {
+  user_id: string;
+  email?: string;
+  membership_status: string;
+  organization_roles?: string[];
+  deployment_roles?: string[];
+  permissions?: string[];
+  sources?: Array<"organization" | "direct" | "group">;
+}
+
+export interface GetDeploymentAccessResponse {
+  status: DeploymentAccessStatus;
+  message?: string;
+  permissions?: string[];
+  members?: AdminDeploymentAccessMember[];
+}
+
 export interface GetDeploymentEventsResponse {
   events: DeploymentEvent[];
 }

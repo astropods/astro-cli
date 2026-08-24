@@ -2,6 +2,7 @@ export const adminKeys = {
   all: ["admin"] as const,
   deployments: () => [...adminKeys.all, "deployments"] as const,
   deployment: (id: string) => [...adminKeys.all, "deployment", id] as const,
+  deploymentAccess: (id: string) => [...adminKeys.all, "deployment", id, "access"] as const,
   accounts: () => [...adminKeys.all, "accounts"] as const,
   account: (id: string) => [...adminKeys.all, "account", id] as const,
   accountMetronomeAliases: (id: string) =>

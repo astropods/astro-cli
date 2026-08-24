@@ -75,3 +75,9 @@ type AccessAssignments interface {
 type ResourceDiscovery interface {
 	ListResources(ctx context.Context, membershipID string, action Action, parent ResourceRef) ([]ResourceRef, error)
 }
+
+// ResourceMembershipDiscovery lists memberships with one effective permission
+// on a resource, including inherited access.
+type ResourceMembershipDiscovery interface {
+	ListMemberships(ctx context.Context, organizationID string, resource ResourceRef, action Action) ([]string, error)
+}

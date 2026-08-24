@@ -18,6 +18,7 @@ import (
 type AdminServiceClient interface {
 	ListDeployments(ctx context.Context, in *ListDeploymentsRequest, opts ...grpc.CallOption) (*ListDeploymentsResponse, error)
 	GetDeployment(ctx context.Context, in *GetDeploymentRequest, opts ...grpc.CallOption) (*GetDeploymentResponse, error)
+	GetDeploymentAccess(ctx context.Context, in *GetDeploymentAccessRequest, opts ...grpc.CallOption) (*GetDeploymentAccessResponse, error)
 	GetClusterStatus(ctx context.Context, in *GetClusterStatusRequest, opts ...grpc.CallOption) (*GetClusterStatusResponse, error)
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
 	RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error)
@@ -111,6 +112,14 @@ func (c *adminServiceClient) ListDeployments(ctx context.Context, in *ListDeploy
 func (c *adminServiceClient) GetDeployment(ctx context.Context, in *GetDeploymentRequest, opts ...grpc.CallOption) (*GetDeploymentResponse, error) {
 	out := new(GetDeploymentResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetDeployment", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) GetDeploymentAccess(ctx context.Context, in *GetDeploymentAccessRequest, opts ...grpc.CallOption) (*GetDeploymentAccessResponse, error) {
+	out := new(GetDeploymentAccessResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/GetDeploymentAccess", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -689,6 +698,7 @@ func (c *adminServiceClient) AcknowledgeAuditFinding(ctx context.Context, in *Ac
 type AdminServiceServer interface {
 	ListDeployments(context.Context, *ListDeploymentsRequest) (*ListDeploymentsResponse, error)
 	GetDeployment(context.Context, *GetDeploymentRequest) (*GetDeploymentResponse, error)
+	GetDeploymentAccess(context.Context, *GetDeploymentAccessRequest) (*GetDeploymentAccessResponse, error)
 	GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error)
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
 	RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error)
@@ -773,6 +783,10 @@ func (UnimplementedAdminServiceServer) ListDeployments(context.Context, *ListDep
 
 func (UnimplementedAdminServiceServer) GetDeployment(context.Context, *GetDeploymentRequest) (*GetDeploymentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeployment not implemented")
+}
+
+func (UnimplementedAdminServiceServer) GetDeploymentAccess(context.Context, *GetDeploymentAccessRequest) (*GetDeploymentAccessResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeploymentAccess not implemented")
 }
 
 func (UnimplementedAdminServiceServer) GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error) {
@@ -1079,6 +1093,21 @@ func _AdminService_GetDeployment_Handler(srv interface{}, ctx context.Context, d
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetDeployment"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).GetDeployment(ctx, req.(*GetDeploymentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_GetDeploymentAccess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetDeploymentAccessRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).GetDeploymentAccess(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/GetDeploymentAccess"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).GetDeploymentAccess(ctx, req.(*GetDeploymentAccessRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2155,6 +2184,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 	Methods: []grpc.MethodDesc{
 		{MethodName: "ListDeployments", Handler: _AdminService_ListDeployments_Handler},
 		{MethodName: "GetDeployment", Handler: _AdminService_GetDeployment_Handler},
+		{MethodName: "GetDeploymentAccess", Handler: _AdminService_GetDeploymentAccess_Handler},
 		{MethodName: "GetClusterStatus", Handler: _AdminService_GetClusterStatus_Handler},
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
 		{MethodName: "RestartDeployment", Handler: _AdminService_RestartDeployment_Handler},
