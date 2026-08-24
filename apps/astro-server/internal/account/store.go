@@ -97,6 +97,15 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 	return &acct, nil
 }
 
+func (s *AccountStore) OwnerUserID(accountID string) (string, error) {
+	var owner sql.NullString
+	err := s.db.QueryRow(`SELECT owner_user_id FROM accounts WHERE id = $1`, accountID).Scan(&owner)
+	if err != nil {
+		return "", fmt.Errorf("failed to get account owner: %w", err)
+	}
+	return owner.String, nil
+}
+
 func (s *AccountStore) SetOwner(accountID, userID string) error {
 	_, err := s.db.Exec(`
 		UPDATE accounts SET owner_user_id = $1, updated_at = now() WHERE id = $2
@@ -1162,19 +1171,6 @@ func (s *AccountStore) SetStripeCustomerID(accountID, customerID string) error {
 		return fmt.Errorf("failed to set stripe_customer_id: %w", err)
 	}
 	return nil
-}
-
-// RemoveUserFromAllAccounts removes a user from every account they belong to.
-func (s *AccountStore) RemoveUserFromAllAccounts(userID string) (int64, error) {
-	result, err := s.db.Exec(`DELETE FROM account_members WHERE user_id = $1`, userID)
-	if err != nil {
-		return 0, fmt.Errorf("failed to remove user from all accounts: %w", err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	return n, nil
 }
 
 // MarkDeleted soft-deletes an account by setting deleted_at.

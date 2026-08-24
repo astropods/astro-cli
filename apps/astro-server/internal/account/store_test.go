@@ -480,37 +480,20 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	}
 }
 
-func TestRemoveUserFromAllAccounts(t *testing.T) {
+func TestOwnerUserID_EmptyWhenUnset(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
-	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
-		WithArgs("user-1").
-		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(nil))
 
-	n, err := store.RemoveUserFromAllAccounts("user-1")
+	owner, err := store.OwnerUserID("acct-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if n != 3 {
-		t.Errorf("expected 3 rows affected, got %d", n)
-	}
-}
-
-func TestRemoveUserFromAllAccounts_NoRows(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := NewAccountStore(db)
-
-	mock.ExpectExec("DELETE FROM account_members WHERE user_id").
-		WithArgs("user-gone").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	n, err := store.RemoveUserFromAllAccounts("user-gone")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("expected 0 rows affected, got %d", n)
+	if owner != "" {
+		t.Errorf("expected no owner, got %q", owner)
 	}
 }
 

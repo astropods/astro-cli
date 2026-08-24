@@ -32,6 +32,12 @@ Login sync recording an owner is what replaces the backfill's WorkOS lookup. An
 account that somehow reaches an ownerless state settles the next time its owner
 signs in, rather than waiting for a deploy.
 
+Removing a member with no WorkOS membership took a shortcut past the last-owner
+guard, which is the one path that could still empty an account. It now runs
+under the same lock, keeps the last member, and refuses to remove the owner of
+record. `RemoveUserFromAllAccounts` is deleted; it deleted memberships without
+touching the accounts that held them.
+
 ### Counting owners reads the whole organization
 
 Every caller that counts the `owner` role now uses `ListAllMemberships`, which

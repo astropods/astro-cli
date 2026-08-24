@@ -211,8 +211,23 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 		return nil
 	}
 	if member.WorkOSMembershipID == "" {
-		// No WorkOS membership — just remove locally
-		return s.accountStore.RemoveMember(accountID, userID)
+		return s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
+			members, err := s.accountStore.GetMembersForAccount(accountID)
+			if err != nil {
+				return fmt.Errorf("failed to list members: %w", err)
+			}
+			if len(members) <= 1 {
+				return fmt.Errorf("cannot remove member: account must have at least one member")
+			}
+			owner, err := s.accountStore.OwnerUserID(accountID)
+			if err != nil {
+				return err
+			}
+			if owner == userID {
+				return fmt.Errorf("cannot remove member: transfer ownership first")
+			}
+			return s.accountStore.RemoveMember(accountID, userID)
+		})
 	}
 
 	// Last-owner guard via WorkOS
