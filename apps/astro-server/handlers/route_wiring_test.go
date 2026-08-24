@@ -200,8 +200,8 @@ func TestRoutePermissionWiring(t *testing.T) {
 	}
 }
 
-// Deleting an account asks accounts.owner_user_id, not the permission claim.
-// Both cases below carry every permission WorkOS grants, so only the column
+// Deleting an account asks accounts.owner_user_id, not the session. Both cases
+// below carry the same permissions and an owner role claim, so only the column
 // separates them.
 func TestAccountDeleteAsksTheOwnerColumn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -233,7 +233,7 @@ func TestAccountDeleteAsksTheOwnerColumn(t *testing.T) {
 				c.Set(string(auth.SessionContextKey), &auth.Session{
 					OrganizationID: "org_123",
 					Role:           "owner",
-					Permissions:    []string{"org:manage", "org:admin"},
+					Permissions:    []string{"org:manage"},
 				})
 				c.Next()
 			})

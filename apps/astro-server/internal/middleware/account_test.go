@@ -137,7 +137,7 @@ func TestRequireAccountPermission_PersonalAccount_Member(t *testing.T) {
 		WithArgs("acct-1", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	router := setupPermissionTestRouter(store, "org:admin",
+	router := setupPermissionTestRouter(store, "org:manage",
 		&auth.User{ID: "user-1"}, nil,
 		&account.Account{ID: "acct-1", Name: "personal", Type: "personal"})
 
@@ -201,7 +201,7 @@ func TestRequireAccountPermission_OrgAccount_JWTPath_Denied(t *testing.T) {
 	store := account.NewAccountStore(db)
 
 	// Session JWT scoped to org but missing required permission
-	router := setupPermissionTestRouter(store, "org:admin",
+	router := setupPermissionTestRouter(store, "org:manage",
 		&auth.User{ID: "user-1"},
 		&auth.Session{
 			OrganizationID: "org_123",
@@ -424,7 +424,7 @@ func TestRequireAccountOwner_IgnoresTheRoleClaim(t *testing.T) {
 	router.GET("/test", func(c *gin.Context) {
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-2"})
 		c.Set(string(auth.SessionContextKey), &auth.Session{
-			OrganizationID: "org_1", Role: "owner", Permissions: []string{"org:admin", "org:manage"},
+			OrganizationID: "org_1", Role: "owner", Permissions: []string{"org:manage"},
 		})
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Type: "organization"})
 		c.Next()

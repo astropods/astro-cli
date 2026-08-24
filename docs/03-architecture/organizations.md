@@ -2,7 +2,7 @@
 
 This document explains how organizations work in Astro, covering account types, authentication, permissions, membership sync, and agent visibility.
 
-> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `org:admin`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deployment access is represented by the `deployment:read` and `deployment:edit` actions (`internal/authz/actions.go`), but `MembershipChecker` still ignores the action today (behavior unchanged), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
+> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deployment access is represented by the `deployment:read` and `deployment:edit` actions (`internal/authz/actions.go`), but `MembershipChecker` still ignores the action today (behavior unchanged), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
 
 ## Account Model
 
@@ -94,11 +94,14 @@ What's relevant for organizations:
 
 ### Roles and Permissions
 
-| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `org:admin` | `variable:read` | `variable:write` |
-| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :---------: | :-------------: | :--------------: |
-| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |      Y      |        Y        |        Y         |
-| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |      -      |        Y        |        Y         |
-| **member** |       Y       |       Y        |         Y          |          Y          |      -       |      -      |        -        |        -         |
+| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `variable:read` | `variable:write` |
+| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :-------------: | :--------------: |
+| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |        Y        |        Y         |
+| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |        Y        |        Y         |
+| **member** |       Y       |       Y        |         Y          |          Y          |      -       |        -        |        -         |
+
+Ownership is not a permission. `accounts.owner_user_id` names the single owner,
+and the actions reserved for them check that column rather than a role claim.
 
 Permission slugs map to actions:
 
@@ -108,8 +111,7 @@ Permission slugs map to actions:
 | `agents:write`      | Push (register) agents, set visibility                 |
 | `deployments:read`  | View running agents, logs, metrics, deployment history |
 | `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
-| `org:manage`        | Manage members and invitations                         |
-| `org:admin`         | Rename/delete org, billing                             |
+| `org:manage`        | Manage members, invitations, account settings, billing |
 | `variable:read`     | List and read org account vault variables              |
 | `variable:write`    | Create, update, delete org account vault variables     |
 
@@ -140,7 +142,8 @@ Organization accounts require the session JWT to be scoped to the target org via
 
 | Route                                              | Permission          | Description           |
 | -------------------------------------------------- | ------------------- | --------------------- |
-| `PUT /accounts/:account`                           | `org:admin`         | Rename account        |
+| `PUT /accounts/:account`                           | `org:manage`        | Rename account        |
+| `DELETE /accounts/:account`                        | account owner       | Delete account        |
 | `GET/POST/PUT/DELETE .../members`                  | `org:manage`        | Member CRUD           |
 | `GET/POST/DELETE .../invitations`                  | `org:manage`        | Invitation CRUD       |
 | `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |
@@ -312,7 +315,7 @@ account_member_workos (
 | -------- | ----------------------------------- | -------- | -------------- | -------------------- |
 | `POST`   | `/api/v1/accounts`                  | Required | -              | Create account       |
 | `GET`    | `/api/v1/accounts/:account`         | Optional | -              | Get account (public) |
-| `PUT`    | `/api/v1/accounts/:account`         | Required | `org:admin`    | Rename account       |
+| `PUT`    | `/api/v1/accounts/:account`         | Required | `org:manage`   | Rename account       |
 | `GET`    | `.../:account/members`              | Required | `org:manage`   | List members         |
 | `POST`   | `.../:account/members`              | Required | `org:manage`   | Add member           |
 | `PUT`    | `.../:account/members/:user_id`     | Required | `org:manage`   | Change role          |

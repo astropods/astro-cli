@@ -123,7 +123,7 @@ Totals come from one axis rather than summing them: every prompt carries a label
 
 **Visibility.** Owners and admins see everyone; anyone else sees only themselves, and that scopes the whole page rather than just the named breakdown. Charts built from every developer's prompts would report the account's work/personal split to a reader who is not allowed to see who is behind it, so the restriction is applied in SQL and those rows never reach the process.
 
-Elevation is `org:manage`. WorkOS grants `org:admin` to the owner role only, so gating on it restricted every org admin to their own row.
+Elevation is `org:manage`, which owners and admins both carry.
 
 The session's permissions are authoritative when it is scoped to the account's organization. It often is not: the account switcher moves the `?account=` param without a WorkOS org switch, so a caller viewing another of their organizations carries a session scoped elsewhere and reads as unprivileged — an owner included. When that happens the caller's role in that organization is resolved from WorkOS instead. Same authority as the session claim, fetched rather than cached, so it widens nothing; it stops the answer depending on which organization the session happens to point at. A session already on the account's organization is trusted as-is, so a role cannot outrank a permission deliberately withheld from it.
 

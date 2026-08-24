@@ -14,9 +14,6 @@ import (
 
 // insightsElevatedPermission is what "may see every developer's usage" means on
 // the Insights surfaces.
-//
-// org:manage rather than org:admin: WorkOS grants org:admin to owner only, so
-// gating on it silently restricted every org admin to their own row.
 const insightsElevatedPermission = "org:manage"
 
 // orgRoleLookup resolves a user's role per WorkOS organization. Satisfied by

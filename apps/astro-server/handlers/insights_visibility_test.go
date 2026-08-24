@@ -42,15 +42,12 @@ func orgAccount() *account.Account {
 	return &account.Account{ID: "acct-1", Type: "organization", WorkOSOrganizationID: testOrgID}
 }
 
-// WorkOS grants org:admin to owner only, so gating on it restricted every org
-// admin to their own row. org:manage is what both roles carry.
 func TestInsightsSeesEveryone_AdminPermission(t *testing.T) {
 	cases := map[string]struct {
 		permissions []string
 		want        bool
 	}{
 		"admin and owner both carry org:manage": {[]string{"org:manage"}, true},
-		"owner-only org:admin is not required":  {[]string{"org:manage", "org:admin"}, true},
 		"a plain member sees only themselves":   {nil, false},
 	}
 	for name, tc := range cases {

@@ -68,7 +68,7 @@ sequenceDiagram
 
   C->>H: GET …/insights?days, hide_sources, q, sort, paging
   H->>PG: account lookup + IsMember
-  H->>PG: HasAccountPermission "org:admin"
+  H->>PG: HasAccountPermission "org:manage"
   Note over H: not admin → RestrictDevtoolToKey = "member:<user_id>"
 
   H->>PG: rollup watermark (as_of)
@@ -213,7 +213,7 @@ Dev-tool facts carry no deployment id, so the read path gives each source one sy
 
 Dev-tool traces carry `user.email`. The roll-up resolves it through `member_emails`, a local indexed mirror, and stores `member:<user_id>` as the actor key. Whatever the per-developer breakdown does not account for lands on a system row, so the source's total is never quietly shrunk by a failed attribution.
 
-**Per-developer visibility is gated server-side.** Account admins (`org:admin`, or the sole member of a personal account) see every developer's spend; other members see only their own row, via `RestrictDevtoolToKey`. Aggregate spend (chart, stat cards, and the synthetic source row in the agents table) stays visible to every member. This is forward-compatible with a later reporting-hierarchy gate that widens "your own" to "you plus your reports".
+**Per-developer visibility is gated server-side.** Account admins (`org:manage`, or the sole member of a personal account) see every developer's spend; other members see only their own row, via `RestrictDevtoolToKey`. Aggregate spend (chart, stat cards, and the synthetic source row in the agents table) stays visible to every member. This is forward-compatible with a later reporting-hierarchy gate that widens "your own" to "you plus your reports".
 
 ### The Sources filter
 

@@ -10,7 +10,7 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 
 | Role   | Slug     | Permissions                                                                                                                                    |
 | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Owner  | `owner`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `org:admin`, `variable:read`, `variable:write`            |
+| Owner  | `owner`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `variable:read`, `variable:write`                          |
 | Admin  | `admin`  | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`, `org:manage`, `variable:read`, `variable:write`                          |
 | Member | `member` | `agents:read`, `agents:write`, `deployments:read`, `deployments:write`                                                                         |
 
@@ -22,8 +22,7 @@ Configure these roles and permissions in your WorkOS Dashboard under **Organizat
 | `agents:write`      | Push (register) agents, set visibility                 |
 | `deployments:read`  | View running agents, logs, metrics, deployment history |
 | `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
-| `org:manage`        | Manage members and invitations                         |
-| `org:admin`         | Rename/delete org, billing                             |
+| `org:manage`        | Manage members, invitations, account settings, billing |
 | `variable:read`     | List and read org account vault variables (see vault handlers for secret redaction rules) |
 | `variable:write`    | Create, update, and delete org account vault variables |
 
@@ -67,7 +66,8 @@ Replaces the old `RequireAccountRole` middleware (`middleware/account.go`). Two 
 
 | Route Group                                        | Permission          | Description           |
 | -------------------------------------------------- | ------------------- | --------------------- |
-| `PUT /accounts/:account`                           | `org:admin`         | Rename account        |
+| `PUT /accounts/:account`                           | `org:manage`        | Rename account        |
+| `DELETE /accounts/:account`                        | account owner       | Delete account        |
 | `GET/POST/PUT/DELETE /accounts/:account/members`   | `org:manage`        | Member CRUD           |
 | `GET/POST/DELETE /accounts/:account/invitations`   | `org:manage`        | Invitation CRUD       |
 | `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |

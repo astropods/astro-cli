@@ -72,7 +72,7 @@ func TestFineGrainedAccessExperimentHandlers(t *testing.T) {
 		})
 		c.Set(string(auth.UserContextKey), &auth.User{ID: "user_123"})
 		c.Set(string(auth.SessionContextKey), &auth.Session{
-			OrganizationID: "org_1", Permissions: []string{"org:manage", "org:admin"},
+			OrganizationID: "org_1", Permissions: []string{"org:manage"},
 		})
 		c.Next()
 	})
@@ -195,9 +195,6 @@ func TestExperimentsGateOnOrgManage(t *testing.T) {
 	}{
 		"admin may toggle fine-grained access": {
 			"fine-grained-access", []string{"org:manage"}, http.StatusOK,
-		},
-		"owner may toggle fine-grained access": {
-			"fine-grained-access", []string{"org:manage", "org:admin"}, http.StatusOK,
 		},
 		"admin may toggle classification stats": {
 			"prompt-classification-stats", []string{"org:manage"}, http.StatusOK,

@@ -35,7 +35,7 @@ Account-scoped, ingest-only, revocable. The credential set on developer machines
 
 `otel_ingest_tokens` in `sql/astro-server/schema.sql` (Atlas): `token_hash` is plain `sha256` (indexed, cache-friendly per-request lookup — bcrypt's per-hash salt would break that), `token_prefix` for display, `created_by text`, `revoked_at`. No `scope` column — ingest-only by construction.
 
-Store `internal/ingesttoken`; handlers `handlers/otel_ingest_tokens.go`; account-admin routes (`org:admin`) at `/api/v1/accounts/:account/otel-keys` (create/list/revoke). Create returns plaintext once + the ingest endpoint, and calls `EnsureProject` so the account's Langfuse project exists. Client UI: an "API Keys" section in personal and org settings that reveals the secret once and renders the managed-settings block; `OTEL_INGEST_ENDPOINT` config surfaces the real endpoint.
+Store `internal/ingesttoken`; handlers `handlers/otel_ingest_tokens.go`; account routes (`org:manage`) at `/api/v1/accounts/:account/otel-keys` (create/list/revoke). Create returns plaintext once + the ingest endpoint, and calls `EnsureProject` so the account's Langfuse project exists. Client UI: an "API Keys" section in personal and org settings that reveals the secret once and renders the managed-settings block; `OTEL_INGEST_ENDPOINT` config surfaces the real endpoint.
 
 ## 2. astro-otel service (built — `apps/astro-otel`)
 

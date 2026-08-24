@@ -58,8 +58,8 @@ the same column that decides ownership decides who may end the account. The
 question Astro now owns, and holding both invited them to disagree.
 
 One consequence is deliberate. An account with no owner recorded has nobody who
-can delete it, where previously any org admin could. Those accounts are the ones
-the audit reports, and settling them is a person's job.
+can delete it, where previously any org admin could. Settling those accounts is
+a person's job.
 
 The fine-grained-access experiment carried its own `org:admin` check on top of
 its route group. It now gates on the group like every other switch, and the
