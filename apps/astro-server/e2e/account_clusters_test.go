@@ -16,8 +16,14 @@ func bindingFixture(t *testing.T, db *sql.DB) (*account.ClusterBindings, string)
 
 	var accountID string
 	err := db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('bt-' || substr(gen_random_uuid()::text, 1, 8), 'personal')
-		RETURNING id`).Scan(&accountID)
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('bt-' || substr(gen_random_uuid()::text, 1, 8), 'personal', 'test-owner')
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct`).Scan(&accountID)
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

@@ -75,7 +75,7 @@ func TestUndeployWorker_Integration_UnreachableCluster(t *testing.T) {
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM clusters WHERE id = $1`, clusterID) })
 
 	var accountID string
-	if err := db.QueryRow(`INSERT INTO accounts (name, type) VALUES ('undeploy-worker-e2e', 'personal') ON CONFLICT DO NOTHING RETURNING id`).Scan(&accountID); err != nil {
+	if err := db.QueryRow(`WITH acct AS (INSERT INTO accounts (name, type, owner_user_id) VALUES ('undeploy-worker-e2e', 'personal', 'test-owner') ON CONFLICT DO NOTHING RETURNING id), member AS (INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct ON CONFLICT DO NOTHING) SELECT id FROM acct`).Scan(&accountID); err != nil {
 		_ = db.QueryRow(`SELECT id FROM accounts WHERE name = 'undeploy-worker-e2e'`).Scan(&accountID)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM deployments WHERE account_id = $1`, accountID) })

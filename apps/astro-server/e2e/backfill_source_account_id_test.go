@@ -56,7 +56,7 @@ func setupBackfillFixture(t *testing.T) *backfillFixture {
 	sourceName := "bf-src-" + strings.ToLower(deployid.New())
 	var sourceID string
 	if err := db.QueryRow(
-		`INSERT INTO accounts (name, type) VALUES ($1, 'organization') RETURNING id`,
+		`WITH acct AS (INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'organization', 'test-owner') RETURNING id), member AS (INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct ON CONFLICT DO NOTHING) SELECT id FROM acct`,
 		sourceName,
 	).Scan(&sourceID); err != nil {
 		t.Fatalf("create source account: %v", err)
@@ -65,7 +65,7 @@ func setupBackfillFixture(t *testing.T) *backfillFixture {
 	targetName := "bf-tgt-" + strings.ToLower(deployid.New())
 	var targetID string
 	if err := db.QueryRow(
-		`INSERT INTO accounts (name, type) VALUES ($1, 'organization') RETURNING id`,
+		`WITH acct AS (INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'organization', 'test-owner') RETURNING id), member AS (INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct ON CONFLICT DO NOTHING) SELECT id FROM acct`,
 		targetName,
 	).Scan(&targetID); err != nil {
 		t.Fatalf("create target account: %v", err)

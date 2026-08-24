@@ -21,60 +21,6 @@ type Check struct {
 
 var checks = []Check{
 	{
-		Name:     "account.no_members",
-		Severity: SeverityWarning,
-		Title:    "Account has no members",
-		Query: `
-			SELECT a.id::text AS subject_id, a.name AS subject_label,
-			       jsonb_build_object(
-			         'type', a.type,
-			         'has_owner', a.owner_user_id IS NOT NULL,
-			         'live_deployments', (SELECT count(*) FROM deployments d
-			                               WHERE d.account_id = a.id AND d.undeployed_at IS NULL),
-			         'has_billing_customer', coalesce(a.metronome_customer_id, '') <> ''
-			                                 OR coalesce(a.stripe_customer_id, '') <> '',
-			         'created_at', a.created_at
-			       )
-			  FROM accounts a
-			 WHERE a.deleted_at IS NULL
-			   AND NOT EXISTS (SELECT 1 FROM account_members m WHERE m.account_id = a.id)`,
-	},
-	{
-		Name:     "account.no_owner",
-		Severity: SeverityWarning,
-		Title:    "Account has no owner recorded",
-		Query: `
-			SELECT a.id::text AS subject_id, a.name AS subject_label,
-			       jsonb_build_object(
-			         'type', a.type,
-			         'members', (SELECT count(*) FROM account_members m WHERE m.account_id = a.id),
-			         'workos_org_id', coalesce((SELECT ao.workos_org_id FROM account_organizations ao
-			                                     WHERE ao.account_id = a.id), ''),
-			         'created_at', a.created_at
-			       )
-			  FROM accounts a
-			 WHERE a.deleted_at IS NULL
-			   AND a.owner_user_id IS NULL`,
-	},
-	{
-		Name:     "account.owner_not_member",
-		Severity: SeverityError,
-		Title:    "Recorded owner is not a member",
-		Query: `
-			SELECT a.id::text AS subject_id, a.name AS subject_label,
-			       jsonb_build_object(
-			         'type', a.type,
-			         'owner_user_id', a.owner_user_id,
-			         'members', (SELECT count(*) FROM account_members m WHERE m.account_id = a.id)
-			       )
-			  FROM accounts a
-			 WHERE a.deleted_at IS NULL
-			   AND a.owner_user_id IS NOT NULL
-			   AND NOT EXISTS (
-			         SELECT 1 FROM account_members m
-			          WHERE m.account_id = a.id AND m.user_id = a.owner_user_id)`,
-	},
-	{
 		// The purge sweep skips an account it cannot finish and reports success
 		// anyway, so a permanently blocked purge is invisible in the job history.
 		// This is the only thing that surfaces one. The grace day past the

@@ -36,9 +36,15 @@ func ensureTestAccount(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var id string
 	err := db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('test-deploy-store', 'personal')
-		ON CONFLICT DO NOTHING
-		RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('test-deploy-store', 'personal', 'test-owner')
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`).Scan(&id)
 	if err != nil {
 		// Already exists, fetch it

@@ -53,7 +53,7 @@ func setupRebindFixture(t *testing.T) *rebindFixture {
 		name := prefix + "-" + strings.ToLower(deployid.New())
 		var id string
 		if err := db.QueryRow(
-			`INSERT INTO accounts (name, type) VALUES ($1, 'organization') RETURNING id`,
+			`WITH acct AS (INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'organization', 'test-owner') RETURNING id), member AS (INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct ON CONFLICT DO NOTHING) SELECT id FROM acct`,
 			name,
 		).Scan(&id); err != nil {
 			t.Fatalf("create %s account: %v", prefix, err)

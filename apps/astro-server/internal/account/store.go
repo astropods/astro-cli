@@ -98,12 +98,12 @@ func (s *AccountStore) Create(name, accountType, ownerUserID, displayName string
 }
 
 func (s *AccountStore) OwnerUserID(accountID string) (string, error) {
-	var owner sql.NullString
+	var owner string
 	err := s.db.QueryRow(`SELECT owner_user_id FROM accounts WHERE id = $1`, accountID).Scan(&owner)
 	if err != nil {
 		return "", fmt.Errorf("failed to get account owner: %w", err)
 	}
-	return owner.String, nil
+	return owner, nil
 }
 
 func (s *AccountStore) SetOwner(accountID, userID string) error {

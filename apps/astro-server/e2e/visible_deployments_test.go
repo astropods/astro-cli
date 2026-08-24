@@ -215,9 +215,14 @@ func TestReadableDeploymentQueriesTreatNilFGAScopeAsLegacy(t *testing.T) {
 	accountName := "fga-null-scope-" + deployid.New()
 	var accountID string
 	if err := db.QueryRowContext(ctx, `
-		INSERT INTO accounts (name, type)
-		VALUES ($1, 'organization')
-		RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'organization', 'test-owner')
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`, accountName).Scan(&accountID); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

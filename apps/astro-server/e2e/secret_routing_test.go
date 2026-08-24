@@ -168,8 +168,15 @@ func setupSecretRoutingEnv(t *testing.T) *secretRoutingEnv {
 	// Ensure test account
 	var accountID string
 	err = db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('sr-e2e', 'personal')
-		ON CONFLICT DO NOTHING RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('sr-e2e', 'personal', 'test-owner')
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`).Scan(&accountID)
 	if err != nil {
 		err = db.QueryRow(`SELECT id FROM accounts WHERE name = 'sr-e2e'`).Scan(&accountID)

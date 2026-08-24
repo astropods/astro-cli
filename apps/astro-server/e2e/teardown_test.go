@@ -75,8 +75,15 @@ func (e *teardownTestEnv) ensureTestAccount() string {
 	e.t.Helper()
 	var accountID string
 	err := e.db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('teardown-e2e', 'personal')
-		ON CONFLICT DO NOTHING RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('teardown-e2e', 'personal', 'test-owner')
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`).Scan(&accountID)
 	if err != nil {
 		err = e.db.QueryRow(`SELECT id FROM accounts WHERE name = 'teardown-e2e'`).Scan(&accountID)

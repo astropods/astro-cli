@@ -464,20 +464,20 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	}
 }
 
-func TestOwnerUserID_EmptyWhenUnset(t *testing.T) {
+func TestOwnerUserID(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := NewAccountStore(db)
 
 	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(nil))
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("user-1"))
 
 	owner, err := store.OwnerUserID("acct-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if owner != "" {
-		t.Errorf("expected no owner, got %q", owner)
+	if owner != "user-1" {
+		t.Errorf("expected owner user-1, got %q", owner)
 	}
 }
 

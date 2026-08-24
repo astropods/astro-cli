@@ -22,9 +22,14 @@ func TestUserDeploymentKeysetPaginationIsTimeZoneNeutral(t *testing.T) {
 	accountName := "user-list-" + deployid.New()
 	var accountID string
 	if err := db.QueryRowContext(ctx, `
-		INSERT INTO accounts (name, type)
-		VALUES ($1, 'personal')
-		RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'personal', 'test-owner')
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`, accountName).Scan(&accountID); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

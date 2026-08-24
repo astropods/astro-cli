@@ -26,14 +26,20 @@ func testDB(t *testing.T) *sql.DB {
 	return db
 }
 
-// seedGatewayAccount inserts one account and returns its id. sweptAt nil leaves
-// the account never-swept.
+// seedGatewayAccount inserts one account with its owning membership and returns
+// its id. sweptAt nil leaves the account never-swept.
 func seedGatewayAccount(t *testing.T, db *sql.DB, name, bifrostID string, sweptAt *time.Time, deleted bool) string {
 	t.Helper()
 	var id string
 	err := db.QueryRow(`
-		INSERT INTO accounts (name, bifrost_customer_id, gateway_budget_swept_at, deleted_at)
-		VALUES ($1, $2, $3, $4) RETURNING id`,
+		WITH acct AS (
+			INSERT INTO accounts (name, bifrost_customer_id, gateway_budget_swept_at, deleted_at, owner_user_id)
+			VALUES ($1, $2, $3, $4, 'test-owner')
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+		)
+		SELECT id FROM acct`,
 		name, bifrostID, sweptAt, func() any {
 			if deleted {
 				return time.Now()

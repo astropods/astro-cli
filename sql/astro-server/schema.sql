@@ -89,11 +89,12 @@ CREATE TABLE public.accounts (
     avatar_updated_at timestamptz,
     -- The single user who owns this account. Astro is the source of truth for
     -- ownership; the WorkOS `owner` role slug is a projection of this column, so
-    -- an org can never acquire a second owner or lose its only one. Nullable
-    -- until every writer populates it, at which point a composite FK to
-    -- account_members and NOT NULL make "the owner is one of the members" an
-    -- invariant rather than a guard.
-    owner_user_id text,
+    -- an org can never acquire a second owner or lose its only one. The composite
+    -- FK to account_members makes "the owner is a member" an invariant rather
+    -- than a guard, and RESTRICT stops a removal that would orphan the account.
+    -- Deferred, so an account and its first member can insert in one transaction
+    -- and an account delete can cascade the membership away.
+    owner_user_id text NOT NULL,
     CONSTRAINT accounts_pkey PRIMARY KEY (id),
     CONSTRAINT accounts_name_key UNIQUE (name)
 );
@@ -173,6 +174,13 @@ CREATE TABLE public.account_members (
 );
 
 CREATE INDEX idx_account_members_user ON public.account_members(user_id);
+
+-- Stated as ALTER because accounts and account_members reference each other, and
+-- the schema file is replayed in order: neither table can name the other inline.
+ALTER TABLE public.accounts
+    ADD CONSTRAINT accounts_owner_member_fkey
+    FOREIGN KEY (id, owner_user_id) REFERENCES public.account_members(account_id, user_id)
+    ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
 
 -- Per-account quota overrides. Only overridden (account, resource) pairs get a
 -- row; everything else falls back to the system-wide config default. A limit of

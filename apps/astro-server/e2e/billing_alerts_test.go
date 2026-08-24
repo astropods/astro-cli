@@ -36,7 +36,7 @@ func billingAccount(t *testing.T, db *sql.DB, name string) string {
 	t.Helper()
 	var id string
 	if err := db.QueryRow(
-		`INSERT INTO accounts (name, type) VALUES ($1, 'organization') RETURNING id`, name,
+		`WITH acct AS (INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'organization', 'test-owner') RETURNING id), member AS (INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct ON CONFLICT DO NOTHING) SELECT id FROM acct`, name,
 	).Scan(&id); err != nil {
 		t.Fatalf("seed account %s: %v", name, err)
 	}

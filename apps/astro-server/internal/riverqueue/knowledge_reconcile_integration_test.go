@@ -84,9 +84,15 @@ func ensureKRAccount(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var id string
 	if err := db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('test-kr-account', 'personal')
-		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id`).Scan(&id); err != nil {
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('test-kr-account', 'personal', 'test-owner')
+			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct`).Scan(&id); err != nil {
 		t.Fatalf("seed account: %v", err)
 	}
 	return id

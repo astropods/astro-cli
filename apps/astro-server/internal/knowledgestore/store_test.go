@@ -31,9 +31,15 @@ func ensureTestKSAccount(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var id string
 	err := db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ('test-ks-account', 'personal')
-		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ('test-ks-account', 'personal', 'test-owner')
+			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`).Scan(&id)
 	if err != nil {
 		t.Fatalf("ensure test account: %v", err)

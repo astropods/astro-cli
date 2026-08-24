@@ -130,9 +130,15 @@ func ensureNamedAccount(t *testing.T, db *sql.DB, name string) string {
 	t.Helper()
 	var id string
 	err := db.QueryRow(`
-		INSERT INTO accounts (name, type) VALUES ($1, 'personal')
-		ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id
+		WITH acct AS (
+			INSERT INTO accounts (name, type, owner_user_id) VALUES ($1, 'personal', 'test-owner')
+			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		), member AS (
+			INSERT INTO account_members (account_id, user_id) SELECT id, 'test-owner' FROM acct
+			ON CONFLICT DO NOTHING
+		)
+		SELECT id FROM acct
 	`, name).Scan(&id)
 	if err != nil {
 		t.Fatalf("ensureNamedAccount(%q): %v", name, err)

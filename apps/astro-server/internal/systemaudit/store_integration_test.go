@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -107,81 +106,6 @@ func TestRunRecordsResolvesAndReopens(t *testing.T) {
 	if !reopened.FirstSeenAt.After(first.FirstSeenAt) {
 		t.Error("first_seen_at was not reset when the finding came back")
 	}
-}
-
-func TestAccountNoMembersFindsAMemberlessAccount(t *testing.T) {
-	db := testDB(t)
-	ctx := context.Background()
-	store := NewStore(db)
-
-	var accountID string
-	if err := db.QueryRowContext(ctx, `
-		INSERT INTO accounts (name, type) VALUES ('audit-fixture', 'personal') RETURNING id::text
-	`).Scan(&accountID); err != nil {
-		t.Fatalf("insert account: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, `DELETE FROM system_audit_findings WHERE subject_id = $1`, accountID)
-		_, _ = db.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1::uuid`, accountID)
-	})
-
-	if _, _, err := store.runCheck(ctx, checkNamed(t, "account.no_members")); err != nil {
-		t.Fatalf("run check: %v", err)
-	}
-
-	findings := mustList(t, store, ctx)
-	var got *Finding
-	for i := range findings {
-		if findings[i].SubjectID == accountID {
-			got = &findings[i]
-		}
-	}
-	if got == nil {
-		t.Fatal("memberless account was not flagged")
-	}
-	if got.SubjectLabel != "audit-fixture" {
-		t.Errorf("subject label = %q, want the account name", got.SubjectLabel)
-	}
-	if !strings.Contains(string(got.Detail), `"live_deployments": 0`) {
-		t.Errorf("detail = %s, want live_deployments in the payload", got.Detail)
-	}
-}
-
-func TestOwnerNotMemberFindsADanglingOwner(t *testing.T) {
-	db := testDB(t)
-	ctx := context.Background()
-	store := NewStore(db)
-
-	var accountID string
-	if err := db.QueryRowContext(ctx, `
-		INSERT INTO accounts (name, type, owner_user_id) VALUES ('dangling-owner', 'organization', 'user-gone')
-		RETURNING id::text
-	`).Scan(&accountID); err != nil {
-		t.Fatalf("insert account: %v", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-		INSERT INTO account_members (account_id, user_id) VALUES ($1::uuid, 'user-present')
-	`, accountID); err != nil {
-		t.Fatalf("insert member: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = db.ExecContext(ctx, `DELETE FROM system_audit_findings WHERE subject_id = $1`, accountID)
-		_, _ = db.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1::uuid`, accountID)
-	})
-
-	if _, _, err := store.runCheck(ctx, checkNamed(t, "account.owner_not_member")); err != nil {
-		t.Fatalf("run check: %v", err)
-	}
-
-	for _, f := range mustList(t, store, ctx) {
-		if f.SubjectID == accountID {
-			if f.Severity != SeverityError {
-				t.Errorf("severity = %q, want error: the future foreign key would reject this row", f.Severity)
-			}
-			return
-		}
-	}
-	t.Fatal("an owner who is not a member was not flagged")
 }
 
 func checkNamed(t *testing.T, name string) Check {
