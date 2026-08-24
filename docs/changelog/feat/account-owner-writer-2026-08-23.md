@@ -49,9 +49,17 @@ read its audit log, or manage access groups. That is a wider reading of
 "irreversible" than the word supports.
 
 Account settings, avatars, the audit log, and access groups now require
-`org:manage`, which both owners and admins carry. Deleting an account keeps
-`org:admin`: it archives the billing customer and tears down every deployment,
-and nothing undoes it once the retention window passes.
+`org:manage`, which both owners and admins carry.
+
+Deleting an account is the exception, and it no longer asks WorkOS at all.
+`RequireAccountOwner` compares the caller against `accounts.owner_user_id`, so
+the same column that decides ownership decides who may end the account. The
+`org:admin` permission is gone from the server: it was WorkOS's answer to a
+question Astro now owns, and holding both invited them to disagree.
+
+One consequence is deliberate. An account with no owner recorded has nobody who
+can delete it, where previously any org admin could. Those accounts are the ones
+the audit reports, and settling them is a person's job.
 
 The fine-grained-access experiment carried its own `org:admin` check on top of
 its route group. It now gates on the group like every other switch, and the

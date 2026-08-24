@@ -361,3 +361,81 @@ func TestRequireAccountPermission_OrgAccount_NoSession_Rejected(t *testing.T) {
 		t.Errorf("no session should be forbidden, got %d", rec.Code)
 	}
 }
+
+func setupOwnerTestRouter(store *account.AccountStore, user *auth.User, acct *account.Account) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/test", func(c *gin.Context) {
+		if user != nil {
+			c.Set(string(auth.UserContextKey), user)
+		}
+		if acct != nil {
+			c.Set(string(auth.AccountContextKey), acct)
+		}
+		c.Next()
+	}, RequireAccountOwner(store), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	return router
+}
+
+func TestRequireAccountOwner(t *testing.T) {
+	cases := map[string]struct {
+		owner    any
+		callerID string
+		want     int
+	}{
+		"the recorded owner passes":            {"user-1", "user-1", http.StatusOK},
+		"another member is refused":            {"user-1", "user-2", http.StatusForbidden},
+		"an unrecorded owner refuses everyone": {nil, "user-1", http.StatusForbidden},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			db, mock, _ := sqlmock.New()
+			store := account.NewAccountStore(db)
+			mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+				WithArgs("acct-1").
+				WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(tc.owner))
+
+			router := setupOwnerTestRouter(store,
+				&auth.User{ID: tc.callerID},
+				&account.Account{ID: "acct-1", Name: "myorg", Type: "organization"})
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/test", nil))
+
+			if rec.Code != tc.want {
+				t.Errorf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestRequireAccountOwner_IgnoresTheRoleClaim(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("user-1"))
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/test", func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: "user-2"})
+		c.Set(string(auth.SessionContextKey), &auth.Session{
+			OrganizationID: "org_1", Role: "owner", Permissions: []string{"org:admin", "org:manage"},
+		})
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Type: "organization"})
+		c.Next()
+	}, RequireAccountOwner(store), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/test", nil))
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a WorkOS owner role must not stand in for the column, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

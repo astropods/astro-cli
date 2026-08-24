@@ -113,6 +113,40 @@ func RequireAccountPermission(accountStore *account.AccountStore, permission str
 	}
 }
 
+// RequireAccountOwner checks that the caller is the account's recorded owner.
+// Ownership lives in accounts.owner_user_id, not in the WorkOS role claim, so
+// an account whose owner is unrecorded has no one who passes this check.
+// Must be used after ResolveAccount and RequireAuth.
+func RequireAccountOwner(accountStore *account.AccountStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, ok := GetUser(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "authentication required",
+			})
+			return
+		}
+
+		acct, ok := GetAccountFromContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+				"error": "account not resolved",
+			})
+			return
+		}
+
+		owner, err := accountStore.OwnerUserID(acct.ID)
+		if err != nil || owner == "" || owner != user.ID {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "only the account owner can perform this action",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // RequireAccountMember checks that the authenticated user is a member of the
 // resolved account. Must be used after ResolveAccount and RequireAuth.
 func RequireAccountMember(accountStore *account.AccountStore) gin.HandlerFunc {

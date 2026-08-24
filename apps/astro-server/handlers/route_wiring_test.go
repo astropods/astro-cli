@@ -62,11 +62,6 @@ func TestRoutePermissionWiring(t *testing.T) {
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 		{"member_PUT_rename_denied", "PUT", "/api/v1/accounts/myorg", `{}`,
 			baseMember, http.StatusForbidden, ""},
-		// Deleting an account is the one action that still requires org:admin
-		{"admin_DELETE_account_denied", "DELETE", "/api/v1/accounts/myorg", "",
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden, ""},
-		{"owner_DELETE_account_allowed", "DELETE", "/api/v1/accounts/myorg", "",
-			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
 
 		// Quota increase routes require org:manage — member denied
 		{"member_GET_quota_increase_denied", "GET", "/api/v1/accounts/myorg/quota-increase", "",
@@ -144,11 +139,6 @@ func TestRoutePermissionWiring(t *testing.T) {
 
 			v1 := router.Group("/api/v1")
 
-			accountOwner := v1.Group("/accounts/:account")
-			accountOwner.Use(middleware.ResolveAccount(store))
-			accountOwner.Use(middleware.RequireAccountPermission(store, "org:admin"))
-			accountOwner.DELETE("", ok)
-
 			accountSettings := v1.Group("/accounts/:account")
 			accountSettings.Use(middleware.ResolveAccount(store))
 			accountSettings.Use(middleware.RequireAccountPermission(store, "org:manage"))
@@ -205,6 +195,59 @@ func TestRoutePermissionWiring(t *testing.T) {
 
 			if rec.Code != tt.wantCode {
 				t.Errorf("expected %d, got %d: %s", tt.wantCode, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// Deleting an account asks accounts.owner_user_id, not the permission claim.
+// Both cases below carry every permission WorkOS grants, so only the column
+// separates them.
+func TestAccountDeleteAsksTheOwnerColumn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cases := map[string]struct {
+		owner string
+		want  int
+	}{
+		"the recorded owner may delete": {"caller-1", http.StatusOK},
+		"an org admin may not":          {"owner-9", http.StatusForbidden},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			db, mock, _ := sqlmock.New()
+			store := account.NewAccountStore(db)
+
+			mock.ExpectQuery("SELECT .+ FROM accounts a LEFT JOIN account_organizations ao").
+				WithArgs("myorg").
+				WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "workos_org_id", "deleted_at", "created_at", "updated_at", "display_name", "avatar_colors", "avatar_updated_at", "cluster_id", "account_number", "bio", "location", "local_timezone", "pronouns", "website", "social_links", "blueprint_order"}).
+					AddRow("acct-1", "myorg", "organization", "org_123", nil, time.Now(), time.Now(), "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+				WithArgs("acct-1").
+				WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(tc.owner))
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "caller-1"})
+				c.Set(string(auth.SessionContextKey), &auth.Session{
+					OrganizationID: "org_123",
+					Role:           "owner",
+					Permissions:    []string{"org:manage", "org:admin"},
+				})
+				c.Next()
+			})
+
+			accountOwner := router.Group("/api/v1/accounts/:account")
+			accountOwner.Use(middleware.ResolveAccount(store))
+			accountOwner.Use(middleware.RequireAccountOwner(store))
+			accountOwner.DELETE("", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/v1/accounts/myorg", nil))
+
+			if rec.Code != tc.want {
+				t.Errorf("status = %d, want %d: %s", rec.Code, tc.want, rec.Body.String())
 			}
 		})
 	}

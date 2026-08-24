@@ -1345,7 +1345,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// undoes it after the retention window.
 			accountOwner := protected.Group("/accounts/:account")
 			accountOwner.Use(middleware.ResolveAccount(accountStore))
-			accountOwner.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
+			accountOwner.Use(middleware.RequireAccountOwner(accountStore))
 			{
 				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, aiGatewayProvisioner, aiGatewayJudgeStore, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
 					oapispec.Tags("Accounts"),
