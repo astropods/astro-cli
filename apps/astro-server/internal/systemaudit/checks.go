@@ -19,7 +19,7 @@ var checks = []Check{
 		Severity: SeverityWarning,
 		Title:    "Account has no members",
 		Query: `
-			SELECT a.id::text, a.name,
+			SELECT a.id::text AS subject_id, a.name AS subject_label,
 			       jsonb_build_object(
 			         'type', a.type,
 			         'has_owner', a.owner_user_id IS NOT NULL,
@@ -38,7 +38,7 @@ var checks = []Check{
 		Severity: SeverityWarning,
 		Title:    "Account has no owner recorded",
 		Query: `
-			SELECT a.id::text, a.name,
+			SELECT a.id::text AS subject_id, a.name AS subject_label,
 			       jsonb_build_object(
 			         'type', a.type,
 			         'members', (SELECT count(*) FROM account_members m WHERE m.account_id = a.id),
@@ -55,7 +55,7 @@ var checks = []Check{
 		Severity: SeverityError,
 		Title:    "Recorded owner is not a member",
 		Query: `
-			SELECT a.id::text, a.name,
+			SELECT a.id::text AS subject_id, a.name AS subject_label,
 			       jsonb_build_object(
 			         'type', a.type,
 			         'owner_user_id', a.owner_user_id,
@@ -73,7 +73,7 @@ var checks = []Check{
 		Severity: SeverityError,
 		Title:    "Deployment stuck mid-transition",
 		Query: `
-			SELECT d.id, a.name || '/' || d.agent_name,
+			SELECT d.id AS subject_id, a.name || '/' || d.agent_name AS subject_label,
 			       jsonb_build_object(
 			         'account', a.name,
 			         'agent', d.agent_name,
@@ -91,7 +91,7 @@ var checks = []Check{
 		Severity: SeverityError,
 		Title:    "Cluster config not synced",
 		Query: `
-			SELECT c.id, c.id,
+			SELECT c.id AS subject_id, c.id AS subject_label,
 			       jsonb_build_object(
 			         'region', c.region,
 			         'eks_cluster_name', c.eks_cluster_name,
@@ -106,7 +106,7 @@ var checks = []Check{
 		Severity: SeverityWarning,
 		Title:    "Account never provisioned for billing",
 		Query: `
-			SELECT a.id::text, a.name,
+			SELECT a.id::text AS subject_id, a.name AS subject_label,
 			       jsonb_build_object(
 			         'type', a.type,
 			         'created_at', a.created_at,
