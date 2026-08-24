@@ -1483,3 +1483,25 @@ CREATE TABLE public.classification_state (
     CONSTRAINT classification_state_account_id_fkey
         FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
+
+-- Findings from the system audit sweep, one row per (check, subject). A
+-- finding that stops matching gets resolved_at rather than being deleted, so
+-- the history of what was wrong survives the fix. Acknowledgement clears when
+-- a resolved finding comes back; the second occurrence is a new decision.
+CREATE TABLE public.system_audit_findings (
+    check_name      varchar(64) NOT NULL,
+    subject_id      varchar(128) NOT NULL,
+    subject_label   varchar(255) NOT NULL DEFAULT '',
+    severity        varchar(16) NOT NULL,
+    detail          jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    first_seen_at   timestamptz NOT NULL DEFAULT now(),
+    last_seen_at    timestamptz NOT NULL DEFAULT now(),
+    resolved_at     timestamptz,
+    acknowledged_at timestamptz,
+    CONSTRAINT system_audit_findings_pkey PRIMARY KEY (check_name, subject_id),
+    CONSTRAINT system_audit_findings_severity_check CHECK (severity IN ('error', 'warning', 'info'))
+);
+
+CREATE INDEX idx_system_audit_findings_open
+    ON public.system_audit_findings(severity, last_seen_at DESC)
+    WHERE resolved_at IS NULL;

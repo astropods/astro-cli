@@ -40,4 +40,7 @@ export const adminKeys = {
   alerts: () => [...adminKeys.all, "alerts"] as const,
   evaluators: () => [...adminKeys.all, "evaluators"] as const,
   evaluatorDrift: (id: string) => [...adminKeys.all, "evaluators", id, "drift"] as const,
+  auditFindings: (includeResolved?: boolean) =>
+    [...adminKeys.all, "auditFindings", includeResolved ?? false] as const,
+  auditFindingsAll: () => [...adminKeys.all, "auditFindings"] as const,
 };

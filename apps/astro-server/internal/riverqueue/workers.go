@@ -26,6 +26,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
+	"github.com/astropods/astro/apps/astro-server/internal/systemaudit"
 	"github.com/astropods/astro/apps/astro-server/internal/watcher"
 )
 
@@ -514,6 +515,12 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log: log,
 	})
 	log.Info("river: registered worker", "worker", "ProviderBackfillWorker", "period", "24h")
+
+	addWorkerWithCatalogCheck(log, workers, &SystemAuditWorker{
+		audit: systemaudit.NewStore(cfg.DB),
+		log:   log,
+	})
+	log.Info("river: registered worker", "worker", "SystemAuditWorker", "period", "1h")
 
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
 	pw := &AccountPurgeWorker{

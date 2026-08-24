@@ -88,6 +88,8 @@ type AdminServiceClient interface {
 	ClearAlert(ctx context.Context, in *ClearAlertRequest, opts ...grpc.CallOption) (*ClearAlertResponse, error)
 	MuteAlert(ctx context.Context, in *MuteAlertRequest, opts ...grpc.CallOption) (*MuteAlertResponse, error)
 	UnmuteAlert(ctx context.Context, in *UnmuteAlertRequest, opts ...grpc.CallOption) (*UnmuteAlertResponse, error)
+	ListAuditFindings(ctx context.Context, in *ListAuditFindingsRequest, opts ...grpc.CallOption) (*ListAuditFindingsResponse, error)
+	AcknowledgeAuditFinding(ctx context.Context, in *AcknowledgeAuditFindingRequest, opts ...grpc.CallOption) (*AcknowledgeAuditFindingResponse, error)
 }
 
 type adminServiceClient struct {
@@ -666,6 +668,22 @@ func (c *adminServiceClient) UnmuteAlert(ctx context.Context, in *UnmuteAlertReq
 	return out, nil
 }
 
+func (c *adminServiceClient) ListAuditFindings(ctx context.Context, in *ListAuditFindingsRequest, opts ...grpc.CallOption) (*ListAuditFindingsResponse, error) {
+	out := new(ListAuditFindingsResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ListAuditFindings", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) AcknowledgeAuditFinding(ctx context.Context, in *AcknowledgeAuditFindingRequest, opts ...grpc.CallOption) (*AcknowledgeAuditFindingResponse, error) {
+	out := new(AcknowledgeAuditFindingResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/AcknowledgeAuditFinding", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AdminServiceServer is the server API for AdminService.
 // Embed UnimplementedAdminServiceServer for forward compatibility.
 type AdminServiceServer interface {
@@ -741,6 +759,8 @@ type AdminServiceServer interface {
 	ClearAlert(context.Context, *ClearAlertRequest) (*ClearAlertResponse, error)
 	MuteAlert(context.Context, *MuteAlertRequest) (*MuteAlertResponse, error)
 	UnmuteAlert(context.Context, *UnmuteAlertRequest) (*UnmuteAlertResponse, error)
+	ListAuditFindings(context.Context, *ListAuditFindingsRequest) (*ListAuditFindingsResponse, error)
+	AcknowledgeAuditFinding(context.Context, *AcknowledgeAuditFindingRequest) (*AcknowledgeAuditFindingResponse, error)
 	mustEmbedUnimplementedAdminServiceServer()
 }
 
@@ -1011,6 +1031,14 @@ func (UnimplementedAdminServiceServer) MuteAlert(context.Context, *MuteAlertRequ
 }
 func (UnimplementedAdminServiceServer) UnmuteAlert(context.Context, *UnmuteAlertRequest) (*UnmuteAlertResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnmuteAlert not implemented")
+}
+
+func (UnimplementedAdminServiceServer) ListAuditFindings(context.Context, *ListAuditFindingsRequest) (*ListAuditFindingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAuditFindings not implemented")
+}
+
+func (UnimplementedAdminServiceServer) AcknowledgeAuditFinding(context.Context, *AcknowledgeAuditFindingRequest) (*AcknowledgeAuditFindingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcknowledgeAuditFinding not implemented")
 }
 
 func (UnimplementedAdminServiceServer) mustEmbedUnimplementedAdminServiceServer() {}
@@ -2090,6 +2118,36 @@ func _AdminService_UnmuteAlert_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AdminService_ListAuditFindings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAuditFindingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).ListAuditFindings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ListAuditFindings"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).ListAuditFindings(ctx, req.(*ListAuditFindingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_AcknowledgeAuditFinding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcknowledgeAuditFindingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).AcknowledgeAuditFinding(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/AcknowledgeAuditFinding"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).AcknowledgeAuditFinding(ctx, req.(*AcknowledgeAuditFindingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AdminService_ServiceDesc is the grpc.ServiceDesc for AdminService service.
 var AdminService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "admin.v1.AdminService",
@@ -2167,6 +2225,8 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ClearAlert", Handler: _AdminService_ClearAlert_Handler},
 		{MethodName: "MuteAlert", Handler: _AdminService_MuteAlert_Handler},
 		{MethodName: "UnmuteAlert", Handler: _AdminService_UnmuteAlert_Handler},
+		{MethodName: "ListAuditFindings", Handler: _AdminService_ListAuditFindings_Handler},
+		{MethodName: "AcknowledgeAuditFinding", Handler: _AdminService_AcknowledgeAuditFinding_Handler},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/admin/v1/admin.proto",

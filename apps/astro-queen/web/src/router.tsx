@@ -14,6 +14,7 @@ import { FeedbackPage } from "@/pages/feedback";
 import { ClustersPage } from "@/pages/clusters";
 import { MigrationsPage } from "@/pages/migrations";
 import { AlertsPage } from "@/pages/alerts";
+import { AuditPage } from "@/pages/audit";
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: "admin/migrations", element: <MigrationsPage /> },
       { path: "admin/feedback", element: <FeedbackPage /> },
       { path: "admin/alerts", element: <AlertsPage /> },
+      { path: "admin/audit", element: <AuditPage /> },
     ],
   },
 ]);

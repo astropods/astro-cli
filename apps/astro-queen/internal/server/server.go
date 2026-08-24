@@ -44,6 +44,7 @@ func (s *Server) ListenAndServe() error {
 	s.registerAdminRoutes(mux)
 	s.registerQuotaRoutes(mux)
 	s.registerClusterRoutes(mux)
+	s.registerAuditRoutes(mux)
 
 	// Environment info
 	mux.HandleFunc("GET /api/env", func(w http.ResponseWriter, r *http.Request) {

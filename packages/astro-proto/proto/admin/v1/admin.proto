@@ -75,6 +75,8 @@ service AdminService {
   rpc ClearAlert(ClearAlertRequest) returns (ClearAlertResponse);
   rpc MuteAlert(MuteAlertRequest) returns (MuteAlertResponse);
   rpc UnmuteAlert(UnmuteAlertRequest) returns (UnmuteAlertResponse);
+  rpc ListAuditFindings(ListAuditFindingsRequest) returns (ListAuditFindingsResponse);
+  rpc AcknowledgeAuditFinding(AcknowledgeAuditFindingRequest) returns (AcknowledgeAuditFindingResponse);
 }
 
 message ListDeploymentsRequest {
@@ -1182,4 +1184,36 @@ message OutboundDomain {
 message ListOutboundDomainsResponse {
   repeated OutboundDomain domains = 1;
   string window = 2; // the lookback actually queried, e.g. "30d"
+}
+
+message ListAuditFindingsRequest {
+  bool include_resolved = 1;
+}
+
+message AuditFinding {
+  string check_name = 1;
+  string title = 2;
+  string subject_id = 3;
+  string subject_label = 4;
+  string severity = 5; // error | warning | info
+  string detail = 6;   // JSON object of check-specific fields
+  string first_seen_at = 7;
+  string last_seen_at = 8;
+  string resolved_at = 9;
+  string acknowledged_at = 10;
+}
+
+message ListAuditFindingsResponse {
+  repeated AuditFinding findings = 1;
+  int32 open_errors = 2;
+  int32 open_warnings = 3;
+}
+
+message AcknowledgeAuditFindingRequest {
+  string check_name = 1;
+  string subject_id = 2;
+}
+
+message AcknowledgeAuditFindingResponse {
+  string status = 1;
 }

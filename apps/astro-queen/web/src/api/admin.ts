@@ -941,3 +941,45 @@ export function useUnmuteAlert() {
     },
   });
 }
+
+interface AuditFinding {
+  check_name: string;
+  title: string;
+  subject_id: string;
+  subject_label: string;
+  severity: "error" | "warning" | "info";
+  detail: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at?: string;
+  acknowledged_at?: string;
+}
+
+interface AuditFindingsResponse {
+  findings: AuditFinding[];
+  open_errors: number;
+  open_warnings: number;
+}
+
+export function useAuditFindings(includeResolved?: boolean) {
+  return useQuery({
+    queryKey: adminKeys.auditFindings(includeResolved),
+    queryFn: () =>
+      api.get<AuditFindingsResponse>(
+        `/api/admin/audit-findings${includeResolved ? "?include_resolved=true" : ""}`
+      ),
+  });
+}
+
+export function useAcknowledgeAuditFinding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { check_name: string; subject_id: string }) =>
+      api.post("/api/admin/audit-findings/acknowledge", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.auditFindingsAll() });
+    },
+  });
+}
+
+export type { AuditFinding };

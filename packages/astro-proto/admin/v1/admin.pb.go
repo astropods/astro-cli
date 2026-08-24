@@ -1256,3 +1256,35 @@ type UnmuteAlertRequest struct {
 }
 
 type UnmuteAlertResponse struct{}
+
+type ListAuditFindingsRequest struct {
+	IncludeResolved bool `json:"include_resolved,omitempty"`
+}
+
+type AuditFinding struct {
+	CheckName      string `json:"check_name,omitempty"`
+	Title          string `json:"title,omitempty"`
+	SubjectID      string `json:"subject_id,omitempty"`
+	SubjectLabel   string `json:"subject_label,omitempty"`
+	Severity       string `json:"severity,omitempty"`
+	Detail         string `json:"detail,omitempty"`
+	FirstSeenAt    string `json:"first_seen_at,omitempty"`
+	LastSeenAt     string `json:"last_seen_at,omitempty"`
+	ResolvedAt     string `json:"resolved_at,omitempty"`
+	AcknowledgedAt string `json:"acknowledged_at,omitempty"`
+}
+
+type ListAuditFindingsResponse struct {
+	Findings     []*AuditFinding `json:"findings,omitempty"`
+	OpenErrors   int32           `json:"open_errors,omitempty"`
+	OpenWarnings int32           `json:"open_warnings,omitempty"`
+}
+
+type AcknowledgeAuditFindingRequest struct {
+	CheckName string `json:"check_name,omitempty"`
+	SubjectID string `json:"subject_id,omitempty"`
+}
+
+type AcknowledgeAuditFindingResponse struct {
+	Status string `json:"status,omitempty"`
+}

@@ -248,5 +248,15 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return SystemAuditArgs{}, &river.InsertOpts{
+				UniqueOpts: river.UniqueOpts{ByPeriod: time.Hour},
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
 	return jobs
 }
