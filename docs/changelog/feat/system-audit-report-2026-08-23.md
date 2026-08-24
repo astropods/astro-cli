@@ -55,8 +55,14 @@ letting a broken check silently stop reporting.
 ### Console
 
 `AdminService.ListAuditFindings` and `AcknowledgeAuditFinding` back a System
-Audit page that groups by severity, shows each finding's detail payload, and
-links account and deployment subjects to their existing admin pages.
+Audit page that shows each finding's detail payload and links account and
+deployment subjects to their existing admin pages.
+
+The page groups findings by check rather than listing them flat. A check is the
+unit of triage: subjects failing the same check share a cause and a fix, so the
+severity and the check name belong to the collapsible section header, and each
+row carries only what distinguishes one subject from another. Sections order by
+severity, then by open count, so the widest error lands first.
 
 ### Two membership reads that stopped at one page
 

@@ -1,11 +1,19 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { ChevronRight } from "lucide-react";
 import { useAcknowledgeAuditFinding, useAuditFindings } from "@/api/admin";
 import type { AuditFinding } from "@/api/admin";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { cn, formatDateTime } from "@/lib/utils";
+
+const severityRank: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
 function severityClasses(sev: string): string {
   switch (sev) {
@@ -36,6 +44,39 @@ function subjectLink(f: AuditFinding): string | null {
   return null;
 }
 
+interface CheckGroup {
+  checkName: string;
+  title: string;
+  severity: string;
+  findings: AuditFinding[];
+  openCount: number;
+}
+
+function groupByCheck(findings: AuditFinding[]): CheckGroup[] {
+  const groups = new Map<string, CheckGroup>();
+  for (const f of findings) {
+    let group = groups.get(f.check_name);
+    if (!group) {
+      group = {
+        checkName: f.check_name,
+        title: f.title || f.check_name,
+        severity: f.severity,
+        findings: [],
+        openCount: 0,
+      };
+      groups.set(f.check_name, group);
+    }
+    group.findings.push(f);
+    if (!f.resolved_at && !f.acknowledged_at) group.openCount++;
+  }
+  return [...groups.values()].sort(
+    (a, b) =>
+      (severityRank[a.severity] ?? 3) - (severityRank[b.severity] ?? 3) ||
+      b.openCount - a.openCount ||
+      a.checkName.localeCompare(b.checkName)
+  );
+}
+
 function DetailChips({ detail }: { detail: string }) {
   let parsed: Record<string, unknown>;
   try {
@@ -61,17 +102,20 @@ export function AuditPage() {
   const [search, setSearch] = useState("");
   const { data, isLoading, error } = useAuditFindings(includeResolved);
 
-  const findings = data?.findings?.filter((f) => {
-    if (!search) return true;
+  const groups = useMemo(() => {
     const q = search.toLowerCase();
-    return (
-      f.check_name.toLowerCase().includes(q) ||
-      f.title.toLowerCase().includes(q) ||
-      f.subject_label.toLowerCase().includes(q) ||
-      f.subject_id.toLowerCase().includes(q) ||
-      f.detail.toLowerCase().includes(q)
-    );
-  });
+    const matched = (data?.findings ?? []).filter((f) => {
+      if (!q) return true;
+      return (
+        f.check_name.toLowerCase().includes(q) ||
+        f.title.toLowerCase().includes(q) ||
+        f.subject_label.toLowerCase().includes(q) ||
+        f.subject_id.toLowerCase().includes(q) ||
+        f.detail.toLowerCase().includes(q)
+      );
+    });
+    return groupByCheck(matched);
+  }, [data?.findings, search]);
 
   return (
     <div className="space-y-4">
@@ -107,35 +151,64 @@ export function AuditPage() {
       {isLoading && <Skeleton className="h-40 w-full" />}
       {error && <p className="text-destructive text-sm">{error.message}</p>}
 
-      <div className="overflow-x-auto rounded-lg glass">
-        <table className="w-full text-[11px] whitespace-nowrap">
-          <thead>
-            <tr className="border-b border-glass-border-honey glass-subtle">
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Severity</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Check</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Detail</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">First seen</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Last seen</th>
-              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">State</th>
-              <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {findings?.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-2 py-4 text-center text-muted-foreground">
-                  {search ? "No matching findings." : "Nothing flagged. 🎉"}
-                </td>
-              </tr>
-            )}
-            {findings?.map((f) => (
-              <FindingRow key={`${f.check_name}:${f.subject_id}`} finding={f} />
-            ))}
-          </tbody>
-        </table>
+      {!isLoading && !error && groups.length === 0 && (
+        <div className="rounded-lg glass px-2 py-4 text-center text-[11px] text-muted-foreground">
+          {search ? "No matching findings." : "Nothing flagged. 🎉"}
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {groups.map((group) => (
+          <CheckGroupSection key={group.checkName} group={group} />
+        ))}
       </div>
     </div>
+  );
+}
+
+function CheckGroupSection({ group }: { group: CheckGroup }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-t-lg px-1 py-1 text-left">
+        <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+        <Pill className={severityClasses(group.severity)}>{group.severity}</Pill>
+        <span className="text-xs font-medium">{group.title}</span>
+        <span className="text-[10px] text-muted-foreground">{group.checkName}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">
+          {group.findings.length} {group.findings.length === 1 ? "finding" : "findings"}
+          {group.openCount !== group.findings.length && ` · ${group.openCount} open`}
+        </span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="overflow-x-auto rounded-lg glass">
+          <table className="w-full text-[11px] whitespace-nowrap">
+            <thead>
+              <tr className="border-b border-glass-border-honey glass-subtle">
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Detail</th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
+                  First seen
+                </th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
+                  Last seen
+                </th>
+                <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">State</th>
+                <th className="px-2 py-1.5 text-right font-medium text-muted-foreground">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.findings.map((f) => (
+                <FindingRow key={`${f.check_name}:${f.subject_id}`} finding={f} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -145,12 +218,6 @@ function FindingRow({ finding: f }: { finding: AuditFinding }) {
 
   return (
     <tr className="border-b border-glass-border-honey hover:bg-glass-light">
-      <td className="px-2 py-1.5">
-        <Pill className={severityClasses(f.severity)}>{f.severity}</Pill>
-      </td>
-      <td className="px-2 py-1.5" title={f.check_name}>
-        {f.title || f.check_name}
-      </td>
       <td className="px-2 py-1.5">
         {link ? (
           <Link to={link} className="hover:underline" title={f.subject_id}>
