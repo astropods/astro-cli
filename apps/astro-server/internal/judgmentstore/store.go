@@ -156,60 +156,6 @@ func (s *Store) GetPredictions(ctx context.Context, evalDatasetID string, traceI
 	return out, nil
 }
 
-// PredictionTracesWithoutJudgments returns one keyset-paginated page of
-// prediction references that do not have a dataset judgment.
-func (s *Store) PredictionTracesWithoutJudgments(
-	ctx context.Context,
-	evalDatasetID string,
-	from time.Time,
-	asOf time.Time,
-	before *PredictionTrace,
-	limit int,
-) ([]PredictionTrace, error) {
-	if limit <= 0 {
-		return nil, fmt.Errorf("judgmentstore prediction traces without judgments: invalid limit %d", limit)
-	}
-	var beforeTimestamp any
-	var beforeTraceID any
-	if before != nil {
-		beforeTimestamp = before.TraceTimestamp
-		beforeTraceID = before.TraceID
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT p.trace_id, p.trace_timestamp
-		FROM eval_dataset_judgment_predictions p
-		WHERE p.eval_dataset_id = $1
-		  AND p.trace_timestamp >= $2
-		  AND p.created_at <= $3
-		  AND ($4::timestamptz IS NULL OR (p.trace_timestamp, p.trace_id) < ($4, $5))
-		  AND NOT EXISTS (
-			SELECT 1
-			FROM eval_dataset_judgments j
-			WHERE j.eval_dataset_id = p.eval_dataset_id
-			  AND j.trace_id = p.trace_id
-		  )
-		ORDER BY p.trace_timestamp DESC, p.trace_id DESC
-		LIMIT $6
-	`, evalDatasetID, from, asOf, beforeTimestamp, beforeTraceID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("judgmentstore prediction traces without judgments: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var traces []PredictionTrace
-	for rows.Next() {
-		var trace PredictionTrace
-		if err := rows.Scan(&trace.TraceID, &trace.TraceTimestamp); err != nil {
-			return nil, fmt.Errorf("judgmentstore prediction traces without judgments scan: %w", err)
-		}
-		traces = append(traces, trace)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("judgmentstore prediction traces without judgments iter: %w", err)
-	}
-	return traces, nil
-}
-
 // UpsertPrediction stores a prediction and completely replaces its criteria in
 // one transaction. An update preserves created_at and refreshes updated_at.
 func (s *Store) UpsertPrediction(ctx context.Context, evalDatasetID, traceID string, prediction Prediction) error {

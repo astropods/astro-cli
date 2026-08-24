@@ -254,22 +254,6 @@ func TestEvalJudgePredictionArgs(t *testing.T) {
 	}
 }
 
-func TestEvalJudgePredictionInsertManyParams(t *testing.T) {
-	params := evalJudgePredictionInsertManyParams("dataset-1", []string{"trace-1", "trace-2"})
-	if len(params) != 2 {
-		t.Fatalf("params = %d, want 2", len(params))
-	}
-	for i, traceID := range []string{"trace-1", "trace-2"} {
-		args, ok := params[i].Args.(EvalJudgePredictionArgs)
-		if !ok {
-			t.Fatalf("params[%d].Args = %T", i, params[i].Args)
-		}
-		if args.EvalDatasetID != "dataset-1" || args.TraceID != traceID {
-			t.Fatalf("params[%d].Args = %+v", i, args)
-		}
-	}
-}
-
 func TestEvalJudgePredictionWorkerSuccess(t *testing.T) {
 	worker, store, traceClient, predictor := newEvalJudgeWorkerFixture()
 

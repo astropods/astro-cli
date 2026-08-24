@@ -7,6 +7,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
+	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 )
 
@@ -18,6 +19,7 @@ type datasetFixture struct {
 	*traceDetailFixture
 	datasetMock  sqlmock.Sqlmock
 	judgmentMock sqlmock.Sqlmock
+	runMock      sqlmock.Sqlmock
 }
 
 func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.HandlerFunc) *datasetFixture {
@@ -32,6 +34,10 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	t.Cleanup(func() { judgmentDB.Close() })
 	judgmentStore := judgmentstore.NewStore(judgmentDB)
 
+	runDB, runMock, _ := sqlmock.New()
+	t.Cleanup(func() { runDB.Close() })
+	runStore := evalrunstore.NewStore(runDB)
+
 	f.router.GET("/api/v1/deployments/:id/dataset",
 		GetEvalDataset(log, accountStore, deployStore, dsStore, judgmentStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/items",
@@ -39,9 +45,11 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
 		DownloadEvalDataset(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
-		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore, nil))
-	f.router.GET("/api/v1/deployments/:id/dataset/predictions/status",
-		GetDatasetPredictionStatus(log, accountStore, deployStore, dsStore, judgmentStore))
+		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore, runStore))
+	f.router.GET("/api/v1/deployments/:id/dataset/review-queue/:trace_id/evaluation",
+		GetDatasetTraceEvaluation(log, cfg, accountStore, deployStore, dsStore, langfuseStore, runStore, nil))
+	f.router.GET("/api/v1/deployments/:id/dataset/evaluations/status",
+		GetDatasetEvaluationStatus(log, accountStore, deployStore, dsStore, runStore))
 	f.router.POST("/api/v1/deployments/:id/dataset/judgments",
 		PostDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 	f.router.PATCH("/api/v1/deployments/:id/dataset/judgments/:trace_id",
@@ -51,7 +59,12 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	f.router.DELETE("/api/v1/deployments/:id/dataset/judgments/:trace_id",
 		DeleteDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 
-	return &datasetFixture{traceDetailFixture: f, datasetMock: datasetMock, judgmentMock: judgmentMock}
+	return &datasetFixture{
+		traceDetailFixture: f,
+		datasetMock:        datasetMock,
+		judgmentMock:       judgmentMock,
+		runMock:            runMock,
+	}
 }
 
 func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int) {

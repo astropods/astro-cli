@@ -50,6 +50,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -2449,6 +2450,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
 			datasetStore := evaldatasetstore.NewStore(db)
 			judgmentStore := judgmentstore.NewStore(db)
+			evalRunStore := evalrunstore.NewStore(db)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
@@ -2469,27 +2471,34 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, slackIdentityStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
-				oapispec.QueryParam("prediction", "Prediction filter: present or absent", false),
+				oapispec.QueryParam("evaluation", "Evaluation filter: evaluated or not_evaluated", false),
 				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/predictions/status", "Get dataset prediction status", handlers.GetDatasetPredictionStatus(log, accountStore, deploymentStore, datasetStore, judgmentStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue/:trace_id/evaluation", "Get a trace's evaluator results", handlers.GetDatasetTraceEvaluation(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalRunStore, slackIdentityStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(200, &handlers.DatasetPredictionStatusResponse{}),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Response(200, &handlers.DatasetTraceEvaluationResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/predictions", "Queue dataset predictions", handlers.PostDatasetPredictions(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, queue),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/evaluations/status", "Get dataset evaluation status", handlers.GetDatasetEvaluationStatus(log, accountStore, deploymentStore, datasetStore, evalRunStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Response(202, &handlers.DatasetPredictionsResponse{}),
-				oapispec.Response(500, &handlers.DatasetPredictionsResponse{}),
+				oapispec.Response(200, &handlers.DatasetEvaluationStatusResponse{}),
+			)
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore, queue),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Response(202, &handlers.DatasetEvaluationsResponse{}),
+				oapispec.Response(500, &handlers.DatasetEvaluationsResponse{}),
 			)
 			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/judgments", "Submit dataset judgment", handlers.PostDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
 				oapispec.Tags("Dataset"),
