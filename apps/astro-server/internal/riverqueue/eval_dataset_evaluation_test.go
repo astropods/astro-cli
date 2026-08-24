@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -68,7 +67,8 @@ type fakeEvaluationRunStore struct {
 	failures   map[string]string
 	finalized  evalrunstore.Status
 	finalErr   *string
-	ensureErr  error
+	startErr   error
+	unclaimed  bool
 	pendingErr string
 }
 
@@ -82,9 +82,12 @@ func newFakeRunStore() *fakeEvaluationRunStore {
 	}
 }
 
-func (f *fakeEvaluationRunStore) EnsureRun(_ context.Context, _, _, ref string, _ time.Time) (*evalrunstore.Run, error) {
-	if f.ensureErr != nil {
-		return nil, f.ensureErr
+func (f *fakeEvaluationRunStore) StartRun(_ context.Context, _, _, ref string) (*evalrunstore.Run, error) {
+	if f.startErr != nil {
+		return nil, f.startErr
+	}
+	if f.unclaimed {
+		return nil, nil
 	}
 	return &evalrunstore.Run{ID: f.runID, EvaluationRef: ref, Status: f.adopted}, nil
 }
@@ -449,7 +452,8 @@ func TestEvaluationWorkerRejectsTraceFromAnotherDeployment(t *testing.T) {
 	err := worker.Work(context.Background(), evaluationJob(1))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not belong to deployment")
-	assert.Empty(t, runs.seeded, "no run is created for a trace we will not evaluate")
+	assert.Empty(t, runs.seeded, "no evaluator runs against a trace we will not evaluate")
+	assert.Equal(t, evalrunstore.StatusFailed, runs.finalized, "the recorded run settles instead of staying active")
 }
 
 func TestEvaluationWorkerCancelsOnMissingTrace(t *testing.T) {
@@ -458,6 +462,18 @@ func TestEvaluationWorkerCancelsOnMissingTrace(t *testing.T) {
 
 	require.Error(t, worker.Work(context.Background(), evaluationJob(1)))
 	assert.Empty(t, runs.seeded)
+	assert.Equal(t, evalrunstore.StatusFailed, runs.finalized, "the recorded run settles instead of staying active")
+}
+
+func TestEvaluationWorkerCancelsWithoutARecordedRun(t *testing.T) {
+	runs := newFakeRunStore()
+	runs.unclaimed = true
+	worker := newEvaluationWorker(runs, &fakeEvaluationTraceClient{trace: evaluationTraceFixture()}, &fakeEvaluationRunner{})
+
+	err := worker.Work(context.Background(), evaluationJob(1))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no active evaluation run")
+	assert.Empty(t, runs.seeded, "the request records the run, so a worker never invents one")
 }
 
 func TestEvaluationWorkerRejectsBlankArgs(t *testing.T) {

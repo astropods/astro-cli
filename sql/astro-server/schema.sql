@@ -1217,6 +1217,10 @@ CREATE UNIQUE INDEX eval_dataset_evaluation_runs_active_idx
     (eval_dataset_id, trace_id, evaluation_ref)
     WHERE status IN ('queued', 'in_progress');
 
+CREATE INDEX eval_dataset_evaluation_runs_latest_idx
+    ON public.eval_dataset_evaluation_runs
+    (eval_dataset_id, trace_id, created_at DESC);
+
 CREATE TABLE public.eval_dataset_evaluator_results (
     evaluation_run_id uuid             NOT NULL,
     evaluator_key     text             NOT NULL,

@@ -55,14 +55,17 @@ const (
 	evaluationQuotaMessage      = "AI usage quota exceeded. Try again after the quota resets or is increased."
 )
 
-var errEvaluationNotConfigured = errors.New("evaluation is not configured")
+var (
+	errEvaluationNotConfigured = errors.New("evaluation is not configured")
+	errPermanentEvaluation     = errors.New("evaluation cannot proceed")
+)
 
 type evaluationDatasetStore interface {
 	GetByID(context.Context, string) (*evaldatasetstore.EvalDataset, error)
 }
 
 type evaluationRunStore interface {
-	EnsureRun(ctx context.Context, evalDatasetID, traceID, evaluationRef string, traceTimestamp time.Time) (*evalrunstore.Run, error)
+	StartRun(ctx context.Context, evalDatasetID, traceID, evaluationRef string) (*evalrunstore.Run, error)
 	CreateResults(ctx context.Context, runID string, evaluatorKeys []string) error
 	CompletedResultKeys(ctx context.Context, runID string) (map[string]bool, error)
 	MarkResultInProgress(ctx context.Context, runID, evaluatorKey string) error
@@ -118,7 +121,7 @@ func (w *EvalDatasetEvaluationWorker) Work(ctx context.Context, job *river.Job[E
 		return river.JobCancel(fmt.Errorf("eval dataset evaluation: %w", errEvaluationNotConfigured))
 	}
 
-	// Resolve before creating the run so an unresolvable set never leaves an
+	// Resolve before claiming the run so an unresolvable set never leaves an
 	// orphaned in-progress row.
 	evaluationRef := evalpreset.RefDefaultSet
 	set, err := evalpreset.ResolveSet(evaluationRef)
@@ -126,19 +129,23 @@ func (w *EvalDatasetEvaluationWorker) Work(ctx context.Context, job *river.Job[E
 		return river.JobCancel(fmt.Errorf("resolve evaluation set %q: %w", evaluationRef, err))
 	}
 
-	client, err := w.resolveTraceClient(ctx, dataset)
+	run, err := w.runs.StartRun(ctx, dataset.ID, args.TraceID, evaluationRef)
 	if err != nil {
-		return err
+		return fmt.Errorf("start evaluation run: %w", err)
 	}
-	trace, traceTimestamp, err := loadEvaluationTrace(ctx, client, dataset, args.TraceID)
-	if err != nil {
-		return err
+	if run == nil {
+		return river.JobCancel(fmt.Errorf("trace %q has no active evaluation run", args.TraceID))
 	}
 
-	run, err := w.runs.EnsureRun(ctx, dataset.ID, args.TraceID, evaluationRef, traceTimestamp)
+	client, err := w.resolveTraceClient(ctx, dataset)
 	if err != nil {
-		return fmt.Errorf("ensure evaluation run: %w", err)
+		return w.retryOrFailRun(ctx, job, run.ID, err)
 	}
+	trace, err := loadEvaluationTrace(ctx, client, dataset, args.TraceID)
+	if err != nil {
+		return w.retryOrFailRun(ctx, job, run.ID, err)
+	}
+
 	keys := make([]string, 0, len(set))
 	for _, ev := range set {
 		keys = append(keys, ev.Key)
@@ -192,7 +199,7 @@ func (w *EvalDatasetEvaluationWorker) resolveTraceClient(
 	if credentials == nil ||
 		strings.TrimSpace(credentials.PublicKey) == "" ||
 		strings.TrimSpace(credentials.SecretKey) == "" {
-		return nil, river.JobCancel(fmt.Errorf("langfuse is not configured for account %s", dataset.AccountID))
+		return nil, fmt.Errorf("%w: langfuse is not configured for account %s", errPermanentEvaluation, dataset.AccountID)
 	}
 	return w.newTraceClient(credentials), nil
 }
@@ -204,25 +211,25 @@ func loadEvaluationTrace(
 	client evaluationTraceClient,
 	dataset *evaldatasetstore.EvalDataset,
 	traceID string,
-) (*langfuse.TraceDetail, time.Time, error) {
+) (*langfuse.TraceDetail, error) {
 	trace, err := client.GetTrace(ctx, traceID)
 	if err != nil {
 		if errors.Is(err, langfuse.ErrNotFound) || isPermanentLangfuseError(err) {
-			return nil, time.Time{}, river.JobCancel(fmt.Errorf("load target trace: %w", err))
+			return nil, fmt.Errorf("%w: load target trace: %w", errPermanentEvaluation, err)
 		}
-		return nil, time.Time{}, fmt.Errorf("load target trace: %w", err)
+		return nil, fmt.Errorf("load target trace: %w", err)
 	}
 	if trace == nil || trace.Input == nil {
-		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace has no input"))
+		return nil, fmt.Errorf("%w: target trace has no input", errPermanentEvaluation)
 	}
 	if !langfuse.HasDeploymentTag(trace.Tags, dataset.DeploymentID) {
-		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace does not belong to deployment %s", dataset.DeploymentID))
+		return nil, fmt.Errorf(
+			"%w: target trace does not belong to deployment %s",
+			errPermanentEvaluation,
+			dataset.DeploymentID,
+		)
 	}
-	timestamp, err := time.Parse(time.RFC3339Nano, trace.Timestamp)
-	if err != nil {
-		return nil, time.Time{}, river.JobCancel(fmt.Errorf("target trace has invalid timestamp %q", trace.Timestamp))
-	}
-	return trace, timestamp, nil
+	return trace, nil
 }
 
 // buildEvaluationInput loads only the context the resolved set asks for, so a set
@@ -443,7 +450,7 @@ func (w *EvalDatasetEvaluationWorker) retryOrFailRun(
 	runID string,
 	cause error,
 ) error {
-	if job.Attempt < job.MaxAttempts {
+	if job.Attempt < job.MaxAttempts && !errors.Is(cause, errPermanentEvaluation) {
 		return cause
 	}
 	return w.failRun(ctx, runID, cause)

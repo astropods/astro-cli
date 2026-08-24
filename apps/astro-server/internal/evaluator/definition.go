@@ -42,12 +42,13 @@ const (
 )
 
 type Evaluator struct {
-	Key    string `json:"key"`
-	Label  string `json:"label"`
-	Type   Type   `json:"type"`
-	Config Config `json:"config"`
-	Prompt string `json:"prompt"`
-	Output Output `json:"output"`
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Type        Type   `json:"type"`
+	Config      Config `json:"config"`
+	Prompt      string `json:"prompt"`
+	Output      Output `json:"output"`
 }
 
 type Config struct {
