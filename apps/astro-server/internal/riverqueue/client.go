@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
@@ -37,26 +38,25 @@ import (
 
 // Config holds dependencies that River workers need.
 type Config struct {
-	DB                   *sql.DB
-	Billing              billing.BillingProvider
-	BillingBackend       string // active billing backend ("metronome"|"noop")
-	AccountStore         *account.AccountStore
-	AgentIndex           *agentindex.Index
-	AvatarStore          *avatar.Store
-	ReadmeAssetStore     *readmeassets.Store
-	K8sRegistry          *k8s.Registry
-	K8sCache             k8scache.Cache
-	ServerConfig         *config.Config
-	DeploymentFGASync    *authz.DeploymentFGASyncStore
-	ResourceAccessSync   *authz.ResourceAccessSyncStore
-	AccessReconciler     *authz.AccessReconciler
-	FGA                  authz.FGA
-	OrgClient            *org.Client
-	PromClient           *promquery.Client
-	Logger               *logger.Logger
-	WorkOSClient         *auth.WorkOSClient
-	AccountRetentionDays int // days after soft-delete before hard-purge; default 7
-	Vault                *envelope.Vault
+	DB                 *sql.DB
+	Billing            billing.BillingProvider
+	BillingBackend     string // active billing backend ("metronome"|"noop")
+	AccountStore       *account.AccountStore
+	AgentIndex         *agentindex.Index
+	AvatarStore        *avatar.Store
+	ReadmeAssetStore   *readmeassets.Store
+	K8sRegistry        *k8s.Registry
+	K8sCache           k8scache.Cache
+	ServerConfig       *config.Config
+	DeploymentFGASync  *authz.DeploymentFGASyncStore
+	ResourceAccessSync *authz.ResourceAccessSyncStore
+	AccessReconciler   *authz.AccessReconciler
+	FGA                authz.FGA
+	OrgClient          *org.Client
+	PromClient         *promquery.Client
+	Logger             *logger.Logger
+	WorkOSClient       *auth.WorkOSClient
+	Vault              *envelope.Vault
 	// LangfuseStore is used by the DeployWorker to provision per-deployment
 	// Langfuse datasets at deploy time. Optional — when nil, dataset
 	// provisioning is skipped.
@@ -98,7 +98,15 @@ type Queue struct {
 	log    *logger.Logger
 	// billingEnforce is BILLING_GATE_ENFORCE; false is observe mode.
 	billingEnforce bool
+	// accountPurger is the purge worker's own Purger, exposed so the admin
+	// console purges through the same collaborators the sweep uses rather than
+	// assembling a second set that could fall out of step.
+	accountPurger *accountlifecycle.Purger
 }
+
+// AccountPurger returns the purge sequence the periodic sweep runs, or nil when
+// the purge worker was not registered.
+func (q *Queue) AccountPurger() *accountlifecycle.Purger { return q.accountPurger }
 
 // New creates a Queue: opens a pgxpool, registers workers, and builds the River client.
 // The River schema tables must already exist (managed via Bytebase).
@@ -154,9 +162,10 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		wired.classification.queue = q
 	}
 	if wired.purge != nil {
-		purgeWorker := wired.purge
-		purgeWorker.enqueueUndeploy = func(ctx context.Context, deploymentID string) error {
-			store := purgeWorker.deployStore
+		purger := wired.purge.purger
+		q.accountPurger = purger
+		purger.Undeploy = func(ctx context.Context, deploymentID string) error {
+			store := purger.Deployments
 			if err := store.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: "undeploying"}); err != nil {
 				return fmt.Errorf("update status: %w", err)
 			}

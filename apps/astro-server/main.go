@@ -25,6 +25,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/handlers"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
@@ -664,6 +665,12 @@ func runAPI(
 	// stashed on deps; nil when their backends are unconfigured.
 	adminSrv.SetLangfuseProvisioner(deps.Clients.LangfuseProvisioner)
 	adminSrv.SetAIGatewayProvisioner(deps.Clients.AIGateway)
+
+	// Wire the account delete and purge sequences for the account detail view.
+	// The purger comes from the queue because the purge worker already assembles
+	// its collaborators; a second set here could drift from what the sweep runs.
+	adminSrv.SetAccountDeleter(deps.Clients.AccountDeleter)
+	adminSrv.SetAccountPurger(rq.AccountPurger())
 
 	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
 	adminSrv.SetImageRefresher(imagecache.New(cfg.Deployment.AWSRegion))
@@ -1342,14 +1349,29 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountExperiments.Use(middleware.ResolveAccount(accountStore))
 			accountExperiments.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 
-			// Deleting an account is the one action no admin can take: it
-			// archives billing and tears down every deployment, and nothing
-			// undoes it after the retention window.
+			// Deleting an account is the one action the org:manage role cannot
+			// take: it archives billing and tears down every deployment, and
+			// nothing undoes it after the retention window. Only the owner, or
+			// an operator through the admin console, runs this sequence.
+			deps.Clients.AccountDeleter = &accountlifecycle.Deleter{
+				Log:         log,
+				Accounts:    accountStore,
+				Deployments: deploymentStore,
+				Undeploy: func(ctx context.Context, dep *deploymentstore.Deployment) error {
+					return handlers.EnqueueUndeploy(ctx, deploymentStore, queue, dep)
+				},
+				Org:            orgClient,
+				Billing:        billingProvider,
+				BillingBackend: cfg.BillingBackend(),
+				AIGateway:      aiGatewayProvisioner,
+				JudgeKeys:      aiGatewayJudgeStore,
+			}
+
 			accountOwner := protected.Group("/accounts/:account")
 			accountOwner.Use(middleware.ResolveAccount(accountStore))
 			accountOwner.Use(middleware.RequireAccountOwner(accountStore))
 			{
-				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, aiGatewayProvisioner, aiGatewayJudgeStore, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
+				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, deps.Clients.AccountDeleter, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

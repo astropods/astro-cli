@@ -19,6 +19,7 @@ import (
 
 	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -76,6 +77,20 @@ type clusterBindingStore interface {
 	SetDefault(accountID, clusterID string) error
 }
 
+// accountDeleter is the soft-delete sequence DeleteAccount runs, satisfied by
+// *accountlifecycle.Deleter. An interface so a test can assert which account
+// the RPC handed over without standing up billing, WorkOS, and the job queue.
+type accountDeleter interface {
+	Delete(ctx context.Context, acct *account.Account) (accountlifecycle.Result, error)
+}
+
+// accountPurger is the hard-delete sequence PurgeAccount runs, satisfied by
+// *accountlifecycle.Purger. An interface for the same reason as accountDeleter:
+// the RPC's job is to decide whether to purge, not to own the statements.
+type accountPurger interface {
+	Purge(ctx context.Context, accountID string) error
+}
+
 type Server struct {
 	adminv1.UnimplementedAdminServiceServer
 
@@ -83,6 +98,17 @@ type Server struct {
 	// cluster table. Both come from New, so a test supplies its own bindings.
 	clusters clusterid.Resolver
 	bindings clusterBindingStore
+
+	// accounts reads the account row DeleteAccount confirms and hands to
+	// accountDeleter. accountDeleter is nil until SetAccountDeleter is called;
+	// DeleteAccount then reports FailedPrecondition rather than half-deleting.
+	accounts       *account.AccountStore
+	accountDeleter accountDeleter
+
+	// accountPurger hard-deletes a soft-deleted account ahead of the retention
+	// window. Nil until SetAccountPurger is called; PurgeAccount then reports
+	// FailedPrecondition.
+	accountPurger accountPurger
 
 	log            *logger.Logger
 	deployStore    *deploymentstore.Store
@@ -212,6 +238,21 @@ func (s *Server) SetAIGatewayProvisioner(p *aigateway.Provisioner) {
 	s.aiGatewayProvisioner = p
 }
 
+// SetAccountDeleter wires the shared soft-delete sequence used by DeleteAccount.
+func (s *Server) SetAccountDeleter(d *accountlifecycle.Deleter) {
+	s.accountDeleter = d
+}
+
+// SetAccountPurger wires the purge sequence used by PurgeAccount. It is the same
+// Purger the periodic sweep drives, so an on-demand purge and a scheduled one
+// cannot clean up different things.
+func (s *Server) SetAccountPurger(p *accountlifecycle.Purger) {
+	if p == nil {
+		return // a typed nil in the interface would read as configured
+	}
+	s.accountPurger = p
+}
+
 // New creates a new admin gRPC server.
 func New(
 	log *logger.Logger,
@@ -233,6 +274,7 @@ func New(
 	return &Server{
 		clusters:     clusters,
 		bindings:     account.NewClusterBindings(db, clusters),
+		accounts:     account.NewAccountStore(db),
 		log:          log,
 		deployStore:  deployStore,
 		k8sClient:    k8sClient,

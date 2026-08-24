@@ -168,7 +168,7 @@ After:   GET  /api/v1/deployments           (filtered by account membership)
 | Deploy agent from account | `owner`, `admin`, or `member` of account |
 | Create org | Any authenticated user with a personal account |
 | Manage org members | `owner` or `admin` of org |
-| Delete account | `owner` only |
+| Delete account | `owner` only, or a platform operator through the admin console |
 
 ## Registry Changes
 

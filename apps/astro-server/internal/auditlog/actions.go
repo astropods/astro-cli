@@ -6,6 +6,7 @@ const (
 	AccountRename           = "account.rename"
 	AccountSetCluster       = "account.set_cluster"
 	AccountDelete           = "account.delete"
+	AccountPurge            = "account.purge"
 	AccountUpdateExperiment = "account.update_experiment"
 
 	BillingRecoverAliases        = "billing.recover_aliases"

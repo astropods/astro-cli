@@ -15,11 +15,14 @@ import (
 	adminv1 "github.com/astropods/astro/packages/astro-proto/admin/v1"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/quota"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var deploymentFullColumns = []string{
@@ -144,6 +147,188 @@ func (f *fakeClusterBindings) SetDefault(_, clusterID string) error {
 	}
 	f.defaults = append(f.defaults, clusterID)
 	return nil
+}
+
+// fakeAccountDeleter records the account the RPC handed over, so these tests
+// assert what DeleteAccount decided rather than replaying the whole soft-delete.
+type fakeAccountDeleter struct {
+	got    []string
+	result accountlifecycle.Result
+	err    error
+}
+
+func (f *fakeAccountDeleter) Delete(_ context.Context, acct *account.Account) (accountlifecycle.Result, error) {
+	f.got = append(f.got, acct.ID)
+	return f.result, f.err
+}
+
+func newDeleteAccountServer(t *testing.T, deleter accountDeleter) (*Server, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return &Server{
+		accounts:       account.NewAccountStore(db),
+		accountDeleter: deleter,
+		log:            logger.New("error", "json"),
+	}, mock
+}
+
+func TestDeleteAccount_RunsTheSharedSequenceAndReportsTeardown(t *testing.T) {
+	deleter := &fakeAccountDeleter{result: accountlifecycle.Result{DeploymentsUndeploying: 2}}
+	s, mock := newDeleteAccountServer(t, deleter)
+	expectAccountGetByID(mock, "acct-1")
+
+	resp, err := s.DeleteAccount(context.Background(), &adminv1.DeleteAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "test-org",
+	})
+	if err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+	if len(deleter.got) != 1 || deleter.got[0] != "acct-1" {
+		t.Fatalf("deleted = %v, want [acct-1]", deleter.got)
+	}
+	if resp.Status != "deleted" || resp.DeploymentsUndeploying != 2 {
+		t.Fatalf("resp = %+v", resp)
+	}
+}
+
+// A UUID transposed from another row looks as valid as the intended one, so the
+// typed name is the only thing standing between an operator and the wrong account.
+func TestDeleteAccount_RefusesWhenTheConfirmedNameDiffers(t *testing.T) {
+	deleter := &fakeAccountDeleter{}
+	s, mock := newDeleteAccountServer(t, deleter)
+	expectAccountGetByID(mock, "acct-1")
+
+	_, err := s.DeleteAccount(context.Background(), &adminv1.DeleteAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "other-org",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err %v)", status.Code(err), err)
+	}
+	if len(deleter.got) != 0 {
+		t.Errorf("nothing should have been deleted: %v", deleter.got)
+	}
+}
+
+func TestDeleteAccount_ReportsAnAlreadyDeletedAccountAsNotFound(t *testing.T) {
+	s, mock := newDeleteAccountServer(t, &fakeAccountDeleter{err: account.ErrAlreadyDeleted})
+	expectAccountGetByID(mock, "acct-1")
+
+	_, err := s.DeleteAccount(context.Background(), &adminv1.DeleteAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "test-org",
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("code = %v, want NotFound (err %v)", status.Code(err), err)
+	}
+}
+
+type fakeAccountPurger struct {
+	got []string
+	err error
+}
+
+func (f *fakeAccountPurger) Purge(_ context.Context, accountID string) error {
+	f.got = append(f.got, accountID)
+	return f.err
+}
+
+func newPurgeAccountServer(t *testing.T, purger accountPurger) (*Server, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return &Server{db: db, accountPurger: purger, log: logger.New("error", "json")}, mock
+}
+
+func expectAccountNameAndDeletedAt(mock sqlmock.Sqlmock, name string, deletedAt any) {
+	mock.ExpectQuery("SELECT name, deleted_at FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "deleted_at"}).AddRow(name, deletedAt))
+}
+
+func TestPurgeAccount_PurgesASoftDeletedAccount(t *testing.T) {
+	purger := &fakeAccountPurger{}
+	s, mock := newPurgeAccountServer(t, purger)
+	expectAccountNameAndDeletedAt(mock, "defunct", time.Now().Add(-8*24*time.Hour))
+
+	resp, err := s.PurgeAccount(context.Background(), &adminv1.PurgeAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "defunct",
+	})
+	if err != nil {
+		t.Fatalf("PurgeAccount: %v", err)
+	}
+	if len(purger.got) != 1 || purger.got[0] != "acct-1" {
+		t.Fatalf("purged = %v, want [acct-1]", purger.got)
+	}
+	if resp.Status != "purged" {
+		t.Errorf("status = %q, want purged", resp.Status)
+	}
+}
+
+// Purging a live account would skip the billing archive and WorkOS org delete
+// that only the soft-delete performs, leaving a customer nobody is watching.
+func TestPurgeAccount_RefusesALiveAccount(t *testing.T) {
+	purger := &fakeAccountPurger{}
+	s, mock := newPurgeAccountServer(t, purger)
+	expectAccountNameAndDeletedAt(mock, "live", nil)
+
+	_, err := s.PurgeAccount(context.Background(), &adminv1.PurgeAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "live",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err %v)", status.Code(err), err)
+	}
+	if len(purger.got) != 0 {
+		t.Errorf("nothing should have been purged: %v", purger.got)
+	}
+}
+
+// The blocker has to reach the operator: "still tearing down" is a wait, not a
+// bug, and the message names what it is waiting on.
+func TestPurgeAccount_ReportsPendingTeardownAsAPrecondition(t *testing.T) {
+	purger := &fakeAccountPurger{
+		err: fmt.Errorf("%w: 2 deployment(s) not yet undeployed", accountlifecycle.ErrTeardownPending),
+	}
+	s, mock := newPurgeAccountServer(t, purger)
+	expectAccountNameAndDeletedAt(mock, "defunct", time.Now().Add(-8*24*time.Hour))
+
+	_, err := s.PurgeAccount(context.Background(), &adminv1.PurgeAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "defunct",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("code = %v, want FailedPrecondition (err %v)", status.Code(err), err)
+	}
+	if !strings.Contains(err.Error(), "2 deployment") {
+		t.Errorf("error should name the blocker, got %v", err)
+	}
+}
+
+func TestPurgeAccount_RefusesWhenTheConfirmedNameDiffers(t *testing.T) {
+	purger := &fakeAccountPurger{}
+	s, mock := newPurgeAccountServer(t, purger)
+	expectAccountNameAndDeletedAt(mock, "defunct", time.Now().Add(-8*24*time.Hour))
+
+	_, err := s.PurgeAccount(context.Background(), &adminv1.PurgeAccountRequest{
+		AccountID:   "acct-1",
+		ConfirmName: "other",
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (err %v)", status.Code(err), err)
+	}
+	if len(purger.got) != 0 {
+		t.Errorf("nothing should have been purged: %v", purger.got)
+	}
 }
 
 func TestAddAccountCluster_PassesTheDefaultFlagAndReturnsTheList(t *testing.T) {

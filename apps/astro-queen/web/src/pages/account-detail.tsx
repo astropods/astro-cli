@@ -12,6 +12,8 @@ import {
   useRecoverAccountBifrost,
   useClusters,
   useRenameAccount,
+  useDeleteAccount,
+  usePurgeAccount,
   useAccountClusters,
   useAddAccountCluster,
   useRemoveAccountCluster,
@@ -29,6 +31,16 @@ import type {
   BillingContract,
   BillingSpend,
 } from "@/types/admin";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -106,7 +118,14 @@ export function AccountDetailPage() {
 
       <MembersCard members={members ?? []} />
 
-      {!isDeleted && (
+      {isDeleted ? (
+        <PurgeCard
+          accountId={account.id}
+          accountName={account.name}
+          deletedAt={account.deleted_at!}
+          onPurged={() => navigate("/admin/accounts")}
+        />
+      ) : (
         <DangerCard
           accountId={account.id}
           accountName={account.name}
@@ -906,7 +925,6 @@ function QuotaRequestItem({ request: req }: { request: QuotaRequest }) {
 }
 
 function DangerCard({ accountId, accountName, onDeleted }: { accountId: string; accountName: string; onDeleted: () => void }) {
-  void onDeleted;
   const invalidateMut = useInvalidateAccountCaches();
   const renameMut = useRenameAccount();
   const [result, setResult] = useState<string | null>(null);
@@ -983,6 +1001,161 @@ function DangerCard({ accountId, accountName, onDeleted }: { accountId: string; 
         )}
         {renameResult && <p className="mt-1 text-[10px] text-muted-foreground">{renameResult}</p>}
       </div>
+
+      <div className="mt-4 border-t border-glass-border-honey pt-3">
+        <p className="text-xs font-medium text-red-500">Delete account</p>
+        <p className="mb-2 text-[10px] text-muted-foreground">
+          Use this for a defunct account whose owner can no longer delete it themselves. Archives
+          the billing customer, tears down every deployment, and removes the WorkOS organization.
+          The purge job then hard-deletes the account and frees its name once the retention window
+          passes. Nothing undoes this.
+        </p>
+        <DeleteAccountDialog accountId={accountId} accountName={accountName} onDeleted={onDeleted} />
+      </div>
     </Section>
+  );
+}
+
+function PurgeCard({
+  accountId,
+  accountName,
+  deletedAt,
+  onPurged,
+}: {
+  accountId: string;
+  accountName: string;
+  deletedAt: string;
+  onPurged: () => void;
+}) {
+  const purgeMut = usePurgeAccount();
+  const [open, setOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
+
+  return (
+    <Section title="Purge">
+      <p className="mb-2 text-xs text-muted-foreground">
+        Deleted {formatDateTime(deletedAt)}. The hourly purge job hard-deletes the account once its
+        retention window passes, which is also what frees the name{" "}
+        <span className="font-mono">{accountName}</span> for reuse. Purging now skips the wait. The
+        purge refuses while any deployment is still tearing down, so a stuck account reports what it
+        is waiting on instead of leaving orphaned cluster resources behind.
+      </p>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          setConfirmName("");
+          purgeMut.reset();
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button size="sm" variant="destructive">
+            <Trash2 className="size-3.5" />
+            Purge now…
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Purge account {accountName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This hard-deletes the account row and everything that cascades from it, deletes its
+              Langfuse project, and revokes its remaining gateway keys. The name becomes available
+              again. Type the account name to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            placeholder={accountName}
+            autoFocus
+          />
+          {purgeMut.error && (
+            <p className="text-xs text-destructive">{(purgeMut.error as Error).message}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={confirmName.trim() !== accountName || purgeMut.isPending}
+              onClick={() =>
+                purgeMut.mutate(
+                  { id: accountId, confirmName: accountName },
+                  { onSuccess: () => { setOpen(false); onPurged(); } },
+                )
+              }
+            >
+              {purgeMut.isPending ? "Purging…" : "Purge account"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Section>
+  );
+}
+
+function DeleteAccountDialog({
+  accountId,
+  accountName,
+  onDeleted,
+}: {
+  accountId: string;
+  accountName: string;
+  onDeleted: () => void;
+}) {
+  const deleteMut = useDeleteAccount();
+  const [open, setOpen] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
+
+  const confirmed = confirmName.trim() === accountName;
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setConfirmName("");
+        deleteMut.reset();
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button size="xs" variant="destructive">
+          Delete account…
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete account {accountName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This archives the billing customer, queues every deployment for teardown, and removes
+            the WorkOS organization. The purge job hard-deletes the account after the retention
+            window. Type the account name to confirm.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <Input
+          value={confirmName}
+          onChange={(e) => setConfirmName(e.target.value)}
+          placeholder={accountName}
+          autoFocus
+        />
+        {deleteMut.error && (
+          <p className="text-xs text-destructive">{(deleteMut.error as Error).message}</p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={!confirmed || deleteMut.isPending}
+            onClick={() =>
+              deleteMut.mutate(
+                { id: accountId, confirmName: accountName },
+                { onSuccess: () => { setOpen(false); onDeleted(); } },
+              )
+            }
+          >
+            {deleteMut.isPending ? "Deleting…" : "Delete account"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
@@ -23,22 +21,22 @@ func TestAccountPurgeArgs_Kind(t *testing.T) {
 	}
 }
 
-func newPurgeWorker(t *testing.T) (*AccountPurgeWorker, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+func newPurgeWorker(t *testing.T) (*AccountPurgeWorker, *accountlifecycle.Purger, sqlmock.Sqlmock, sqlmock.Sqlmock) {
 	t.Helper()
 
 	db, dbMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	deployDB, deployMock, _ := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 
-	w := &AccountPurgeWorker{
-		db:            db,
-		deployStore:   deploymentstore.NewStore(deployDB),
-		retentionDays: 7,
-		log:           logger.New("error", "json"),
-		enqueueUndeploy: func(_ context.Context, _ string) error {
+	purger := &accountlifecycle.Purger{
+		Log:         logger.New("error", "json"),
+		DB:          db,
+		Deployments: deploymentstore.NewStore(deployDB),
+		Undeploy: func(_ context.Context, _ string) error {
 			return nil
 		},
 	}
-	return w, dbMock, deployMock
+	w := &AccountPurgeWorker{purger: purger, log: logger.New("error", "json")}
+	return w, purger, dbMock, deployMock
 }
 
 var purgeDeployColumns = []string{
@@ -49,7 +47,7 @@ var purgeDeployColumns = []string{
 }
 
 func TestAccountPurge_NoDeletedAccounts(t *testing.T) {
-	w, dbMock, _ := newPurgeWorker(t)
+	w, _, dbMock, _ := newPurgeWorker(t)
 
 	// No accounts past retention
 	dbMock.ExpectQuery(`SELECT id FROM accounts WHERE deleted_at IS NOT NULL`).
@@ -66,7 +64,7 @@ func TestAccountPurge_NoDeletedAccounts(t *testing.T) {
 }
 
 func TestAccountPurge_PurgesAccountWithNoDeployments(t *testing.T) {
-	w, dbMock, deployMock := newPurgeWorker(t)
+	w, _, dbMock, deployMock := newPurgeWorker(t)
 
 	// One account past retention
 	dbMock.ExpectQuery(`SELECT id FROM accounts WHERE deleted_at IS NOT NULL`).
@@ -94,50 +92,10 @@ func TestAccountPurge_PurgesAccountWithNoDeployments(t *testing.T) {
 	}
 }
 
-func TestAccountPurge_JudgeRevokeFailureContinuesHardDelete(t *testing.T) {
-	w, dbMock, deployMock := newPurgeWorker(t)
-	judgeDB, judgeMock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatalf("judge sqlmock: %v", err)
-	}
-	t.Cleanup(func() { _ = judgeDB.Close() })
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "upstream unavailable", http.StatusBadGateway)
-	}))
-	t.Cleanup(upstream.Close)
-
-	w.aigwProvisioner = aigateway.NewProvisioner(aigateway.NewClient(upstream.URL, upstream.URL, ""), nil, nil)
-	w.aigwJudgeStore = aigateway.NewJudgeStore(judgeDB)
-
-	deployMock.ExpectQuery(`SELECT`).
-		WillReturnRows(sqlmock.NewRows(purgeDeployColumns))
-	judgeMock.ExpectQuery("SELECT key_id FROM account_llm_judge_keys").
-		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows([]string{"key_id"}).AddRow("vk-judge"))
-	dbMock.ExpectExec(`DELETE FROM accounts WHERE id`).
-		WithArgs("acct-1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-
-	err = w.purgeAccount(context.Background(), "acct-1")
-	if err != nil {
-		t.Fatalf("purgeAccount error = %v, want nil", err)
-	}
-	if err := dbMock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("account DB expectations: %v", err)
-	}
-	if err := deployMock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("deployment DB expectations: %v", err)
-	}
-	if err := judgeMock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("judge DB expectations: %v", err)
-	}
-}
-
 func TestAccountPurge_SkipsAccountWithPendingTeardown(t *testing.T) {
 	var enqueuedIDs []string
-	w, dbMock, deployMock := newPurgeWorker(t)
-	w.enqueueUndeploy = func(_ context.Context, id string) error {
+	w, purger, dbMock, deployMock := newPurgeWorker(t)
+	purger.Undeploy = func(_ context.Context, id string) error {
 		enqueuedIDs = append(enqueuedIDs, id)
 		return nil
 	}
@@ -174,8 +132,8 @@ func TestAccountPurge_SkipsAccountWithPendingTeardown(t *testing.T) {
 
 func TestAccountPurge_SkipsReenqueueForAlreadyUndeploying(t *testing.T) {
 	var enqueuedIDs []string
-	w, dbMock, deployMock := newPurgeWorker(t)
-	w.enqueueUndeploy = func(_ context.Context, id string) error {
+	w, purger, dbMock, deployMock := newPurgeWorker(t)
+	purger.Undeploy = func(_ context.Context, id string) error {
 		enqueuedIDs = append(enqueuedIDs, id)
 		return nil
 	}
@@ -206,7 +164,7 @@ func TestAccountPurge_SkipsReenqueueForAlreadyUndeploying(t *testing.T) {
 }
 
 func TestAccountPurge_ContinuesOnPerAccountError(t *testing.T) {
-	w, dbMock, deployMock := newPurgeWorker(t)
+	w, _, dbMock, deployMock := newPurgeWorker(t)
 
 	// Two accounts past retention
 	dbMock.ExpectQuery(`SELECT id FROM accounts WHERE deleted_at IS NOT NULL`).

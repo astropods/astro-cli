@@ -28,6 +28,8 @@ import type {
   RefreshClusterPullSecretsResponse,
   GetClusterBlockersResponse,
   AccountClusterList,
+  DeleteAccountResponse,
+  PurgeAccountResponse,
   InvalidateCachesResponse,
   RefreshMessagingCacheResponse,
   ListClusterMigrationsResponse,
@@ -284,6 +286,38 @@ export function useRenameAccount() {
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: adminKeys.accounts() });
       qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+    },
+  });
+}
+
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirmName }: { id: string; confirmName: string }) =>
+      api.del<DeleteAccountResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}?confirm_name=${encodeURIComponent(confirmName)}`,
+      ),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+      // Every deployment under the account is queued for teardown.
+      qc.invalidateQueries({ queryKey: adminKeys.deployments() });
+    },
+  });
+}
+
+export function usePurgeAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirmName }: { id: string; confirmName: string }) =>
+      api.post<PurgeAccountResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/purge?confirm_name=${encodeURIComponent(confirmName)}`,
+      ),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accounts() });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
+      // The purge_overdue finding for this account resolves on the next sweep.
+      qc.invalidateQueries({ queryKey: adminKeys.auditFindingsAll() });
     },
   });
 }

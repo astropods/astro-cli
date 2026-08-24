@@ -590,6 +590,15 @@ export interface AccountClusterList {
   clusters?: AccountCluster[];
 }
 
+export interface DeleteAccountResponse {
+  status: string;
+  deployments_undeploying?: number;
+}
+
+export interface PurgeAccountResponse {
+  status: string;
+}
+
 export interface InvalidateCachesResponse {
   accounts_busted: number;
   deployments_busted: number;

@@ -5,6 +5,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/handlers"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
@@ -99,4 +100,8 @@ type Clients struct {
 	// detail view's recover actions. Nil when their backends are unconfigured.
 	AIGateway           *aigateway.Provisioner
 	LangfuseProvisioner *langfuse.Provisioner
+
+	// AccountDeleter is the account soft-delete sequence, shared by the
+	// owner-facing delete route and the admin server's DeleteAccount.
+	AccountDeleter *accountlifecycle.Deleter
 }

@@ -19,6 +19,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/accounts/{id}/langfuse/recover", s.handleRecoverAccountLangfuse)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
+	mux.HandleFunc("DELETE /api/admin/accounts/{id}", s.handleDeleteAccount)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/purge", s.handlePurgeAccount)
 	mux.HandleFunc("GET /api/admin/accounts/{id}/clusters", s.handleListAccountClusters)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/clusters", s.handleAddAccountCluster)
 	mux.HandleFunc("DELETE /api/admin/accounts/{id}/clusters/{clusterId}", s.handleRemoveAccountCluster)
@@ -176,6 +178,32 @@ func (s *Server) handleRenameAccount(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.RenameAccount(r.Context(), &adminv1.RenameAccountRequest{
 		AccountID: id,
 		NewName:   body.NewName,
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleDeleteAccount takes the confirmation from the query string because
+// DELETE bodies are not carried by the browser fetch wrapper.
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.DeleteAccount(r.Context(), &adminv1.DeleteAccountRequest{
+		AccountID:   r.PathValue("id"),
+		ConfirmName: r.URL.Query().Get("confirm_name"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handlePurgeAccount(w http.ResponseWriter, r *http.Request) {
+	resp, err := s.admin.PurgeAccount(r.Context(), &adminv1.PurgeAccountRequest{
+		AccountID:   r.PathValue("id"),
+		ConfirmName: r.URL.Query().Get("confirm_name"),
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

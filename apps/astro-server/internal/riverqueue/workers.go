@@ -8,6 +8,7 @@ import (
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	billingpkg "github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
@@ -523,24 +524,24 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	log.Info("river: registered worker", "worker", "SystemAuditWorker", "period", "1h")
 
 	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
-	pw := &AccountPurgeWorker{
-		db:            cfg.DB,
-		deployStore:   store,
-		fgaSync:       cfg.DeploymentFGASync,
-		retentionDays: cfg.AccountRetentionDays,
-		log:           log,
+	purger := &accountlifecycle.Purger{
+		Log:         log,
+		DB:          cfg.DB,
+		Deployments: store,
+		FGASync:     cfg.DeploymentFGASync,
 	}
 	if dep != nil {
-		pw.lfProvisioner = dep.LangfuseProvisioner
-		pw.lfStore = dep.LangfuseStore
-		pw.aigwProvisioner = dep.AIGatewayProvisioner
-		pw.aigwStore = dep.AIGatewayStore
+		purger.Langfuse = dep.LangfuseProvisioner
+		purger.LangfuseStore = dep.LangfuseStore
+		purger.AIGateway = dep.AIGatewayProvisioner
+		purger.Keys = dep.AIGatewayStore
 	}
 	if cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.AIGatewayURL != "" {
-		pw.aigwDevStore = aigateway.NewDevStore(cfg.DB)
-		pw.aigwJudgeStore = aigateway.NewJudgeStore(cfg.DB)
+		purger.DevKeys = aigateway.NewDevStore(cfg.DB)
+		purger.JudgeKeys = aigateway.NewJudgeStore(cfg.DB)
 	}
-	// enqueueUndeploy is set after client creation in New() via SetPurgeQueue
+	pw := &AccountPurgeWorker{purger: purger, log: log}
+	// purger.Undeploy is set after client creation in New(), which owns the queue.
 	addWorkerWithCatalogCheck(log, workers, pw)
 	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
 

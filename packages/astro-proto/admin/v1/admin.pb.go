@@ -475,6 +475,25 @@ type RenameAccountResponse struct {
 	Status string `json:"status,omitempty"`
 }
 
+type DeleteAccountRequest struct {
+	AccountID   string `json:"account_id,omitempty"`
+	ConfirmName string `json:"confirm_name,omitempty"`
+}
+
+type DeleteAccountResponse struct {
+	Status                 string `json:"status,omitempty"`
+	DeploymentsUndeploying int32  `json:"deployments_undeploying,omitempty"`
+}
+
+type PurgeAccountRequest struct {
+	AccountID   string `json:"account_id,omitempty"`
+	ConfirmName string `json:"confirm_name,omitempty"`
+}
+
+type PurgeAccountResponse struct {
+	Status string `json:"status,omitempty"`
+}
+
 type GetDeploymentRequest struct {
 	DeploymentId string `json:"deployment_id,omitempty"`
 }

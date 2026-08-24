@@ -2,16 +2,10 @@ package riverqueue
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
-	"time"
 
 	"github.com/riverqueue/river"
 
-	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/authz"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -28,62 +22,31 @@ func init() {
 	registerJobKind[AccountPurgeArgs]()
 }
 
-// AccountPurgeWorker finds soft-deleted accounts past the retention period and
-// hard-deletes them after cleaning up external resources (Langfuse, AI Gateway)
-// and retrying any failed deployment teardowns. The billing customer is archived
-// at delete time (see handlers.DeleteAccount), not here.
+// AccountPurgeWorker hard-deletes soft-deleted accounts once their retention
+// window has passed. The sequence itself lives in accountlifecycle.Purger, which
+// the admin console also drives to purge one account on demand. The billing
+// customer is archived at delete time (see accountlifecycle.Deleter), not here.
 type AccountPurgeWorker struct {
 	river.WorkerDefaults[AccountPurgeArgs]
-	db              *sql.DB
-	deployStore     *deploymentstore.Store
-	lfProvisioner   *langfuse.Provisioner
-	lfStore         *langfuse.Store
-	aigwProvisioner *aigateway.Provisioner
-	aigwStore       *aigateway.Store
-	aigwDevStore    *aigateway.DevStore
-	aigwJudgeStore  *aigateway.JudgeStore
-	retentionDays   int
-	log             *logger.Logger
-	enqueueUndeploy func(ctx context.Context, deploymentID string) error
-	fgaSync         *authz.DeploymentFGASyncStore
+	purger *accountlifecycle.Purger
+	log    *logger.Logger
 }
 
 func (w *AccountPurgeWorker) Work(ctx context.Context, job *river.Job[AccountPurgeArgs]) error {
-	retention := w.retentionDays
-	if retention <= 0 {
-		retention = 7
-	}
-
-	cutoff := time.Now().AddDate(0, 0, -retention)
-
-	rows, err := w.db.QueryContext(ctx,
-		`SELECT id FROM accounts WHERE deleted_at IS NOT NULL AND deleted_at < $1`,
-		cutoff,
-	)
+	accountIDs, err := w.purger.Overdue(ctx)
 	if err != nil {
-		return fmt.Errorf("query deleted accounts: %w", err)
+		return err
 	}
-	defer rows.Close() //nolint:errcheck
-
-	var accountIDs []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("scan account id: %w", err)
-		}
-		accountIDs = append(accountIDs, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate accounts: %w", err)
-	}
-
 	if len(accountIDs) == 0 {
 		return nil
 	}
 
+	// One account that cannot be purged does not fail the job: the others are
+	// independent, and the sweep runs again next tick. A permanent blocker
+	// surfaces through the account.purge_overdue audit check, not from here.
 	var purged, skipped int
 	for _, accountID := range accountIDs {
-		if err := w.purgeAccount(ctx, accountID); err != nil {
+		if err := w.purger.Purge(ctx, accountID); err != nil {
 			w.log.Error("purge accounts: purge account, will retry next tick failed", "error", err, "account_id", accountID)
 			skipped++
 			continue
@@ -92,91 +55,5 @@ func (w *AccountPurgeWorker) Work(ctx context.Context, job *river.Job[AccountPur
 	}
 
 	w.log.Info("purge accounts: account purge complete", "purged", purged, "skipped", skipped)
-	return nil
-}
-
-func (w *AccountPurgeWorker) purgeAccount(ctx context.Context, accountID string) error {
-	// 1. Check for deployments that haven't finished tearing down
-	// GetVisibleDeploymentsByAccount returns all deployments where status != 'undeployed'
-	pending, err := w.deployStore.GetVisibleDeploymentsByAccount(accountID)
-	if err != nil {
-		return fmt.Errorf("get pending deployments: %w", err)
-	}
-
-	if len(pending) > 0 {
-		for _, dep := range pending {
-			// Re-enqueue undeploy for anything not already in undeploying state
-			if dep.Status != deploymentstore.StatusUndeploying {
-				if err := w.enqueueUndeploy(ctx, dep.ID); err != nil {
-					w.log.Error("purge accounts: re-enqueue undeploy failed", "error", err, "deployment_id", dep.ID, "account_id", accountID)
-				}
-			}
-		}
-		return fmt.Errorf("account %s has %d deployments still pending teardown", accountID, len(pending))
-	}
-	if w.fgaSync != nil {
-		pendingFGA, err := w.fgaSync.HasPendingForAccount(ctx, accountID)
-		if err != nil {
-			return err
-		}
-		if pendingFGA {
-			return fmt.Errorf("account %s has deployment FGA cleanup pending", accountID)
-		}
-	}
-
-	// 2. Clean up external resources (must succeed before hard-delete)
-
-	// Langfuse
-	if w.lfProvisioner != nil && w.lfStore != nil {
-		al, err := w.lfStore.Get(accountID)
-		if err != nil {
-			return fmt.Errorf("get langfuse credentials: %w", err)
-		}
-		if al != nil {
-			if err := w.lfProvisioner.DeleteProject(ctx, al.LangfuseProjectID); err != nil {
-				return fmt.Errorf("delete langfuse project: %w", err)
-			}
-		}
-	}
-
-	// AI Gateway: revoke every per-deployment virtual key under the account
-	// upstream so they stop accruing usage, then drop the local rows. The
-	// account hard-delete cascades to deployment_ai_gateway via FK; we still
-	// need the upstream revokes since LiteLLM has no FK back to us.
-	if w.aigwProvisioner != nil && w.aigwStore != nil {
-		if err := w.aigwProvisioner.RevokeAccount(ctx, w.aigwStore, accountID); err != nil {
-			w.log.Warn("purge accounts: revoke AI Gateway keys, continuing purge failed", "error", err, "account_id", accountID)
-		}
-	}
-
-	// Dev keys: same shape as above — the FK cascade clears the rows but
-	// the upstream LiteLLM keys would linger until their 8h TTL without an
-	// explicit /key/delete.
-	if w.aigwProvisioner != nil && w.aigwDevStore != nil {
-		if err := w.aigwProvisioner.RevokeAccountDevKeys(ctx, w.aigwDevStore, accountID); err != nil {
-			w.log.Warn("purge accounts: revoke AI Gateway dev keys, continuing purge failed", "error", err, "account_id", accountID)
-		}
-	}
-
-	// The internal eval judge key is long-lived, so unlike expiring dev keys it
-	// would remain usable indefinitely if the upstream revoke were skipped.
-	// Soft deletion already attempted this cleanup; final purge mirrors
-	// deployment-key handling by warning and continuing after one retry.
-	if w.aigwProvisioner != nil && w.aigwJudgeStore != nil {
-		if err := w.aigwProvisioner.RevokeAccountJudgeKeys(ctx, w.aigwJudgeStore, accountID); err != nil {
-			w.log.Warn("purge accounts: revoke AI Gateway judge key, continuing purge failed", "error", err, "account_id", accountID)
-		}
-	}
-
-	// 3. Hard-delete the account — cascade handles all child tables
-	result, err := w.db.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1`, accountID)
-	if err != nil {
-		return fmt.Errorf("delete account: %w", err)
-	}
-	if n, _ := result.RowsAffected(); n == 0 {
-		return nil // already deleted
-	}
-
-	w.log.Info("purge accounts: account purged", "account_id", accountID)
 	return nil
 }

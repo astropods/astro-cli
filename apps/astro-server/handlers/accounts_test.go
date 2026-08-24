@@ -13,6 +13,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -478,7 +479,17 @@ func setupDeleteAccountTestWithJudgeKeys(t *testing.T, provisioner *aigateway.Pr
 		})
 		c.Next()
 	})
-	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, accountStore, deployStore, queue, provisioner, judgeStore, nil, nil, "", nil))
+	deleter := &accountlifecycle.Deleter{
+		Log:         log,
+		Accounts:    accountStore,
+		Deployments: deployStore,
+		Undeploy: func(ctx context.Context, dep *deploymentstore.Deployment) error {
+			return EnqueueUndeploy(ctx, deployStore, queue, dep)
+		},
+		AIGateway: provisioner,
+		JudgeKeys: judgeStore,
+	}
+	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, deleter, nil))
 
 	return router, accountMock, deployMock, queue
 }

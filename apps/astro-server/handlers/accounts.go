@@ -10,14 +10,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
-	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
-	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
@@ -387,7 +386,7 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
 // Soft-deletes the account, starts best-effort cleanup of account resources,
 // and enqueues undeploy jobs for active deployments.
-func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, queue DeployQueue, aigwProvisioner *aigateway.Provisioner, aigwJudgeStore *aigateway.JudgeStore, orgClient *org.Client, billingProvider billing.BillingProvider, billingBackend string, auditStore *auditlog.Store) gin.HandlerFunc {
+func DeleteAccount(log *logger.Logger, deleter *accountlifecycle.Deleter, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -395,67 +394,14 @@ func DeleteAccount(log *logger.Logger, accountStore *account.AccountStore, deplo
 			return
 		}
 
-		ctx := c.Request.Context()
-
-		// Archive the billing customer BEFORE soft-deleting so charging stops
-		// immediately and a failed archive aborts the delete — we never end up
-		// with a deleted account still tied to a live (billable) customer. If
-		// this fails the caller can retry; nothing has been mutated yet.
-		if billingProvider != nil {
-			customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
-			if err != nil {
-				log.Error("accounts: load billing customer id for delete failed", "error", err, "account_id", acct.ID)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
-				return
-			}
-			if customerID != "" {
-				if err := billingProvider.DeleteCustomer(ctx, customerID); err != nil {
-					log.Error("accounts: archive billing customer; aborting delete failed", "error", err, "account_id", acct.ID, "billing_customer_id", customerID)
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
-					return
-				}
-			}
-		}
-
-		// Soft-delete — point of no return (only after billing is archived)
-		if err := accountStore.MarkDeleted(acct.ID); errors.Is(err, account.ErrAlreadyDeleted) {
+		if _, err := deleter.Delete(c.Request.Context(), acct); errors.Is(err, account.ErrAlreadyDeleted) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "account not found"})
 			return
 		} else if err != nil {
-			log.Error("accounts: mark account deleted failed", "error", err, "account_id", acct.ID)
+			log.Error("accounts: delete account failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
 			return
 		}
-
-		// Revoke the account-scoped judge key immediately, matching deployment
-		// key cleanup during undeploy. The final account purge retries this
-		// best-effort cleanup before removing the account row.
-		if aigwProvisioner != nil && aigwJudgeStore != nil {
-			if err := aigwProvisioner.RevokeAccountJudgeKeys(ctx, aigwJudgeStore, acct.ID); err != nil {
-				log.Warn("accounts: revoke AI Gateway judge key for deleted account failed", "error", err, "account_id", acct.ID)
-			}
-		}
-
-		// Enqueue undeploy for all visible deployments (reuses existing undeploy pipeline)
-		deps, err := deployStore.GetVisibleDeploymentsByAccount(acct.ID)
-		if err != nil {
-			log.Error("accounts: list deployments for deleted account failed", "error", err, "account_id", acct.ID)
-		} else {
-			for _, dep := range deps {
-				if err := EnqueueUndeploy(ctx, deployStore, queue, dep); err != nil {
-					log.Error("accounts: enqueue undeploy for deleted account failed", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
-				}
-			}
-		}
-
-		// Clean up WorkOS organization (best-effort)
-		if acct.WorkOSOrganizationID != "" && orgClient != nil {
-			if err := orgClient.DeleteOrganization(ctx, acct.WorkOSOrganizationID); err != nil {
-				log.Error("accounts: delete WorkOS organization failed", "error", err, "workos_org_id", acct.WorkOSOrganizationID, "account_id", acct.ID)
-			}
-		}
-
-		log.Info("accounts: account deleted", "account_id", acct.ID, "account_name", acct.Name)
 
 		evt := auditlog.FromGinContext(c, acct.ID)
 		evt.Action = auditlog.AccountDelete

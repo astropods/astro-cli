@@ -1,5 +1,11 @@
 package systemaudit
 
+import (
+	"fmt"
+
+	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
+)
+
 const (
 	SeverityError   = "error"
 	SeverityWarning = "warning"
@@ -67,6 +73,36 @@ var checks = []Check{
 			   AND NOT EXISTS (
 			         SELECT 1 FROM account_members m
 			          WHERE m.account_id = a.id AND m.user_id = a.owner_user_id)`,
+	},
+	{
+		// The purge sweep skips an account it cannot finish and reports success
+		// anyway, so a permanently blocked purge is invisible in the job history.
+		// This is the only thing that surfaces one. The grace day past the
+		// retention window keeps the hourly sweep's normal lag out of the results.
+		Name:     "account.purge_overdue",
+		Severity: SeverityError,
+		Title:    "Soft-deleted account not purged",
+		Query: fmt.Sprintf(`
+			SELECT a.id::text AS subject_id, a.name AS subject_label,
+			       jsonb_build_object(
+			         'type', a.type,
+			         'deleted_at', a.deleted_at,
+			         'days_deleted', floor(extract(epoch FROM now() - a.deleted_at) / 86400),
+			         'retention_days', %[1]d,
+			         'pending_deployments', (SELECT count(*) FROM deployments d
+			                                  WHERE d.account_id = a.id AND d.status <> 'undeployed'),
+			         'pending_authorization', (SELECT count(*) FROM deployment_fga_sync s
+			                                    JOIN deployments d ON d.id = s.deployment_id
+			                                   WHERE d.account_id = a.id
+			                                     AND (s.synced_state IS DISTINCT FROM s.desired_state
+			                                          OR s.synced_version IS DISTINCT FROM s.desired_version)),
+			         'has_langfuse_project', EXISTS (SELECT 1 FROM account_langfuse l
+			                                          WHERE l.account_id = a.id)
+			       )
+			  FROM accounts a
+			 WHERE a.deleted_at IS NOT NULL
+			   AND a.deleted_at < now() - interval '%[1]d days' - interval '1 day'`,
+			accountlifecycle.RetentionDays),
 	},
 	{
 		Name:     "deployment.stuck_transition",

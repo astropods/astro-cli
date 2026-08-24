@@ -56,6 +56,8 @@ service AdminService {
   rpc RecoverAccountLangfuse(RecoverAccountLangfuseRequest) returns (RecoverAccountLangfuseResponse);
   rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
+  rpc DeleteAccount(DeleteAccountRequest) returns (DeleteAccountResponse);
+  rpc PurgeAccount(PurgeAccountRequest) returns (PurgeAccountResponse);
   rpc ListAccountClusters(ListAccountClustersRequest) returns (AccountClusterList);
   rpc AddAccountCluster(AddAccountClusterRequest) returns (AccountClusterList);
   rpc RemoveAccountCluster(RemoveAccountClusterRequest) returns (AccountClusterList);
@@ -999,6 +1001,29 @@ message RenameAccountRequest {
 }
 
 message RenameAccountResponse {
+  string status = 1;
+}
+
+// DeleteAccountRequest soft-deletes an account the way its owner would.
+// confirm_name must equal the account's current name.
+message DeleteAccountRequest {
+  string account_id = 1;
+  string confirm_name = 2;
+}
+
+message DeleteAccountResponse {
+  string status = 1;
+  int32 deployments_undeploying = 2; // deployments queued for teardown
+}
+
+// PurgeAccountRequest hard-deletes an already soft-deleted account without
+// waiting out the retention window. confirm_name must equal the account's name.
+message PurgeAccountRequest {
+  string account_id = 1;
+  string confirm_name = 2;
+}
+
+message PurgeAccountResponse {
   string status = 1;
 }
 

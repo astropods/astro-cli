@@ -33,6 +33,8 @@ type AdminServiceClient interface {
 	RecoverAccountLangfuse(ctx context.Context, in *RecoverAccountLangfuseRequest, opts ...grpc.CallOption) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(ctx context.Context, in *RecoverAccountBifrostRequest, opts ...grpc.CallOption) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
+	DeleteAccount(ctx context.Context, in *DeleteAccountRequest, opts ...grpc.CallOption) (*DeleteAccountResponse, error)
+	PurgeAccount(ctx context.Context, in *PurgeAccountRequest, opts ...grpc.CallOption) (*PurgeAccountResponse, error)
 	GetPodLogs(ctx context.Context, in *GetPodLogsRequest, opts ...grpc.CallOption) (*GetPodLogsResponse, error)
 	GetPodEnv(ctx context.Context, in *GetPodEnvRequest, opts ...grpc.CallOption) (*GetPodEnvResponse, error)
 	ListAgents(ctx context.Context, in *ListAgentsRequest, opts ...grpc.CallOption) (*ListAgentsResponse, error)
@@ -232,6 +234,22 @@ func (c *adminServiceClient) RecoverAccountBifrost(ctx context.Context, in *Reco
 func (c *adminServiceClient) RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error) {
 	out := new(RenameAccountResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/RenameAccount", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) DeleteAccount(ctx context.Context, in *DeleteAccountRequest, opts ...grpc.CallOption) (*DeleteAccountResponse, error) {
+	out := new(DeleteAccountResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/DeleteAccount", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) PurgeAccount(ctx context.Context, in *PurgeAccountRequest, opts ...grpc.CallOption) (*PurgeAccountResponse, error) {
+	out := new(PurgeAccountResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/PurgeAccount", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -713,6 +731,8 @@ type AdminServiceServer interface {
 	RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(context.Context, *RecoverAccountBifrostRequest) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
+	DeleteAccount(context.Context, *DeleteAccountRequest) (*DeleteAccountResponse, error)
+	PurgeAccount(context.Context, *PurgeAccountRequest) (*PurgeAccountResponse, error)
 	GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error)
 	GetPodEnv(context.Context, *GetPodEnvRequest) (*GetPodEnvResponse, error)
 	ListAgents(context.Context, *ListAgentsRequest) (*ListAgentsResponse, error)
@@ -834,6 +854,14 @@ func (UnimplementedAdminServiceServer) RecoverAccountBifrost(context.Context, *R
 
 func (UnimplementedAdminServiceServer) RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RenameAccount not implemented")
+}
+
+func (UnimplementedAdminServiceServer) DeleteAccount(context.Context, *DeleteAccountRequest) (*DeleteAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAccount not implemented")
+}
+
+func (UnimplementedAdminServiceServer) PurgeAccount(context.Context, *PurgeAccountRequest) (*PurgeAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PurgeAccount not implemented")
 }
 
 func (UnimplementedAdminServiceServer) GetPodLogs(context.Context, *GetPodLogsRequest) (*GetPodLogsResponse, error) {
@@ -1318,6 +1346,36 @@ func _AdminService_RenameAccount_Handler(srv interface{}, ctx context.Context, d
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/RenameAccount"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).RenameAccount(ctx, req.(*RenameAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_DeleteAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).DeleteAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/DeleteAccount"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).DeleteAccount(ctx, req.(*DeleteAccountRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_PurgeAccount_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PurgeAccountRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).PurgeAccount(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/PurgeAccount"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).PurgeAccount(ctx, req.(*PurgeAccountRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2199,6 +2257,8 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RecoverAccountLangfuse", Handler: _AdminService_RecoverAccountLangfuse_Handler},
 		{MethodName: "RecoverAccountBifrost", Handler: _AdminService_RecoverAccountBifrost_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},
+		{MethodName: "DeleteAccount", Handler: _AdminService_DeleteAccount_Handler},
+		{MethodName: "PurgeAccount", Handler: _AdminService_PurgeAccount_Handler},
 		{MethodName: "GetPodLogs", Handler: _AdminService_GetPodLogs_Handler},
 		{MethodName: "GetPodEnv", Handler: _AdminService_GetPodEnv_Handler},
 		{MethodName: "ListAgents", Handler: _AdminService_ListAgents_Handler},
