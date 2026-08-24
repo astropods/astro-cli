@@ -27,7 +27,7 @@ type Config struct {
 	BillingProvider       string // BILLING_PROVIDER
 	QuotaEnforce          bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
 	FGAShadowEnabled      bool   // FGA_SHADOW_ENABLED — compare deployment authorization with WorkOS without enforcing
-	FGAEnforcementEnabled bool   // FGA_ENFORCEMENT_ENABLED — enforce opted-in FGA-ready deployment mutations
+	FGAEnforcementEnabled bool   // FGA_ENFORCEMENT_ENABLED — enforce opted-in FGA-ready deployment authorization
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
 	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
 	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification

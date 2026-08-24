@@ -56,14 +56,6 @@ func NewAccessService(
 	}
 }
 
-func (s *AccessService) List(ctx context.Context, resource ResourceRef) ([]AccessAssignment, error) {
-	accountID, organizationID, err := s.resourceScope(ctx, resource)
-	if err != nil {
-		return nil, err
-	}
-	return s.listAssignments(ctx, resource, accountID, organizationID)
-}
-
 func (s *AccessService) ListAccess(ctx context.Context, resource ResourceRef) ([]AccessAssignment, []AccessIntent, error) {
 	accountID, organizationID, err := s.resourceScope(ctx, resource)
 	if err != nil {

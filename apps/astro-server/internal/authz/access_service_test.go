@@ -55,7 +55,7 @@ func TestAccessServiceListsBuiltInDirectAndGroupDerivedAccessOnly(t *testing.T) 
 	}}
 	service := newAccessService(t, fga, fakeAccessMembers{byMemberships: resolvedAccessMembers})
 
-	got, err := service.List(context.Background(), resource)
+	got, _, err := service.ListAccess(context.Background(), resource)
 	want := []authz.AccessAssignment{
 		{ID: "ra_1", UserID: "user_om_1", Level: authz.AccessLevelViewer, Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect},
 		{ID: "ra_2", UserID: "user_om_2", Level: authz.AccessLevelBuilder, Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_1"},
@@ -84,7 +84,7 @@ func TestAccessServiceListSkipsUnresolvableSubjects(t *testing.T) {
 		}, nil
 	}})
 
-	got, err := service.List(context.Background(), resource)
+	got, _, err := service.ListAccess(context.Background(), resource)
 	if err != nil || len(got) != 1 || got[0].UserID != "user_visible" {
 		t.Fatalf("List() = (%#v, %v), want only resolved assignment", got, err)
 	}
@@ -109,7 +109,7 @@ func TestAccessServiceListBatchesMembershipResolution(t *testing.T) {
 		return resolvedAccessMembers(ids)
 	}})
 
-	got, err := service.List(context.Background(), resource)
+	got, _, err := service.ListAccess(context.Background(), resource)
 	if err != nil || len(got) != 2 || lookups != 1 {
 		t.Fatalf("List() = (%#v, %v), lookups=%d", got, err, lookups)
 	}
@@ -168,7 +168,7 @@ func TestAccessServiceListReturnsMemberLookupFailure(t *testing.T) {
 		return nil, lookupErr
 	}})
 
-	if _, err := service.List(context.Background(), resource); !errors.Is(err, lookupErr) {
+	if _, _, err := service.ListAccess(context.Background(), resource); !errors.Is(err, lookupErr) {
 		t.Fatalf("List() error = %v, want lookup failure", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestAccessServiceDisabledDoesNotReachWorkOS(t *testing.T) {
 		nil,
 		&fakeAccessIntents{},
 	)
-	_, err := service.List(context.Background(), authz.DeploymentResource("dep_123"))
+	_, _, err := service.ListAccess(context.Background(), authz.DeploymentResource("dep_123"))
 	if !errors.Is(err, authz.ErrAccessManagementUnavailable) {
 		t.Fatalf("List() error = %v, want ErrAccessManagementUnavailable", err)
 	}

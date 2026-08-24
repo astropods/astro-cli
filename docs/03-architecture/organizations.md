@@ -2,7 +2,7 @@
 
 This document explains how organizations work in Astro, covering account types, authentication, permissions, membership sync, and agent visibility.
 
-> **Note:** Per the owners: (1) membership sync's read path is **login-time reconciliation only** - on login/refresh Astro re-lists the user's WorkOS memberships and upserts them locally (`org.Sync.SyncMembershipsForUser`). There is no background events poller and no persisted cursor table; idempotent upserts make one unnecessary. (2) The permission model is **transitional**: only `org:manage`, `agents:write`, `variable:read`, and `variable:write` are enforced via `RequireAccountPermission` today, deployment access is represented by the `deployment:read` and `deployment:edit` actions (`internal/authz/actions.go`), but `MembershipChecker` still ignores the action today (behavior unchanged), and the team is moving toward fine-grained access - so the permission matrix below is the intended model, not everything currently enforced.
+> **Note:** Membership reconciliation remains login/refresh driven through `org.Sync.SyncMembershipsForUser`; there is no background WorkOS membership poller. Organization-scoped JWT permissions, including the existing `deployments:*` grants, and resource-scoped deployment authorization are separate layers. See [Fine-grained access control](fine-grained-access-control.md) for deployment permissions, roles, groups, enforcement, and rollback behavior.
 
 ## Account Model
 
@@ -94,6 +94,8 @@ What's relevant for organizations:
 
 ### Roles and Permissions
 
+The organization JWT role matrix covers account-level permissions read directly by Astro:
+
 | Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `variable:read` | `variable:write` |
 | ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :-------------: | :--------------: |
 | **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |        Y        |        Y         |
@@ -114,6 +116,14 @@ Permission slugs map to actions:
 | `org:manage`        | Manage members, invitations, account settings, billing |
 | `variable:read`     | List and read org account vault variables              |
 | `variable:write`    | Create, update, delete org account vault variables     |
+
+WorkOS organization roles separately inherit resource-scoped permissions across child deployments:
+
+| Organization role | Inherited deployment permissions |
+| --- | --- |
+| **owner** | `deployment:read`, `deployment:edit`, `deployment:operate`, `deployment:delete`, `deployment:manage_access` |
+| **admin** | `deployment:read`, `deployment:edit`, `deployment:operate`, `deployment:delete`, `deployment:manage_access` |
+| **member** | None |
 
 ### Authorization Flow
 
@@ -138,6 +148,8 @@ RequireAccountPermission(permission)
 
 Organization accounts require the session JWT to be scoped to the target org via `POST /auth/switch-org`. The JWT carries the user's permissions for that org directly from WorkOS — no DB lookup needed. If the JWT is scoped to a different org, the request is rejected with 403.
 
+The JWT may still carry legacy plural `deployments:read` and `deployments:write` claims from unchanged WorkOS organization roles, but Astro does not read them for managed deployment authorization. Managed organization deployments use live singular `deployment:*` resource checks described in [Fine-grained access control](fine-grained-access-control.md). Personal, opted-out, and not-yet-managed deployments retain the documented legacy membership behavior.
+
 ### Route Protection
 
 | Route                                              | Permission          | Description           |
@@ -148,8 +160,6 @@ Organization accounts require the session JWT to be scoped to the target org via
 | `GET/POST/DELETE .../invitations`                  | `org:manage`        | Invitation CRUD       |
 | `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |
 | `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
-| `POST /deploy`, `POST /undeploy`, restart, trigger | `deployments:write` | Mutate running agents |
-| `GET .../deployment`, logs, metrics, observability | `deployments:read`  | View running agents   |
 | `GET .../accounts/:account/variables`, `GET .../variables/:varName` | `variable:read` | List/read vault variables |
 | `POST/PUT/DELETE .../variables`, `PUT/DELETE .../variables/:varName` | `variable:write` | Mutate vault variables |
 

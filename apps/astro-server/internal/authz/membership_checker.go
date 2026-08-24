@@ -11,7 +11,7 @@ type AccountResolver interface {
 	AccountForResource(ctx context.Context, res ResourceRef) (accountID string, personal bool, err error)
 }
 
-// MembershipChecker reproduces today's membership-based authorization: any member
+// MembershipChecker reproduces the legacy rollback policy: any member
 // of the resource's owning account may perform the action. The personal flag from
 // AccountResolver is ignored here so shadow logs reproduce the legacy rule.
 // FGAChecker separately validates JWT organization scope before calling WorkOS.

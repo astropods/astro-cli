@@ -1,7 +1,7 @@
 # Deployment FGAC API Rollout
 
-**Status:** Approved direction
-**Updated:** 2026-08-14
+**Status:** Phase 8 implemented; Phase 9 hardening
+**Updated:** 2026-08-20
 
 ## Decision
 
@@ -25,13 +25,13 @@ Evaluation endpoints are deployment-addressed today, but that URL shape does not
 
 The deployment-detail response carries environment metadata and non-secret values. `LoadDecryptedBuildEnv` replaces every secret value with `••••••••` before the response is built; no deployment permission exposes plaintext secrets.
 
-Redeploy and teardown use the body-addressed `POST /deploy` and `POST /undeploy` flows. Signed redeploy attempts and parsed undeploy attempts with a nonempty deployment ID are shadow-checked as `deployment:operate` and `deployment:delete`, including attempts rejected later by legacy authorization or business validation. Malformed requests without an ID are skipped. `deployment:manage_access` remains forward-looking until the access APIs land. `POST /agents/:account/:name/archive` only archives the blueprint and therefore remains an agent-level authorization decision.
+Redeploy and teardown use the body-addressed `POST /deploy` and `POST /undeploy` flows. Signed redeploy attempts and parsed undeploy attempts with a nonempty deployment ID are checked as `deployment:operate` and `deployment:delete`, including attempts rejected later by business validation. Malformed requests without an ID are skipped. Deployment access APIs require `deployment:manage_access`. `POST /agents/:account/:name/archive` only archives the blueprint and therefore remains an agent-level authorization decision.
 
 Chat and invocation authorization remain separate data-plane concerns. Existing messaging grants are unchanged.
 
 ## Final behavior
 
-Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for resource roles and decisions; Astro does not mirror per-deployment assignments in its database.
+Each organization deployment is registered as a WorkOS `deployment` resource beneath its organization. WorkOS is authoritative for effective resource roles and decisions; Astro stores only durable lifecycle and access-change intent so failed writes can be retried.
 
 | Subject | Baseline read | Deployment operations | Manage access in this milestone |
 | --- | --- | --- | --- |
@@ -66,7 +66,7 @@ The initial access-management API requires `deployment:manage_access`. Organizat
 | Deployment resource, role assignments, and group membership | WorkOS |
 | Resource permission decision | Live WorkOS Authorization API check |
 
-Astro stores no local per-deployment entitlement table. Resource mutations make a live check. A request-local cache may deduplicate identical checks inside one HTTP request; there is no cross-request decision cache initially.
+Astro stores no local effective-entitlement table. Resource mutations make a live check, and a request-local cache may deduplicate identical checks inside one HTTP request. Deployment-list discovery uses a three-second membership-and-organization-scoped cache to collapse polling bursts; it never caches mutation decisions.
 
 ```mermaid
 flowchart TD
@@ -95,7 +95,7 @@ Configure preview before PR4 makes live writes; repeat in production before prod
 - Organization owner/admin roles include every deployment permission through child-resource inheritance.
 - Organization member role includes no deployment permissions for private-by-default behavior.
 
-`deployment-admin` replaces the earlier `deployment-owner` slug. WorkOS role slugs are immutable: create Admin before deploying the matching code, keep the unassigned Owner role through the PR8 rollout, then delete it after the complete stack verifies that a new deployment assigns Admin to its creator.
+`deployment-admin` replaced the earlier `deployment-owner` slug. Runtime code no longer references the old role; an unassigned `deployment-owner` role may be deleted after the environment verifies creator Admin assignment.
 
 The slugs are external contracts. Repository constants and WorkOS environment configuration must change together.
 
@@ -307,7 +307,6 @@ Proposed PR8.3/8.4 API surface; exact paths follow existing server conventions d
 | List assignments | `GET /deployments/:deploymentId/access` |
 | Set built-in role | `PUT /deployments/:deploymentId/access` |
 | Remove built-in role | `DELETE /deployments/:deploymentId/access/:subjectType/:subjectId` |
-| Check capability | `POST /authz/check` |
 
 ### PR8.5 — Queen FGA inspector
 
@@ -320,13 +319,12 @@ Proposed PR8.3/8.4 API surface; exact paths follow existing server conventions d
 
 ### PR9 — Preview proof, hardening, and cleanup
 
-- Add contract/integration tests for access APIs, group membership, assignments, discovery, and enforcement.
-- Commit a curl/Postman runbook that exercises separate authenticated Sohum, Matt, and Saswat sessions.
-- Verify direct, group-derived, inherited-admin, personal-account, cross-organization, revocation, denial, and WorkOS-unavailable cases.
-- Remove superseded authorization middleware and JWT-based UI authorization workarounds only after enforcement is stable.
+- Add stateful contract coverage across discovery, direct and group assignments, enforcement, and revocation.
+- Remove only superseded authorization entry points and transitional language proven unused after Phase 8. Retain the global kill switch, organization experiment, membership fallback, and shadow comparison as production rollback controls.
 - Add `docs/03-architecture/fine-grained-access-control.md` as the permanent system architecture: sources of truth, resource hierarchy, permissions/roles/groups, resource lifecycle, request and capability flows, tenant isolation, failure behavior, access APIs, rollout, and the extension pattern for blueprints and knowledge stores. Include the corresponding Mermaid diagrams.
-- Update `docs/03-architecture/organizations.md` to link to the permanent FGA architecture and replace its transitional deployment-permission note once Preview proof passes.
-- Finalize the operational runbook, rollback plan, and production configuration.
+- Update `docs/03-architecture/organizations.md` to link to the permanent FGA architecture and replace its transitional deployment-permission note.
+- Document the operational rollout, rollback controls, and production configuration prerequisites.
+- Defer historical deployment backfill to a separately approved milestone.
 - Do not build frontend components.
 
 ## Preview acceptance workflow
