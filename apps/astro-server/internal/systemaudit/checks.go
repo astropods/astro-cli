@@ -51,6 +51,24 @@ var checks = []Check{
 			   AND a.owner_user_id IS NULL`,
 	},
 	{
+		Name:     "account.owner_not_member",
+		Severity: SeverityError,
+		Title:    "Recorded owner is not a member",
+		Query: `
+			SELECT a.id::text, a.name,
+			       jsonb_build_object(
+			         'type', a.type,
+			         'owner_user_id', a.owner_user_id,
+			         'members', (SELECT count(*) FROM account_members m WHERE m.account_id = a.id)
+			       )
+			  FROM accounts a
+			 WHERE a.deleted_at IS NULL
+			   AND a.owner_user_id IS NOT NULL
+			   AND NOT EXISTS (
+			         SELECT 1 FROM account_members m
+			          WHERE m.account_id = a.id AND m.user_id = a.owner_user_id)`,
+	},
+	{
 		Name:     "deployment.stuck_transition",
 		Severity: SeverityError,
 		Title:    "Deployment stuck mid-transition",

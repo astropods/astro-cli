@@ -125,13 +125,7 @@ func TestAccountNoMembersFindsAMemberlessAccount(t *testing.T) {
 		_, _ = db.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1::uuid`, accountID)
 	})
 
-	var check Check
-	for _, c := range Checks() {
-		if c.Name == "account.no_members" {
-			check = c
-		}
-	}
-	if _, _, err := store.runCheck(ctx, check); err != nil {
+	if _, _, err := store.runCheck(ctx, checkNamed(t, "account.no_members")); err != nil {
 		t.Fatalf("run check: %v", err)
 	}
 
@@ -151,6 +145,54 @@ func TestAccountNoMembersFindsAMemberlessAccount(t *testing.T) {
 	if !strings.Contains(string(got.Detail), `"live_deployments": 0`) {
 		t.Errorf("detail = %s, want live_deployments in the payload", got.Detail)
 	}
+}
+
+func TestOwnerNotMemberFindsADanglingOwner(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+
+	var accountID string
+	if err := db.QueryRowContext(ctx, `
+		INSERT INTO accounts (name, type, owner_user_id) VALUES ('dangling-owner', 'organization', 'user-gone')
+		RETURNING id::text
+	`).Scan(&accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO account_members (account_id, user_id) VALUES ($1::uuid, 'user-present')
+	`, accountID); err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM system_audit_findings WHERE subject_id = $1`, accountID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM accounts WHERE id = $1::uuid`, accountID)
+	})
+
+	if _, _, err := store.runCheck(ctx, checkNamed(t, "account.owner_not_member")); err != nil {
+		t.Fatalf("run check: %v", err)
+	}
+
+	for _, f := range mustList(t, store, ctx) {
+		if f.SubjectID == accountID {
+			if f.Severity != SeverityError {
+				t.Errorf("severity = %q, want error: the future foreign key would reject this row", f.Severity)
+			}
+			return
+		}
+	}
+	t.Fatal("an owner who is not a member was not flagged")
+}
+
+func checkNamed(t *testing.T, name string) Check {
+	t.Helper()
+	for _, c := range Checks() {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("no check named %q", name)
+	return Check{}
 }
 
 func mustList(t *testing.T, s *Store, ctx context.Context) []Finding {

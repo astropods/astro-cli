@@ -13,15 +13,23 @@ A check is a name, a severity, and one SQL query returning `(subject_id,
 subject_label, detail jsonb)`. Adding a check is adding an entry to that slice,
 which is why the checks are data rather than functions.
 
-The first cut covers five:
+The first cut covers six:
 
 | Check | Severity | Flags |
 |---|---|---|
 | `account.no_members` | warning | A live account nobody can reach |
-| `account.no_owner` | warning | No owner recorded, so ownership is underivable |
+| `account.no_owner` | warning | No owner recorded |
+| `account.owner_not_member` | error | The recorded owner is not a member of the account |
 | `deployment.stuck_transition` | error | Pending, provisioning, deploying, or undeploying for over an hour |
 | `cluster.config_stale` | error | Config never synced, or last synced over a day ago |
 | `billing.unprovisioned` | warning | Account over a day old that the provisioning sweep still owes |
+
+The two ownership checks matter more now that `accounts.owner_user_id` decides
+who owns an account rather than deriving it from WorkOS. Nothing repairs an
+ownerless account automatically, by design, so the report is how one gets found.
+`account.owner_not_member` is an error because it names the invariant the column
+is heading toward: once the composite foreign key to `account_members` lands,
+a row like that stops being reportable and starts being rejected.
 
 ### Findings survive their fix
 
