@@ -13,8 +13,12 @@ Account creation writes the owner in the same transaction as the first member,
 so an account is never briefly ownerless.
 
 After creation the column decides ownership, and nothing reads the WorkOS
-`owner` role to answer the question. The role becomes a projection: Astro writes
-it so the WorkOS console agrees, and never consults it.
+`owner` role to answer the question. Astro still writes it, and that write is
+not cosmetic: WorkOS grants `org:manage` through the role, the member list
+renders each member's role from it, and manager notifications resolve their
+audience from it. A transfer that moved only the column would leave the new
+owner unable to manage the organization they now own. The role is a projection
+of the column, not a second copy of the answer.
 
 That inversion is what the column was for. Deriving ownership from WorkOS meant
 an org could hold two owner roles at once, or none, and the answer changed
