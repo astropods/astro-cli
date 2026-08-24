@@ -14,6 +14,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -40,6 +41,35 @@ func newPurger(t *testing.T) (*Purger, sqlmock.Sqlmock, sqlmock.Sqlmock, *[]stri
 			return nil
 		},
 	}, dbMock, deployMock, requeued
+}
+
+// Every key-revocation step reads a store the caller never passes, so a
+// provisioner arriving without its store would skip the revoke and leave a
+// working credential behind.
+func TestNewPurger_DerivesEachProvisionerStore(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	bare := NewPurger(PurgerDeps{Log: logger.New("error", "json"), DB: db})
+	if bare.LangfuseStore != nil || bare.Keys != nil || bare.DevKeys != nil || bare.JudgeKeys != nil {
+		t.Fatal("unconfigured backends should leave their stores nil")
+	}
+
+	full := NewPurger(PurgerDeps{
+		Log:       logger.New("error", "json"),
+		DB:        db,
+		Langfuse:  &langfuse.Provisioner{},
+		AIGateway: aigateway.NewProvisioner(nil, nil, nil),
+	})
+	if full.LangfuseStore == nil {
+		t.Error("Langfuse provisioner set, LangfuseStore nil")
+	}
+	if full.Keys == nil || full.DevKeys == nil || full.JudgeKeys == nil {
+		t.Error("AI Gateway provisioner set, key stores nil")
+	}
 }
 
 // An account whose deployments are still up must survive the purge: hard-deleting

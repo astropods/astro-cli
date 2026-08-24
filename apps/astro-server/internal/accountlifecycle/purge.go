@@ -48,6 +48,43 @@ type Purger struct {
 	FGASync       *authz.DeploymentFGASyncStore
 }
 
+// PurgerDeps are the collaborators a caller owns. The key and credential stores
+// are derived from DB, so a caller cannot supply a provisioner without the store
+// its cleanup step reads.
+type PurgerDeps struct {
+	Log         *logger.Logger
+	DB          *sql.DB
+	Deployments *deploymentstore.Store
+	FGASync     *authz.DeploymentFGASyncStore
+	Langfuse    *langfuse.Provisioner
+	AIGateway   *aigateway.Provisioner
+	Undeploy    func(ctx context.Context, deploymentID string) error
+}
+
+// NewPurger assembles the purge sequence. The API process and the worker both
+// build one this way, so an on-demand purge from the admin console removes the
+// same resources the periodic sweep does.
+func NewPurger(deps PurgerDeps) *Purger {
+	p := &Purger{
+		Log:         deps.Log,
+		DB:          deps.DB,
+		Deployments: deps.Deployments,
+		Undeploy:    deps.Undeploy,
+		FGASync:     deps.FGASync,
+		Langfuse:    deps.Langfuse,
+		AIGateway:   deps.AIGateway,
+	}
+	if deps.Langfuse != nil {
+		p.LangfuseStore = langfuse.NewStore(deps.DB)
+	}
+	if deps.AIGateway != nil {
+		p.Keys = aigateway.NewStore(deps.DB)
+		p.DevKeys = aigateway.NewDevStore(deps.DB)
+		p.JudgeKeys = aigateway.NewJudgeStore(deps.DB)
+	}
+	return p
+}
+
 // Overdue returns the soft-deleted accounts whose retention window has passed.
 func (p *Purger) Overdue(ctx context.Context) ([]string, error) {
 	cutoff := time.Now().AddDate(0, 0, -RetentionDays)

@@ -14,7 +14,6 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
-	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
@@ -98,15 +97,7 @@ type Queue struct {
 	log    *logger.Logger
 	// billingEnforce is BILLING_GATE_ENFORCE; false is observe mode.
 	billingEnforce bool
-	// accountPurger is the purge worker's own Purger, exposed so the admin
-	// console purges through the same collaborators the sweep uses rather than
-	// assembling a second set that could fall out of step.
-	accountPurger *accountlifecycle.Purger
 }
-
-// AccountPurger returns the purge sequence the periodic sweep runs, or nil when
-// the purge worker was not registered.
-func (q *Queue) AccountPurger() *accountlifecycle.Purger { return q.accountPurger }
 
 // New creates a Queue: opens a pgxpool, registers workers, and builds the River client.
 // The River schema tables must already exist (managed via Bytebase).
@@ -162,20 +153,7 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 		wired.classification.queue = q
 	}
 	if wired.purge != nil {
-		purger := wired.purge.purger
-		q.accountPurger = purger
-		purger.Undeploy = func(ctx context.Context, deploymentID string) error {
-			store := purger.Deployments
-			if err := store.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: "undeploying"}); err != nil {
-				return fmt.Errorf("update status: %w", err)
-			}
-			dep, derr := store.GetDeploymentByID(deploymentID)
-			cid := ""
-			if derr == nil && dep != nil {
-				cid = dep.EffectiveClusterID()
-			}
-			return q.InsertUndeployJob(ctx, deploymentID, cid)
-		}
+		wired.purge.purger.Undeploy = q.UndeployFunc(wired.purge.purger.Deployments)
 	}
 	if wired.migrate != nil {
 		wired.migrate.queue = q
@@ -300,6 +278,24 @@ func (q *Queue) InsertDeployJob(ctx context.Context, deploymentID, clusterID str
 func (q *Queue) InsertUndeployJob(ctx context.Context, deploymentID, clusterID string) error {
 	_, err := q.Insert(ctx, UndeployArgs{DeploymentID: deploymentID, ClusterID: clusterID}, nil)
 	return err
+}
+
+// UndeployFunc returns the teardown hook accountlifecycle.Purger calls for a
+// deployment whose undeploy never made it onto the queue. It moves the row to
+// undeploying first, so a lost job is visible as state rather than as a
+// deployment that looks live with nothing behind it.
+func (q *Queue) UndeployFunc(store *deploymentstore.Store) func(ctx context.Context, deploymentID string) error {
+	return func(ctx context.Context, deploymentID string) error {
+		if err := store.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
+			return fmt.Errorf("update status: %w", err)
+		}
+		dep, derr := store.GetDeploymentByID(deploymentID)
+		cid := ""
+		if derr == nil && dep != nil {
+			cid = dep.EffectiveClusterID()
+		}
+		return q.InsertUndeployJob(ctx, deploymentID, cid)
+	}
 }
 
 // InsertDeploymentFGAReconcileJob enqueues immediate WorkOS reconciliation.

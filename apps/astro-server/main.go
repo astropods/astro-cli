@@ -667,10 +667,10 @@ func runAPI(
 	adminSrv.SetAIGatewayProvisioner(deps.Clients.AIGateway)
 
 	// Wire the account delete and purge sequences for the account detail view.
-	// The purger comes from the queue because the purge worker already assembles
-	// its collaborators; a second set here could drift from what the sweep runs.
+	// Both run in this process: the admin gRPC server lives on the API side,
+	// whose queue is insert-only and registers no workers.
 	adminSrv.SetAccountDeleter(deps.Clients.AccountDeleter)
-	adminSrv.SetAccountPurger(rq.AccountPurger())
+	adminSrv.SetAccountPurger(deps.Clients.AccountPurger)
 
 	// Wire ECR pull-through cache refresher for admin RefreshMessagingCache
 	adminSrv.SetImageRefresher(imagecache.New(cfg.Deployment.AWSRegion))
@@ -1366,6 +1366,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				AIGateway:      aiGatewayProvisioner,
 				JudgeKeys:      aiGatewayJudgeStore,
 			}
+
+			deps.Clients.AccountPurger = accountlifecycle.NewPurger(accountlifecycle.PurgerDeps{
+				Log:         log,
+				DB:          db,
+				Deployments: deploymentStore,
+				FGASync:     deploymentFGASync,
+				Langfuse:    ingestLangfuseProvisioner,
+				AIGateway:   aiGatewayProvisioner,
+				Undeploy:    queue.UndeployFunc(deploymentStore),
+			})
 
 			accountOwner := protected.Group("/accounts/:account")
 			accountOwner.Use(middleware.ResolveAccount(accountStore))

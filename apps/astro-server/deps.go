@@ -104,4 +104,9 @@ type Clients struct {
 	// AccountDeleter is the account soft-delete sequence, shared by the
 	// owner-facing delete route and the admin server's DeleteAccount.
 	AccountDeleter *accountlifecycle.Deleter
+
+	// AccountPurger is the hard-delete sequence behind the admin server's
+	// PurgeAccount. The worker builds its own for the periodic sweep; this one
+	// belongs to the API process, which is where the admin gRPC server runs.
+	AccountPurger *accountlifecycle.Purger
 }

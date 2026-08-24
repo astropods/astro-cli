@@ -523,23 +523,19 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "SystemAuditWorker", "period", "1h")
 
-	// Account purge worker — needs langfuse provisioner/store from deployer (if available)
-	purger := &accountlifecycle.Purger{
+	// Account purge worker — takes the langfuse and gateway provisioners from the
+	// deployer when its backends are configured.
+	purgerDeps := accountlifecycle.PurgerDeps{
 		Log:         log,
 		DB:          cfg.DB,
 		Deployments: store,
 		FGASync:     cfg.DeploymentFGASync,
 	}
 	if dep != nil {
-		purger.Langfuse = dep.LangfuseProvisioner
-		purger.LangfuseStore = dep.LangfuseStore
-		purger.AIGateway = dep.AIGatewayProvisioner
-		purger.Keys = dep.AIGatewayStore
+		purgerDeps.Langfuse = dep.LangfuseProvisioner
+		purgerDeps.AIGateway = dep.AIGatewayProvisioner
 	}
-	if cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.AIGatewayURL != "" {
-		purger.DevKeys = aigateway.NewDevStore(cfg.DB)
-		purger.JudgeKeys = aigateway.NewJudgeStore(cfg.DB)
-	}
+	purger := accountlifecycle.NewPurger(purgerDeps)
 	pw := &AccountPurgeWorker{purger: purger, log: log}
 	// purger.Undeploy is set after client creation in New(), which owns the queue.
 	addWorkerWithCatalogCheck(log, workers, pw)
