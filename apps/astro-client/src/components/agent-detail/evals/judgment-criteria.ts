@@ -1,8 +1,3 @@
-import type {
-  JudgmentCriterion,
-  ReviewQueuePredictionCriterion,
-} from "@/lib/api";
-
 /** The polarity a reviewer can record for a dimension. */
 export type CriterionValue = -1 | 1;
 
@@ -79,47 +74,5 @@ export function criterionLabelFor(dimensionKey: string, value: number): string |
   return value > 0 ? dimension.goodLabel : dimension.badLabel;
 }
 
-export type PredictionCriterionAssessment =
-  | "accepted"
-  | "warning"
-  | "rejected";
 
-/** Returns the predicted score for a criterion, defaulting missing dimensions
- *  to the neutral middle band. */
-export function predictionCriterionValue(
-  criteria: ReviewQueuePredictionCriterion[],
-  dimensionKey: string,
-): number {
-  return (
-    criteria.find(({ dimension_key }) => dimension_key === dimensionKey)
-      ?.dimension_value ?? 0
-  );
-}
 
-/** Converts a model score into the shared presentation and selection bands. */
-export function predictionCriterionAssessment(
-  value: number,
-): PredictionCriterionAssessment {
-  if (value > 0.25) return "accepted";
-  if (value < -0.75) return "rejected";
-  return "warning";
-}
-
-/** Pre-fills the criteria editor with the dimensions the judge accepted or
- *  rejected. Warning-band dimensions remain unselected. */
-export function predictedCriteria(
-  criteria: ReviewQueuePredictionCriterion[],
-): JudgmentCriterion[] {
-  return JUDGMENT_CRITERIA.flatMap(({ dimensionKey }) => {
-    const assessment = predictionCriterionAssessment(
-      predictionCriterionValue(criteria, dimensionKey),
-    );
-    if (assessment === "warning") return [];
-    return [
-      {
-        dimension_key: dimensionKey,
-        value: assessment === "accepted" ? 1 : -1,
-      },
-    ];
-  });
-}

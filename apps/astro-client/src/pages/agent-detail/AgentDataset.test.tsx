@@ -9,11 +9,12 @@ import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import { evalKeys } from "@/api/queries/keys";
 import type {
   DatasetJudgmentRequest,
-  DatasetPredictionsResponse,
+  DatasetEvaluationsResponse,
   EvalDatasetItem,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
-  PredictionStatusCounts,
+  EvaluationStatusCounts,
+  TraceEvaluationResponse,
   ReviewQueueItem,
   ReviewQueueResponse,
   TraceDetailResponse,
@@ -22,13 +23,13 @@ import type { AuthContextType } from "@/lib/auth-context";
 import { coachmarkStorageKey } from "@/hooks/use-persistent-coachmark";
 import AgentDataset from "./AgentDataset";
 
-const AUTO_JUDGE_ONBOARDING_KEY = coachmarkStorageKey(
+const AUTO_EVALUATE_ONBOARDING_KEY = coachmarkStorageKey(
   "llm-judge",
   mockAuthContext.user!.id,
 );
 
 beforeEach(() => {
-  localStorage.setItem(AUTO_JUDGE_ONBOARDING_KEY, "true");
+  localStorage.setItem(AUTO_EVALUATE_ONBOARDING_KEY, "true");
 });
 
 afterEach(cleanup);
@@ -73,9 +74,9 @@ function reviewQueueResponse(
   };
 }
 
-function predictionStatusCounts(
+function evaluationStatusCounts(
   items: ReviewQueueItem[],
-): PredictionStatusCounts {
+): EvaluationStatusCounts {
   const counts = {
     queued: 0,
     in_progress: 0,
@@ -83,10 +84,8 @@ function predictionStatusCounts(
     failed: 0,
   };
   for (const item of items) {
-    if (item.prediction) {
-      counts.completed += 1;
-    } else if (item.prediction_status !== "not_requested") {
-      counts[item.prediction_status] += 1;
+    if (item.run) {
+      counts[item.run.status] += 1;
     }
   }
   return counts;
@@ -104,25 +103,25 @@ function mockReviewQueueRequest(
   );
 }
 
-function mockPredictionStatus(
-  resolve: () => PredictionStatusCounts | Promise<PredictionStatusCounts>,
+function mockEvaluationStatus(
+  resolve: () => EvaluationStatusCounts | Promise<EvaluationStatusCounts>,
 ) {
   server.use(
     http.get(
-      "/api/v1/deployments/:id/dataset/predictions/status",
+      "/api/v1/deployments/:id/dataset/evaluations/status",
       async () => HttpResponse.json(await resolve()),
     ),
   );
 }
 
-function mockRunPredictions(
+function mockRunEvaluations(
   resolve: (
     request: Request,
-  ) => DatasetPredictionsResponse | Promise<DatasetPredictionsResponse>,
+  ) => DatasetEvaluationsResponse | Promise<DatasetEvaluationsResponse>,
 ) {
   server.use(
     http.post(
-      "/api/v1/deployments/:id/dataset/predictions",
+      "/api/v1/deployments/:id/dataset/evaluations",
       async ({ request }) =>
         HttpResponse.json(await resolve(request), { status: 202 }),
     ),
@@ -154,19 +153,26 @@ function mockCreateJudgment(
 const REVIEW_QUEUE_PAGE_SIZE = "50";
 
 const reviewQueueFixtures = new Map<string, ReviewQueueItem>();
+const traceEvaluationFixtures = new Map<string, Partial<TraceEvaluationResponse>>();
 
-function queueItem(overrides: Partial<ReviewQueueItem>): ReviewQueueItem {
+type QueueItemOverrides = Partial<ReviewQueueItem> &
+  Pick<Partial<TraceEvaluationResponse>, "output" | "user_id" | "user_details">;
+
+function queueItem({
+  output = "Run ast deploy.",
+  user_id,
+  user_details,
+  ...overrides
+}: QueueItemOverrides): ReviewQueueItem {
   const item: ReviewQueueItem = {
     trace_id: "trace_000001",
     timestamp: "2026-06-01T12:00:00Z",
     input: "How do I deploy?",
-    output: "Run ast deploy.",
-    prediction_status: "not_requested",
-    prediction_error: null,
-    prediction: null,
+    run: null,
     ...overrides,
   };
   reviewQueueFixtures.set(item.trace_id, item);
+  traceEvaluationFixtures.set(item.trace_id, { output, user_id, user_details });
   return item;
 }
 
@@ -186,7 +192,7 @@ function setupDataset(
   response: EvalDatasetResponse | { status: number },
   items: EvalDatasetItemsResponse = emptyItems(),
   queue: ReviewQueueResponse = reviewQueueResponse([]),
-  predictionStatus: PredictionStatusCounts = predictionStatusCounts(queue.items),
+  evaluationStatus: EvaluationStatusCounts = evaluationStatusCounts(queue.items),
 ) {
   server.use(
     http.get("/api/v1/deployments/:id/dataset", () => {
@@ -200,6 +206,22 @@ function setupDataset(
     ),
     http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
       HttpResponse.json(queue),
+    ),
+    http.get(
+      "/api/v1/deployments/:id/dataset/review-queue/:trace_id/evaluation",
+      ({ params }) => {
+        const traceId = String(params.trace_id);
+        const item = reviewQueueFixtures.get(traceId);
+        return HttpResponse.json({
+          trace_id: traceId,
+          input: item?.input ?? "",
+          output: "",
+          evaluation_ref: "preset/default-evaluation",
+          run: item?.run ?? null,
+          evaluators: [],
+          ...traceEvaluationFixtures.get(traceId),
+        });
+      },
     ),
     http.get(
       "/api/v1/deployments/:id/observability/traces/:traceId",
@@ -217,7 +239,7 @@ function setupDataset(
             latency_ms: 0,
             total_cost: 0,
             input: item.input,
-            output: item.output,
+            output: traceEvaluationFixtures.get(traceId)?.output,
           },
           observations: [],
           scores: [],
@@ -242,7 +264,7 @@ function setupDataset(
       },
     ),
   );
-  mockPredictionStatus(() => predictionStatus);
+  mockEvaluationStatus(() => evaluationStatus);
 }
 
 function renderDataset({
@@ -303,8 +325,8 @@ describe("error state", () => {
 });
 
 describe("review queue view", () => {
-  it("introduces auto-judging once per user before enabling its hover popup", async () => {
-    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+  it("introduces auto-evaluation once per user before enabling its hover popup", async () => {
+    localStorage.removeItem(AUTO_EVALUATE_ONBOARDING_KEY);
     const queue = reviewQueueResponse([queueItem({})]);
     setupDataset(
       makeDatasetResponse(),
@@ -319,21 +341,21 @@ describe("review queue view", () => {
 
     const user = userEvent.setup();
     const { unmount } = renderDataset({ tab: null });
-    const judgeButton = await screen.findByRole("button", {
-      name: "Run AI Judge",
+    const evaluateButton = await screen.findByRole("button", {
+      name: "Run AI Evaluator",
     });
 
-    expect(judgeButton).toBeDisabled();
+    expect(evaluateButton).toBeDisabled();
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
-    await user.hover(judgeButton.parentElement!);
+    await user.hover(evaluateButton.parentElement!);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     resolveQueue(queue);
     expect(
       await screen.findByRole("heading", {
-        name: "Save time with auto-judging",
+        name: "Save time with auto-evaluation",
       }),
     ).toBeInTheDocument();
     expect(
@@ -342,25 +364,25 @@ describe("review queue view", () => {
       ),
     ).toBeInTheDocument();
 
-    await user.hover(judgeButton);
+    await user.hover(evaluateButton);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Got it" }));
-    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBe("true");
+    expect(localStorage.getItem(AUTO_EVALUATE_ONBOARDING_KEY)).toBe("true");
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
 
-    const hoverJudgeButton = screen.getByRole("button", {
-      name: "Run AI Judge",
+    const hoverEvaluateButton = screen.getByRole("button", {
+      name: "Run AI Evaluator",
     });
-    await user.hover(hoverJudgeButton);
+    await user.hover(hoverEvaluateButton);
     expect(await screen.findByRole("tooltip")).toBeInTheDocument();
 
     unmount();
     const { unmount: unmountReturningUser } = renderDataset({ tab: null });
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
 
     unmountReturningUser();
@@ -373,19 +395,19 @@ describe("review queue view", () => {
     });
     expect(
       await screen.findByRole("heading", {
-        name: "Save time with auto-judging",
+        name: "Save time with auto-evaluation",
       }),
     ).toBeInTheDocument();
   });
 
-  it("dismisses onboarding when the user runs the judge", async () => {
-    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+  it("dismisses onboarding when the user runs the evaluator", async () => {
+    localStorage.removeItem(AUTO_EVALUATE_ONBOARDING_KEY);
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
       reviewQueueResponse([queueItem({})]),
     );
-    mockRunPredictions(() => ({
+    mockRunEvaluations(() => ({
       enqueued_trace_ids: ["trace-1"],
       failed_trace_ids: [],
     }));
@@ -395,15 +417,15 @@ describe("review queue view", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Save time with auto-judging",
+        name: "Save time with auto-evaluation",
       }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+    await user.click(screen.getByRole("button", { name: "Run AI Evaluator" }));
 
-    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBe("true");
+    expect(localStorage.getItem(AUTO_EVALUATE_ONBOARDING_KEY)).toBe("true");
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
   });
 
@@ -424,7 +446,7 @@ describe("review queue view", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("asks the server to enqueue the most recent unjudged traces", async () => {
+  it("asks the server to enqueue the most recent unevaluated traces", async () => {
     let postedBody: string | null = null;
 
     setupDataset(
@@ -432,7 +454,7 @@ describe("review queue view", () => {
       emptyItems(),
       reviewQueueResponse([queueItem({})]),
     );
-    mockRunPredictions(async (request) => {
+    mockRunEvaluations(async (request) => {
       postedBody = await request.text();
       return {
         enqueued_trace_ids: ["trace-1"],
@@ -444,18 +466,18 @@ describe("review queue view", () => {
     renderDataset({ tab: null });
 
     await user.hover(
-      await screen.findByRole("button", { name: "Run AI Judge" }),
+      await screen.findByRole("button", { name: "Run AI Evaluator" }),
     );
 
     const tooltip = await screen.findByRole("tooltip");
     expect(
       within(tooltip).getByRole("heading", {
-        name: "Automatically judge traces",
+        name: "Automatically evaluate traces",
       }),
     ).toBeInTheDocument();
     expect(
       within(tooltip).getByText(
-        "The judge will score up to 50 of the most recent unjudged traces. Use the results while deciding which traces belong in the dataset.",
+        "The evaluators will assess up to 50 of the most recent unevaluated traces. Use the results while deciding which traces belong in the dataset.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -465,7 +487,7 @@ describe("review queue view", () => {
       within(tooltip).getByRole("link", { name: "View usage" }),
     ).toHaveAttribute("href", "/settings/billing");
 
-    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+    await user.click(screen.getByRole("button", { name: "Run AI Evaluator" }));
 
     await waitFor(() => {
       expect(postedBody).toBe("");
@@ -476,12 +498,12 @@ describe("review queue view", () => {
     {
       completedCount: 2,
       title: "Assessment complete",
-      description: "Traces scored by the judge are ready to review.",
+      description: "Traces scored by the evaluator are ready to review.",
       label: "successful",
     },
     {
       completedCount: 1,
-      title: "Some traces couldn’t be judged",
+      title: "Some traces couldn’t be evaluated",
       description: "Retry them on the next run or review the traces manually.",
       label: "partially failed",
     },
@@ -489,19 +511,19 @@ describe("review queue view", () => {
       completedCount: 0,
       title: "Assessment failed",
       description:
-        "Predictions could not be generated. Retry them on the next run.",
+        "Evaluations could not be generated. Retry them on the next run.",
       label: "failed",
     },
   ])(
-    "shows a completion toast after a $label judging run settles",
+    "shows a completion toast after a $label evaluation run settles",
     async ({ completedCount, title, description }) => {
       const queueItems = [
         queueItem({
           trace_id: "trace-1",
-          prediction_status: "not_requested",
+          run: null,
         }),
       ];
-      let predictionStatus: PredictionStatusCounts = {
+      let evaluationStatus: EvaluationStatusCounts = {
         queued: 0,
         in_progress: 0,
         completed: 5,
@@ -511,11 +533,11 @@ describe("review queue view", () => {
         makeDatasetResponse(),
         emptyItems(),
         reviewQueueResponse(queueItems),
-        predictionStatus,
+        evaluationStatus,
       );
-      mockPredictionStatus(() => predictionStatus);
-      mockRunPredictions(() => {
-        predictionStatus = {
+      mockEvaluationStatus(() => evaluationStatus);
+      mockRunEvaluations(() => {
+        evaluationStatus = {
           queued: 2,
           in_progress: 0,
           completed: 5,
@@ -533,18 +555,18 @@ describe("review queue view", () => {
       const { queryClient } = renderDataset({ tab: null });
 
       await user.click(
-        await screen.findByRole("button", { name: "Run AI Judge" }),
+        await screen.findByRole("button", { name: "Run AI Evaluator" }),
       );
       await waitFor(() =>
         expect(
-          screen.getByRole("button", { name: "Judging 2 items" }),
+          screen.getByRole("button", { name: "Evaluating 2 items" }),
         ).toBeInTheDocument(),
       );
       expect(successToastSpy).not.toHaveBeenCalled();
       expect(warningToastSpy).not.toHaveBeenCalled();
       expect(errorToastSpy).not.toHaveBeenCalled();
 
-      predictionStatus = {
+      evaluationStatus = {
         queued: 0,
         in_progress: 0,
         completed: 5 + completedCount,
@@ -552,7 +574,7 @@ describe("review queue view", () => {
       };
       await act(async () => {
         await queryClient.invalidateQueries({
-          queryKey: evalKeys.predictionStatus("dep-test"),
+          queryKey: evalKeys.evaluationStatus("dep-test"),
         });
       });
 
@@ -576,23 +598,23 @@ describe("review queue view", () => {
     },
   );
 
-  it("disables the judge button while predictions are active", async () => {
-    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+  it("disables the evaluate button while predictions are active", async () => {
+    localStorage.removeItem(AUTO_EVALUATE_ONBOARDING_KEY);
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
       reviewQueueResponse([
         queueItem({
           trace_id: "trace-1",
-          prediction_status: "queued",
+          run: { status: "queued", error: null },
         }),
         queueItem({
           trace_id: "trace-2",
-          prediction_status: "in_progress",
+          run: { status: "in_progress", error: null },
         }),
         queueItem({
           trace_id: "trace-3",
-          prediction_status: "not_requested",
+          run: null,
         }),
       ]),
     );
@@ -600,38 +622,42 @@ describe("review queue view", () => {
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    const judgeButton = await screen.findByRole("button", {
-      name: "Judging 2 items",
+    const evaluateButton = await screen.findByRole("button", {
+      name: "Evaluating 2 items",
     });
-    await waitFor(() => expect(judgeButton).toBeDisabled());
+    await waitFor(() => expect(evaluateButton).toBeDisabled());
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
-    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
-    await user.hover(judgeButton.parentElement!);
+    expect(localStorage.getItem(AUTO_EVALUATE_ONBOARDING_KEY)).toBeNull();
+    await user.hover(evaluateButton.parentElement!);
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
-  it("shows a warning banner for a failed prediction", async () => {
+  it("shows the no-result message for a failed evaluation", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
       reviewQueueResponse([
         queueItem({
           trace_id: "trace-failed",
-          prediction_status: "failed",
-          prediction_error: "judge request failed",
+          run: { status: "failed", error: "evaluator request failed" },
         }),
       ]),
     );
 
     renderDataset({ tab: null });
 
-    expect(await screen.findAllByText("Couldn’t judge")).toHaveLength(2);
-    expect(screen.getByText("No prediction was made.")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Couldn’t evaluate")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "The evaluator couldn’t return a result for this trace.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No results")).toBeInTheDocument();
   });
 
-  it("shows an enqueued prediction as judging immediately", async () => {
+  it("shows an enqueued evaluation as evaluating immediately", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -641,7 +667,7 @@ describe("review queue view", () => {
         }),
       ]),
     );
-    mockRunPredictions(() => ({
+    mockRunEvaluations(() => ({
       enqueued_trace_ids: ["trace-enqueued"],
       failed_trace_ids: [],
     }));
@@ -649,52 +675,46 @@ describe("review queue view", () => {
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    expect(await screen.findByText("Not judged")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Run AI Judge" }));
+    const evaluateButton = await screen.findByRole("button", { name: "Run AI Evaluator" });
+    expect(screen.queryByLabelText("Evaluating")).not.toBeInTheDocument();
+    await user.click(evaluateButton);
 
-    expect(await screen.findByText("Judging…")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Evaluating")).toBeInTheDocument();
   });
 
-  it("disables the judge button when the loaded queue has nothing to judge", async () => {
-    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+  it("disables the evaluate button when the loaded queue has nothing to evaluate", async () => {
+    localStorage.removeItem(AUTO_EVALUATE_ONBOARDING_KEY);
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    const judgeButton = await screen.findByRole("button", {
-      name: "Run AI Judge",
+    const evaluateButton = await screen.findByRole("button", {
+      name: "Run AI Evaluator",
     });
-    await waitFor(() => expect(judgeButton).toBeDisabled());
+    await waitFor(() => expect(evaluateButton).toBeDisabled());
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
-    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
+    expect(localStorage.getItem(AUTO_EVALUATE_ONBOARDING_KEY)).toBeNull();
 
-    await user.hover(judgeButton.parentElement!);
+    await user.hover(evaluateButton.parentElement!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "Every trace is already judged.",
+      "Every trace is already evaluated.",
     );
   });
 
-  it("keeps the judge button disabled after filtering a resolved queue", async () => {
+  it("keeps the evaluate button disabled after filtering a resolved queue", async () => {
     setupDataset(makeDatasetResponse(), emptyItems(), reviewQueueResponse([]));
     mockReviewQueueRequest((url) =>
       reviewQueueResponse(
-        url.searchParams.get("prediction") === "present"
+        url.searchParams.get("evaluation") === "evaluated"
           ? [
               queueItem({
                 trace_id: "trace-predicted-good",
                 input: "Predicted good prompt",
                 output: "Predicted good response",
-                prediction_status: "completed",
-                prediction: {
-                  verdict_score: 0.8,
-                  confidence: 82,
-                  explanation: "The response addressed the request.",
-                  judge_version: "1",
-                  criteria: [],
-                },
+                run: { status: "completed", error: null },
               }),
             ]
           : [],
@@ -707,31 +727,24 @@ describe("review queue view", () => {
     await user.click(
       await screen.findByRole("combobox", { name: "Filter review queue" }),
     );
-    await user.click(screen.getByRole("option", { name: "Judged" }));
+    await user.click(screen.getByRole("option", { name: "Evaluated" }));
 
     expect(await screen.findByText("Predicted good response")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Run AI Judge" }),
+      screen.getByRole("button", { name: "Run AI Evaluator" }),
     ).toBeDisabled();
   });
 
-  it("enables the judge button when the Not judged filter finds an unjudged trace", async () => {
-    localStorage.removeItem(AUTO_JUDGE_ONBOARDING_KEY);
+  it("enables the evaluate button when the Not evaluated filter finds an unevaluated trace", async () => {
+    localStorage.removeItem(AUTO_EVALUATE_ONBOARDING_KEY);
     const predictedItem = queueItem({
       trace_id: "trace-predicted-good",
       output: "Predicted response",
-      prediction_status: "completed",
-      prediction: {
-        verdict_score: 0.8,
-        confidence: 82,
-        explanation: "The response addressed the request.",
-        judge_version: "1",
-        criteria: [],
-      },
+      run: { status: "completed", error: null },
     });
-    const unjudgedItem = queueItem({
-      trace_id: "trace-not-judged",
-      output: "Unjudged response",
+    const unevaluatedItem = queueItem({
+      trace_id: "trace-not-evaluated",
+      output: "Unevaluated response",
     });
     setupDataset(
       makeDatasetResponse(),
@@ -740,8 +753,8 @@ describe("review queue view", () => {
     );
     mockReviewQueueRequest((url) =>
       reviewQueueResponse(
-        url.searchParams.get("prediction") === "absent"
-          ? [unjudgedItem]
+        url.searchParams.get("evaluation") === "not_evaluated"
+          ? [unevaluatedItem]
           : [predictedItem],
       ),
     );
@@ -749,58 +762,51 @@ describe("review queue view", () => {
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
-    const judgeButton = await screen.findByRole("button", {
-      name: "Run AI Judge",
+    const evaluateButton = await screen.findByRole("button", {
+      name: "Run AI Evaluator",
     });
-    await waitFor(() => expect(judgeButton).toBeDisabled());
+    await waitFor(() => expect(evaluateButton).toBeDisabled());
     expect(
-      screen.queryByRole("heading", { name: "Save time with auto-judging" }),
+      screen.queryByRole("heading", { name: "Save time with auto-evaluation" }),
     ).not.toBeInTheDocument();
-    expect(localStorage.getItem(AUTO_JUDGE_ONBOARDING_KEY)).toBeNull();
+    expect(localStorage.getItem(AUTO_EVALUATE_ONBOARDING_KEY)).toBeNull();
 
     await user.click(
       screen.getByRole("combobox", { name: "Filter review queue" }),
     );
-    await user.click(screen.getByRole("option", { name: "Not judged" }));
+    await user.click(screen.getByRole("option", { name: "Not evaluated" }));
 
-    expect(await screen.findByText("Unjudged response")).toBeInTheDocument();
-    expect(judgeButton).toBeEnabled();
+    expect(await screen.findByText("Unevaluated response")).toBeInTheDocument();
+    expect(evaluateButton).toBeEnabled();
     expect(
       await screen.findByRole("heading", {
-        name: "Save time with auto-judging",
+        name: "Save time with auto-evaluation",
       }),
     ).toBeInTheDocument();
   });
 
-  it("disables the judge button when every queue item has a prediction", async () => {
+  it("disables the evaluate button when every queue item has a prediction", async () => {
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
       reviewQueueResponse([
         queueItem({
           trace_id: "trace-predicted-good",
-          prediction_status: "completed",
-          prediction: {
-            verdict_score: 0.8,
-            confidence: 82,
-            explanation: "The response addressed the request.",
-            judge_version: "1",
-            criteria: [],
-          },
+          run: { status: "completed", error: null },
         }),
       ]),
     );
 
     renderDataset({ tab: null });
 
-    const judgeButton = await screen.findByRole("button", {
-      name: "Run AI Judge",
+    const evaluateButton = await screen.findByRole("button", {
+      name: "Run AI Evaluator",
     });
-    await waitFor(() => expect(judgeButton).toBeDisabled());
+    await waitFor(() => expect(evaluateButton).toBeDisabled());
   });
 
   it("refreshes the selected queue while prediction status is active", async () => {
-    let predictionStatus: PredictionStatusCounts = {
+    let evaluationStatus: EvaluationStatusCounts = {
       queued: 0,
       in_progress: 0,
       completed: 0,
@@ -811,17 +817,17 @@ describe("review queue view", () => {
       makeDatasetResponse(),
       emptyItems(),
       reviewQueueResponse([]),
-      predictionStatus,
+      evaluationStatus,
     );
-    mockPredictionStatus(() => predictionStatus);
+    mockEvaluationStatus(() => evaluationStatus);
     mockReviewQueueRequest((url) => {
       queueRequestCount += 1;
-      const prediction = url.searchParams.get("prediction");
+      const prediction = url.searchParams.get("evaluation");
       return reviewQueueResponse([
         queueItem({
           trace_id: `trace-${prediction ?? "all"}`,
           output: `${prediction ?? "all"} response`,
-          prediction_status: "in_progress",
+          run: { status: "in_progress", error: null },
         }),
       ]);
     });
@@ -830,11 +836,11 @@ describe("review queue view", () => {
     const { queryClient } = renderDataset({ tab: null });
 
     expect(
-      await screen.findByRole("button", { name: "Run AI Judge" }),
+      await screen.findByRole("button", { name: "Run AI Evaluator" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(queueRequestCount).toBe(1));
 
-    predictionStatus = {
+    evaluationStatus = {
       queued: 0,
       in_progress: 1,
       completed: 0,
@@ -842,29 +848,29 @@ describe("review queue view", () => {
     };
     await act(async () => {
       await queryClient.invalidateQueries({
-        queryKey: evalKeys.predictionStatus("dep-test"),
+        queryKey: evalKeys.evaluationStatus("dep-test"),
       });
     });
 
-    const judgingButton = await screen.findByRole("button", {
-      name: "Judging 1 item",
+    const evaluatingButton = await screen.findByRole("button", {
+      name: "Evaluating 1 item",
     });
-    expect(judgingButton).toBeDisabled();
+    expect(evaluatingButton).toBeDisabled();
     expect(
-      judgingButton.querySelector(".dp-judging-gavel"),
+      evaluatingButton.querySelector(".dp-evaluating-gavel"),
     ).toBeInTheDocument();
     await waitFor(() => expect(queueRequestCount).toBe(2));
 
     await user.click(
       screen.getByRole("combobox", { name: "Filter review queue" }),
     );
-    await user.click(screen.getByRole("option", { name: "Judged" }));
+    await user.click(screen.getByRole("option", { name: "Evaluated" }));
     expect(
-      screen.getByRole("button", { name: "Judging 1 item" }),
+      screen.getByRole("button", { name: "Evaluating 1 item" }),
     ).toBeDisabled();
     await waitFor(() => expect(queueRequestCount).toBe(3));
 
-    predictionStatus = {
+    evaluationStatus = {
       queued: 0,
       in_progress: 0,
       completed: 1,
@@ -872,12 +878,12 @@ describe("review queue view", () => {
     };
     await act(async () => {
       await queryClient.invalidateQueries({
-        queryKey: evalKeys.predictionStatus("dep-test"),
+        queryKey: evalKeys.evaluationStatus("dep-test"),
       });
     });
 
     expect(
-      await screen.findByRole("button", { name: "Run AI Judge" }),
+      await screen.findByRole("button", { name: "Run AI Evaluator" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(queueRequestCount).toBe(4));
   });
@@ -1116,17 +1122,17 @@ describe("review queue view", () => {
     expect(screen.getByText("Only response")).toBeInTheDocument();
   });
 
-  it("passes the selected prediction filter to the review queue", async () => {
+  it("passes the selected evaluation filter to the review queue", async () => {
     const requestedFilters: Array<string | null> = [];
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest((url) => {
-      const prediction = url.searchParams.get("prediction");
-      requestedFilters.push(prediction);
+      const evaluation = url.searchParams.get("evaluation");
+      requestedFilters.push(evaluation);
       return reviewQueueResponse([
         queueItem({
-          trace_id: `trace_${prediction ?? "all"}`,
-          input: `${prediction ?? "all"} prompt`,
-          output: `${prediction ?? "all"} response`,
+          trace_id: `trace_${evaluation ?? "all"}`,
+          input: `${evaluation ?? "all"} prompt`,
+          output: `${evaluation ?? "all"} response`,
         }),
       ]);
     });
@@ -1136,20 +1142,20 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("all response")).toBeInTheDocument();
 
-    for (const [label, prediction] of [
-      ["Judged", "present"],
-      ["Not judged", "absent"],
+    for (const [label, evaluation] of [
+      ["Evaluated", "evaluated"],
+      ["Not evaluated", "not_evaluated"],
     ] as const) {
       await user.click(
         screen.getByRole("combobox", { name: "Filter review queue" }),
       );
       await user.click(screen.getByRole("option", { name: label }));
       expect(
-        await screen.findByText(`${prediction} response`),
+        await screen.findByText(`${evaluation} response`),
       ).toBeInTheDocument();
     }
 
-    expect(requestedFilters).toEqual([null, "present", "absent"]);
+    expect(requestedFilters).toEqual([null, "evaluated", "not_evaluated"]);
   });
 
   it("loads additional queue pages with cursors", async () => {
@@ -1668,7 +1674,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("adds a predicted trace with a hidden good judgment", async () => {
+  it("adds an evaluated trace with a hidden good judgment", async () => {
     let posted: DatasetJudgmentRequest | null = null;
     setupDataset(
       makeDatasetResponse(),
@@ -1678,20 +1684,7 @@ describe("review queue view", () => {
           trace_id: "trace_predicted",
           input: "Predicted prompt",
           output: "Predicted response",
-          prediction_status: "completed",
-          prediction: {
-            verdict_score: -0.8,
-            confidence: 79,
-            explanation: "The response did not address the request.",
-            judge_version: "1",
-            criteria: [
-              { dimension_key: "accuracy", dimension_value: -0.9 },
-              { dimension_key: "completeness", dimension_value: 0.6 },
-              { dimension_key: "instruction_following", dimension_value: 0 },
-              { dimension_key: "scope_clarity", dimension_value: -0.4 },
-              { dimension_key: "tone", dimension_value: 0.2 },
-            ],
-          },
+          run: { status: "completed", error: null },
         }),
       ]),
     );
@@ -1718,9 +1711,10 @@ describe("review queue view", () => {
     await screen.findByText("Predicted response");
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
 
+    // Evaluator keys are not judgment dimensions, so nothing is pre-filled.
     expect(
       await screen.findByRole("button", { name: /^complete$/i }),
-    ).toHaveAttribute("data-active");
+    ).not.toHaveAttribute("data-active");
 
     await waitFor(() => {
       expect(posted).toEqual({
@@ -1740,14 +1734,7 @@ describe("review queue view", () => {
           trace_id: "trace_predicted",
           input: "Predicted prompt",
           output: "Predicted response",
-          prediction_status: "completed",
-          prediction: {
-            verdict_score: -0.8,
-            confidence: 79,
-            explanation: "The response did not address the request.",
-            judge_version: "1",
-            criteria: [],
-          },
+          run: { status: "completed", error: null },
         }),
       ]),
     );
@@ -2364,14 +2351,7 @@ describe("dataset view", () => {
                     trace_id: deletedTraceId,
                     input: "Undo prompt",
                     output: "Undo response",
-                    prediction_status: "completed",
-                    prediction: {
-                      verdict_score: -0.8,
-                      confidence: 82,
-                      explanation: "The response missed the requested result.",
-                      judge_version: "1",
-                      criteria: [],
-                    },
+                    run: { status: "completed", error: null },
                   }),
                 ]
               : [],
@@ -2417,7 +2397,7 @@ describe("dataset view", () => {
 
       expect(await screen.findByText("Undo response")).toBeInTheDocument();
       expect(
-        await screen.findByRole("option", { name: /undo prompt judged/i }),
+        await screen.findByRole("option", { name: /undo prompt evaluated/i }),
       ).toBeInTheDocument();
     } finally {
       if (hadAnimate) {

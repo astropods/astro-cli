@@ -139,7 +139,7 @@ body {
   animation: dp-float 2.6s ease-in-out infinite;
 }
 
-@keyframes dp-judging-gavel {
+@keyframes dp-evaluating-gavel {
   0%,
   45%,
   100% {
@@ -153,13 +153,13 @@ body {
   }
 }
 
-.dp-judging-gavel {
-  animation: dp-judging-gavel 1.4s ease-in-out infinite;
+.dp-evaluating-gavel {
+  animation: dp-evaluating-gavel 1.4s ease-in-out infinite;
   transform-origin: 25% 75%;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dp-judging-gavel {
+  .dp-evaluating-gavel {
     animation: none;
   }
 }

@@ -8,7 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
 import type { ReviewQueueItem } from "@/lib/api";
-import { PredictionStatusIndicator } from "./PredictionStatusIndicator";
+import { EvaluationStatusIndicator } from "./EvaluationStatusIndicator";
 
 interface ReviewQueueListProps {
   items: ReviewQueueItem[];
@@ -193,10 +193,7 @@ function ReviewQueueRow({
           {title}
         </div>
       </div>
-      <PredictionStatusIndicator
-        prediction={item.prediction}
-        status={item.prediction_status}
-      />
+      <EvaluationStatusIndicator run={item.run} />
     </li>
   );
 }

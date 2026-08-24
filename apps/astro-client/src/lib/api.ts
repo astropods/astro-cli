@@ -1204,40 +1204,63 @@ export interface EvalDatasetItemsParams {
   limit: number;
 }
 
-export type ReviewQueuePredictionStatus =
-  | "not_requested"
+export type EvaluationRunStatus =
   | "queued"
   | "in_progress"
   | "completed"
   | "failed";
-export type ReviewQueuePredictionFilter = "present" | "absent";
+export type ReviewQueueEvaluationFilter = "evaluated" | "not_evaluated";
 
-export interface ReviewQueuePredictionCriterion {
-  dimension_key: string;
-  dimension_value: number;
-}
-
-export interface ReviewQueuePrediction {
-  verdict_score: number;
-  confidence: number;
-  explanation: string;
-  judge_version: string;
-  criteria: ReviewQueuePredictionCriterion[];
+export interface EvaluationRun {
+  status: EvaluationRunStatus;
+  error: string | null;
 }
 
 export interface ReviewQueueItem {
   trace_id: string;
   timestamp: string;
+  input: unknown;
+  /** Null until an evaluation has been requested for the trace. */
+  run: EvaluationRun | null;
+}
+
+export type EvaluatorOutputType = "boolean" | "enum" | "number" | "string";
+
+export interface EvaluatorOutput {
+  type: EvaluatorOutputType;
+  options?: string[];
+  minimum?: number;
+  maximum?: number;
+  max_length?: number;
+}
+
+export interface TraceEvaluatorResult {
+  key: string;
+  /** Absent when the run recorded a reference this build cannot resolve. */
+  label?: string;
+  description?: string;
+  type?: string;
+  output?: EvaluatorOutput;
+  status: EvaluationRunStatus;
+  value: unknown;
+  confidence: number;
+  explanation: string;
+  error: string | null;
+}
+
+export interface TraceEvaluationResponse {
+  trace_id: string;
   user_id?: string;
   user_details?: UserDetails;
   input: unknown;
   output: unknown;
-  prediction_status: ReviewQueuePredictionStatus;
-  prediction_error: string | null;
-  prediction: ReviewQueuePrediction | null;
+  /** Empty when nothing has run against the trace. */
+  evaluation_ref: string;
+  run: EvaluationRun | null;
+  evaluators: TraceEvaluatorResult[];
 }
 
-export interface PredictionStatusCounts {
+export interface EvaluationStatusCounts {
   queued: number;
   in_progress: number;
   completed: number;
@@ -1255,10 +1278,10 @@ export interface ReviewQueueParams {
   limit?: number;
   /** Opaque cursor returned by the previous page. */
   cursor?: string;
-  prediction?: ReviewQueuePredictionFilter;
+  evaluation?: ReviewQueueEvaluationFilter;
 }
 
-export interface DatasetPredictionsResponse {
+export interface DatasetEvaluationsResponse {
   enqueued_trace_ids: string[];
   failed_trace_ids: string[];
 }
@@ -3282,33 +3305,42 @@ class ApiClient {
 
   async getDatasetReviewQueue(
     deploymentId: string,
-    { limit, cursor, prediction }: ReviewQueueParams = {},
+    { limit, cursor, evaluation }: ReviewQueueParams = {},
   ): Promise<ReviewQueueResponse> {
     return this.request<ReviewQueueResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue${buildQS({
         limit: limit != null ? String(limit) : undefined,
         cursor,
-        prediction,
+        evaluation,
       })}`
     );
   }
 
-  async getDatasetPredictionStatus(
+  async getDatasetEvaluationStatus(
     deploymentId: string,
-  ): Promise<PredictionStatusCounts> {
-    return this.request<PredictionStatusCounts>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/predictions/status`,
+  ): Promise<EvaluationStatusCounts> {
+    return this.request<EvaluationStatusCounts>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/evaluations/status`,
     );
   }
 
-  async postDatasetPredictions(
+  async postDatasetEvaluations(
     deploymentId: string,
-  ): Promise<DatasetPredictionsResponse> {
-    return this.request<DatasetPredictionsResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/predictions`,
+  ): Promise<DatasetEvaluationsResponse> {
+    return this.request<DatasetEvaluationsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/evaluations`,
       {
         method: "POST",
       },
+    );
+  }
+
+  async getTraceEvaluation(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<TraceEvaluationResponse> {
+    return this.request<TraceEvaluationResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue/${encodeURIComponent(traceId)}/evaluation`,
     );
   }
 

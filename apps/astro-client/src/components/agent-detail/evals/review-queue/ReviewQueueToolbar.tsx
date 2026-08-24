@@ -6,14 +6,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  AutoJudgeAction,
-  type AutoJudgeState,
-} from "./AutoJudgeAction";
+  AutoEvaluateAction,
+  type AutoEvaluateState,
+} from "./AutoEvaluateAction";
 
 const REVIEW_QUEUE_FILTER_OPTIONS = [
   { label: "All", value: "all" },
-  { label: "Judged", value: "present" },
-  { label: "Not judged", value: "absent" },
+  { label: "Evaluated", value: "evaluated" },
+  { label: "Not evaluated", value: "not_evaluated" },
 ] as const;
 
 export type ReviewQueueFilterValue =
@@ -22,28 +22,28 @@ export type ReviewQueueFilterValue =
 export function ReviewQueueToolbar({
   deploymentId,
   account,
-  autoJudgeState,
-  judgingCount,
-  onJudgingStarted,
+  autoEvaluateState,
+  evaluatingCount,
+  onEvaluationStarted,
   filter,
   onFilterChange,
 }: {
   deploymentId: string;
   account: string;
-  autoJudgeState: AutoJudgeState;
-  judgingCount: number;
-  onJudgingStarted?: (predictionCount: number) => void;
+  autoEvaluateState: AutoEvaluateState;
+  evaluatingCount: number;
+  onEvaluationStarted?: (predictionCount: number) => void;
   filter: ReviewQueueFilterValue;
   onFilterChange: (value: ReviewQueueFilterValue) => void;
 }) {
   return (
     <div className="flex flex-none items-center justify-between gap-3 border-b border-border px-4 py-3">
-      <AutoJudgeAction
+      <AutoEvaluateAction
         deploymentId={deploymentId}
         account={account}
-        state={autoJudgeState}
-        judgingCount={judgingCount}
-        onJudgingStarted={onJudgingStarted}
+        state={autoEvaluateState}
+        evaluatingCount={evaluatingCount}
+        onEvaluationStarted={onEvaluationStarted}
       />
       <Select
         value={filter}

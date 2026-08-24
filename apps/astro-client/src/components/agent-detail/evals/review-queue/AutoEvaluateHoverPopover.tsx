@@ -12,23 +12,23 @@ import {
 import { useAuth } from "@/lib/auth";
 import { accountSettingsPath } from "@/lib/settings-paths";
 
-const AUTO_JUDGE_CREDIT_ESTIMATE = new Intl.NumberFormat("en-US", {
+const AUTO_EVALUATE_CREDIT_ESTIMATE = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 }).format(500);
 
-export function AutoJudgeHoverPopover({
+export function AutoEvaluateHoverPopover({
   trigger,
   account,
   open,
   onOpenChange,
-  nothingToJudge,
+  nothingToEvaluate,
   unavailable,
 }: {
   trigger: ReactNode;
   account: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  nothingToJudge: boolean;
+  nothingToEvaluate: boolean;
   unavailable: boolean;
 }) {
   const { accounts } = useAuth();
@@ -38,7 +38,7 @@ export function AutoJudgeHoverPopover({
     <TooltipProvider delayDuration={0}>
       <Tooltip open={open} onOpenChange={onOpenChange}>
         <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        {nothingToJudge ? (
+        {nothingToEvaluate ? (
           <TooltipContent
             side="bottom"
             align="start"
@@ -46,7 +46,7 @@ export function AutoJudgeHoverPopover({
             className="max-w-xs"
           >
             <span>
-              Every trace is already judged.
+              Every trace is already evaluated.
             </span>
           </TooltipContent>
         ) : (
@@ -59,17 +59,18 @@ export function AutoJudgeHoverPopover({
             <CoachmarkSurface className="rounded-2xl p-4 shadow-xl">
               <div className="flex flex-col gap-2">
                 <h2 className="text-heading-4 font-semibold text-foreground">
-                  Automatically judge traces
+                  Automatically evaluate traces
                 </h2>
                 <p className="text-body-sm text-muted-foreground">
-                  The judge will score up to 50 of the most recent unjudged
-                  traces. Use the results while deciding which traces belong in the dataset.
+                  The evaluators will assess up to 50 of the most recent
+                  unevaluated traces. Use the results while deciding which
+                  traces belong in the dataset.
                 </p>
               </div>
 
               <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-body-sm font-semibold text-foreground">
-                  Estimated ~{AUTO_JUDGE_CREDIT_ESTIMATE} credits
+                  Estimated ~{AUTO_EVALUATE_CREDIT_ESTIMATE} credits
                 </div>
                 <Link
                   to={billingPath}

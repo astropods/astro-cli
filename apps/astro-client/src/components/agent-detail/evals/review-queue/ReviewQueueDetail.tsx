@@ -2,7 +2,7 @@ import { Check, UserRound } from "lucide-react";
 import { BlueprintIdentity } from "@/components/BlueprintIdentity";
 import { ContentSection } from "@/components/agent-detail/traces/detail/ContentSection";
 import { TraceUserIdentity } from "@/components/agent-detail/traces/TraceUserIdentity";
-import type { ReviewQueueItem } from "@/lib/api";
+import type { ReviewQueueItem, TraceEvaluationResponse } from "@/lib/api";
 import { formatTimeAgo } from "@/lib/time-format";
 import { ReviewQueueLoadMoreButton } from "./ReviewQueueList";
 
@@ -13,20 +13,24 @@ const REVIEW_QUEUE_CONTENT_CLASS =
 
 export function ReviewQueueDetail({
   item,
+  evaluation,
   account,
   agentName,
   agentLabel,
   agentAvatarUrl,
 }: {
   item: ReviewQueueItem;
+  evaluation: TraceEvaluationResponse | undefined;
   account: string;
   agentName: string;
   agentLabel: string;
   agentAvatarUrl: string;
 }) {
   const timestamp = item.timestamp ? formatTimeAgo(item.timestamp) : "";
+  const userId = evaluation?.user_id;
+  const userDetails = evaluation?.user_details;
   const userLabel =
-    item.user_details?.display_name || item.user_details?.username || "User";
+    userDetails?.display_name || userDetails?.username || "User";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -37,10 +41,10 @@ export function ReviewQueueDetail({
         <div className="mx-auto flex max-w-3xl flex-col gap-5">
           <ContentSection
             label={
-              item.user_id ? (
+              userId ? (
                 <TraceUserIdentity
-                  userId={item.user_id}
-                  userDetails={item.user_details}
+                  userId={userId}
+                  userDetails={userDetails}
                   account={account}
                 />
               ) : (
@@ -49,7 +53,7 @@ export function ReviewQueueDetail({
             }
             ariaLabel={userLabel}
             content={item.input}
-            icon={!item.user_id ? <UserSectionIcon /> : undefined}
+            icon={!userId ? <UserSectionIcon /> : undefined}
             headerMeta={<TraceTime value={timestamp} />}
             mode="pretty"
             contentClassName={REVIEW_QUEUE_CONTENT_CLASS}
@@ -57,7 +61,7 @@ export function ReviewQueueDetail({
           />
           <ContentSection
             label={agentLabel}
-            content={item.output}
+            content={evaluation?.output}
             mode="pretty"
             headerMeta={<TraceTime value={timestamp} />}
             contentClassName={REVIEW_QUEUE_CONTENT_CLASS}

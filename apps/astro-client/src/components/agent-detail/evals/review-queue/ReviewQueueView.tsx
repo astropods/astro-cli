@@ -8,14 +8,15 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
-import { WarningPanel } from "@/components/ui/status-panel";
 import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
+  isRunActive,
   useDatasetReviewQueue,
+  useTraceEvaluation,
   usePostDatasetJudgment,
   useRemoveReviewQueueItem,
-  useReviewQueuePredictionStatus,
+  useReviewQueueEvaluationStatus,
   useSetDatasetJudgmentCriteria,
   useUndoDatasetJudgment,
 } from "@/api/queries/evals";
@@ -23,11 +24,10 @@ import type {
   DatasetJudgmentVerdict,
   JudgmentCriterion,
   ReviewQueueItem,
-  ReviewQueuePredictionFilter,
+  ReviewQueueEvaluationFilter,
   TraceEntry,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "../EvalTabCard";
-import { predictedCriteria } from "../judgment-criteria";
 import { flyTraceToDataset } from "../review-queue-motion";
 import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
 import { QuickUndoToast } from "./QuickUndoToast";
@@ -35,8 +35,8 @@ import { ReviewQueueDatasetActions } from "./ReviewQueueDatasetActions";
 import { ReviewQueueHeaderActions } from "./ReviewQueueHeaderActions";
 import { ReviewQueueList } from "./ReviewQueueList";
 import { ReviewQueueDetail, ReviewQueueDetailEmpty } from "./ReviewQueueDetail";
-import { ReviewQueuePredictionControls } from "./ReviewQueuePredictionControls";
-import { ReviewQueuePredictionExplanation } from "./ReviewQueuePredictionExplanation";
+import { ReviewQueueEvaluationControls } from "./ReviewQueueEvaluationControls";
+import { ReviewQueueEvaluationResults } from "./ReviewQueueEvaluationResults";
 import {
   ReviewQueueToolbar,
   type ReviewQueueFilterValue,
@@ -66,7 +66,7 @@ type ActiveJudgment = {
 
 type ReviewQueuePanelAction = "none" | "open" | "sync";
 
-type JudgingRun = {
+type EvaluationRun = {
   predictionCount: number;
   completedBeforeRun: number;
 };
@@ -96,14 +96,14 @@ export function ReviewQueueView({
 }: ReviewQueueViewProps) {
   const [queueFilter, setQueueFilter] =
     useState<ReviewQueueFilterValue>("all");
-  const [allQueueFullyJudged, setAllQueueFullyJudged] = useState(false);
-  const predictionFilter: ReviewQueuePredictionFilter | undefined =
+  const [allQueueFullyEvaluated, setAllQueueFullyEvaluated] = useState(false);
+  const evaluationFilter: ReviewQueueEvaluationFilter | undefined =
     queueFilter === "all" ? undefined : queueFilter;
   const {
-    data: predictionStatus,
-    isError: predictionStatusIsError,
-    isLoading: predictionStatusIsLoading,
-  } = useReviewQueuePredictionStatus(deploymentId);
+    data: evaluationStatus,
+    isError: evaluationStatusIsError,
+    isLoading: evaluationStatusIsLoading,
+  } = useReviewQueueEvaluationStatus(deploymentId);
   const {
     data,
     isLoading,
@@ -111,13 +111,17 @@ export function ReviewQueueView({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useDatasetReviewQueue(deploymentId, true, predictionFilter);
+  } = useDatasetReviewQueue(deploymentId, true, evaluationFilter);
   const avatarBust = useDeploymentAvatarBust(deploymentId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [predictionExplanationTraceId, setPredictionExplanationTraceId] =
-    useState<string | null>(null);
+  // Results open themselves once a run has verdicts to show; this records a
+  // trace whose panel the reader has since opened or closed by hand.
+  const [resultsOverride, setResultsOverride] = useState<{
+    traceId: string;
+    open: boolean;
+  } | null>(null);
   const [activeJudgment, setActiveJudgment] = useState<ActiveJudgment | null>(null);
-  const [judgingRun, setJudgingRun] = useState<JudgingRun | null>(null);
+  const [evaluationRun, setEvaluationRun] = useState<EvaluationRun | null>(null);
   // Mirrors selectedId for synchronous reads inside mutation callbacks.
   const selectedIdRef = useRef<string | null>(null);
   // Tracks the trace currently shown in the open detail panel.
@@ -128,82 +132,99 @@ export function ReviewQueueView({
     () => data?.pages.flatMap((page) => page.items) ?? EMPTY_REVIEW_QUEUE_ITEMS,
     [data?.pages],
   );
-  const judgingCount =
-    (predictionStatus?.queued ?? 0) + (predictionStatus?.in_progress ?? 0);
-  const hasActivePredictions = judgingCount > 0;
-  const hasVisibleUnjudgedItems = items.some((item) => !item.prediction);
-  const currentAllQueueFullyJudged =
-    predictionFilter === undefined &&
+  const evaluatingCount =
+    (evaluationStatus?.queued ?? 0) + (evaluationStatus?.in_progress ?? 0);
+  const hasActiveEvaluations = evaluatingCount > 0;
+  const hasVisibleUnevaluatedItems = items.some(
+    (item) => item.run?.status !== "completed",
+  );
+  const currentAllQueueFullyEvaluated =
+    evaluationFilter === undefined &&
     data !== undefined &&
     !hasNextPage &&
-    !hasVisibleUnjudgedItems;
-  const filteredQueueFullyJudged =
-    predictionFilter !== undefined &&
-    allQueueFullyJudged &&
-    !hasVisibleUnjudgedItems;
-  const autoJudgeLoading = isLoading || predictionStatusIsLoading;
-  const autoJudgeState = autoJudgeLoading
+    !hasVisibleUnevaluatedItems;
+  const filteredQueueFullyEvaluated =
+    evaluationFilter !== undefined &&
+    allQueueFullyEvaluated &&
+    !hasVisibleUnevaluatedItems;
+  const autoEvaluateLoading = isLoading || evaluationStatusIsLoading;
+  const autoEvaluateState = autoEvaluateLoading
     ? "loading"
-    : hasActivePredictions
-      ? "judging"
-      : currentAllQueueFullyJudged || filteredQueueFullyJudged
-        ? "nothing-to-judge"
+    : hasActiveEvaluations
+      ? "evaluating"
+      : currentAllQueueFullyEvaluated || filteredQueueFullyEvaluated
+        ? "nothing-to-evaluate"
         : "ready";
   const loadedPageCount = data?.pages.length ?? 0;
   const selectedItem =
     items.find((item) => item.trace_id === selectedId) ?? items[0] ?? null;
-  const selectedPrediction = selectedItem?.prediction ?? null;
-  const selectedPredictionFailed =
-    selectedItem?.prediction_status === "failed" && !selectedPrediction;
+  const selectedEvaluating = isRunActive(selectedItem?.run);
+  const { data: selectedEvaluation, isLoading: evaluationLoading } =
+    useTraceEvaluation(
+      deploymentId,
+      selectedItem?.trace_id,
+      selectedEvaluating,
+    );
+  const selectedEvaluationFailed = selectedItem?.run?.status === "failed";
+  const selectedHasEvaluation = Boolean(selectedItem?.run);
+  const selectedEvaluationPending = selectedEvaluating || evaluationLoading;
+  const selectedHasNoResults =
+    selectedEvaluationFailed ||
+    (!selectedEvaluationPending &&
+      selectedEvaluation?.evaluators.length === 0);
+  const resultsOpen =
+    resultsOverride && resultsOverride.traceId === selectedItem?.trace_id
+      ? resultsOverride.open
+      : selectedHasEvaluation && !selectedEvaluationPending;
   const selectedIndex = selectedItem
     ? items.findIndex((item) => item.trace_id === selectedItem.trace_id)
     : -1;
   const canLoadMore = Boolean(hasNextPage);
 
   useEffect(() => {
-    if (predictionFilter !== undefined || data === undefined) {
+    if (evaluationFilter !== undefined || data === undefined) {
       return;
     }
-    setAllQueueFullyJudged(!hasNextPage && !hasVisibleUnjudgedItems);
-  }, [data, hasNextPage, hasVisibleUnjudgedItems, predictionFilter]);
+    setAllQueueFullyEvaluated(!hasNextPage && !hasVisibleUnevaluatedItems);
+  }, [data, hasNextPage, hasVisibleUnevaluatedItems, evaluationFilter]);
 
   useEffect(() => {
     if (
-      judgingRun === null ||
-      predictionStatusIsError ||
-      predictionStatus === undefined ||
-      judgingCount > 0
+      evaluationRun === null ||
+      evaluationStatusIsError ||
+      evaluationStatus === undefined ||
+      evaluatingCount > 0
     ) {
       return;
     }
 
     const completedCount = Math.min(
-      judgingRun.predictionCount,
-      Math.max(0, predictionStatus.completed - judgingRun.completedBeforeRun),
+      evaluationRun.predictionCount,
+      Math.max(0, evaluationStatus.completed - evaluationRun.completedBeforeRun),
     );
-    const failedCount = judgingRun.predictionCount - completedCount;
+    const failedCount = evaluationRun.predictionCount - completedCount;
     const toastOptions = {
       closeButton: true,
       description:
         failedCount === 0
-          ? "Traces scored by the judge are ready to review."
+          ? "Traces scored by the evaluator are ready to review."
           : completedCount > 0
             ? "Retry them on the next run or review the traces manually."
-            : "Predictions could not be generated. Retry them on the next run.",
+            : "Evaluations could not be generated. Retry them on the next run.",
     };
     if (completedCount === 0) {
       toast.error("Assessment failed", toastOptions);
     } else if (failedCount > 0) {
-      toast.warning("Some traces couldn’t be judged", toastOptions);
+      toast.warning("Some traces couldn’t be evaluated", toastOptions);
     } else {
       toast.success("Assessment complete", toastOptions);
     }
-    setJudgingRun(null);
+    setEvaluationRun(null);
   }, [
-    judgingCount,
-    judgingRun,
-    predictionStatus,
-    predictionStatusIsError,
+    evaluatingCount,
+    evaluationRun,
+    evaluationStatus,
+    evaluationStatusIsError,
   ]);
 
   const judgmentPendingForSelected = Boolean(
@@ -213,7 +234,7 @@ export function ReviewQueueView({
   );
 
   const selectTraceId = useCallback((traceId: string | null) => {
-    setPredictionExplanationTraceId(null);
+    setResultsOverride(null);
     selectedIdRef.current = traceId;
     setSelectedId(traceId);
   }, []);
@@ -254,7 +275,7 @@ export function ReviewQueueView({
 
   const removeQueueItem = useRemoveReviewQueueItem(
     deploymentId,
-    predictionFilter,
+    evaluationFilter,
   );
   const commitJudgment = useCallback(
     (judgment: ActiveJudgment) => {
@@ -296,7 +317,7 @@ export function ReviewQueueView({
     },
   });
 
-  const undoJudgment = useUndoDatasetJudgment(deploymentId, predictionFilter);
+  const undoJudgment = useUndoDatasetJudgment(deploymentId, evaluationFilter);
   const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
   const resolvedAgentAvatarUrl =
     avatarBust ?? agentAvatarUrl ?? getDeploymentAvatarUrl(deploymentId);
@@ -514,12 +535,12 @@ export function ReviewQueueView({
             <ReviewQueueToolbar
               deploymentId={deploymentId}
               account={account}
-              autoJudgeState={autoJudgeState}
-              judgingCount={judgingCount}
-              onJudgingStarted={(predictionCount) =>
-                setJudgingRun({
+              autoEvaluateState={autoEvaluateState}
+              evaluatingCount={evaluatingCount}
+              onEvaluationStarted={(predictionCount) =>
+                setEvaluationRun({
                   predictionCount,
-                  completedBeforeRun: predictionStatus?.completed ?? 0,
+                  completedBeforeRun: evaluationStatus?.completed ?? 0,
                 })
               }
               filter={queueFilter}
@@ -547,29 +568,19 @@ export function ReviewQueueView({
                 className="flex flex-none items-center border-b border-border bg-card px-4 py-3 dark:bg-surface @[520px]/review-card:px-6"
               >
                 <div className="flex w-full flex-col gap-3 @[1040px]/review-card:flex-row @[1040px]/review-card:items-center @[1040px]/review-card:justify-between">
-                  {selectedPrediction && (
-                    <ReviewQueuePredictionControls
+                  {selectedHasEvaluation && (
+                    <ReviewQueueEvaluationControls
                       key={selectedItem.trace_id}
-                      explanationOpen={
-                        predictionExplanationTraceId === selectedItem.trace_id
+                      resultsOpen={resultsOpen}
+                      onResultsOpenChange={(open: boolean) =>
+                        setResultsOverride({
+                          traceId: selectedItem.trace_id,
+                          open,
+                        })
                       }
-                      onExplanationOpenChange={(open) =>
-                        setPredictionExplanationTraceId(
-                          open ? selectedItem.trace_id : null,
-                        )
-                      }
+                      loading={selectedEvaluationPending}
+                      noResults={selectedHasNoResults}
                     />
-                  )}
-                  {selectedPredictionFailed && (
-                    <div className="shrink-0 whitespace-nowrap">
-                      <WarningPanel
-                        title="Couldn’t judge"
-                        variant="inline"
-                        size="xs"
-                      >
-                        No prediction was made.
-                      </WarningPanel>
-                    </div>
                   )}
                   <ReviewQueueDatasetActions
                     isPending={
@@ -581,9 +592,7 @@ export function ReviewQueueView({
                         selectedItem.trace_id,
                         "good",
                         trigger,
-                        selectedPrediction
-                          ? predictedCriteria(selectedPrediction.criteria)
-                          : undefined,
+                        undefined,
                       )
                     }
                     onRemove={(trigger) =>
@@ -608,16 +617,18 @@ export function ReviewQueueView({
               </div>
             ) : selectedItem ? (
               <>
-                {selectedPrediction &&
-                  predictionExplanationTraceId === selectedItem.trace_id && (
-                    <div className="dp-scroll max-h-[min(32rem,calc(100vh-12rem))] flex-none overflow-y-auto border-b border-border bg-card px-4 pb-4 dark:bg-surface @[520px]/review-card:px-6">
-                      <ReviewQueuePredictionExplanation
-                        prediction={selectedPrediction}
-                      />
-                    </div>
-                  )}
+                {selectedHasEvaluation && resultsOpen && (
+                  <div className="flex-none border-b border-border bg-card px-4 pb-3 dark:bg-surface @[520px]/review-card:px-6">
+                    <ReviewQueueEvaluationResults
+                      evaluators={selectedEvaluation?.evaluators ?? []}
+                      loading={selectedEvaluationPending}
+                      noResults={selectedHasNoResults}
+                    />
+                  </div>
+                )}
                 <ReviewQueueDetail
                   item={selectedItem}
+                  evaluation={selectedEvaluation}
                   account={account}
                   agentName={agentName}
                   agentLabel={agentLabel}

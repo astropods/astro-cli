@@ -3,7 +3,7 @@ import { Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Coachmark } from "@/components/ui/coachmark";
 
-export function AutoJudgeOnboardingCoachmark({
+export function AutoEvaluateOnboardingCoachmark({
   open,
   anchor,
   onDismiss,
@@ -34,7 +34,7 @@ export function AutoJudgeOnboardingCoachmark({
             id={titleId}
             className="text-heading-4 font-semibold text-foreground"
           >
-            Save time with auto-judging
+            Save time with auto-evaluation
           </h2>
           <p
             id={descriptionId}

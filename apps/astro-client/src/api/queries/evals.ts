@@ -10,15 +10,17 @@ import {
 import { useApiClient } from "../../lib/api-context";
 import type {
   DatasetJudgmentCriteriaResponse,
-  DatasetPredictionsResponse,
+  DatasetEvaluationsResponse,
   DatasetJudgmentResponse,
   DatasetJudgmentVerdict,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
   JudgmentCriterion,
-  PredictionStatusCounts,
+  EvaluationRun,
+  EvaluationStatusCounts,
   ReviewQueueItem,
-  ReviewQueuePredictionFilter,
+  ReviewQueueEvaluationFilter,
+  TraceEvaluationResponse,
   ReviewQueueResponse,
 } from "@/lib/api";
 import { evalKeys } from "./keys";
@@ -92,11 +94,11 @@ export function useEvalDatasetItems(
 export function useDatasetReviewQueue(
   deploymentId: string,
   enabled = true,
-  prediction?: ReviewQueuePredictionFilter,
+  evaluation?: ReviewQueueEvaluationFilter,
 ) {
   const api = useApiClient();
   return useInfiniteQuery({
-    queryKey: evalKeys.reviewQueue(deploymentId, prediction),
+    queryKey: evalKeys.reviewQueue(deploymentId, evaluation),
     queryFn: ({
       pageParam,
     }: {
@@ -105,7 +107,7 @@ export function useDatasetReviewQueue(
       api.getDatasetReviewQueue(deploymentId, {
         limit: REVIEW_QUEUE_PAGE_SIZE,
         cursor: pageParam,
-        prediction,
+        evaluation,
       }),
     initialPageParam: undefined as ReviewQueuePageParam,
     getNextPageParam: (last): ReviewQueuePageParam =>
@@ -116,35 +118,58 @@ export function useDatasetReviewQueue(
   });
 }
 
-function hasActivePredictions(status: PredictionStatusCounts | undefined) {
+function hasActiveEvaluations(status: EvaluationStatusCounts | undefined) {
   return status !== undefined && status.queued + status.in_progress > 0;
 }
 
-export function useDatasetPredictionStatus(
+export function useDatasetEvaluationStatus(
   deploymentId: string,
   enabled = true,
 ) {
   const api = useApiClient();
 
   return useQuery({
-    queryKey: evalKeys.predictionStatus(deploymentId),
-    queryFn: (): Promise<PredictionStatusCounts> =>
-      api.getDatasetPredictionStatus(deploymentId),
+    queryKey: evalKeys.evaluationStatus(deploymentId),
+    queryFn: (): Promise<EvaluationStatusCounts> =>
+      api.getDatasetEvaluationStatus(deploymentId),
     enabled: !!deploymentId && enabled,
     refetchInterval: (query) =>
-      hasActivePredictions(query.state.data)
+      hasActiveEvaluations(query.state.data)
         ? REVIEW_QUEUE_POLL_INTERVAL_MS
         : false,
   });
 }
 
-export function useReviewQueuePredictionStatus(
+export function isRunActive(run: EvaluationRun | null | undefined) {
+  return run?.status === "queued" || run?.status === "in_progress";
+}
+
+export function useTraceEvaluation(
+  deploymentId: string,
+  traceId: string | undefined,
+  evaluating = false,
+) {
+  const api = useApiClient();
+
+  return useQuery({
+    queryKey: evalKeys.traceEvaluation(deploymentId, traceId ?? ""),
+    queryFn: (): Promise<TraceEvaluationResponse> =>
+      api.getTraceEvaluation(deploymentId, traceId as string),
+    enabled: !!deploymentId && !!traceId,
+    refetchInterval: (query) =>
+      evaluating || isRunActive(query.state.data?.run)
+        ? REVIEW_QUEUE_POLL_INTERVAL_MS
+        : false,
+  });
+}
+
+export function useReviewQueueEvaluationStatus(
   deploymentId: string,
   enabled = true,
 ) {
   const queryClient = useQueryClient();
-  const query = useDatasetPredictionStatus(deploymentId, enabled);
-  const active = hasActivePredictions(query.data);
+  const query = useDatasetEvaluationStatus(deploymentId, enabled);
+  const active = hasActiveEvaluations(query.data);
   const previousActivityRef = useRef<{
     deploymentId: string;
     active: boolean;
@@ -169,17 +194,27 @@ export function useReviewQueuePredictionStatus(
         queryKey: evalKeys.reviewQueues(deploymentId),
       });
     }
+
+    // Only the settling read can leave a cached trace reading as empty, and the
+    // selected trace polls its own results, so marking the rest stale here
+    // keeps revisits correct without expiring the cache on every active read.
+    if (previous && !active) {
+      void queryClient.invalidateQueries({
+        queryKey: evalKeys.traceEvaluations(deploymentId),
+        refetchType: "none",
+      });
+    }
   }, [active, deploymentId, query.dataUpdatedAt, queryClient]);
 
   return query;
 }
 
-export function usePostDatasetPredictions(deploymentId: string) {
+export function usePostDatasetEvaluations(deploymentId: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation<DatasetPredictionsResponse, Error, void>({
-    mutationFn: () => api.postDatasetPredictions(deploymentId),
+  return useMutation<DatasetEvaluationsResponse, Error, void>({
+    mutationFn: () => api.postDatasetEvaluations(deploymentId),
     onSuccess: async (response) => {
       const enqueuedTraceIds = new Set(response.enqueued_trace_ids);
       queryClient.setQueriesData<ReviewQueueInfiniteData>(
@@ -188,7 +223,7 @@ export function usePostDatasetPredictions(deploymentId: string) {
       );
 
       await queryClient.invalidateQueries({
-        queryKey: evalKeys.predictionStatus(deploymentId),
+        queryKey: evalKeys.evaluationStatus(deploymentId),
       });
     },
   });
@@ -210,9 +245,7 @@ function markReviewQueueItemsQueued(
         traceIds.has(item.trace_id)
           ? {
               ...item,
-              prediction_status: "queued" as const,
-              prediction_error: null,
-              prediction: null,
+              run: { status: "queued" as const, error: null },
             }
           : item,
       ),
@@ -254,17 +287,17 @@ export function usePostDatasetJudgment(
  *  judged trace can stay visible until the reviewer dismisses its panel. */
 export function useRemoveReviewQueueItem(
   deploymentId: string,
-  prediction?: ReviewQueuePredictionFilter,
+  evaluation?: ReviewQueueEvaluationFilter,
 ) {
   const queryClient = useQueryClient();
   return useCallback(
     (traceId: string) => {
       queryClient.setQueryData<ReviewQueueInfiniteData>(
-        evalKeys.reviewQueue(deploymentId, prediction),
+        evalKeys.reviewQueue(deploymentId, evaluation),
         (old) => removeReviewQueueItem(old, traceId),
       );
     },
-    [queryClient, deploymentId, prediction],
+    [queryClient, deploymentId, evaluation],
   );
 }
 
@@ -325,7 +358,7 @@ function insertReviewQueueItemPage(
 
 export function useUndoDatasetJudgment(
   deploymentId: string,
-  prediction?: ReviewQueuePredictionFilter,
+  evaluation?: ReviewQueueEvaluationFilter,
 ) {
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -341,7 +374,7 @@ export function useUndoDatasetJudgment(
       const restoredItem = variables.reviewQueueItem;
       if (restoredItem) {
         queryClient.setQueryData<ReviewQueueInfiniteData>(
-          evalKeys.reviewQueue(deploymentId, prediction),
+          evalKeys.reviewQueue(deploymentId, evaluation),
           (old) =>
             insertReviewQueueItemPage(
               old,
@@ -364,7 +397,7 @@ export function useUndoDatasetJudgment(
       }
 
       // Queue-originated undo stays optimistic because it already has the full
-      // item. Dataset-originated undo reloads the server-owned prediction data.
+      // item. Dataset-originated undo reloads the server-owned evaluation data.
       await Promise.all(invalidations);
     },
   });

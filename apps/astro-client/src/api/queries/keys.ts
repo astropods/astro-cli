@@ -196,10 +196,15 @@ export const evalKeys = {
     ['evals', deploymentId, 'items', limit] as const,
   reviewQueues: (deploymentId: string) =>
     ['evals', deploymentId, 'review-queue'] as const,
-  reviewQueue: (deploymentId: string, prediction?: string) =>
-    [...evalKeys.reviewQueues(deploymentId), prediction ?? 'all'] as const,
-  predictionStatus: (deploymentId: string) =>
-    ['evals', deploymentId, 'prediction-status'] as const,
+  reviewQueue: (deploymentId: string, evaluation?: string) =>
+    [...evalKeys.reviewQueues(deploymentId), evaluation ?? 'all'] as const,
+  evaluationStatus: (deploymentId: string) =>
+    ['evals', deploymentId, 'evaluation-status'] as const,
+  /** Prefix that matches every trace evaluation query for a deployment. */
+  traceEvaluations: (deploymentId: string) =>
+    ['evals', deploymentId, 'trace-evaluation'] as const,
+  traceEvaluation: (deploymentId: string, traceId: string) =>
+    [...evalKeys.traceEvaluations(deploymentId), traceId] as const,
 };
 
 export const auditLogKeys = {
