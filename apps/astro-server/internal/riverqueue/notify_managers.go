@@ -29,8 +29,7 @@ func (m *managerResolver) ManagerUserIDs(ctx context.Context, accountID string) 
 	if acct.WorkOSOrganizationID == "" {
 		return nil, nil // personal account — no org roles; caller uses the owner
 	}
-	// Managers are few; one page of 100 covers any real org.
-	mems, err := m.org.ListMemberships(ctx, acct.WorkOSOrganizationID, org.ListOpts{Limit: 100})
+	mems, err := m.org.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
 	if err != nil {
 		return nil, err
 	}

@@ -58,6 +58,17 @@ letting a broken check silently stop reporting.
 Audit page that groups by severity, shows each finding's detail payload, and
 links account and deployment subjects to their existing admin pages.
 
+### Two membership reads that stopped at one page
+
+Manager notifications and the member list each asked WorkOS for 100 memberships
+and treated the result as the whole organization. In an org larger than that,
+managers past the cursor were never notified and members past it rendered with
+no role. Both now use `ListAllMemberships`, which follows the cursor to the end.
+
+The comment on the notification lookup said "managers are few; one page of 100
+covers any real org". Managers are few; memberships are not, and the page limit
+counts memberships.
+
 ## Migration
 
 Apply `sql/astro-server/schema.sql` for `system_audit_findings` before deploying

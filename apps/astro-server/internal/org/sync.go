@@ -12,9 +12,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-// ErrOwnerManagementForbidden is returned when a non-owner caller attempts to
-// change the role of or remove a member whose current role is "owner".
-// Handlers should map this to HTTP 403.
+// ErrOwnerManagementForbidden reports a caller who is not the recorded owner
+// attempting to move ownership. Handlers should map this to HTTP 403.
 var ErrOwnerManagementForbidden = errors.New("only the account owner can transfer ownership")
 
 // ErrOwnerRequired reports an attempt to leave an account with no owner.
@@ -35,18 +34,14 @@ func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.Wo
 	return &Sync{client: client, accountStore: accountStore, workos: workos, db: db, log: log}
 }
 
-// ownerGuardLockKey returns a stable int64 advisory lock key derived from the
-// WorkOS org ID. This serializes owner-count checks so concurrent requests
-// cannot race past the last-owner guard.
 func ownerGuardLockKey(workosOrgID string) int64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte("owner-guard:" + workosOrgID))
 	return int64(h.Sum64()) //nolint:gosec // advisory lock key; overflow is harmless
 }
 
-// withOwnerGuardLock acquires a Postgres advisory lock scoped to a transaction
-// for the given org, executes fn, and commits. This serializes owner-count
-// checks against concurrent role changes or removals.
+// withOwnerGuardLock serializes reading the owner against changing it, so two
+// concurrent transfers cannot both believe they started from the same owner.
 func (s *Sync) withOwnerGuardLock(ctx context.Context, workosOrgID string, fn func() error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

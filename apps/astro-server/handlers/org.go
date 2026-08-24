@@ -185,7 +185,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 		}
 		infoByUserID := map[string]memberInfo{}
 		if acct.WorkOSOrganizationID != "" && orgClient != nil {
-			memberships, err := orgClient.ListMemberships(c.Request.Context(), acct.WorkOSOrganizationID, org.ListOpts{Limit: 100})
+			memberships, err := orgClient.ListAllMemberships(c.Request.Context(), acct.WorkOSOrganizationID)
 			if err != nil {
 				log.Error("org: fetch WorkOS memberships failed", "error", err, "account_id", acct.ID)
 				c.JSON(http.StatusBadGateway, gin.H{
