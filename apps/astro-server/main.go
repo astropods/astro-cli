@@ -1336,20 +1336,31 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(409, &handlers.ErrorResponse{}),
 			)
 
-			// Experiments are read and set by anyone who administers the
-			// account. They sit apart from accountAdmin because that group also
-			// carries account rename and delete, which stay owner-only. An
-			// individual switch may still demand more — see experimentsBySlug.
 			accountExperiments := protected.Group("/accounts/:account")
 			accountExperiments.Use(middleware.ResolveAccount(accountStore))
 			accountExperiments.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 
-			// Account-scoped routes (owner/admin)
-			accountAdmin := protected.Group("/accounts/:account")
-			accountAdmin.Use(middleware.ResolveAccount(accountStore))
-			accountAdmin.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
+			// Deleting an account is the one action no admin can take: it
+			// archives billing and tears down every deployment, and nothing
+			// undoes it after the retention window.
+			accountOwner := protected.Group("/accounts/:account")
+			accountOwner.Use(middleware.ResolveAccount(accountStore))
+			accountOwner.Use(middleware.RequireAccountPermission(accountStore, "org:admin"))
 			{
-				api.PATCH(accountAdmin, "", "Update account", handlers.UpdateAccount(log, accountStore, auditStore),
+				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, aiGatewayProvisioner, aiGatewayJudgeStore, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
+					oapispec.Tags("Accounts"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
+				)
+			}
+
+			accountSettings := protected.Group("/accounts/:account")
+			accountSettings.Use(middleware.ResolveAccount(accountStore))
+			accountSettings.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
+			{
+				api.PATCH(accountSettings, "", "Update account", handlers.UpdateAccount(log, accountStore, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1357,7 +1368,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.MessageResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.PUT(accountAdmin, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, auditStore),
+				api.PUT(accountSettings, "", "Rename account", handlers.RenameAccount(log, accountStore, agentIndex, avatarStore, orgClient, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1365,22 +1376,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(200, &handlers.RenameAccountResponse{}),
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 				)
-				api.DELETE(accountAdmin, "", "Delete account", handlers.DeleteAccount(log, accountStore, deploymentStore, queue, aiGatewayProvisioner, aiGatewayJudgeStore, orgClient, billingProvider, cfg.BillingBackend(), auditStore),
-					oapispec.Tags("Accounts"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.MessageResponse{}),
-					oapispec.Response(500, &handlers.ErrorResponse{}),
-				)
 				if avatarStore != nil {
-					api.POST(accountAdmin, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore, auditStore),
+					api.POST(accountSettings, "/avatar", "Upload account avatar", handlers.UploadAvatar(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 						oapispec.Response(400, &handlers.ErrorResponse{}),
 					)
-					api.PUT(accountAdmin, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore, auditStore),
+					api.PUT(accountSettings, "/avatar/preset/:index", "Set avatar to preset", handlers.SetAvatarPreset(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -1388,7 +1392,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 						oapispec.Response(200, &handlers.AvatarResponse{}),
 						oapispec.Response(400, &handlers.ErrorResponse{}),
 					)
-					api.DELETE(accountAdmin, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore, auditStore),
+					api.DELETE(accountSettings, "/avatar", "Reset account avatar", handlers.ResetAvatar(log, accountStore, avatarStore, auditStore),
 						oapispec.Tags("Avatars"),
 						oapispec.BearerAuth(),
 						oapispec.PathParam("account", "Account name"),
@@ -1396,13 +1400,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					)
 				}
 				// Audit log
-				api.GET(accountAdmin, "/audit-log/filters", "List audit log filter options", handlers.ListAuditLogFilters(log, auditStore),
+				api.GET(accountSettings, "/audit-log/filters", "List audit log filter options", handlers.ListAuditLogFilters(log, auditStore),
 					oapispec.Tags("Audit"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &auditlog.FilterOptions{}),
 				)
-				api.GET(accountAdmin, "/audit-log", "List audit log entries", handlers.ListAuditLog(log, auditStore),
+				api.GET(accountSettings, "/audit-log", "List audit log entries", handlers.ListAuditLog(log, auditStore),
 					oapispec.Tags("Audit"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1427,36 +1431,36 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.UpdateExperimentRequest{}),
 					oapispec.Response(200, &handlers.ExperimentResponse{}),
 				)
-				api.POST(accountAdmin, "/access-groups", "Create access group", accessGroupHandler.Create,
+				api.POST(accountSettings, "/access-groups", "Create access group", accessGroupHandler.Create,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Body(&handlers.AccessGroupRequest{}),
 					oapispec.Response(201, &handlers.AccessGroupResponse{}),
 				)
-				api.PATCH(accountAdmin, "/access-groups/:group_id", "Update access group", accessGroupHandler.Update,
+				api.PATCH(accountSettings, "/access-groups/:group_id", "Update access group", accessGroupHandler.Update,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.Body(&handlers.AccessGroupRequest{}),
 					oapispec.Response(200, &handlers.AccessGroupResponse{}),
 				)
-				api.DELETE(accountAdmin, "/access-groups/:group_id", "Delete access group", accessGroupHandler.Delete,
+				api.DELETE(accountSettings, "/access-groups/:group_id", "Delete access group", accessGroupHandler.Delete,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.Response(204, nil),
 				)
-				api.GET(accountAdmin, "/access-groups/:group_id/members", "List access group members", accessGroupHandler.ListMembers,
+				api.GET(accountSettings, "/access-groups/:group_id/members", "List access group members", accessGroupHandler.ListMembers,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
 					oapispec.QueryParam("cursor", "Opaque cursor returned by the previous page", false),
 					oapispec.Response(200, &handlers.AccessGroupMemberPageResponse{}),
 				)
-				api.POST(accountAdmin, "/access-groups/:group_id/members", "Add access group member", accessGroupHandler.AddMember,
+				api.POST(accountSettings, "/access-groups/:group_id/members", "Add access group member", accessGroupHandler.AddMember,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.Body(&handlers.AddAccessGroupMemberRequest{}), oapispec.Response(204, nil),
 				)
-				api.DELETE(accountAdmin, "/access-groups/:group_id/members/:user_id", "Remove access group member", accessGroupHandler.RemoveMember,
+				api.DELETE(accountSettings, "/access-groups/:group_id/members/:user_id", "Remove access group member", accessGroupHandler.RemoveMember,
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.PathParam("user_id", "Astro user ID"), oapispec.Response(204, nil),

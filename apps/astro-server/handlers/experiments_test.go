@@ -185,10 +185,7 @@ func TestPromptClassificationExperimentAllowsPersonalAccount(t *testing.T) {
 	}
 }
 
-// The route group gates on org:manage, which both owners and admins carry.
-// Fine-grained access governs deployment privacy and stayed owner-only, so the
-// extra permission is enforced per experiment rather than per route.
-func TestExperimentPermissionIsPerExperiment(t *testing.T) {
+func TestExperimentsGateOnOrgManage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	cases := map[string]struct {
@@ -196,8 +193,8 @@ func TestExperimentPermissionIsPerExperiment(t *testing.T) {
 		permissions []string
 		want        int
 	}{
-		"admin may not toggle fine-grained access": {
-			"fine-grained-access", []string{"org:manage"}, http.StatusForbidden,
+		"admin may toggle fine-grained access": {
+			"fine-grained-access", []string{"org:manage"}, http.StatusOK,
 		},
 		"owner may toggle fine-grained access": {
 			"fine-grained-access", []string{"org:manage", "org:admin"}, http.StatusOK,

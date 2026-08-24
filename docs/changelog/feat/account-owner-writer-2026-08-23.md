@@ -41,6 +41,22 @@ the answer, and the WorkOS role writes follow. A failed role write is logged
 rather than returned: the transfer already happened, and the next transfer
 repairs the projection.
 
+### Only deletion stays owner-only
+
+`org:admin` gated fifteen actions, and WorkOS grants it to the owner alone. An
+org admin could manage members and billing but could not rename the account,
+read its audit log, or manage access groups. That is a wider reading of
+"irreversible" than the word supports.
+
+Account settings, avatars, the audit log, and access groups now require
+`org:manage`, which both owners and admins carry. Deleting an account keeps
+`org:admin`: it archives the billing customer and tears down every deployment,
+and nothing undoes it once the retention window passes.
+
+The fine-grained-access experiment carried its own `org:admin` check on top of
+its route group. It now gates on the group like every other switch, and the
+per-experiment permission hook is deleted with it, since nothing else used it.
+
 Removing a member with no WorkOS membership took a shortcut past the owner
 guard, which is the one path that could still empty an account. It now runs
 under the same lock and keeps the last member. `RemoveUserFromAllAccounts` is

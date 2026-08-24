@@ -34,9 +34,6 @@ type experimentDefinition struct {
 	// invalidates reports whether flipping this switch has to clear the
 	// deployment cache, which reads the flag per request.
 	invalidates bool
-	// permission is required on top of the route group's org:manage. Empty
-	// means org:manage is enough.
-	permission string
 }
 
 var experimentsBySlug = map[string]experimentDefinition{
@@ -45,9 +42,6 @@ var experimentsBySlug = map[string]experimentDefinition{
 		label:       "fine-grained access",
 		orgOnly:     true,
 		invalidates: true,
-		// Owner-only: this governs deployment privacy, so flipping it can
-		// expose every synchronized deployment to every member.
-		permission: "org:admin",
 	},
 	"prompt-classification-stats": {
 		key:   experiment.PromptClassificationStats,
@@ -83,13 +77,6 @@ func resolveExperiment(c *gin.Context, accountStore *account.AccountStore) (expe
 	if def.orgOnly && acct.Type != "organization" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": def.label + " is only available for organizations"})
 		return experimentDefinition{}, "", false
-	}
-	if def.permission != "" {
-		user, ok := middleware.GetUser(c)
-		if !ok || !middleware.HasAccountPermission(c, accountStore, acct, user, def.permission) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions for " + def.label})
-			return experimentDefinition{}, "", false
-		}
 	}
 	return def, acct.ID, true
 }

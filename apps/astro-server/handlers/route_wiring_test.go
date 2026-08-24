@@ -55,11 +55,17 @@ func TestRoutePermissionWiring(t *testing.T) {
 		{"admin_PUT_visibility_allowed", "PUT", "/api/v1/agents/myorg/test-agent/visibility", `{}`,
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
-		// Account admin routes require org:admin — admin permissions denied
-		{"admin_PUT_rename_denied", "PUT", "/api/v1/accounts/myorg", `{}`,
+		// Account settings require org:manage, which an admin carries
+		{"admin_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
+		{"admin_GET_audit_log_allowed", "GET", "/api/v1/accounts/myorg/audit-log", "",
+			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
+		{"member_PUT_rename_denied", "PUT", "/api/v1/accounts/myorg", `{}`,
+			baseMember, http.StatusForbidden, ""},
+		// Deleting an account is the one action that still requires org:admin
+		{"admin_DELETE_account_denied", "DELETE", "/api/v1/accounts/myorg", "",
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusForbidden, ""},
-		// Account admin routes require org:admin — owner permissions allowed
-		{"owner_PUT_rename_allowed", "PUT", "/api/v1/accounts/myorg", `{}`,
+		{"owner_DELETE_account_allowed", "DELETE", "/api/v1/accounts/myorg", "",
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage", "org:admin"}, http.StatusOK, ""},
 
 		// Quota increase routes require org:manage — member denied
@@ -138,10 +144,16 @@ func TestRoutePermissionWiring(t *testing.T) {
 
 			v1 := router.Group("/api/v1")
 
-			accountAdmin := v1.Group("/accounts/:account")
-			accountAdmin.Use(middleware.ResolveAccount(store))
-			accountAdmin.Use(middleware.RequireAccountPermission(store, "org:admin"))
-			accountAdmin.PUT("", ok)
+			accountOwner := v1.Group("/accounts/:account")
+			accountOwner.Use(middleware.ResolveAccount(store))
+			accountOwner.Use(middleware.RequireAccountPermission(store, "org:admin"))
+			accountOwner.DELETE("", ok)
+
+			accountSettings := v1.Group("/accounts/:account")
+			accountSettings.Use(middleware.ResolveAccount(store))
+			accountSettings.Use(middleware.RequireAccountPermission(store, "org:manage"))
+			accountSettings.PUT("", ok)
+			accountSettings.GET("/audit-log", ok)
 
 			accountManage := v1.Group("/accounts/:account")
 			accountManage.Use(middleware.ResolveAccount(store))
