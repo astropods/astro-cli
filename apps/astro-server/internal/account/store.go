@@ -116,17 +116,6 @@ func (s *AccountStore) SetOwner(accountID, userID string) error {
 	return nil
 }
 
-func (s *AccountStore) SetOwnerIfUnset(accountID, userID string) error {
-	_, err := s.db.Exec(`
-		UPDATE accounts SET owner_user_id = $1, updated_at = now()
-		 WHERE id = $2 AND owner_user_id IS NULL
-	`, userID, accountID)
-	if err != nil {
-		return fmt.Errorf("failed to set account owner: %w", err)
-	}
-	return nil
-}
-
 func (s *AccountStore) ReplaceOwner(accountID, previousUserID, userID string) error {
 	_, err := s.db.Exec(`
 		UPDATE accounts SET owner_user_id = $1, updated_at = now()

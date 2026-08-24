@@ -1,57 +1,66 @@
-# Write the account owner on the paths that decide it
+# Astro owns account ownership, WorkOS mirrors it
 
 ## Summary
 
-`accounts.owner_user_id` had no writer. A startup job derived it instead, which
-meant every account created after a pass sat with a NULL owner until the next
-deploy. The write paths now set the column at the moment ownership is decided,
-and the backfill job is gone.
+`accounts.owner_user_id` had no writer. A startup job derived it from the WorkOS
+`owner` role, so ownership lived in a system that permits zero owners or several
+and answers by paginated list. Astro now decides ownership, WorkOS reflects the
+decision, and the backfill job is gone.
 
 ## Design
 
 Account creation writes the owner in the same transaction as the first member,
 so an account is never briefly ownerless.
 
-After creation the column follows the WorkOS `owner` role, because WorkOS is
-where ownership changes:
+After creation the column decides ownership, and nothing reads the WorkOS
+`owner` role to answer the question. The role becomes a projection: Astro writes
+it so the WorkOS console agrees, and never consults it.
 
-| Event | Effect on the column |
+That inversion is what the column was for. Deriving ownership from WorkOS meant
+an org could hold two owner roles at once, or none, and the answer changed
+depending on which page of memberships a caller happened to read.
+
+| Question | Answered by |
 |---|---|
-| Member promoted to owner | Becomes the owner of record |
-| Recorded owner demoted or removed | Passes to the earliest-joined remaining active owner |
-| Member added as owner | Recorded only if the account has none |
-| Owner logs in and the account has none recorded | Recorded |
+| Who owns this account? | `accounts.owner_user_id` |
+| May this caller transfer ownership? | Their user id equals that column |
+| What does the WorkOS console show? | Whatever Astro last projected |
 
-A promotion takes the record because an admin promoting someone is stating who
-owns the account. An addition does not, because inviting a second owner is not a
-transfer. Demotion and removal cannot leave the column pointing at someone who
-is no longer an owner, so ownership passes on, and the last-owner guard
-guarantees a successor exists.
+Assigning the owner role through the member endpoint is a transfer. It moves the
+column, grants the WorkOS role to the new owner, and demotes the previous owner
+to `admin`, so a second owner role cannot exist. Only the current owner may do
+it.
 
-Login sync recording an owner is what replaces the backfill's WorkOS lookup. An
-account that somehow reaches an ownerless state settles the next time its owner
-signs in, rather than waiting for a deploy.
+Ownership cannot be granted any other way. Adding a member as owner and inviting
+one as owner are both rejected: joining an account is not acquiring it. Removing
+or demoting the recorded owner is rejected too, so an account with an owner
+cannot lose it by attrition. Transfer first, then remove.
 
-Removing a member with no WorkOS membership took a shortcut past the last-owner
+The write order follows the authority. The column moves first because it decides
+the answer, and the WorkOS role writes follow. A failed role write is logged
+rather than returned: the transfer already happened, and the next transfer
+repairs the projection.
+
+Removing a member with no WorkOS membership took a shortcut past the owner
 guard, which is the one path that could still empty an account. It now runs
-under the same lock, keeps the last member, and refuses to remove the owner of
-record. `RemoveUserFromAllAccounts` is deleted; it deleted memberships without
-touching the accounts that held them.
+under the same lock and keeps the last member. `RemoveUserFromAllAccounts` is
+deleted; it deleted memberships without touching the accounts that held them.
 
 Org creation records the creator's WorkOS membership id after WorkOS returns it.
 That write no longer discards its error. The request still succeeds, because the
 org and its membership exist and login sync writes the id on the creator's next
 sign-in, but the drift is now visible in the log rather than silent.
 
-### Counting owners reads the whole organization
+### Membership lookups read the whole organization
 
-Every caller that counts the `owner` role now uses `ListAllMemberships`, which
-follows the `after` cursor to the end of the org. Reading one page of 100 was
-wrong in three places: the last-owner guard blocked a legitimate demotion or
-removal in any org larger than a page, the pending-member lookup could not find
-a membership past the cursor, and the retired backfill reported "no active
-WorkOS owner" for an org that had two. `ListMemberships` keeps its
-page-at-a-time shape for callers that render a page.
+`ListAllMemberships` follows the `after` cursor to the end of the org, and the
+pending-member lookup uses it. A single page of 100 could not find a membership
+past the cursor, so removing a pending member from a large org failed with
+"member not found". `ListMemberships` keeps its page-at-a-time shape for callers
+that render a page.
+
+Counting owners is gone entirely, which is the deeper fix: the count only
+existed because ownership lived in WorkOS, where it could be zero or several.
 
 ## Migration
 

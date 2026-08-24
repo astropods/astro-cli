@@ -68,33 +68,6 @@ func TestListAllMembershipsFollowsPagination(t *testing.T) {
 	}
 }
 
-func TestEarliestOwnerExcluding(t *testing.T) {
-	owners := []Membership{
-		{UserID: "user-late", RoleSlug: "owner", Status: "active", CreatedAt: "2026-05-01T00:00:00.000Z"},
-		{UserID: "user-leaving", RoleSlug: "owner", Status: "active", CreatedAt: "2026-01-01T00:00:00.000Z"},
-		{UserID: "user-early", RoleSlug: "owner", Status: "active", CreatedAt: "2026-02-01T00:00:00.000Z"},
-	}
-
-	if got := earliestOwnerExcluding(owners, "user-leaving"); got != "user-early" {
-		t.Fatalf("successor = %q, want the earliest remaining owner", got)
-	}
-	if got := earliestOwnerExcluding(owners[1:2], "user-leaving"); got != "" {
-		t.Fatalf("successor = %q, want none when the leaving owner is the only one", got)
-	}
-}
-
-func TestActiveOwnersIgnoresPendingAndOtherRoles(t *testing.T) {
-	got := activeOwners([]Membership{
-		{UserID: "a", RoleSlug: "owner", Status: "pending"},
-		{UserID: "b", RoleSlug: "admin", Status: "active"},
-		{UserID: "c", RoleSlug: "owner", Status: "active"},
-	})
-
-	if len(got) != 1 || got[0].UserID != "c" {
-		t.Fatalf("activeOwners() = %+v, want only the active owner", got)
-	}
-}
-
 func TestClassifyOrganizationError(t *testing.T) {
 	notFound := workos_errors.HTTPError{Code: http.StatusNotFound}
 	if err := classifyOrganizationError(notFound); !errors.Is(err, ErrOrganizationNotFound) {

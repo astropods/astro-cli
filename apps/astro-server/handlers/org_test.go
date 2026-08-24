@@ -26,37 +26,35 @@ import (
 
 // fakeMemberRoleSyncer is a test stub for memberRoleSyncer. It captures the
 // arguments passed to each call so tests can assert that the handler forwards
-// the caller's role, and returns configurable errors to exercise the 403
+// the caller's user id, and returns configurable errors to exercise the 403
 // mapping for ErrOwnerManagementForbidden.
 type fakeMemberRoleSyncer struct {
 	changeErr        error
 	changePrevRole   string
 	removeErr        error
 	changeCalledWith struct {
-		accountID  string
-		userID     string
-		newRole    string
-		callerRole string
+		accountID    string
+		userID       string
+		newRole      string
+		callerUserID string
 	}
 	removeCalledWith struct {
-		accountID  string
-		userID     string
-		callerRole string
+		accountID string
+		userID    string
 	}
 }
 
-func (f *fakeMemberRoleSyncer) ChangeMemberRole(_ context.Context, accountID, userID, newRole, callerRole string) (string, error) {
+func (f *fakeMemberRoleSyncer) ChangeMemberRole(_ context.Context, accountID, userID, newRole, callerUserID string) (string, error) {
 	f.changeCalledWith.accountID = accountID
 	f.changeCalledWith.userID = userID
 	f.changeCalledWith.newRole = newRole
-	f.changeCalledWith.callerRole = callerRole
+	f.changeCalledWith.callerUserID = callerUserID
 	return f.changePrevRole, f.changeErr
 }
 
-func (f *fakeMemberRoleSyncer) RemoveMember(_ context.Context, accountID, userID, callerRole string) error {
+func (f *fakeMemberRoleSyncer) RemoveMember(_ context.Context, accountID, userID string) error {
 	f.removeCalledWith.accountID = accountID
 	f.removeCalledWith.userID = userID
-	f.removeCalledWith.callerRole = callerRole
 	return f.removeErr
 }
 
@@ -725,7 +723,7 @@ func TestListAccountInvitations_NoAccount(t *testing.T) {
 // --- Role Escalation Prevention tests ---
 // These now check session.Role from JWT instead of DB role lookup
 
-func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
+func TestAddMember_OwnerRoleCannotBeGrantedOnJoin(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
@@ -740,49 +738,25 @@ func TestAddMember_RoleEscalation_NonOwnerCannotAssignOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("non-owner session should not be able to assign owner role, expected 403, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestAddMember_OwnerCanAssignOwner(t *testing.T) {
-	db, mock, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-	log := logger.New("error", "json")
-	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
-	caller := &auth.User{ID: "caller-1", Email: "owner@example.com"}
-	session := &auth.Session{Role: "owner"}
-
-	// syncSvc with a real store — GetByID will return "not found" instead of panicking
-	syncSvc := org.NewSync(nil, store, nil, db)
-
-	mock.ExpectQuery("SELECT .+ FROM accounts").
-		WithArgs("acct-1").
-		WillReturnError(sqlmock.ErrCancelled)
-
-	router := gin.New()
-	router.POST("/members", injectTestOrgAccountWithSession(acct, caller, session), AddMember(log, syncSvc, store, nil, nil, nil))
-
-	body := `{"user_id": "new-user", "role": "owner"}`
-	req := httptest.NewRequest(http.MethodPost, "/members", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	// Should NOT be 403 — the owner guard should pass (syncSvc returns DB error → 400)
-	if rec.Code == http.StatusForbidden {
-		t.Errorf("owner should be able to assign owner role, got 403: %s", rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("adding a member as owner should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestUpdateMemberRole_RoleEscalation_NonOwnerCannotPromoteToOwner(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization"}
 	caller := &auth.User{ID: "caller-1", Email: "admin@example.com"}
 	session := &auth.Session{Role: "admin"}
 
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("owner-9"))
+
 	router := gin.New()
-	router.PUT("/members/:user_id", injectTestOrgAccountWithSession(acct, caller, session), UpdateMemberRole(log, nil, nil, nil, nil))
+	router.PUT("/members/:user_id", injectTestOrgAccountWithSession(acct, caller, session), UpdateMemberRole(log, nil, store, nil, nil))
 
 	body := `{"role": "owner"}`
 	req := httptest.NewRequest(http.MethodPut, "/members/target-user", strings.NewReader(body))
@@ -810,8 +784,8 @@ func TestCreateInvitations_RoleEscalation_NonOwnerCannotInviteAsOwner(t *testing
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("non-owner should not be able to invite as owner, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("inviting as owner should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -892,7 +866,7 @@ func TestRemoveMember_SelfRemoval_NoOrgManage_Allowed(t *testing.T) {
 	// Session without org:manage — self-removal should still be allowed
 	session := &auth.Session{OrganizationID: "org_123", Permissions: []string{}}
 
-	syncSvc := org.NewSync(nil, store, nil, db)
+	syncSvc := org.NewSync(nil, store, nil, db, logger.New("error", "json"))
 
 	// syncSvc.RemoveMember will try to look up the account — let it fail with DB error
 	mock.ExpectQuery("SELECT .+ FROM accounts").
@@ -922,7 +896,7 @@ func TestRemoveMember_OtherRemoval_WithOrgManage_Allowed(t *testing.T) {
 	user := &auth.User{ID: "user-1"}
 	session := &auth.Session{OrganizationID: "org_123", Permissions: []string{"org:manage"}}
 
-	syncSvc := org.NewSync(nil, store, nil, db)
+	syncSvc := org.NewSync(nil, store, nil, db, logger.New("error", "json"))
 
 	// syncSvc will try to look up account — let it fail
 	mock.ExpectQuery("SELECT .+ FROM accounts").
@@ -994,7 +968,7 @@ func TestRemoveMember_OtherRemoval_PersonalAccount_MemberAllowed(t *testing.T) {
 	acct := &account.Account{ID: "acct-1", Name: "myacct", Type: "personal"}
 	user := &auth.User{ID: "user-1"}
 
-	syncSvc := org.NewSync(nil, store, nil, db)
+	syncSvc := org.NewSync(nil, store, nil, db, logger.New("error", "json"))
 
 	// HasAccountPermission for personal account calls IsMember — return true
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM account_members").
@@ -1068,7 +1042,7 @@ func TestAddMember_AdminCanAssignAdmin(t *testing.T) {
 	caller := &auth.User{ID: "caller-1"}
 	session := &auth.Session{Role: "admin"}
 
-	syncSvc := org.NewSync(nil, store, nil, db)
+	syncSvc := org.NewSync(nil, store, nil, db, logger.New("error", "json"))
 
 	// syncSvc will try to look up account — let it fail
 	mock.ExpectQuery("SELECT .+ FROM accounts").
@@ -1109,8 +1083,8 @@ func TestAddMember_MemberSessionCannotAssignOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("member session should not be able to assign owner, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("adding a member as owner should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1154,8 +1128,8 @@ func TestCreateInvitations_BulkMixed_NonOwnerAssignsOwner_Rejected(t *testing.T)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("non-owner should not be able to invite as owner in bulk, expected 403, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("an owner-role invitation in a batch should be rejected, expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -1360,7 +1334,7 @@ func TestCreateInvitations_InvalidRole_Rejected(t *testing.T) {
 
 // --- Role hierarchy tests: only owners can manage existing owners ---
 
-func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
+func TestRemoveMember_TheOwnerCannotBeRemoved(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
@@ -1368,7 +1342,7 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	user := &auth.User{ID: "admin-1"}
 	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
 
-	fake := &fakeMemberRoleSyncer{removeErr: org.ErrOwnerManagementForbidden}
+	fake := &fakeMemberRoleSyncer{removeErr: org.ErrOwnerRequired}
 
 	router := gin.New()
 	router.DELETE("/members/:user_id",
@@ -1379,41 +1353,11 @@ func TestRemoveMember_AdminCannotRemoveOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("admin removing owner should return 403, got %d: %s", rec.Code, rec.Body.String())
-	}
-	if fake.removeCalledWith.callerRole != "admin" {
-		t.Errorf("expected callerRole=admin passed to sync, got %q", fake.removeCalledWith.callerRole)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("removing the owner should return 409, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if fake.removeCalledWith.userID != "owner-1" {
 		t.Errorf("expected target user-id=owner-1, got %q", fake.removeCalledWith.userID)
-	}
-}
-
-func TestRemoveMember_OwnerCanRemoveOwner(t *testing.T) {
-	db, _, _ := sqlmock.New()
-	store := account.NewAccountStore(db)
-	log := logger.New("error", "json")
-	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
-	user := &auth.User{ID: "owner-1"}
-	session := &auth.Session{OrganizationID: "org_123", Role: "owner", Permissions: []string{"org:manage"}}
-
-	fake := &fakeMemberRoleSyncer{removeErr: nil}
-
-	router := gin.New()
-	router.DELETE("/members/:user_id",
-		injectTestOrgAccountWithSession(acct, user, session),
-		RemoveMember(log, fake, store, nil, nil, nil))
-
-	req := httptest.NewRequest(http.MethodDelete, "/members/owner-2", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code == http.StatusForbidden {
-		t.Fatalf("owner should be able to remove another owner, got 403: %s", rec.Body.String())
-	}
-	if fake.removeCalledWith.callerRole != "owner" {
-		t.Errorf("expected callerRole=owner passed to sync, got %q", fake.removeCalledWith.callerRole)
 	}
 }
 
@@ -1441,7 +1385,7 @@ func TestRemoveMember_AdminCanRemoveNonOwner(t *testing.T) {
 	}
 }
 
-func TestUpdateMemberRole_AdminCannotDemoteOwner(t *testing.T) {
+func TestUpdateMemberRole_TheOwnerCannotBeDemoted(t *testing.T) {
 	db, _, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
@@ -1449,7 +1393,7 @@ func TestUpdateMemberRole_AdminCannotDemoteOwner(t *testing.T) {
 	user := &auth.User{ID: "admin-1"}
 	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
 
-	fake := &fakeMemberRoleSyncer{changeErr: org.ErrOwnerManagementForbidden}
+	fake := &fakeMemberRoleSyncer{changeErr: org.ErrOwnerRequired}
 
 	router := gin.New()
 	router.PUT("/members/:user_id",
@@ -1462,43 +1406,83 @@ func TestUpdateMemberRole_AdminCannotDemoteOwner(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("admin demoting owner should return 403, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("demoting the owner should return 409, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if fake.changeCalledWith.callerRole != "admin" {
-		t.Errorf("expected callerRole=admin passed to sync, got %q", fake.changeCalledWith.callerRole)
+	if fake.changeCalledWith.callerUserID != "admin-1" {
+		t.Errorf("expected the caller's user id passed to sync, got %q", fake.changeCalledWith.callerUserID)
 	}
 	if fake.changeCalledWith.newRole != "member" {
 		t.Errorf("expected newRole=member passed to sync, got %q", fake.changeCalledWith.newRole)
 	}
 }
 
-func TestUpdateMemberRole_OwnerCanChangeOwner(t *testing.T) {
-	db, _, _ := sqlmock.New()
+func TestUpdateMemberRole_OnlyTheRecordedOwnerCanTransfer(t *testing.T) {
+	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
-	user := &auth.User{ID: "owner-1"}
-	session := &auth.Session{OrganizationID: "org_123", Role: "owner", Permissions: []string{"org:manage"}}
+	user := &auth.User{ID: "admin-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "admin", Permissions: []string{"org:manage"}}
 
-	fake := &fakeMemberRoleSyncer{changeErr: nil, changePrevRole: "owner"}
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("owner-1"))
+
+	fake := &fakeMemberRoleSyncer{}
 
 	router := gin.New()
 	router.PUT("/members/:user_id",
 		injectTestOrgAccountWithSession(acct, user, session),
 		UpdateMemberRole(log, fake, store, nil, nil))
 
-	body := `{"role": "admin"}`
-	req := httptest.NewRequest(http.MethodPut, "/members/owner-2", strings.NewReader(body))
+	body := `{"role": "owner"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/member-2", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("an admin who is not the owner cannot transfer, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fake.changeCalledWith.newRole != "" {
+		t.Error("the guard should reject before reaching the sync layer")
+	}
+}
+
+func TestUpdateMemberRole_OwnerTransfersOwnership(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}
+	user := &auth.User{ID: "owner-1"}
+	session := &auth.Session{OrganizationID: "org_123", Role: "owner", Permissions: []string{"org:manage"}}
+
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("owner-1"))
+
+	fake := &fakeMemberRoleSyncer{changePrevRole: "admin"}
+
+	router := gin.New()
+	router.PUT("/members/:user_id",
+		injectTestOrgAccountWithSession(acct, user, session),
+		UpdateMemberRole(log, fake, store, nil, nil))
+
+	body := `{"role": "owner"}`
+	req := httptest.NewRequest(http.MethodPut, "/members/member-2", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code == http.StatusForbidden {
-		t.Fatalf("owner should be able to change another owner's role, got 403: %s", rec.Body.String())
+		t.Fatalf("the recorded owner may transfer, got 403: %s", rec.Body.String())
 	}
-	if fake.changeCalledWith.callerRole != "owner" {
-		t.Errorf("expected callerRole=owner passed to sync, got %q", fake.changeCalledWith.callerRole)
+	if fake.changeCalledWith.callerUserID != "owner-1" {
+		t.Errorf("expected the caller's user id passed to sync, got %q", fake.changeCalledWith.callerUserID)
+	}
+	if fake.changeCalledWith.newRole != "owner" {
+		t.Errorf("expected newRole=owner passed to sync, got %q", fake.changeCalledWith.newRole)
 	}
 }
 

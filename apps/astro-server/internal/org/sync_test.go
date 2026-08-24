@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // Both guards run before any WorkOS call, so a nil client is the assertion: if
@@ -24,7 +25,7 @@ func TestSyncMembershipsForUser_SkipsUserWithNoPersonalAccount(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	sync := NewSync(nil, account.NewAccountStore(db), nil, db)
+	sync := NewSync(nil, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
 
 	if err := sync.SyncMembershipsForUser(context.Background(), "user-1"); err != nil {
 		t.Fatalf("expected the sync to skip cleanly, got %v", err)
@@ -45,7 +46,7 @@ func TestSyncMembershipsForUser_IdentityCheckFailureIsFatal(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnError(context.DeadlineExceeded)
 
-	sync := NewSync(nil, account.NewAccountStore(db), nil, db)
+	sync := NewSync(nil, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
 
 	if err := sync.SyncMembershipsForUser(context.Background(), "user-1"); err == nil {
 		t.Fatal("expected an error when the identity check fails")
@@ -76,7 +77,7 @@ func TestAddMember_RejectsUserWithNoPersonalAccount(t *testing.T) {
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-	sync := NewSync(nil, account.NewAccountStore(db), nil, db)
+	sync := NewSync(nil, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
 
 	_, err = sync.AddMember(context.Background(), "acct-1", "user-1", "member")
 	if err == nil {

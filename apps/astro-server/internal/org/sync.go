@@ -9,12 +9,17 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
 // ErrOwnerManagementForbidden is returned when a non-owner caller attempts to
 // change the role of or remove a member whose current role is "owner".
 // Handlers should map this to HTTP 403.
-var ErrOwnerManagementForbidden = errors.New("only owners can modify or remove other owners")
+var ErrOwnerManagementForbidden = errors.New("only the account owner can transfer ownership")
+
+// ErrOwnerRequired reports an attempt to leave an account with no owner.
+// Handlers should map this to HTTP 409.
+var ErrOwnerRequired = errors.New("transfer ownership before removing or demoting the owner")
 
 // Sync provides write-path sync logic (Astro → WorkOS) for organization memberships.
 type Sync struct {
@@ -22,11 +27,12 @@ type Sync struct {
 	accountStore *account.AccountStore
 	workos       *auth.WorkOSClient
 	db           *sql.DB
+	log          *logger.Logger
 }
 
 // NewSync creates a new Sync instance.
-func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient, db *sql.DB) *Sync {
-	return &Sync{client: client, accountStore: accountStore, workos: workos, db: db}
+func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient, db *sql.DB, log *logger.Logger) *Sync {
+	return &Sync{client: client, accountStore: accountStore, workos: workos, db: db, log: log}
 }
 
 // ownerGuardLockKey returns a stable int64 advisory lock key derived from the
@@ -61,6 +67,10 @@ func (s *Sync) withOwnerGuardLock(ctx context.Context, workosOrgID string, fn fu
 
 // AddMember adds a member to an org account, writing to WorkOS first then locally.
 func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*account.AccountMember, error) {
+	if role == "owner" {
+		return nil, ErrOwnerManagementForbidden
+	}
+
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
 		return nil, fmt.Errorf("account not found: %w", err)
@@ -87,12 +97,6 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 		return nil, fmt.Errorf("failed to add local member: %w", err)
 	}
 
-	if role == "owner" {
-		if err := s.accountStore.SetOwnerIfUnset(accountID, userID); err != nil {
-			return nil, err
-		}
-	}
-
 	return &account.AccountMember{
 		AccountID:          accountID,
 		UserID:             userID,
@@ -100,12 +104,11 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 	}, nil
 }
 
-// ChangeMemberRole updates a member's role in WorkOS. No local role to update.
-// Returns the previous role slug so callers can include it in audit logs.
-// callerRole is the role of the caller in the org (from JWT session); if the
-// target member is currently an owner and the caller is not an owner, returns
-// ErrOwnerManagementForbidden to enforce role hierarchy.
-func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerRole string) (previousRole string, err error) {
+// ChangeMemberRole updates a member's role in WorkOS. Returns the previous role
+// slug so callers can include it in audit logs. Setting the owner role is a
+// transfer: it moves accounts.owner_user_id, which only the current owner may
+// do, and the WorkOS roles are updated to match.
+func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerUserID string) (previousRole string, err error) {
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
 		return "", fmt.Errorf("account not found: %w", err)
@@ -137,49 +140,71 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole,
 
 	previousRole = currentMembership.RoleSlug
 
-	// Serialize owner-guard check + mutation to prevent TOCTOU races.
+	// Serialize owner check + mutation to prevent TOCTOU races.
 	err = s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
-		if currentMembership.RoleSlug == "owner" && callerRole != "owner" {
+		owner, err := s.accountStore.OwnerUserID(accountID)
+		if err != nil {
+			return err
+		}
+		if (owner == userID || newRole == "owner") && callerUserID != owner {
 			return ErrOwnerManagementForbidden
 		}
-		var successor string
-		if currentMembership.RoleSlug == "owner" && newRole != "owner" {
-			memberships, err := s.client.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
-			if err != nil {
-				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
-			}
-			owners := activeOwners(memberships)
-			if len(owners) <= 1 {
-				return fmt.Errorf("cannot change role: account must have at least one owner")
-			}
-			successor = earliestOwnerExcluding(owners, userID)
+		if owner == userID && newRole != "owner" {
+			return ErrOwnerRequired
+		}
+		if newRole == "owner" {
+			return s.transferOwnership(ctx, accountID, userID, owner, member.WorkOSMembershipID)
 		}
 
 		updated, err := s.client.UpdateMembershipRole(ctx, member.WorkOSMembershipID, newRole)
 		if err != nil {
 			return fmt.Errorf("failed to update WorkOS membership role: %w", err)
 		}
-
 		if updated.RoleSlug != newRole {
 			return fmt.Errorf("role update was not applied: expected %q but got %q", newRole, updated.RoleSlug)
-		}
-
-		if newRole == "owner" {
-			return s.accountStore.SetOwner(accountID, userID)
-		}
-		if successor != "" {
-			return s.accountStore.ReplaceOwner(accountID, userID, successor)
 		}
 		return nil
 	})
 	return previousRole, err
 }
 
-// RemoveMember removes a member from an org account, deleting from WorkOS first then locally.
-// callerRole is the role of the caller in the org (from JWT session); if the
-// target member is currently an owner and the caller is not an owner, returns
-// ErrOwnerManagementForbidden to enforce role hierarchy.
-func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole string) error {
+// transferOwnership moves the column first, because it decides who owns the
+// account, then repoints the WorkOS roles at the answer. A failed role write
+// leaves the projection stale, which is reported rather than returned: the
+// transfer already happened, and retrying would not undo it.
+func (s *Sync) transferOwnership(ctx context.Context, accountID, userID, previousOwner, membershipID string) error {
+	if previousOwner == userID {
+		return nil
+	}
+	if previousOwner == "" {
+		if err := s.accountStore.SetOwner(accountID, userID); err != nil {
+			return err
+		}
+	} else if err := s.accountStore.ReplaceOwner(accountID, previousOwner, userID); err != nil {
+		return err
+	}
+
+	if _, err := s.client.UpdateMembershipRole(ctx, membershipID, "owner"); err != nil {
+		s.warn("org sync: project owner role to WorkOS failed", accountID, err)
+		return nil
+	}
+	if previousOwner == "" {
+		return nil
+	}
+	prev, err := s.accountStore.GetMember(accountID, previousOwner)
+	if err != nil || prev.WorkOSMembershipID == "" {
+		return nil
+	}
+	if _, err := s.client.UpdateMembershipRole(ctx, prev.WorkOSMembershipID, "admin"); err != nil {
+		s.warn("org sync: demote previous owner in WorkOS failed", accountID, err)
+	}
+	return nil
+}
+
+// RemoveMember removes a member from an org account, deleting from WorkOS first
+// then locally. The account's owner cannot be removed: ownership transfers
+// first, so the account is never left without one.
+func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error {
 	acct, err := s.accountStore.GetByID(accountID)
 	if err != nil {
 		return fmt.Errorf("account not found: %w", err)
@@ -198,9 +223,6 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 		membership, membershipErr := s.findMembershipForUser(ctx, acct.WorkOSOrganizationID, userID)
 		if membershipErr != nil {
 			return fmt.Errorf("member not found locally or in WorkOS: %w", membershipErr)
-		}
-		if membership.RoleSlug == "owner" && callerRole != "owner" {
-			return ErrOwnerManagementForbidden
 		}
 		if err := s.client.DeleteMembership(ctx, membership.ID); err != nil {
 			return fmt.Errorf("failed to delete WorkOS membership: %w", err)
@@ -224,34 +246,25 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 				return err
 			}
 			if owner == userID {
-				return fmt.Errorf("cannot remove member: transfer ownership first")
+				return ErrOwnerRequired
 			}
 			return s.accountStore.RemoveMember(accountID, userID)
 		})
 	}
 
-	// Last-owner guard via WorkOS
 	membership, err := s.client.GetMembership(ctx, member.WorkOSMembershipID)
 	if err != nil {
 		return fmt.Errorf("failed to get WorkOS membership: %w", err)
 	}
 
-	// Serialize owner-guard check + deletion to prevent TOCTOU races.
+	// Serialize owner check + deletion to prevent TOCTOU races.
 	return s.withOwnerGuardLock(ctx, acct.WorkOSOrganizationID, func() error {
-		if membership.RoleSlug == "owner" && callerRole != "owner" {
-			return ErrOwnerManagementForbidden
+		owner, err := s.accountStore.OwnerUserID(accountID)
+		if err != nil {
+			return err
 		}
-		var successor string
-		if membership.RoleSlug == "owner" {
-			memberships, err := s.client.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
-			if err != nil {
-				return fmt.Errorf("failed to list WorkOS memberships: %w", err)
-			}
-			owners := activeOwners(memberships)
-			if len(owners) <= 1 {
-				return fmt.Errorf("cannot remove member: account must have at least one owner")
-			}
-			successor = earliestOwnerExcluding(owners, userID)
+		if owner == userID {
+			return ErrOwnerRequired
 		}
 
 		if err := s.client.DeleteMembership(ctx, member.WorkOSMembershipID); err != nil {
@@ -262,37 +275,15 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID, callerRole s
 			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
 		}
 
-		if successor != "" {
-			if err := s.accountStore.ReplaceOwner(accountID, userID, successor); err != nil {
-				return err
-			}
-		}
-
 		return s.accountStore.RemoveMember(accountID, userID)
 	})
 }
 
-func activeOwners(memberships []Membership) []Membership {
-	var owners []Membership
-	for _, m := range memberships {
-		if m.RoleSlug == "owner" && m.Status == "active" {
-			owners = append(owners, m)
-		}
+func (s *Sync) warn(msg, accountID string, err error) {
+	if s.log == nil {
+		return
 	}
-	return owners
-}
-
-func earliestOwnerExcluding(owners []Membership, userID string) string {
-	var earliest Membership
-	for _, m := range owners {
-		if m.UserID == userID {
-			continue
-		}
-		if earliest.UserID == "" || m.CreatedAt < earliest.CreatedAt {
-			earliest = m
-		}
-	}
-	return earliest.UserID
+	s.log.Warn(msg, "account_id", accountID, "error", err)
 }
 
 // GetMembershipRoles returns a map of WorkOS organization ID → role slug for all
@@ -346,12 +337,6 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 			acct.ID, m.UserID, m.ID,
 		); err != nil {
 			return fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
-		}
-
-		if m.RoleSlug == "owner" {
-			if err := s.accountStore.SetOwnerIfUnset(acct.ID, m.UserID); err != nil {
-				return fmt.Errorf("failed to record owner for account %s: %w", acct.ID, err)
-			}
 		}
 	}
 

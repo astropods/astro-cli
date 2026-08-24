@@ -25,8 +25,8 @@ import (
 // handlers. Defined as an interface so tests can inject fakes to cover
 // permission paths that would otherwise require mocking WorkOS HTTP calls.
 type memberRoleSyncer interface {
-	ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerRole string) (string, error)
-	RemoveMember(ctx context.Context, accountID, userID, callerRole string) error
+	ChangeMemberRole(ctx context.Context, accountID, userID, newRole, callerUserID string) (string, error)
+	RemoveMember(ctx context.Context, accountID, userID string) error
 }
 
 // memberEmailDirectory is satisfied by *memberemails.Store; extracted for unit testing.
@@ -41,15 +41,17 @@ type workosUserFetcher interface {
 	GetUser(ctx context.Context, userID string) (*auth.User, error)
 }
 
-// callerOrgRole returns the caller's role slug within the resolved org, or
-// empty string if there's no org-scoped session. Used to enforce role
-// hierarchy when managing existing members.
-func callerOrgRole(c *gin.Context) string {
-	session, ok := middleware.GetSession(c)
-	if !ok {
-		return ""
+// callerUserID returns the WorkOS user id of the caller, or empty string if
+// there is no session. Ownership checks compare it against
+// accounts.owner_user_id, which is what decides who owns an account.
+func callerUserID(c *gin.Context) string {
+	if user, ok := middleware.GetUser(c); ok && user != nil {
+		return user.ID
 	}
-	return session.Role
+	if session, ok := middleware.GetSession(c); ok {
+		return session.UserID
+	}
+	return ""
 }
 
 // validRoles is the set of role slugs accepted by member management endpoints.
@@ -65,16 +67,15 @@ func isValidRole(role string) bool {
 }
 
 // requireOwnerForOwnerRole guards against non-owners assigning the owner role.
-// For org accounts, checks session.Role from JWT. For personal accounts (no WorkOS org),
-// any member is owner so always allows.
+// Assigning it transfers the account, so the caller must be the recorded owner.
 // Returns true if the request should continue, false if it was aborted with 403.
-func requireOwnerForOwnerRole(c *gin.Context, requestedRole string) bool {
+func requireOwnerForOwnerRole(c *gin.Context, store *account.AccountStore, accountID, requestedRole string) bool {
 	if requestedRole != "owner" {
 		return true
 	}
-	session, ok := middleware.GetSession(c)
-	if !ok || session.Role != "owner" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only owners can assign the owner role"})
+	owner, err := store.OwnerUserID(accountID)
+	if err != nil || owner == "" || owner != callerUserID(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only the account owner can transfer ownership"})
 		return false
 	}
 	return true
@@ -444,7 +445,8 @@ func AddMember(log *logger.Logger, syncSvc *org.Sync, accountStore *account.Acco
 			return
 		}
 
-		if !requireOwnerForOwnerRole(c, req.Role) {
+		if req.Role == "owner" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ownership is transferred, not granted when adding a member"})
 			return
 		}
 
@@ -498,14 +500,18 @@ func UpdateMemberRole(log *logger.Logger, syncSvc memberRoleSyncer, accountStore
 			return
 		}
 
-		if !requireOwnerForOwnerRole(c, req.Role) {
+		if !requireOwnerForOwnerRole(c, accountStore, acct.ID, req.Role) {
 			return
 		}
 
-		previousRole, err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role, callerOrgRole(c))
+		previousRole, err := syncSvc.ChangeMemberRole(c.Request.Context(), acct.ID, userID, req.Role, callerUserID(c))
 		if err != nil {
 			if errors.Is(err, org.ErrOwnerManagementForbidden) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
+				c.JSON(http.StatusForbidden, gin.H{"error": "only the account owner can transfer ownership"})
+				return
+			}
+			if errors.Is(err, org.ErrOwnerRequired) {
+				c.JSON(http.StatusConflict, gin.H{"error": "transfer ownership before changing the owner's role"})
 				return
 			}
 			log.Error("org: update member role failed", "error", err, "account_id", acct.ID, "user_id", userID)
@@ -558,9 +564,9 @@ func RemoveMember(log *logger.Logger, syncSvc memberRoleSyncer, accountStore *ac
 			}
 		}
 
-		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID, callerOrgRole(c)); err != nil {
-			if errors.Is(err, org.ErrOwnerManagementForbidden) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "only owners can modify or remove other owners"})
+		if err := syncSvc.RemoveMember(c.Request.Context(), acct.ID, userID); err != nil {
+			if errors.Is(err, org.ErrOwnerRequired) {
+				c.JSON(http.StatusConflict, gin.H{"error": "transfer ownership before removing the owner"})
 				return
 			}
 			log.Error("org: remove member failed", "error", err, "account_id", acct.ID, "user_id", userID)
@@ -632,7 +638,8 @@ func CreateInvitations(log *logger.Logger, orgSync *org.Sync, auditStore *auditl
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role: must be owner, admin, or member"})
 				return
 			}
-			if !requireOwnerForOwnerRole(c, e.Role) {
+			if e.Role == "owner" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "ownership is transferred, not granted by invitation"})
 				return
 			}
 		}

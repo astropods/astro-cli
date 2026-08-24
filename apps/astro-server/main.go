@@ -164,7 +164,7 @@ func main() {
 	if cfg.Auth.WorkOSAPIKey != "" {
 		orgClient = org.NewClient(cfg.Auth.WorkOSAPIKey)
 		workosClient := auth.NewWorkOSClient(cfg.Auth.WorkOSAPIKey, cfg.Auth.WorkOSClientID, cfg.Auth.RedirectURI, cfg.Auth.FrontendURL)
-		orgSync = org.NewSync(orgClient, accountStore, workosClient, db)
+		orgSync = org.NewSync(orgClient, accountStore, workosClient, db, log)
 		log.Info("workos: organization client initialized")
 	}
 
