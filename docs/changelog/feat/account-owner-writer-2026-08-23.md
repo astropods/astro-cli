@@ -38,6 +38,11 @@ under the same lock, keeps the last member, and refuses to remove the owner of
 record. `RemoveUserFromAllAccounts` is deleted; it deleted memberships without
 touching the accounts that held them.
 
+Org creation records the creator's WorkOS membership id after WorkOS returns it.
+That write no longer discards its error. The request still succeeds, because the
+org and its membership exist and login sync writes the id on the creator's next
+sign-in, but the drift is now visible in the log rather than silent.
+
 ### Counting owners reads the whole organization
 
 Every caller that counts the `owner` role now uses `ListAllMemberships`, which

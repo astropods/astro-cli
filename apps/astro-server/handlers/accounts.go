@@ -254,8 +254,10 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 				})
 				return
 			}
-			// Update local member with WorkOS membership ID
-			_ = accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID)
+			if err := accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID); err != nil {
+				log.Warn("accounts: record WorkOS membership for org creator failed, healed at next login",
+					"error", err, "account_id", acct.ID, "workos_membership_id", m.ID)
+			}
 		}
 
 		// Billing customer, rate card, and signup credit are provisioned off the
