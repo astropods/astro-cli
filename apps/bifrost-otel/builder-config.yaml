@@ -1,0 +1,29 @@
+dist:
+  module: github.com/astropods/astro/apps/bifrost-otel
+  name: bifrost-otel
+  description: Bifrost OTEL usage exporter — maps GenAI spans to Metronome usage events
+  output_path: ./bin
+  version: 0.1.0
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.157.0
+
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.157.0
+
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.157.0
+  - gomod: github.com/astropods/astro/apps/bifrost-otel/internal/exporter/bifrostotel v0.0.0
+
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.157.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.157.0
+
+providers:
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.63.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.63.0
+
+# The Metronome exporter is vendored locally (no published module). The replace
+# path is relative to the generated sources under output_path (./bin), hence ../.
+replaces:
+  - github.com/astropods/astro/apps/bifrost-otel/internal/exporter/bifrostotel => ../internal/exporter/bifrostotel

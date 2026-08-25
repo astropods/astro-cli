@@ -19,6 +19,10 @@ on:
         description: "Build astro-otel"
         type: boolean
         default: false
+      bifrost-otel:
+        description: "Build bifrost-otel"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-prod-${{ github.ref }}
@@ -52,6 +56,9 @@ jobs:
           fi
           if [ "${{ inputs.astro-otel }}" == "true" ]; then
             services=$(echo "$services" | jq -c '. + ["astro-otel"]')
+          fi
+          if [ "${{ inputs.bifrost-otel }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. + ["bifrost-otel"]')
           fi
 
           count=$(echo "$services" | jq length)

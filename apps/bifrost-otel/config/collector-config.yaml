@@ -1,0 +1,58 @@
+# bifrost-otel runtime config. Receives Bifrost OTLP traces, selects the billable
+# span per request, and ships usage to Metronome via the bifrostotel exporter.
+#
+# No batch processor: it can split a single request's trace across export calls,
+# which would break per-trace final-attempt selection. Bifrost sends one trace
+# per request, so the receiver hands each whole trace to the exporter intact.
+extensions:
+  # Persistent WAL for the sending queue so events survive restarts / Metronome
+  # downtime (the Bifrost otel plugin itself does not retry).
+  file_storage/metronome:
+    directory: ${env:QUEUE_STORAGE_DIR:-/var/lib/bifrost-otel/queue}
+    create_directory: true
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+
+exporters:
+  bifrostotel:
+    api_key: ${env:METRONOME_API_KEY}
+    endpoint: ${env:METRONOME_ENDPOINT:-https://api.metronome.com}
+    event_type: ${env:METRONOME_EVENT_TYPE:-ai_gateway_llm_usage}
+    sending_queue:
+      enabled: true
+      storage: file_storage/metronome
+    retry_on_failure:
+      enabled: true
+  debug:
+    verbosity: ${env:COLLECTOR_DEBUG_VERBOSITY:-basic}
+
+service:
+  extensions: [file_storage/metronome, health_check]
+  telemetry:
+    logs:
+      level: ${env:COLLECTOR_LOG_LEVEL:-info}
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "0.0.0.0"
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [bifrostotel, debug]

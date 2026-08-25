@@ -1,0 +1,13 @@
+layer: "application"
+language: "go"
+
+tasks:
+  build:
+    command: "make build"
+    options:
+      cache: false
+      runInCI: false
+  test:
+    command: "make test"
+    options:
+      cache: false

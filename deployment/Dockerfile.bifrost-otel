@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+
+# =============================================================================
+# Stage 1: Generate and build the custom collector distribution with OCB
+# =============================================================================
+# OCB writes a main package plus a go.mod under output_path, then compiles it, so
+# the whole source tree has to be present before the build runs. That rules out
+# the go.mod-first dependency-caching layer the other services use here.
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG OCB_VERSION=0.157.0
+
+# OCB resolves the collector component modules itself.
+RUN apk add --no-cache git
+
+ENV CGO_ENABLED=0 GOBIN=/usr/local/bin
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go install go.opentelemetry.io/collector/cmd/builder@v${OCB_VERSION}
+
+WORKDIR /app
+COPY apps/bifrost-otel ./apps/bifrost-otel
+
+WORKDIR /app/apps/bifrost-otel
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    builder --config builder-config.yaml
+
+# =============================================================================
+# Stage 2: Production image
+# =============================================================================
+# Static base: the build is pure Go with CGO off, and the filestorage queue's
+# bbolt needs no libc.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=builder /app/apps/bifrost-otel/bin/bifrost-otel /usr/local/bin/bifrost-otel
+COPY --from=builder /app/apps/bifrost-otel/config/collector-config.yaml /etc/bifrost-otel/collector-config.yaml
+
+# Queue WAL lives here; mount a writable volume at this path in k8s (fsGroup).
+ENV QUEUE_STORAGE_DIR=/var/lib/bifrost-otel/queue
+
+EXPOSE 4317 4318
+
+ENTRYPOINT ["/usr/local/bin/bifrost-otel"]
+CMD ["--config", "/etc/bifrost-otel/collector-config.yaml"]

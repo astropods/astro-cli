@@ -34,6 +34,7 @@ jobs:
               - 'apps/astro-registry/**'
               - 'apps/astro-queen/**'
               - 'apps/astro-otel/**'
+              - 'apps/bifrost-otel/**'
               - 'modules/astro-cli/!(VERSION)/**'
               - 'modules/astro-cli/!(VERSION)'
               - 'packages/**'
@@ -52,6 +53,7 @@ jobs:
               - 'apps/astro-server/**'
               - 'apps/astro-registry/**'
               - 'apps/astro-otel/**'
+              - 'apps/bifrost-otel/**'
               - 'modules/astro-cli/!(VERSION)/**'
               - 'modules/astro-cli/!(VERSION)'
               - 'apps/astro-queen/**'
@@ -140,6 +142,8 @@ jobs:
             path: apps/astro-registry
           - name: astro-otel
             path: apps/astro-otel
+          - name: bifrost-otel
+            path: apps/bifrost-otel/internal/exporter/bifrostotel
 
     steps:
       - name: Checkout repository
