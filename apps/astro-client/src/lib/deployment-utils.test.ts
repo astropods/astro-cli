@@ -3,9 +3,7 @@ import {
   deriveChatComposerState,
   isBillingSuspendedStatus,
   isChatListEligible,
-  isLaunchReady,
   isPausedState,
-  launchUnavailableMessage,
   getLaunchDisabledMessage,
   withLatestBuildId,
 } from "./deployment-utils";
@@ -60,64 +58,6 @@ describe("isChatListEligible", () => {
     expect(
       isChatListEligible({ ...baseSummary, messaging_web_configured: true }),
     ).toBe(true);
-  });
-});
-
-describe("isLaunchReady", () => {
-  it("returns false when no messaging endpoint exists", () => {
-    expect(isLaunchReady(make({ external_urls: [] }))).toBe(false);
-  });
-
-  it("returns false when messaging endpoint exists but ready is omitted", () => {
-    const dep = make({
-      messaging_configured: true,
-      external_urls: [{
-        name: "messaging",
-        url: "https://agent.example.com",
-        type: "messaging",
-        message: launchUnavailableMessage,
-      }],
-    });
-    expect(isLaunchReady(dep)).toBe(false);
-  });
-
-  it("returns false when ready: false explicitly", () => {
-    const dep = make({
-      messaging_configured: true,
-      external_urls: [{
-        name: "messaging",
-        url: "https://agent.example.com",
-        type: "messaging",
-        ready: false,
-      }],
-    });
-    expect(isLaunchReady(dep)).toBe(false);
-  });
-
-  it("returns true when messaging endpoint is configured and ready", () => {
-    const dep = make({
-      messaging_configured: true,
-      external_urls: [{
-        name: "messaging",
-        url: "https://agent.example.com",
-        type: "messaging",
-        ready: true,
-      }],
-    });
-    expect(isLaunchReady(dep)).toBe(true);
-  });
-
-  it("returns false when messaging is not configured in the spec", () => {
-    const dep = make({
-      messaging_configured: false,
-      external_urls: [{
-        name: "messaging",
-        url: "https://agent.example.com",
-        type: "messaging",
-        ready: true,
-      }],
-    });
-    expect(isLaunchReady(dep)).toBe(false);
   });
 });
 

@@ -6,9 +6,6 @@ import type {
   DeploymentStatusValue,
 } from "./api";
 
-export const launchUnavailableMessage =
-  "Launch is unavailable while we create your custom URL";
-
 export const PAUSED_DEPLOYMENT_RECORD_STATUSES = ["stopped", "Stopped"] as const;
 
 // Billing stopped the agent, and the user cannot undo it from the agent page.
@@ -39,17 +36,6 @@ export function getMessagingEndpoint(deployment: AgentDeployment | AgentDeployme
   return deployment?.external_urls?.find((u) => u.type === "messaging");
 }
 
-/**
- * Whether the messaging Launch button should be clickable.
- * - The URL must exist (record).
- * - The messaging sidecar must be part of the spec (record).
- * - The endpoint itself must report ready (server omits ready when false).
- *
- * Note: the server-side liveness probe (messaging_reachable) lives on the
- * runtime endpoint; callers that need to gate on it should additionally
- * check `runtime.messaging_reachable !== false` after fetching the runtime
- * view. Most call sites only need the record-level gating below.
- */
 /** List filter: deployment spec includes web messaging (proxy-eligible). */
 export function isChatListEligible(
   summary: AgentDeploymentSummary | null | undefined,
@@ -137,13 +123,6 @@ export function deriveChatComposerState(
   }
 }
 
-export function isLaunchReady(deployment: AgentDeployment | null | undefined): boolean {
-  const messaging = getMessagingEndpoint(deployment);
-  if (!messaging?.url) return false;
-  if (deployment?.messaging_configured === false) return false;
-  return messaging.ready === true;
-}
-
 // Pause/stop state is a pure DB-status concern; check the raw enum from the
 // record. Used by AgentStatusToggle for the toggle's checked/unchecked state.
 export function isPausedState(deployment: AgentDeployment): boolean {
@@ -200,12 +179,4 @@ export function formatDate(dateStr: string): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-
-export function formatDaysActive(isoString: string): string {
-  const days = Math.floor((Date.now() - new Date(isoString).getTime()) / (1000 * 60 * 60 * 24));
-  if (days === 0) return "< 1 day";
-  if (days === 1) return "1 day";
-  return `${days} days`;
 }
