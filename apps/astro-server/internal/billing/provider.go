@@ -50,14 +50,12 @@ type Account struct {
 
 // Plan is the rate treatment an account is provisioned onto. Signup credit
 // belongs to a person rather than an account, so only the first account a user
-// provisions takes PlanCredit. PlanUnlimited rates every metered product at
-// zero, so usage still meters and the statement never totals anything.
+// provisions takes PlanCredit.
 type Plan string
 
 const (
-	PlanCredit    Plan = "credit"
-	PlanNoCredit  Plan = "no_credit"
-	PlanUnlimited Plan = "unlimited"
+	PlanCredit   Plan = "credit"
+	PlanNoCredit Plan = "no_credit"
 )
 
 // Provisioner puts a customer on the rate card and grants signup credit. Kept

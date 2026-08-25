@@ -178,10 +178,9 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var evalBillingGate evalJudgeBillingGate
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
-		var unlimitedDomains, exemptAccounts []string
+		var exemptAccounts []string
 		if cfg.ServerConfig != nil {
 			graceDays = cfg.ServerConfig.BillingDunningGraceDays
-			unlimitedDomains = cfg.ServerConfig.BillingUnlimitedEmailDomains
 			exemptAccounts = cfg.ServerConfig.BillingExemptAccounts
 		}
 		// The sweep suspends on its own timer, so it needs the same exemptions
@@ -228,19 +227,18 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		})
 		log.Info("river: registered worker", "worker", "BillingCollectWorker")
 
-		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), thresholds: spendThresholds(cfg.Billing), usage: usageThresholds(cfg.Billing), spend: spendReports(cfg.Billing), unlimitedDomains: unlimitedDomains, log: log}
+		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), thresholds: spendThresholds(cfg.Billing), usage: usageThresholds(cfg.Billing), spend: spendReports(cfg.Billing), log: log}
 		addWorkerWithCatalogCheck(log, workers, metronomeHook)
 		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), log: log}
 		addWorkerWithCatalogCheck(log, workers, stripeHook)
 		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
 
 		provisionWorker = &BillingProvisionWorker{
-			accounts:         cfg.AccountStore,
-			provider:         cfg.Billing,
-			backend:          cfg.BillingBackend,
-			status:           statusStore,
-			unlimitedDomains: unlimitedDomains,
-			log:              log,
+			accounts: cfg.AccountStore,
+			provider: cfg.Billing,
+			backend:  cfg.BillingBackend,
+			status:   statusStore,
+			log:      log,
 		}
 		addWorkerWithCatalogCheck(log, workers, provisionWorker)
 		provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}

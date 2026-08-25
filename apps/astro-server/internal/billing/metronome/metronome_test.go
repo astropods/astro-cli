@@ -65,7 +65,7 @@ func TestIsConflict(t *testing.T) {
 // A missing one is a configuration error rather than a reason to fall back,
 // because falling back does either of those silently.
 func TestProvisionPackageSelection(t *testing.T) {
-	full := Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare", PackageIDUnlimited: "pkg_free"}
+	full := Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare"}
 	cases := []struct {
 		name    string
 		cfg     Config
@@ -75,10 +75,8 @@ func TestProvisionPackageSelection(t *testing.T) {
 	}{
 		{"first account takes the credit package", full, billing.PlanCredit, "pkg_credit", false},
 		{"later account takes the bare package", full, billing.PlanNoCredit, "pkg_bare", false},
-		{"internal account takes the unlimited package", full, billing.PlanUnlimited, "pkg_free", false},
 		{"unconfigured provisioning is a no-op", Config{}, billing.PlanCredit, "", false},
 		{"missing bare package refuses rather than granting", Config{PackageID: "pkg_credit"}, billing.PlanNoCredit, "", true},
-		{"missing unlimited package refuses rather than billing", Config{PackageID: "pkg_credit", PackageIDNoCredit: "pkg_bare"}, billing.PlanUnlimited, "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

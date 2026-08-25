@@ -196,15 +196,14 @@ func stripeSignal(eventType string) (billing.Signal, bool) {
 
 type MetronomeWebhookWorker struct {
 	river.WorkerDefaults[MetronomeWebhookArgs]
-	accounts         *account.AccountStore
-	status           *billing.StatusStore
-	cards            cardReader           // nil when payments aren't configured
-	thresholds       spendThresholdReader // nil when the backend reports no spend controls
-	usage            usageThresholdReader // nil when the backend reports no usage caps
-	spend            spendReader          // nil when the backend does not report spend
-	queue            *Queue               // set post-construction in New(); enqueues suspend/resume
-	unlimitedDomains []string
-	log              *logger.Logger
+	accounts   *account.AccountStore
+	status     *billing.StatusStore
+	cards      cardReader           // nil when payments aren't configured
+	thresholds spendThresholdReader // nil when the backend reports no spend controls
+	usage      usageThresholdReader // nil when the backend reports no usage caps
+	spend      spendReader          // nil when the backend does not report spend
+	queue      *Queue               // set post-construction in New(); enqueues suspend/resume
+	log        *logger.Logger
 }
 
 type spendThresholdReader interface {
@@ -353,15 +352,6 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 		return nil
 	}
 	if sig == billing.SignalCreditsExhausted {
-		unlimited, err := w.unlimitedAccount(job.Args.CustomerID)
-		if err != nil {
-			return err
-		}
-		if unlimited {
-			w.log.Info("metronome webhook: credit exhaustion cannot gate an unlimited account",
-				"customer_id", job.Args.CustomerID)
-			return nil
-		}
 		if err := w.refreshCardFact(ctx, job.Args.CustomerID); err != nil {
 			return err
 		}
@@ -391,24 +381,6 @@ func (w *MetronomeWebhookWorker) Work(ctx context.Context, job *river.Job[Metron
 		facts.SpentCents, facts.Period = spent, period
 	}
 	return applyWebhookSignal(ctx, w.log, w.accounts.GetByMetronomeCustomerID, w.status, w.queue, "metronome", job.Args.CustomerID, sig, job.Args.EventID, facts)
-}
-
-func (w *MetronomeWebhookWorker) unlimitedAccount(customerID string) (bool, error) {
-	if len(w.unlimitedDomains) == 0 || customerID == "" {
-		return false, nil
-	}
-	acct, err := w.accounts.GetByMetronomeCustomerID(customerID)
-	if errors.Is(err, account.ErrAccountNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	email, err := w.accounts.GetCreatorVerifiedEmail(acct.ID)
-	if err != nil {
-		return false, err
-	}
-	return hasEmailDomain(email, w.unlimitedDomains), nil
 }
 
 // otherSelfLimitInAlarm reports whether a limit other than the one that just

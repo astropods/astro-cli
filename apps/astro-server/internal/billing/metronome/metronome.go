@@ -40,14 +40,13 @@ type Config struct {
 
 	// Provisioning. When PackageID is empty, ProvisionCustomer is a no-op.
 	//
-	// The packages share a rate card and a statement schedule and differ only in
-	// the terms attached. Keeping all three as packages rather than building a
+	// Both packages share a rate card and a statement schedule and differ only
+	// in the terms attached. Keeping them as packages rather than building a
 	// bare rate-card contract is what makes the terms identical: contract
 	// creation accepts no statement schedule, so a rate-card contract would bill
 	// on a different period.
-	PackageID          string // METRONOME_PACKAGE_ID
-	PackageIDNoCredit  string // METRONOME_PACKAGE_ID_NO_CREDIT
-	PackageIDUnlimited string // METRONOME_PACKAGE_ID_UNLIMITED
+	PackageID         string // METRONOME_PACKAGE_ID
+	PackageIDNoCredit string // METRONOME_PACKAGE_ID_NO_CREDIT
 }
 
 // Provider is the Metronome-backed billing provider.
@@ -315,11 +314,6 @@ func (p *Provider) provisionPackage(plan billing.Plan) (string, error) {
 	switch plan {
 	case billing.PlanCredit:
 		return p.cfg.PackageID, nil
-	case billing.PlanUnlimited:
-		if p.cfg.PackageIDUnlimited == "" {
-			return "", errors.New("metronome: METRONOME_PACKAGE_ID_UNLIMITED is unset, so an internal account cannot be provisioned")
-		}
-		return p.cfg.PackageIDUnlimited, nil
 	default:
 		if p.cfg.PackageIDNoCredit == "" {
 			return "", errors.New("metronome: METRONOME_PACKAGE_ID_NO_CREDIT is unset, so an account that has already had its signup credit cannot be provisioned")
@@ -362,8 +356,6 @@ func (p *Provider) planForPackage(packageID string) (billing.Plan, bool) {
 	switch packageID {
 	case p.cfg.PackageID:
 		return billing.PlanCredit, true
-	case p.cfg.PackageIDUnlimited:
-		return billing.PlanUnlimited, true
 	case p.cfg.PackageIDNoCredit:
 		return billing.PlanNoCredit, true
 	}

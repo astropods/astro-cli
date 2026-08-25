@@ -307,7 +307,7 @@ func TestMetronomeWebhook_NoThresholdReaderStillClears(t *testing.T) {
 	}
 }
 
-func TestMetronomeWebhook_CreditAlertCannotSuspendAnUnlimitedAccount(t *testing.T) {
+func TestMetronomeWebhook_CreditAlertWritesTheExhaustionLatch(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
@@ -318,49 +318,14 @@ func TestMetronomeWebhook_CreditAlertCannotSuspendAnUnlimitedAccount(t *testing.
 	mock.ExpectQuery(metronomeCustomerRe).
 		WithArgs("cus_1").
 		WillReturnRows(accountByCustomerRow("acct_1"))
-	mock.ExpectQuery(creatorEmailRe).
-		WithArgs("acct_1").
-		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("employee@postman.com"))
-
-	w := &MetronomeWebhookWorker{
-		accounts:         account.NewAccountStore(db),
-		status:           billing.NewStatusStore(db, 7),
-		unlimitedDomains: []string{"postman.com"},
-		log:              logger.New("error", "json"),
-	}
-	if err := w.Work(context.Background(), creditAlertJob()); err != nil {
-		t.Fatalf("Work: %v", err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("the alert was allowed to gate an unlimited account: %v", err)
-	}
-}
-
-func TestMetronomeWebhook_CreditAlertStillGatesAnOutsideAccount(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close() //nolint:errcheck
-	mock.MatchExpectationsInOrder(false)
-
-	for range 2 {
-		mock.ExpectQuery(metronomeCustomerRe).
-			WithArgs("cus_1").
-			WillReturnRows(accountByCustomerRow("acct_1"))
-	}
-	mock.ExpectQuery(creatorEmailRe).
-		WithArgs("acct_1").
-		WillReturnRows(sqlmock.NewRows([]string{"email"}).AddRow("someone@gmail.com"))
 	mock.ExpectExec(`INSERT INTO account_billing_status`).
 		WithArgs("acct_1").
 		WillReturnError(errors.New("latch write failed"))
 
 	w := &MetronomeWebhookWorker{
-		accounts:         account.NewAccountStore(db),
-		status:           billing.NewStatusStore(db, 7),
-		unlimitedDomains: []string{"postman.com"},
-		log:              logger.New("error", "json"),
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7),
+		log:      logger.New("error", "json"),
 	}
 	err = w.Work(context.Background(), creditAlertJob())
 	if err == nil || !strings.Contains(err.Error(), "latch write failed") {
