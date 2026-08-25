@@ -622,3 +622,38 @@ func TestEvaluationWorkerFailsRunOnUndecryptableJudgeKey(t *testing.T) {
 	assert.Equal(t, evalrunstore.StatusFailed, runs.finalized, "an undecryptable key will not fix itself")
 	assert.Equal(t, evaluationFailureMessage, runs.pendingErr)
 }
+
+// The queue outlives the request that filled it, so an account suspended after
+// enqueue would still spend on its gateway key when the job ran. Gating only the
+// handler leaves that window open.
+func TestEvaluationWorkerRefusesASuspendedAccount(t *testing.T) {
+	runs := newFakeRunStore()
+	runner := &fakeEvaluationRunner{}
+	worker := newEvaluationWorker(runs, &fakeEvaluationTraceClient{trace: evaluationTraceFixture()}, runner)
+	gate := &fakeEvalJudgeBillingGate{blocked: true}
+	worker.billing = gate
+
+	err := worker.Work(context.Background(), evaluationJob(1))
+	var cancelErr *river.JobCancelError
+	require.ErrorAs(t, err, &cancelErr, "a suspended account is permanent, so the job must not retry")
+
+	assert.Empty(t, runner.calls, "a suspended account must not reach the gateway")
+	assert.Equal(t, "account-1", gate.accountID, "the gate is asked about the dataset's account")
+	assert.Equal(t, evalrunstore.StatusFailed, runs.finalized)
+	require.NotNil(t, runs.finalErr)
+	assert.Equal(t, evaluationBillingMessage, *runs.finalErr,
+		"a generic failure hides why the run stopped, so the owner cannot act on it")
+}
+
+// An account in good standing is unaffected.
+func TestEvaluationWorkerRunsWhenNotSuspended(t *testing.T) {
+	runs := newFakeRunStore()
+	runner := &fakeEvaluationRunner{results: map[string]evaluator.Result{
+		"user_sentiment": {Value: "negative", Confidence: 0.8, Explanation: "next message is unhappy"},
+	}}
+	worker := newEvaluationWorker(runs, &fakeEvaluationTraceClient{trace: evaluationTraceFixture()}, runner)
+	worker.billing = &fakeEvalJudgeBillingGate{blocked: false}
+
+	require.NoError(t, worker.Work(context.Background(), evaluationJob(1)))
+	assert.Equal(t, evalrunstore.StatusCompleted, runs.finalized)
+}

@@ -552,3 +552,54 @@ func TestLatestThumbsFeedback(t *testing.T) {
 		t.Fatalf("latestThumbsFeedback = %q", got)
 	}
 }
+
+type fakeEvalJudgeBillingGate struct {
+	blocked   bool
+	accountID string
+}
+
+func (f *fakeEvalJudgeBillingGate) Blocked(_ context.Context, accountID string) bool {
+	f.accountID = accountID
+	return f.blocked
+}
+
+// The queue outlives the request that filled it, so an account suspended after
+// enqueue would still spend on its gateway key when the job ran. Gating only the
+// handler leaves that window open.
+func TestEvalJudgePredictionWorkerRefusesASuspendedAccount(t *testing.T) {
+	worker, store, _, predictor := newEvalJudgeWorkerFixture()
+	gate := &fakeEvalJudgeBillingGate{blocked: true}
+	worker.billing = gate
+
+	err := worker.Work(context.Background(), predictionJob(1))
+	var cancelErr *river.JobCancelError
+	if !errors.As(err, &cancelErr) {
+		t.Fatalf("Work = %v, want a cancel so the job is not retried", err)
+	}
+	if predictor.calls != 0 {
+		t.Fatalf("predictor calls = %d, want 0: a suspended account must not reach the gateway", predictor.calls)
+	}
+	if gate.accountID != "acct-1" {
+		t.Errorf("gate checked account %q, want acct-1", gate.accountID)
+	}
+	last := store.updates[len(store.updates)-1]
+	if last.status != judgmentstore.PredictionRequestFailed {
+		t.Errorf("final status = %v, want failed", last.status)
+	}
+	if last.message == nil || *last.message != predictionBillingMessage {
+		t.Errorf("failure message = %v, want the billing message", last.message)
+	}
+}
+
+// An account in good standing is unaffected.
+func TestEvalJudgePredictionWorkerRunsWhenNotSuspended(t *testing.T) {
+	worker, _, _, predictor := newEvalJudgeWorkerFixture()
+	worker.billing = &fakeEvalJudgeBillingGate{blocked: false}
+
+	if err := worker.Work(context.Background(), predictionJob(1)); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if predictor.calls != 1 {
+		t.Fatalf("predictor calls = %d, want 1", predictor.calls)
+	}
+}

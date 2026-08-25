@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore/judgmentstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
+	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 )
 
 type fakeDatasetEvaluationLangfuseStore struct {
@@ -160,6 +162,17 @@ func (f *fakeDatasetEvaluationQueue) InsertEvalDatasetEvaluationJobs(
 	return nil
 }
 
+// fixtureEntCheck is nil by default, which skips the gate as the other handler
+// fixtures do. A test that exercises gating sets it.
+var fixtureEntCheck EntitlementChecker
+
+// blockingEntCheck reports every account as suspended.
+type blockingEntCheck struct{ reason string }
+
+func (b blockingEntCheck) Check(context.Context, string) middleware.Decision {
+	return middleware.Decision{Blocked: true, Reason: b.reason}
+}
+
 type datasetEvaluationsFixture struct {
 	*traceDetailFixture
 	cfg         *config.Config
@@ -203,6 +216,7 @@ func setupDatasetEvaluationsRouter(
 			store,
 			runStore,
 			queue,
+			fixtureEntCheck,
 		),
 	)
 
@@ -600,4 +614,30 @@ func TestGetDatasetEvaluationStatusFailures(t *testing.T) {
 			t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+// An evaluation run bills model usage to the account's own gateway key, so a
+// suspended account must not be able to queue one. Nothing downstream would stop
+// it: the worker holds the key and the gateway accepts it.
+func TestPostDatasetEvaluationsRefusesASuspendedAccount(t *testing.T) {
+	fixtureEntCheck = blockingEntCheck{reason: "credits_exhausted"}
+	t.Cleanup(func() { fixtureEntCheck = nil })
+
+	store := &judgmentstoretest.FakePredictionStore{}
+	runStore := newFakeEvaluationRunStore()
+	queue := &fakeDatasetEvaluationQueue{}
+	fixture := setupDatasetEvaluationsRouter(t, true, store, runStore, queue)
+	fixture.expectAuthorized(true)
+
+	rec := evaluationRequest(t, fixture.router)
+
+	if rec.Code != http.StatusPaymentRequired {
+		t.Fatalf("response = %d %q, want 402", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "credits_exhausted") {
+		t.Errorf("body = %q, want the gating reason", rec.Body.String())
+	}
+	if len(queue.jobs) != 0 {
+		t.Errorf("enqueued %d jobs, want none", len(queue.jobs))
+	}
 }

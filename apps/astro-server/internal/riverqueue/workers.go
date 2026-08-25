@@ -173,6 +173,9 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var stripeHook *StripeWebhookWorker
 	var provisionSweep *BillingProvisionSweepWorker
 	var provisionWorker *BillingProvisionWorker
+	// Held so the eval judge worker below can reuse the same cached status the
+	// HTTP gate reads.
+	var evalBillingGate evalJudgeBillingGate
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
 		var unlimitedDomains, exemptAccounts []string
@@ -185,6 +188,13 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		// the API has or it would suspend an exempt account behind the gate.
 		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays).WithExemptAccounts(exemptAccounts)
 		billingStatusStore = statusStore
+		// Shares that store, so an exempt account is not refused a judge run
+		// either.
+		evalBillingGate = evalJudgeStatusGate{
+			status:  statusStore,
+			enforce: cfg.ServerConfig != nil && cfg.ServerConfig.BillingGateEnforce,
+			log:     log,
+		}
 		billingDepStore := deploymentstore.NewStore(cfg.DB)
 		dunningWorker = &DunningSweepWorker{
 			status: statusStore,
@@ -395,6 +405,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		predictions:    judgmentstore.NewStore(cfg.DB),
 		loadLangfuse:   loadLangfuse,
 		ensureJudgeKey: ensureJudgeKey,
+		billing:        evalBillingGate,
 		log:            log,
 	}
 	if evalLangfuseBaseURL != "" {
@@ -415,6 +426,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		runs:           evalrunstore.NewStore(cfg.DB),
 		loadLangfuse:   loadLangfuse,
 		ensureJudgeKey: ensureJudgeKey,
+		billing:        evalBillingGate,
 		log:            log,
 	}
 	if evalLangfuseBaseURL != "" {

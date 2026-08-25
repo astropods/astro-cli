@@ -2534,7 +2534,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetEvaluationStatusResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore, queue),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore, queue, ent),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

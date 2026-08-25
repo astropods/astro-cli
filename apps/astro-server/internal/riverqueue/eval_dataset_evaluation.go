@@ -53,6 +53,7 @@ const (
 	evaluationFailureMessage    = "Evaluation failed. Try again."
 	evaluationNoResultMessage   = "No evaluator produced a result."
 	evaluationQuotaMessage      = "AI usage quota exceeded. Try again after the quota resets or is increased."
+	evaluationBillingMessage    = "This account is suspended for a billing issue. Resolve it to run evaluations."
 )
 
 var (
@@ -94,6 +95,7 @@ type EvalDatasetEvaluationWorker struct {
 	newTraceClient func(*langfuse.AccountLangfuse) evaluationTraceClient
 	ensureJudgeKey func(context.Context, string) (string, string, error)
 	newRunner      func(string) evaluationRunner
+	billing        evalJudgeBillingGate
 	log            *logger.Logger
 }
 
@@ -135,6 +137,16 @@ func (w *EvalDatasetEvaluationWorker) Work(ctx context.Context, job *river.Job[E
 	}
 	if run == nil {
 		return river.JobCancel(fmt.Errorf("trace %q has no active evaluation run", args.TraceID))
+	}
+
+	// An evaluation bills model usage to the account's gateway key, so a
+	// suspended account must not run one. Checked here as well as at enqueue: a
+	// job queued while the account was in good standing would otherwise still
+	// spend after it was stopped. Failed rather than cancelled, so the run says
+	// why instead of disappearing.
+	if w.billing != nil && w.billing.Blocked(ctx, dataset.AccountID) {
+		return w.failRunWithMessage(ctx, run.ID, evaluationBillingMessage,
+			fmt.Errorf("%w: account %s is billing-suspended", errPermanentEvaluation, dataset.AccountID))
 	}
 
 	client, err := w.resolveTraceClient(ctx, dataset)
@@ -459,7 +471,12 @@ func (w *EvalDatasetEvaluationWorker) retryOrFailRun(
 // failRun records a trace-level failure that stopped evaluators from running at
 // all, which is the only case a run itself ends as failed.
 func (w *EvalDatasetEvaluationWorker) failRun(ctx context.Context, runID string, cause error) error {
-	message := evaluationFailureMessage
+	return w.failRunWithMessage(ctx, runID, evaluationFailureMessage, cause)
+}
+
+// failRunWithMessage is failRun with the reason the caller wants recorded, so a
+// run stopped for billing does not report a generic evaluation failure.
+func (w *EvalDatasetEvaluationWorker) failRunWithMessage(ctx context.Context, runID, message string, cause error) error {
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	if err := w.runs.FailPendingResults(finalizeCtx, runID, message); err != nil {

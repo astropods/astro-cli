@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
@@ -23,6 +24,7 @@ const (
 	evalJudgePredictionTimeout = 2 * time.Minute
 	evalJudgePreviousTurnLimit = 3
 	predictionFailureMessage   = "Prediction generation failed. Try again."
+	predictionBillingMessage   = "This account is suspended for a billing issue. Resolve it to run predictions."
 	predictionQuotaMessage     = "AI usage quota exceeded. Try again after the quota resets or is increased."
 )
 
@@ -89,7 +91,43 @@ type EvalJudgePredictionWorker struct {
 	newTraceClient func(*langfuse.AccountLangfuse) evalJudgeTraceClient
 	ensureJudgeKey func(context.Context, string) (string, string, error)
 	newPredictor   func(string) evalJudgePredictor
+	billing        evalJudgeBillingGate
 	log            *logger.Logger
+}
+
+// evalJudgeBillingGate reports whether an account is billing-suspended. The
+// queue outlives the request that filled it, so the account can be stopped
+// between enqueue and run.
+type evalJudgeBillingGate interface {
+	Blocked(ctx context.Context, accountID string) bool
+}
+
+// evalJudgeStatusGate answers from the cached billing status. It mirrors the
+// HTTP gate rather than inventing a second policy: observe mode allows, and a
+// failed read allows, because no account should stop working over a lookup.
+type evalJudgeStatusGate struct {
+	status  *billing.StatusStore
+	enforce bool
+	log     *logger.Logger
+}
+
+func (g evalJudgeStatusGate) Blocked(ctx context.Context, accountID string) bool {
+	if g.status == nil || accountID == "" {
+		return false
+	}
+	rec, err := g.status.Record(ctx, accountID)
+	if err != nil {
+		g.log.Warn("eval judge: billing status read failed, allowing", "account_id", accountID, "error", err)
+		return false
+	}
+	if rec.Status != billing.StatusSuspended {
+		return false
+	}
+	if !g.enforce {
+		g.log.Info("billing gate (observe): would block eval judge prediction", "account_id", accountID)
+		return false
+	}
+	return true
 }
 
 func (w *EvalJudgePredictionWorker) Timeout(*river.Job[EvalJudgePredictionArgs]) time.Duration {
@@ -168,6 +206,16 @@ func (w *EvalJudgePredictionWorker) Work(ctx context.Context, job *river.Job[Eva
 	if dataset == nil {
 		return w.failPermanent(job, fmt.Errorf("eval dataset %q no longer exists", args.EvalDatasetID), predictionFailureMessage)
 	}
+	// A prediction bills model usage to the account's gateway key, so a
+	// suspended account must not run one. Checked here rather than only at
+	// enqueue: a job queued while the account was in good standing would
+	// otherwise still spend after it was stopped.
+	if w.billing != nil && w.billing.Blocked(ctx, dataset.AccountID) {
+		return w.failPermanent(job,
+			fmt.Errorf("account %s is billing-suspended", dataset.AccountID),
+			predictionBillingMessage)
+	}
+
 	// Keep the worker registered without configuration so old jobs become
 	// durable failures instead of unknown River job kinds.
 	if w.loadLangfuse == nil || w.newTraceClient == nil || w.ensureJudgeKey == nil || w.newPredictor == nil {

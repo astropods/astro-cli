@@ -110,10 +110,17 @@ func PostDatasetEvaluations(
 	judgmentStore reviewQueueScanStore,
 	runStore datasetEvaluationRunStore,
 	queue datasetEvaluationQueue,
+	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
 		if !ok {
+			return
+		}
+		// A run bills model usage to the account's own gateway key, so it is a
+		// consuming action and gated like a deploy. Checked before the queue,
+		// since a queued job outlives the request that made it.
+		if blockedByBilling(c, entCheck, dctx.Deployment.AccountID) {
 			return
 		}
 		deploymentID := dctx.DeploymentID
