@@ -25,6 +25,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
 	build, _ := cmd.Flags().GetString("build")
+	clusterID, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	iface, err := buildDeployInterfaces(adapters)
@@ -46,6 +47,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		Build:        build,
 		DeploymentID: dep.ID,
 		Interfaces:   iface,
+		ClusterID:    clusterID,
 	}
 	if len(vars) > 0 {
 		req.Variables = vars

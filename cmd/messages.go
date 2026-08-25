@@ -50,6 +50,20 @@ func errDeployNameConflict(displayName string) error {
 	)
 }
 
+func msgSelectRegionDescription() string {
+	return "Where this agent runs. To move it later, redeploy with --cluster."
+}
+
+func errClusterNotAvailable(requested string, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("cluster %q is not available to this account", requested)
+	}
+	return fmt.Errorf(
+		"cluster %q is not available to this account (available: %s)",
+		requested, strings.Join(available, ", "),
+	)
+}
+
 func msgDeployURLNotReady(url, reason string) string {
 	if reason != "" {
 		return fmt.Sprintf("deployed — Launch URL not ready yet (%s): %s", url, reason)
