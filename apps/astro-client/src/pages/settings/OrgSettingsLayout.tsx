@@ -1,7 +1,8 @@
 import { Outlet, useParams, Link } from 'react-router'
+import { isOrgAdmin } from "@/lib/roles";
 import { useEffect, useRef, useState } from 'react'
 import { KeyRound, Database, ArrowLeft, Settings, Loader2, Users, ScrollText, FlaskConical } from 'lucide-react'
-import { CreditCardIcon } from '@heroicons/react/24/outline'
+import { CreditCardIcon, ChartBarIcon } from '@heroicons/react/24/outline'
 import {
   SidebarLayout,
   SidebarNav,
@@ -92,7 +93,7 @@ function OrgSettingsContent() {
   }
 
   const displayName = org.display_name ?? orgSlug
-  const isAdmin = role === 'admin' || role === 'owner'
+  const isAdmin = isOrgAdmin(role)
 
   return (
     <div className="flex-1 overflow-y-auto bg-background">
@@ -129,6 +130,14 @@ function OrgSettingsContent() {
                 Members
               </span>
             </SidebarNavItem>
+            {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/usage`}>
+                <span className="flex items-center gap-2">
+                  <ChartBarIcon className="size-3.5" />
+                  Usage
+                </span>
+              </SidebarNavItem>
+            )}
             {isAdmin && (
               <SidebarNavItem to={`/settings/org/${orgSlug}/billing`}>
                 <span className="flex items-center gap-2">

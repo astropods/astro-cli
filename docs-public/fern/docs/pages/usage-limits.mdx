@@ -4,32 +4,18 @@ subtitle: Warn yourself before an account spends too much, and stop it before it
 slug: usage-limits
 ---
 
-Every account can cap what it uses. Set the caps on the billing page of your account settings, under **Limits**.
+Every account can cap what it spends. Open **Manage limits** on the Pay-as-you-go card, on the billing page of your account settings.
 
-Each row is one thing you can cap, and each has two numbers:
+There are two numbers:
 
-- **Warn me at** sends a notification and changes nothing else.
-- **Stop agents at** stops every agent in the account.
+- **Alert threshold** sends a notification and changes nothing else.
+- **Spend limit** stops every agent in the account.
 
-Leave a field empty for no limit. A warning has to be below its limit, because the limit stops the account first.
-
-## What you can cap
-
-| Row | Counts |
-|-----|--------|
-| Spend | Money, before any credit is applied |
-| Compute | CU-hours across every deployed agent |
-| AI Gateway | US dollars of model usage through the gateway |
-
-Spend counts money before credit, so a warning can arrive while your bill is still zero. Compute and AI Gateway count usage itself, so they apply on any plan, including one that is billed nothing.
-
-<Note>
-The spend row appears only on plans where usage is priced. On a plan rated at zero, cap Compute and AI Gateway instead.
-</Note>
+Leave a field empty for no limit. The alert threshold has to be below the spend limit, because the limit stops the account first.
 
 ## When a limit stops your agents
 
-Every agent in the account stops, and the billing page names the limit that stopped it. Deploying, restarting, and waking an agent are refused until the account starts again.
+Every agent in the account stops. Deploying, restarting, and waking an agent are refused until the account starts again.
 
 Three things start it again:
 
@@ -41,6 +27,7 @@ Raising a limit takes effect immediately. Raising it to a number the period has 
 
 ## Next steps
 
+- [Usage](/usage)
 - [Working with accounts](/accounts)
 - [AI Gateway](/ai-gateway)
 - [Monitor your agents](/monitor-agents)

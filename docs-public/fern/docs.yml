@@ -73,6 +73,9 @@ navigation:
           - page: Working with accounts
             path: docs/pages/accounts.mdx
             icon: fa-duotone fa-users
+          - page: Usage
+            path: docs/pages/usage.mdx
+            icon: fa-duotone fa-chart-simple
           - page: Usage limits
             path: docs/pages/usage-limits.mdx
             icon: fa-duotone fa-gauge-high

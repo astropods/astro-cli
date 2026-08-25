@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isOrgAdmin } from "@/lib/roles";
 import { useParams, useNavigate, type MetaFunction } from "react-router";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -143,7 +144,7 @@ function DangerZone({ isAdmin }: { isAdmin: boolean }) {
 
 export default function OrgGeneralSettings() {
   const { role } = useAuth();
-  const isAdmin = role === "admin" || role === "owner";
+  const isAdmin = isOrgAdmin(role);
 
   return (
     <>

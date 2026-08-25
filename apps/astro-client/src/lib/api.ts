@@ -2332,11 +2332,16 @@ export interface BillingUsageRow {
   groups?: Record<string, number | null>;
 }
 
-export type BillingRecord = Record<string, unknown>;
-
-export interface BillingBalances {
-  credits: BillingRecord[];
-  commits: BillingRecord[];
+// One day's rated spend (dollars), summed across every billable metric.
+// Unlike BillingUsageRow, this is already priced: it comes from the
+// provider's invoice breakdown, not the raw usage list, which is the only
+// way to get a dollar figure for a quantity metric like Compute Units.
+// by_product breaks the same total down by line item name (for example
+// "Compute Units" against "LLM Usage"), already rated the same way.
+export interface DailySpendPoint {
+  day: string;
+  amount: number;
+  by_product?: Record<string, number>;
 }
 
 export interface SavedCard {
@@ -2384,6 +2389,7 @@ export interface BillingSpend {
   plan?: string;
   current_spend: number;
   has_current_spend: boolean;
+  current_period_start?: string;
   current_period_end?: string;
   /** Usage before credit drawdown. This is what the thresholds measure, so it is
    *  the number to show beside them: an account on credit reads 0 for
@@ -2392,6 +2398,10 @@ export interface BillingSpend {
   has_usage_spend: boolean;
   credit_remaining: number;
   has_credit: boolean;
+  // Most recently finalized invoice, shown alongside the still-open period.
+  last_invoice_total?: number;
+  last_invoice_at?: string;
+  has_last_invoice: boolean;
   warning?: SpendThreshold;
   limit?: SpendThreshold;
   usage?: Record<string, UsageThresholds>;
@@ -2411,12 +2421,6 @@ export interface SpendThreshold {
 
 /** Replaces both controls. A null clears that one. */
 export interface SpendThresholdsInput {
-  warning: number | null;
-  limit: number | null;
-}
-
-export interface UsageThresholdsInput {
-  metric: string;
   warning: number | null;
   limit: number | null;
 }
@@ -3995,6 +3999,18 @@ class ApiClient {
     );
   }
 
+  async getBillingDailySpend(
+    account: string,
+    params?: { from?: string; to?: string },
+  ): Promise<BillingDataResponse<DailySpendPoint[]>> {
+    const qs = params
+      ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][])}`
+      : "";
+    return this.request<BillingDataResponse<DailySpendPoint[]>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/usage/daily-spend${qs}`
+    );
+  }
+
   async getBillingInvoices(
     account: string,
   ): Promise<BillingDataResponse<BillingInvoice[]>> {
@@ -4010,14 +4026,6 @@ class ApiClient {
     );
     if (!res.ok) throw new Error(`Failed to load invoice PDF (${res.status})`);
     return res.blob();
-  }
-
-  async getBillingBalances(
-    account: string,
-  ): Promise<BillingDataResponse<BillingBalances>> {
-    return this.request<BillingDataResponse<BillingBalances>>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/billing/balances`
-    );
   }
 
   async createSetupIntent(account: string): Promise<SetupIntentResponse> {
@@ -4049,16 +4057,6 @@ class ApiClient {
   ): Promise<BillingDataResponse<unknown>> {
     return this.request<BillingDataResponse<unknown>>(
       `/api/v1/accounts/${encodeURIComponent(account)}/billing/spend/thresholds`,
-      { method: 'PUT', body: JSON.stringify(thresholds) }
-    );
-  }
-
-  async setBillingUsageThresholds(
-    account: string,
-    thresholds: UsageThresholdsInput,
-  ): Promise<BillingDataResponse<unknown>> {
-    return this.request<BillingDataResponse<unknown>>(
-      `/api/v1/accounts/${encodeURIComponent(account)}/billing/usage/thresholds`,
       { method: 'PUT', body: JSON.stringify(thresholds) }
     );
   }

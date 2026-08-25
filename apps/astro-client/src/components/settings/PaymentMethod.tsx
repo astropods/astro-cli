@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { CreditCard } from "lucide-react";
 import { loadStripe, type Appearance, type Stripe } from "@stripe/stripe-js";
@@ -12,8 +12,10 @@ import { PaymentIcon } from "react-svg-credit-card-payment-icons";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { RemovePaymentMethodDialog } from "@/components/settings/RemovePaymentMethodDialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tag } from "@/components/Tag";
+import { LoadError } from "@/components/settings/SettingsShared";
 import {
   Dialog,
   DialogContent,
@@ -21,10 +23,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api, type SavedCard } from "@/lib/api";
+import { type SavedCard } from "@/lib/api";
 import { useResolvedTheme } from "@/lib/theme";
+import { useAuth } from "@/lib/auth";
 import {
   useConfirmPaymentMethod,
+  useCreateSetupIntent,
   usePaymentMethod,
 } from "@/api/queries/billing";
 
@@ -145,39 +149,44 @@ function AddCardDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const isDark = useResolvedTheme() === "dark";
   const appearance = useMemo(() => buildStripeAppearance(isDark), [isDark]);
+  const setupIntent = useCreateSetupIntent(account);
+  const attempt = useRef(0);
 
-  // On open, start a SetupIntent and load Stripe.js with the returned key.
-  useEffect(() => {
-    if (!open) {
-      setClientSecret(null);
-      setStripePromise(null);
-      setError(null);
-      return;
-    }
-    let cancelled = false;
-    api
-      .createSetupIntent(account)
-      .then((res) => {
-        if (cancelled) return;
-        if (!res.publishable_key) {
-          setError("Payments are not configured.");
-          return;
-        }
+  // `attempt` guards a slow response (initial open or retry) from landing
+  // after a newer one, or after close. stripePromise and clientSecret are
+  // set together here, not read separately off setupIntent.data, so a stale
+  // response can't pair Elements with a mismatched secret.
+  function startSetupIntent() {
+    const mine = ++attempt.current;
+    setupIntent.mutate(undefined, {
+      onSuccess: (res) => {
+        if (mine !== attempt.current || !res.publishable_key) return;
         setStripePromise(loadStripe(res.publishable_key));
         setClientSecret(res.client_secret);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Couldn't start card setup. Please try again.");
-      });
-    return () => {
-      cancelled = true;
-    };
+      },
+    });
+  }
+
+  useEffect(() => {
+    if (!open) {
+      // Bump attempt so a request already in flight when the dialog closes
+      // fails its own mine !== attempt.current check instead of writing a
+      // stale secret into state once it answers.
+      attempt.current++;
+      setStripePromise(null);
+      setClientSecret(null);
+      setupIntent.reset();
+      return;
+    }
+    startSetupIntent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, account]);
+
+  const notConfigured = setupIntent.isSuccess && !setupIntent.data?.publishable_key;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -189,8 +198,15 @@ function AddCardDialog({
             against your monthly usage.
           </DialogDescription>
         </DialogHeader>
-        {error ? (
-          <p className="py-4 text-body-sm text-destructive">{error}</p>
+        {setupIntent.isError ? (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <p className="text-body-sm text-destructive">Couldn't start card setup.</p>
+            <Button size="sm" variant="outline" disabled={setupIntent.isPending} onClick={startSetupIntent}>
+              Retry
+            </Button>
+          </div>
+        ) : notConfigured ? (
+          <p className="py-4 text-body-sm text-destructive">Payments are not configured.</p>
         ) : clientSecret && stripePromise ? (
           <Elements stripe={stripePromise} options={{ clientSecret, appearance }}>
             <CardForm account={account} onDone={() => onOpenChange(false)} />
@@ -205,24 +221,63 @@ function AddCardDialog({
   );
 }
 
+/** One row of the payment details card: a label on the left, its value (or a
+ *  loading/empty placeholder) on the right. */
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-border/60 py-3 first:border-0">
+      <span className="text-body-sm text-foreground">{label}</span>
+      <span className="text-body-sm text-muted-foreground">{children}</span>
+    </div>
+  );
+}
+
+// Card presence decides the header buttons (Add vs Update/Remove); a shaped
+// skeleton avoids flashing the no-card state before the query settles.
+function PaymentMethodSkeleton() {
+  return (
+    <Card id="payment-details" className="flex flex-col gap-1 p-5">
+      <div className="flex items-center justify-between gap-3 pb-2">
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-8 w-28" />
+      </div>
+      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-9 w-full" />
+      <Skeleton className="h-9 w-full" />
+    </Card>
+  );
+}
+
+// Payment method, billing cycle, and billing email in one card; only the
+// card has its own write path (Stripe) — the other two are read-only facts.
 export function PaymentMethod({ account }: { account: string }) {
-  const { data, isLoading } = usePaymentMethod(account);
+  const { data, isLoading, isLoadingError, refetch } = usePaymentMethod(account);
+  const { user } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
 
+  if (isLoading) return <PaymentMethodSkeleton />;
+  if (isLoadingError) {
+    return (
+      <div id="payment-details">
+        <LoadError onRetry={() => refetch()} />
+      </div>
+    );
+  }
+
   // Payments aren't configured for this environment (no Stripe) — show a
   // "coming soon" placeholder instead of a working card form.
-  const notAvailable = !isLoading && !!data && !data.available;
+  const notAvailable = !!data && !data.available;
   if (notAvailable) {
     return (
-      <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4">
+      <Card id="payment-details" className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="flex items-center gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
             <CreditCard size={16} className="text-muted-foreground" />
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <span className="text-body-sm font-medium text-foreground">Payment method</span>
+              <span className="text-body-sm font-medium text-foreground">Payment details</span>
               <Tag color="blue">Coming soon</Tag>
             </div>
             <span className="text-body-sm text-muted-foreground">
@@ -241,43 +296,34 @@ export function PaymentMethod({ account }: { account: string }) {
 
   return (
     <>
-      <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4">
-        <div className="flex items-center gap-3">
-          {card ? (
-            <CardBrandIcon brand={card.brand} />
-          ) : (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
-              <CreditCard size={16} className="text-muted-foreground" />
-            </div>
-          )}
-          <div className="flex flex-col">
-            <span className="text-body-sm font-medium text-foreground">Payment method</span>
-            {isLoading ? (
-              <span className="text-body-sm text-muted-foreground">Loading…</span>
-            ) : card ? (
-              <span className="text-body-sm text-muted-foreground">
-                {formatBrand(card.brand)} •••• {card.last4} · Expires{" "}
-                {String(card.exp_month).padStart(2, "0")}/{String(card.exp_year).slice(-2)}
-              </span>
-            ) : (
-              <span className="text-body-sm text-muted-foreground">No payment method on file</span>
+      <Card id="payment-details" className="flex flex-col gap-1 p-5">
+        <div className="flex items-center justify-between gap-3 pb-2">
+          <h3 className="text-heading-4 text-foreground">Payment details</h3>
+          <div className="flex items-center gap-2">
+            {card && (
+              <Button size="sm" variant="ghost" onClick={() => setRemoveOpen(true)}>
+                Remove
+              </Button>
             )}
+            <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
+              {card ? "Update" : "Add credit card"}
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {card && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setRemoveOpen(true)}
-            >
-              Remove
-            </Button>
+
+        <DetailRow label="Payment method">
+          {card ? (
+            <span className="flex items-center gap-2">
+              <CardBrandIcon brand={card.brand} />
+              {formatBrand(card.brand)} •••• {card.last4} · Expires{" "}
+              {String(card.exp_month).padStart(2, "0")}/{String(card.exp_year).slice(-2)}
+            </span>
+          ) : (
+            "No payment method on file"
           )}
-          <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
-            {card ? "Update card" : "Add credit card"}
-          </Button>
-        </div>
+        </DetailRow>
+        <DetailRow label="Billing cycle">Monthly</DetailRow>
+        <DetailRow label="Billing email">{user?.email ?? "—"}</DetailRow>
       </Card>
 
       <AddCardDialog account={account} open={dialogOpen} onOpenChange={setDialogOpen} />

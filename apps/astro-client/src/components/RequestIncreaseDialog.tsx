@@ -11,21 +11,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useRequestQuotaIncrease } from "@/api/queries/usage";
-import type { UsageMeter } from "@/lib/api";
+import { getApiErrorMessage, type UsageMeter } from "@/lib/api";
+import { formatNumber } from "@/lib/format-utils";
 
-export function formatNumber(value: number, decimals = 1): string {
-  if (value === 0) return "0";
-  if (value < 0.01) return "< 0.01";
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: decimals,
-  });
-}
-
-// Display metadata for quota feature keys. Shared by the request dialog's
-// feature picker and the quota-requests table. Only count-enforced resources
-// are quotas; metered features (compute, knowledge storage/compute) are gated
-// by billing and are not requestable here.
+// Display metadata for quota feature keys, shared by the feature picker and
+// the requests table. Metered features (compute, knowledge storage/compute)
+// are billing-gated, not requestable here.
 export const meterMeta: Record<string, { label: string; unit?: string; decimals?: number }> = {
   agent_builds:        { label: "Agent Builds",         unit: "builds" },
   agent_deployments:   { label: "Deployments" },
@@ -68,7 +59,9 @@ export function RequestIncreaseDialog({
 }: RequestIncreaseDialogProps) {
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
+  const [reasonTouched, setReasonTouched] = useState(false);
   const mutation = useRequestQuotaIncrease(account);
+  const reasonMissing = reasonTouched && !reason.trim();
 
   // Picker mode: the dialog owns the selected feature. Default to the first
   // feature that has a quota (an unlimited feature has nothing to raise).
@@ -87,6 +80,7 @@ export function RequestIncreaseDialog({
     if (!next) {
       setReason("");
       setAmount("");
+      setReasonTouched(false);
       mutation.reset();
     }
     onOpenChange(next);
@@ -94,6 +88,10 @@ export function RequestIncreaseDialog({
 
   const handleSubmit = () => {
     if (!activeKey) return;
+    if (!reason.trim()) {
+      setReasonTouched(true);
+      return;
+    }
     mutation.mutate(
       {
         feature_key: activeKey,
@@ -104,9 +102,7 @@ export function RequestIncreaseDialog({
       },
       {
         onSuccess: () => {
-          onOpenChange(false);
-          setReason("");
-          setAmount("");
+          handleOpenChange(false);
           toast.success("Quota increase requested");
         },
       },
@@ -178,19 +174,16 @@ export function RequestIncreaseDialog({
               rows={3}
               className="mt-1 w-full rounded border border-border bg-surface px-3 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary resize-none"
             />
+            {reasonMissing && <p className="mt-1 text-[12px] text-destructive">A reason is required.</p>}
           </div>
           {mutation.error && (
             <p className="text-[12px] text-destructive">
-              {mutation.error.message}
+              {getApiErrorMessage(mutation.error, "Couldn't submit the request.")}
             </p>
           )}
         </div>
         <DialogFooter>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!reason.trim() || !activeKey || mutation.isPending}
-          >
+          <Button size="sm" onClick={handleSubmit} disabled={!activeKey || mutation.isPending}>
             {mutation.isPending ? (
               <>
                 <Loader2 size={12} className="mr-1 animate-spin" />

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { dayKeyFromISO, dayKeysForRange, utcDayKey } from "./date-utils";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dayKeyFromISO, dayKeysForRange, formatDayKey, formatShortDate, formatShortDateLocal, utcDayKey } from "./date-utils";
 
 describe("dayKeysForRange", () => {
   // The axis has to end where the data ends. The rollup-backed path reports
@@ -45,5 +45,35 @@ describe("dayKeyFromISO", () => {
     expect(dayKeyFromISO(undefined)).toBeUndefined();
     expect(dayKeyFromISO("")).toBeUndefined();
     expect(dayKeyFromISO("nonsense")).toBeUndefined();
+  });
+});
+
+describe("formatting billing dates west of Greenwich", () => {
+  const tz = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    process.env.TZ = tz;
+  });
+
+  // The provider sends period boundaries as UTC midnight. Rendering those in
+  // local time moved every one of them to the previous day for the Americas,
+  // so an invoice for the 11th read as the 10th and every chart bar was
+  // labelled a day early.
+  it("names the UTC day for a period boundary", () => {
+    expect(formatShortDate("2026-09-11T00:00:00Z")).toBe("Sep 11, 2026");
+  });
+
+  it("names the UTC day for a chart bucket key", () => {
+    expect(formatDayKey("2026-08-11")).toBe("Aug 11");
+  });
+
+  // formatShortDateLocal is the opposite call for the opposite kind of
+  // timestamp: a real instant a user experienced in their own evening, not a
+  // provider-reported UTC-midnight boundary. It should stay on the viewer's
+  // own day instead of jumping to the next UTC day like formatShortDate would.
+  it("names the viewer's own day for a late-evening instant, not the UTC day", () => {
+    expect(formatShortDateLocal("2026-08-24T03:00:00Z")).toBe("Aug 23, 2026");
   });
 });

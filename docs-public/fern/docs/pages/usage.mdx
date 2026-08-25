@@ -1,0 +1,32 @@
+---
+title: Usage
+subtitle: See what an account has spent and created this period, and request more of a capped resource
+slug: usage
+---
+
+Open **Usage** in your account settings (or an organization's settings, for an org account) to see what the account has spent and created this billing period.
+
+## Spend this period
+
+The page totals spend against the account's [spend limit](/usage-limits), split into two streams:
+
+- **Compute** — agent runtime, across every deployed agent.
+- **Models** — LLM usage through the [AI Gateway](/ai-gateway).
+
+Below the total, a chart breaks spend down by day, in US dollars, across both streams.
+
+## Resource limits
+
+**Resource limits** lists what the account has created against what it's allowed: agent builds, deployments, blueprints, members, knowledge stores, and PrivateLink endpoints. A resource with no cap shows as unlimited.
+
+Owners and admins can request a higher limit for one of these resources. A request starts pending; the account's past requests and their status (pending, approved, or denied) stay listed in the same section.
+
+## Who can see this page
+
+Every personal account's owner can see their own usage. For an organization, only admins and owners can open Usage or request a limit increase; other members don't see it in navigation, and a direct link shows an access-denied message instead of the page.
+
+## Next steps
+
+- [Usage limits](/usage-limits)
+- [AI Gateway](/ai-gateway)
+- [Working with accounts](/accounts)

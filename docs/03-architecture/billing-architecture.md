@@ -772,14 +772,37 @@ there will be.
 All reads go through TanStack Query hooks in `src/api/queries/billing.ts`. No
 component calls `api.*` for a read.
 
+Billing and Usage are separate settings pages (`/settings/billing`,
+`/settings/usage`, and their `org/:orgSlug` equivalents), not tabs on one page.
+Billing answers "can agents keep running"; Usage answers "where did the spend
+go".
+
 | Surface | File |
 |---|---|
 | Gating banner | `components/BillingStatusBanner.tsx` |
-| Billing settings page | `components/settings/BillingView.tsx` |
-| Card form (Stripe Elements) | `components/settings/PaymentMethod.tsx` |
-| Warning and limit | `components/settings/SpendControls.tsx` |
-| Which plan the account is on | `components/settings/PlanSummary.tsx` |
+| Billing settings page (pay-as-you-go card, payment details, invoices) | `components/settings/BillingView.tsx` |
+| The account's spend this period, its credit, and its limit, in one card | `components/settings/PayAsYouGoCard.tsx` |
+| The account-wide alert and spend limit, as one modal | `components/settings/ManageLimitsDialog.tsx` |
+| Card form (Stripe Elements) and the payment details card (card, billing cycle, billing email) | `components/settings/PaymentMethod.tsx` |
+| Usage settings page (spend header, daily usage, agent/model breakdown, resource limits) | `components/settings/UsageView.tsx` |
 | Shared copy | `lib/billing-copy.ts` |
+
+Per-metric usage limits (compute, AI Gateway) are gone from `ManageLimitsDialog`:
+the account sets one alert and one spend limit, not one per metric. This is a
+product decision, not a server limitation: `SetBillingUsageThresholds`, the
+`UsageMetric` enum, and the `/billing/usage/thresholds` route are unchanged
+server-side, so an account with a per-metric threshold set from before this
+change, or from outside this UI, keeps it and keeps enforcing it. `PayAsYouGoCard`
+still reads `BillingSpend.usage` to detect a pause caused by one of these, since
+the account can be stopped by a control the client no longer lets it set; it
+reports that as a generic "Usage limit reached" rather than naming the metric,
+since naming it would expose the concept the dialog no longer shows.
+
+The Usage page's Agents and Models tables read a `groups` field on
+`BillingUsageRow` that astro-server does not populate yet — see
+`docs/changelog/feat/billing-usage-split-2026-08-21.md` for what closing that
+gap needs. Until then the tables render an honest "not available yet" message
+rather than a number nobody rated.
 
 **The client composes no billing copy and re-derives no rule.** The banner
 renders the server's `gated` flag, the button and the agent tooltip come from the

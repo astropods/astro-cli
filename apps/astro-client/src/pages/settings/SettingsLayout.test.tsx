@@ -32,6 +32,7 @@ describe('SettingsLayout', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
     });
+    expect(screen.getAllByText('Usage').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Billing').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Variables & Secrets').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Connectors').length).toBeGreaterThan(0);

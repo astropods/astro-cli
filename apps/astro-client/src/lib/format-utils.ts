@@ -71,3 +71,14 @@ export function formatDateLong(dateStr: string, timezone?: string): string {
   const time = fmt({ hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   return `${month} ${dayNum}${suffix}, ${year} at ${time}`;
 }
+
+/** A count or rate for a usage meter: no trailing zeros, and a floor below
+ *  which an exact figure is noise rather than information. */
+export function formatNumber(value: number, decimals = 1): string {
+  if (value === 0) return "0";
+  if (value < 0.01) return "< 0.01";
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals,
+  });
+}

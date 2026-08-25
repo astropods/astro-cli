@@ -1,17 +1,16 @@
 import { useParams, Link, type MetaFunction } from 'react-router'
 import { isOrgAdmin } from "@/lib/roles";
 import { useAuth } from "@/lib/auth";
-import { BillingView } from "@/components/settings/BillingView";
+import { UsageView } from "@/components/settings/UsageView";
 
-export const meta: MetaFunction = () => [{ title: "Billing - Organization Settings | Astro" }];
+export const meta: MetaFunction = () => [{ title: "Usage - Organization Settings | Astro" }];
 
-export default function OrgBillingSettings() {
+export default function OrgUsageSettings() {
   const { orgSlug = '' } = useParams()
   const { role } = useAuth()
   const isAdmin = isOrgAdmin(role)
 
-  // Billing is restricted to org admins/owners. Guard direct navigation
-  // (the nav item is hidden for members, but the URL is still reachable).
+  // Nav hides this for members, but the URL is still reachable.
   if (!isAdmin) {
     return (
       <div className="flex items-center justify-center flex-1">
@@ -19,7 +18,7 @@ export default function OrgBillingSettings() {
           <h1 className="text-7xl font-extrabold mb-2">403</h1>
           <p className="text-xl font-semibold mb-2">Access denied</p>
           <p className="text-muted-foreground text-body-sm mb-6">
-            Only organization admins and owners can view billing.
+            Only organization admins and owners can view usage.
           </p>
           <Link
             to={`/settings/org/${orgSlug}/general`}
@@ -32,5 +31,5 @@ export default function OrgBillingSettings() {
     )
   }
 
-  return <BillingView account={orgSlug} />
+  return <UsageView account={orgSlug} canRequestIncrease={isAdmin} />
 }

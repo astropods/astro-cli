@@ -1,5 +1,7 @@
 import React from "react";
 import { CheckIcon } from "@heroicons/react/24/outline";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ActionPanel } from "@/components/ui/status-panel";
 import { cn } from "@/lib/utils";
 
 const headingClass = {
@@ -42,4 +44,42 @@ export function SavedIndicator({ visible }: { visible: boolean }) {
       Saved
     </span>
   );
+}
+
+/** Placeholder rows shaped like the content they stand in for, so a section
+ *  keeps its height and the page does not jump when the data lands. */
+export function LoadingRows({ rows = 3, className }: { rows?: number; className?: string }) {
+  return (
+    <div className={cn("flex flex-col gap-2", className)}>
+      {Array.from({ length: rows }, (_, i) => (
+        <Skeleton key={i} className="h-9 w-full" />
+      ))}
+    </div>
+  );
+}
+
+export function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface px-5 py-4">
+      <p className="text-body-sm text-muted-foreground">{message}</p>
+    </div>
+  );
+}
+
+export function Unavailable() {
+  return (
+    <EmptyState message="Billing isn't available for this account yet. Data appears here once billing is enabled." />
+  );
+}
+
+// A query failed (network error, 5xx), distinct from data.available being
+// false; conflating the two would tell a user mid-outage that billing is off.
+export function LoadError({
+  message = "Couldn't load this.",
+  onRetry,
+}: {
+  message?: string;
+  onRetry: () => void;
+}) {
+  return <ActionPanel tone="error" title={message} primaryLabel="Retry" onPrimary={onRetry} />;
 }

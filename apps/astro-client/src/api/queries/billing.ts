@@ -1,13 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { BillingDataResponse, BillingSpend, SpendThresholdsInput, UsageThresholds, UsageThresholdsInput } from '../../lib/api';
+import type { BillingDataResponse, BillingSpend, SpendThresholdsInput } from '../../lib/api';
 import { billingKeys } from './keys';
+import { downloadBlob } from '../../lib/download';
 
-export function useBillingUsage(account: string, params?: { from?: string; to?: string }) {
+// `enabled` also waits on the period window (resolved by a second query);
+// firing early bills a provider call for a window nothing renders.
+export function useBillingUsage(
+  account: string,
+  params?: { from?: string; to?: string },
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: billingKeys.usage(account, params?.from, params?.to),
     queryFn: () => api.getBillingUsage(account, params),
-    enabled: !!account,
+    enabled: !!account && (options?.enabled ?? true),
+    staleTime: 60_000,
+  });
+}
+
+// Same enabled-gating as useBillingUsage: the period window comes from a
+// second query, and firing early bills a provider call for a window
+// nothing renders.
+export function useBillingDailySpend(
+  account: string,
+  params?: { from?: string; to?: string },
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: billingKeys.dailySpend(account, params?.from, params?.to),
+    queryFn: () => api.getBillingDailySpend(account, params),
+    enabled: !!account && (options?.enabled ?? true),
     staleTime: 60_000,
   });
 }
@@ -21,22 +44,12 @@ export function useBillingInvoices(account: string) {
   });
 }
 
-export function useInvoicePdf(account: string, invoiceId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: billingKeys.invoicePdf(account, invoiceId),
-    queryFn: () => api.getInvoicePdf(account, invoiceId),
-    enabled: enabled && !!account && !!invoiceId,
-    staleTime: 5 * 60_000,
-    gcTime: 5 * 60_000,
-  });
-}
-
-export function useBillingBalances(account: string) {
-  return useQuery({
-    queryKey: billingKeys.balances(account),
-    queryFn: () => api.getBillingBalances(account),
-    enabled: !!account,
-    staleTime: 60_000,
+/** Not a query: a one-shot action on click, like useDownloadDeploymentFile. */
+export function useDownloadInvoicePdf(account: string) {
+  return useMutation({
+    mutationFn: async ({ invoiceId, filename }: { invoiceId: string; filename: string }) => {
+      downloadBlob(await api.getInvoicePdf(account, invoiceId), filename);
+    },
   });
 }
 
@@ -102,49 +115,6 @@ export function useSetBillingSpendThresholds(account: string) {
   });
 }
 
-export function useSetBillingUsageThresholds(account: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (thresholds: UsageThresholdsInput) => {
-      const result = await api.setBillingUsageThresholds(account, thresholds);
-      assertWritten(result);
-      return result;
-    },
-    onSuccess: (_result, thresholds) => {
-      qc.setQueryData<BillingDataResponse<BillingSpend>>(
-        billingKeys.spend(account),
-        (prev) => (prev?.available && prev.data ? seedUsageThresholds(prev, thresholds) : prev),
-      );
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.spend(account) });
-      qc.invalidateQueries({ queryKey: billingKeys.status(account) });
-    },
-  });
-}
-
-/** The saved cap, seeded per metric so the row keeps its number while the
- *  refetch is in flight. The spend row does the same; a row that only
- *  invalidates shows the previous value until the read lands. */
-function seedUsageThresholds(
-  prev: BillingDataResponse<BillingSpend>,
-  thresholds: UsageThresholdsInput,
-): BillingDataResponse<BillingSpend> {
-  const data = prev.data as BillingSpend;
-  const seed = (amount: number | null) =>
-    amount == null ? undefined : { amount, in_alarm: false };
-  const held = data.usage?.[thresholds.metric];
-  const seeded: UsageThresholds = {
-    unit: held?.unit ?? "",
-    warning: seed(thresholds.warning),
-    limit: seed(thresholds.limit),
-  };
-  return {
-    ...prev,
-    data: { ...data, usage: { ...data.usage, [thresholds.metric]: seeded } },
-  };
-}
-
 /** A cleared threshold is absent, not zero: zero is a cap at nothing. in_alarm is
  *  the provider's own evaluation, so a seeded value cannot claim it. */
 function seedThresholds(
@@ -161,6 +131,14 @@ function seedThresholds(
       limit: seed(thresholds.limit),
     },
   };
+}
+
+// Not a query: a SetupIntent is single-use, so this fires fresh per dialog
+// open rather than being cached like a read.
+export function useCreateSetupIntent(account: string) {
+  return useMutation({
+    mutationFn: () => api.createSetupIntent(account),
+  });
 }
 
 export function usePaymentMethod(account: string) {

@@ -1,3 +1,4 @@
+import { isOrgAdmin } from "@/lib/roles";
 /** Copy for the server's billing gating reasons, in one place so the account
  *  banner and the per-agent status cannot contradict each other. The server
  *  ranks the reasons (billing/status.go); the client only renders them. */
@@ -25,6 +26,20 @@ const ACTION_LABEL: Record<string, string> = {
   // rides in the body copy. Also the label for an action this build predates.
   contact_support: "View billing",
 };
+
+export function canManageBilling(role: string | null | undefined): boolean {
+  return isOrgAdmin(role);
+}
+
+// `role` is the session's active ORG role: null on a personal-account page,
+// wrongly denying that account's own owner. A personal account always passes.
+export function canManageAccountBilling(
+  account: string,
+  personalAccountName: string | undefined,
+  role: string | null | undefined,
+): boolean {
+  return account === personalAccountName || canManageBilling(role);
+}
 
 export function billingActionLabel(action: string | undefined): string {
   return (action && ACTION_LABEL[action]) || ACTION_LABEL.contact_support;

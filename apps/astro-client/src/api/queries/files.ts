@@ -3,6 +3,7 @@
  *  the same hooks work unchanged once a presigned object store lands. */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
+import { downloadBlob } from "@/lib/download";
 import { fileKeys } from "./keys";
 
 export function useDeploymentFiles(deploymentId: string, enabled = true) {
@@ -57,18 +58,7 @@ export function useDownloadDeploymentFile(deploymentId: string) {
   const api = useApiClient();
   return useMutation({
     mutationFn: async ({ key, name }: { key: string; name: string }) => {
-      const blob = await api.downloadDeploymentFile(deploymentId, key);
-      const objectUrl = URL.createObjectURL(blob);
-      try {
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = name;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-      } finally {
-        URL.revokeObjectURL(objectUrl);
-      }
+      downloadBlob(await api.downloadDeploymentFile(deploymentId, key), name);
     },
   });
 }

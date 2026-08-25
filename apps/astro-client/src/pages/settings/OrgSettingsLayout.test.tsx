@@ -83,6 +83,19 @@ describe('OrgSettingsLayout', () => {
     });
   });
 
+  it('shows Usage nav for admin and owner, hides it from members', async () => {
+    renderLayout('admin');
+    await waitFor(() => {
+      expect(screen.getAllByText('Usage').length).toBeGreaterThan(0);
+    });
+    cleanup();
+    renderLayout('member');
+    await waitFor(() => {
+      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryAllByText('Usage')).toHaveLength(0);
+  });
+
   it('shows Experiments after Audit Log for admins and hides it from members', async () => {
     renderLayout('admin');
     await waitFor(() => expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0));

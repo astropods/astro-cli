@@ -43,3 +43,38 @@ export function dayKeyFromISO(iso: string | undefined): string | undefined {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? undefined : utcDayKey(d);
 }
+
+// ISO timestamp as "Aug 18, 2026", UTC-pinned: billing period boundaries
+// arrive as UTC midnight, and local-time would shift them a day west of
+// Greenwich.
+export function formatShortDate(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// Same as formatShortDate but in the viewer's own zone, for an actual
+// instant (something a user did) rather than a provider-reported boundary.
+export function formatShortDateLocal(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+// "YYYY-MM-DD" UTC day key as "Aug 18", for an axis bucketed by utcDayKey.
+export function formatDayKey(key: string): string {
+  const d = new Date(`${key}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return key;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+}
