@@ -28,6 +28,21 @@ func setupAgentRedeployTest(t *testing.T, handler http.Handler) {
 	})
 }
 
+func setRedeployFlag(t *testing.T, name, value string) {
+	t.Helper()
+	flags := agentRedeployCmd.Flags()
+	require.NoError(t, flags.Set(name, value))
+	t.Cleanup(func() {
+		f := flags.Lookup(name)
+		if sv, ok := f.Value.(interface{ Replace([]string) error }); ok {
+			require.NoError(t, sv.Replace(nil))
+		} else {
+			require.NoError(t, f.Value.Set(f.DefValue))
+		}
+		f.Changed = false
+	})
+}
+
 func TestRunAgentRedeploy(t *testing.T) {
 	deployments := []agentDeployment{
 		{ID: "dep-123", Name: "weather-bp", DisplayName: "weather-agent", BuildID: "build-abc", Status: "active"},
@@ -240,8 +255,7 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	var captured deployTemplateRequest
 	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
 
-	require.NoError(t, agentRedeployCmd.Flags().Set("adapter", "slack"))
-	t.Cleanup(func() { agentRedeployCmd.Flags().Set("adapter", "") }) //nolint:errcheck
+	setRedeployFlag(t, "adapter", "slack")
 
 	buf := &bytes.Buffer{}
 	agentRedeployCmd.SetOut(buf)
@@ -254,6 +268,39 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	assert.Nil(t, captured.Interfaces.Auth, "slack adapter should have no auth")
 }
 
+func TestRunAgentRedeployPassesCluster(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
+
+	setRedeployFlag(t, "cluster", "us-east-1-managed")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Equal(t, "us-east-1-managed", captured.ClusterID)
+}
+
+func TestRunAgentRedeployKeepsCurrentClusterByDefault(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
+	stubInteractiveTerminal(t, true)
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Empty(t, captured.ClusterID)
+}
+
 func TestRunAgentRedeployInvalidAdapterBeforeAPICall(t *testing.T) {
 	apiCalled := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +309,7 @@ func TestRunAgentRedeployInvalidAdapterBeforeAPICall(t *testing.T) {
 	})
 	setupAgentRedeployTest(t, handler)
 
-	require.NoError(t, agentRedeployCmd.Flags().Set("adapter", "xyz"))
+	setRedeployFlag(t, "adapter", "xyz")
 
 	agentRedeployCmd.SetOut(&bytes.Buffer{})
 	agentRedeployCmd.SetContext(context.Background())

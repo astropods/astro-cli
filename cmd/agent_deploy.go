@@ -11,6 +11,8 @@ import (
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/tui"
 )
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
@@ -77,7 +79,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
-	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account's default cluster)")
+	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
 	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
 	cmd.Flags().Bool("json", false, "Print JSON output on success")
 	cmd.Flags().Bool("wait", false, "Wait until the public Launch URL is ready")
@@ -228,6 +230,10 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 
 	clusterID, err := resolveDeployCluster(cmd, at, verbose)
 	if err != nil {
+		if errors.Is(err, tui.ErrCancelled) {
+			printCancelled(cmd.OutOrStdout())
+			return nil
+		}
 		return err
 	}
 
@@ -259,6 +265,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if status == http.StatusNotFound {
 			return notFoundFromTemplateErr(err, at.Account, name, req.Build)
+		}
+		if status == http.StatusForbidden {
+			if clusterErr := clusterNotAvailableFromErr(err); clusterErr != nil {
+				return clusterErr
+			}
 		}
 		return err
 	}

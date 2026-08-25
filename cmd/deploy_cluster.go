@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 
@@ -10,7 +11,6 @@ import (
 	"golang.org/x/term"
 )
 
-// allowedCluster is one cluster an account may deploy to, from GET /accounts/:account.
 type allowedCluster struct {
 	ClusterID   string `json:"cluster_id"`
 	Region      string `json:"region"`
@@ -23,9 +23,10 @@ type accountClustersResponse struct {
 	AllowedClusters []allowedCluster `json:"allowed_clusters"`
 }
 
-// fetchAllowedClusters returns the clusters the account may deploy to. A
-// failure is not fatal: the caller falls back to the account's default cluster,
-// which is what an empty cluster_id already asks the server for.
+var interactiveTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
 func fetchAllowedClusters(ctx context.Context, at AccountToken, verbose bool) []allowedCluster {
 	u := apiPath(blueprintBaseURL(), at.Account, "accounts")
 	var resp accountClustersResponse
@@ -35,46 +36,64 @@ func fetchAllowedClusters(ctx context.Context, at AccountToken, verbose bool) []
 	return resp.AllowedClusters
 }
 
-// resolveDeployCluster decides which cluster a deploy targets. An explicit
-// --cluster wins. Otherwise, an account allowed more than one cluster gets an
-// interactive prompt, and everything else defers to the account default by
-// leaving the value empty.
-func resolveDeployCluster(cmd *cobra.Command, at AccountToken, verbose bool) (string, error) {
-	flagValue, _ := cmd.Flags().GetString("cluster")
-	if flagValue != "" {
-		return flagValue, nil
+func clusterRegionLabel(c allowedCluster) string {
+	flag := c.RegionFlag
+	if flag == "" {
+		flag = "🌐"
 	}
-
-	allowed := fetchAllowedClusters(cmd.Context(), at, verbose)
-	if len(allowed) < 2 || !interactiveTerminal() {
-		return "", nil
+	label := c.RegionLabel
+	if label == "" {
+		label = c.Region
 	}
+	if label == "" {
+		label = c.ClusterID
+	}
+	if c.IsDefault {
+		label += "  Default"
+	}
+	return flag + "  " + label
+}
 
+func clusterPromptOptions(allowed []allowedCluster) ([]huh.Option[string], string) {
+	if len(allowed) == 0 {
+		return nil, ""
+	}
 	options := make([]huh.Option[string], 0, len(allowed))
 	selected := allowed[0].ClusterID
 	for _, c := range allowed {
-		label := c.RegionLabel
-		if label == "" {
-			label = c.Region
-		}
-		if label == "" {
-			label = c.ClusterID
-		}
-		if c.RegionFlag != "" {
-			label = c.RegionFlag + "  " + label
-		}
 		if c.IsDefault {
-			label += " (default)"
 			selected = c.ClusterID
 		}
-		options = append(options, huh.NewOption(label, c.ClusterID))
+		options = append(options, huh.NewOption(clusterRegionLabel(c), c.ClusterID))
+	}
+	return options, selected
+}
+
+func deployClusterPromptSuppressed(cmd *cobra.Command) bool {
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	return dryRun || jsonOut
+}
+
+func resolveDeployCluster(cmd *cobra.Command, at AccountToken, verbose bool) (string, error) {
+	if flagValue, _ := cmd.Flags().GetString("cluster"); flagValue != "" {
+		return flagValue, nil
+	}
+	if deployClusterPromptSuppressed(cmd) || !interactiveTerminal() {
+		return "", nil
 	}
 
+	allowed := fetchAllowedClusters(cmd.Context(), at, verbose)
+	if len(allowed) < 2 {
+		return "", nil
+	}
+
+	options, selected := clusterPromptOptions(allowed)
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Select region").
-				Description("Where this agent runs. You cannot change it after deploying.").
+				Description(msgSelectRegionDescription()).
 				Options(options...).
 				Value(&selected),
 		),
@@ -85,8 +104,14 @@ func resolveDeployCluster(cmd *cobra.Command, at AccountToken, verbose bool) (st
 	return selected, nil
 }
 
-// interactiveTerminal reports whether prompting the user is possible, so a CI
-// deploy silently takes the account default instead of hanging on a form.
-func interactiveTerminal() bool {
-	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+func clusterNotAvailableFromErr(err error) error {
+	_, body := apiErrorCodeAndBody(err)
+	var parsed struct {
+		ClusterID         string   `json:"cluster_id"`
+		AvailableClusters []string `json:"available_clusters"`
+	}
+	if json.Unmarshal([]byte(body), &parsed) != nil || parsed.ClusterID == "" {
+		return nil
+	}
+	return errClusterNotAvailable(parsed.ClusterID, parsed.AvailableClusters)
 }
