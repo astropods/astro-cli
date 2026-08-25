@@ -31,6 +31,15 @@ tasks:
       - "go.mod"
       - "go.sum"
 
+  # Billing suite. Needs no Postgres, Kubernetes, or browser.
+  test-billing:
+    command: "bash scripts/test-billing.sh"
+    inputs:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "scripts/test-billing.sh"
+
   # Code quality
   fmt:
     command: "go fmt ./..."

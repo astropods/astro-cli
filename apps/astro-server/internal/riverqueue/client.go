@@ -377,6 +377,17 @@ func (q *Queue) InsertBillingResume(ctx context.Context, accountID string) error
 	return err
 }
 
+// InsertBillingGatewayBudget enqueues a re-derive of the account's AI gateway
+// spend ceiling.
+//
+// Deliberately not gated. The ceiling is a provider-side limit rather than an
+// action against the account's workloads, and leaving it stale with enforcement
+// off would let a card-less account keep the wider one.
+func (q *Queue) InsertBillingGatewayBudget(ctx context.Context, accountID string) error {
+	_, err := q.Insert(ctx, BillingGatewayBudgetArgs{AccountID: accountID}, nil)
+	return err
+}
+
 // InsertBillingCollect enqueues a charge attempt against an account's open
 // invoices.
 //

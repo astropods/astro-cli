@@ -72,10 +72,20 @@ type KeyResponse struct {
 	KeyID string
 }
 
-// monthlyBudgetUSD is the per-account (customer) spend cap applied to every
-// virtual key, resetting monthly. Every VK is associated with the account as a
-// Bifrost customer, so usage rolls up per account.
-const monthlyBudgetUSD = 20.00
+// Fallback monthly gateway ceilings, for an account that has set no spend limit
+// of its own. Held on the account's Bifrost customer and inherited by every
+// virtual key under it. Where a limit exists the ceiling tracks it instead: a
+// customer sets one limit for total account spend, so a separate gateway number
+// would cap them below the figure they chose. CardlessBudgetUSD matches the
+// signup credit, which is the whole of what an account without a card can be
+// charged.
+//
+// Neither is a hard stop: the gateway authorizes a request before the provider
+// reports its cost, so concurrent traffic overshoots by the requests in flight.
+const (
+	CardlessBudgetUSD = 10.00
+	CardedBudgetUSD   = 20.00
+)
 
 // bifrostVKRequest is the POST /api/governance/virtual-keys payload.
 type bifrostVKRequest struct {
@@ -183,8 +193,9 @@ type bifrostCustomerList struct {
 	} `json:"customers"`
 }
 
-// CreateCustomer creates a Bifrost customer named accountID carrying the monthly
-// per-account budget, and returns its server-generated id. Idempotent: if a
+// CreateCustomer creates a Bifrost customer named accountID carrying the
+// card-less monthly budget, and returns its server-generated id. A new customer
+// has no card by definition; SetCustomerBudget widens it when one arrives. Idempotent: if a
 // customer with that name already exists (409), it looks up and returns the
 // existing id (covers a prior create whose id wasn't persisted).
 func (c *Client) CreateCustomer(ctx context.Context, accountID string) (string, error) {
@@ -193,7 +204,7 @@ func (c *Client) CreateCustomer(ctx context.Context, accountID string) (string, 
 	}
 	body := bifrostCustomerRequest{
 		Name:    accountID,
-		Budgets: []bifrostBudget{{MaxLimit: monthlyBudgetUSD, ResetDuration: "1M"}},
+		Budgets: []bifrostBudget{{MaxLimit: CardlessBudgetUSD, ResetDuration: monthlyReset}},
 	}
 	var out bifrostCustomerResponse
 	err := c.do(ctx, http.MethodPost, "/api/governance/customers", body, &out)
@@ -220,6 +231,35 @@ func (c *Client) findCustomerByName(ctx context.Context, name string) (string, e
 		}
 	}
 	return "", fmt.Errorf("ai gateway: customer %q exists but was not found in list", name)
+}
+
+// monthlyReset is the budget window, and the key the gateway matches an update
+// on. Naming a window the customer already has rewrites that budget in place;
+// naming a different one leaves the old budget in force beside a new one.
+const monthlyReset = "1M"
+
+// bifrostCustomerUpdate is the PUT /api/governance/customers/{id} payload. Only
+// budgets is sent; every omitted field is left as it is.
+type bifrostCustomerUpdate struct {
+	Budgets []bifrostBudget `json:"budgets"`
+}
+
+// SetCustomerBudget rewrites the customer's monthly spend ceiling. Usage accrued
+// in the open window carries over, so lowering the ceiling below what an account
+// already spent stops it at once rather than granting a fresh window.
+func (c *Client) SetCustomerBudget(ctx context.Context, customerID string, maxLimitUSD float64) error {
+	if customerID == "" {
+		return fmt.Errorf("ai gateway: SetCustomerBudget: customerID is required")
+	}
+	// The gateway rejects a zero limit, and a rejected update leaves the old one.
+	if maxLimitUSD < 0.01 {
+		maxLimitUSD = 0.01
+	}
+	body := bifrostCustomerUpdate{Budgets: []bifrostBudget{{MaxLimit: maxLimitUSD, ResetDuration: monthlyReset}}}
+	if err := c.do(ctx, http.MethodPut, "/api/governance/customers/"+customerID, body, nil); err != nil {
+		return fmt.Errorf("set customer budget: %w", err)
+	}
+	return nil
 }
 
 // vkName builds a human-readable, attribution-bearing name. The account-id is

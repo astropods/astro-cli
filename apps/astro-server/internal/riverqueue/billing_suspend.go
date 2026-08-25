@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/riverqueue/river"
+	"k8s.io/client-go/kubernetes"
 
+	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -53,23 +57,53 @@ type BillingSuspendWorker struct {
 	reg    *k8s.Registry
 	cache  k8scache.Cache
 	log    *logger.Logger
+
+	// Scaling deployments to zero stops only the traffic that starts in the
+	// cluster. Dev keys and the judge key answer from anywhere until revoked.
+	aigwProvisioner *aigateway.Provisioner
+	aigwDevStore    *aigateway.DevStore
+	aigwJudgeStore  *aigateway.JudgeStore
+
+	// Nil selects the real scale-to-zero; only a test without a cluster sets it.
+	stopWorkloads func(context.Context, kubernetes.Interface, string) error
+}
+
+func (w *BillingSuspendWorker) stopNamespace(ctx context.Context, cs kubernetes.Interface, ns string) error {
+	if w.stopWorkloads != nil {
+		return w.stopWorkloads(ctx, cs, ns)
+	}
+	return k8s.StopNamespaceWorkloads(ctx, cs, ns)
 }
 
 // reasonUnknown is recorded when the gating reason cannot be read. Readers pick
 // their copy from this code, so an unobserved reason must not be guessed at.
 const reasonUnknown = "unknown"
 
-// suspendReason resolves the account's gating reason once per job, so every
-// deployment in the job records the same snapshot.
-func (w *BillingSuspendWorker) suspendReason(ctx context.Context, accountID string) string {
+// A cluster that rejects one namespace usually rejects the next, so this waits.
+const suspendRetryDelay = time.Minute
+
+// retry keeps the job alive. River discards a plain error after MaxAttempts, and
+// a discarded suspension leaves the account spending; a snooze raises the
+// ceiling with it.
+func (w *BillingSuspendWorker) retry(accountID, stage string, err error) error {
+	w.log.Error("billing suspend: retrying", "account_id", accountID, "stage", stage, "error", err)
+	return river.JobSnooze(suspendRetryDelay)
+}
+
+// The status decides whether to act; the reason is the snapshot every
+// deployment in the job records.
+func (w *BillingSuspendWorker) suspendState(ctx context.Context, accountID string) (billing.Status, string, error) {
 	if w.status == nil {
-		return reasonUnknown
+		return billing.StatusSuspended, reasonUnknown, nil
 	}
-	_, reason, err := w.status.Get(ctx, accountID)
-	if err != nil || reason == "" {
-		return reasonUnknown
+	status, reason, err := w.status.Get(ctx, accountID)
+	if err != nil {
+		return "", "", fmt.Errorf("read billing status: %w", err)
 	}
-	return reason
+	if reason == "" {
+		reason = reasonUnknown
+	}
+	return status, reason, nil
 }
 
 // suspendEvent describes the stop on the deployment's timeline. Readers branch
@@ -97,31 +131,71 @@ func billingEventDetails(reason string) json.RawMessage {
 }
 
 func (w *BillingSuspendWorker) Work(ctx context.Context, job *river.Job[BillingSuspendArgs]) error {
+	// A retry can land after the account paid. Recovery already fired its resume,
+	// so suspending now would stop deployments that nothing brings back.
+	status, reason, err := w.suspendState(ctx, job.Args.AccountID)
+	if err != nil {
+		return w.retry(job.Args.AccountID, "read_status", err)
+	}
+	if status != billing.StatusSuspended {
+		w.log.Info("billing suspend: skipped, account not suspended", "account_id", job.Args.AccountID, "status", string(status))
+		return nil
+	}
+
 	deps, err := w.store.GetActiveDeploymentsByAccount(job.Args.AccountID)
 	if err != nil {
-		return err
+		return w.retry(job.Args.AccountID, "list_deployments", err)
 	}
-	event := suspendEvent(w.suspendReason(ctx, job.Args.AccountID))
+	event := suspendEvent(reason)
 	var suspended int
+	var failed []error
 	for _, dep := range deps {
 		client, err := suspendClusterClient(ctx, w.reg, dep)
 		if err != nil {
 			w.log.Error("billing suspend: cluster client", "deployment_id", dep.ID, "error", err)
+			failed = append(failed, fmt.Errorf("deployment %s: cluster client: %w", dep.ID, err))
 			continue
 		}
-		if err := k8s.StopNamespaceWorkloads(ctx, client.Clientset(), dep.Namespace); err != nil {
+		if err := w.stopNamespace(ctx, client.Clientset(), dep.Namespace); err != nil {
 			w.log.Error("billing suspend: stop workloads", "deployment_id", dep.ID, "error", err)
+			failed = append(failed, fmt.Errorf("deployment %s: stop workloads: %w", dep.ID, err))
 			continue
 		}
 		k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 		if err := w.store.UpdateStatus(dep.ID, event); err != nil {
 			w.log.Error("billing suspend: update status", "deployment_id", dep.ID, "error", err)
+			failed = append(failed, fmt.Errorf("deployment %s: update status: %w", dep.ID, err))
 			continue
 		}
 		suspended++
 	}
+	w.revokeGatewayKeys(ctx, job.Args.AccountID)
 	w.log.Info("billing suspend: completed", "account_id", job.Args.AccountID, "suspended", suspended, "total", len(deps))
-	return nil
+	if len(failed) == 0 {
+		return nil
+	}
+	return w.retry(job.Args.AccountID, "stop_deployments", errors.Join(failed...))
+}
+
+// revokeGatewayKeys cuts the spend paths that survive scaling deployments to
+// zero. Both kinds are re-minted on demand, so resume needs no counterpart.
+// Per-deployment keys stay: their workloads are already stopped, and the value
+// lives in a tenant Secret that resume re-applies rather than re-mints.
+// Best-effort, so a gateway outage cannot undo a suspension already applied.
+func (w *BillingSuspendWorker) revokeGatewayKeys(ctx context.Context, accountID string) {
+	if w.aigwProvisioner == nil {
+		return
+	}
+	if w.aigwDevStore != nil {
+		if err := w.aigwProvisioner.RevokeAccountDevKeys(ctx, w.aigwDevStore, accountID); err != nil {
+			w.log.Error("billing suspend: revoke dev keys", "account_id", accountID, "error", err)
+		}
+	}
+	if w.aigwJudgeStore != nil {
+		if err := w.aigwProvisioner.RevokeAccountJudgeKeys(ctx, w.aigwJudgeStore, accountID); err != nil {
+			w.log.Error("billing suspend: revoke judge key", "account_id", accountID, "error", err)
+		}
+	}
 }
 
 // suspendClusterClient resolves the client for dep. A row with no cluster_id
@@ -140,12 +214,17 @@ func suspendClusterClient(ctx context.Context, reg *k8s.Registry, dep *deploymen
 	return reg.Get(ctx, dep.EffectiveClusterID())
 }
 
+// Narrowed from *Queue so a test can observe the enqueue without a River client.
+type resumeQueue interface {
+	InsertWakeUpJob(ctx context.Context, deploymentID, clusterID string) error
+}
+
 // BillingResumeWorker re-provisions deployments that billing suspended, via the
 // existing wakeup path (status→pending, then wakeup re-applies manifests).
 type BillingResumeWorker struct {
 	river.WorkerDefaults[BillingResumeArgs]
 	store *deploymentstore.Store
-	queue *Queue
+	queue resumeQueue
 	log   *logger.Logger
 }
 

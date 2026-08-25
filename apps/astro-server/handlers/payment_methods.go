@@ -27,6 +27,7 @@ type billingReconcileQueue interface {
 	InsertBillingSuspend(ctx context.Context, accountID string) error
 	InsertBillingResume(ctx context.Context, accountID string) error
 	InsertBillingCollect(ctx context.Context, accountID, stripeCustomerID string) error
+	InsertBillingGatewayBudget(ctx context.Context, accountID string) error
 }
 
 // SetupIntentResponse carries the client secret + publishable key the frontend
@@ -179,7 +180,7 @@ func GetPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, pa
 }
 
 // DeletePaymentMethod handles DELETE /api/v1/accounts/:account/billing/payment-method.
-func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, paymentProvider payment.Provider, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -196,6 +197,31 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 			return
 		}
+		// Removing the card is the other way out of a bill. Deleting the account
+		// is refused for the same reason, and this door is cheaper to walk
+		// through: the spend stops but the accrued draft is never charged.
+		if billingProvider != nil {
+			billingCustomerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
+			if err != nil {
+				log.Error("payment methods: load billing customer id for removal failed", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove payment method"})
+				return
+			}
+			if billingCustomerID != "" {
+				owed, err := outstandingBalance(c.Request.Context(), billingProvider, billingStatus, acct.ID, billingCustomerID)
+				if err != nil {
+					log.Error("payment methods: read balance for removal failed", "error", err, "account_id", acct.ID, "billing_customer_id", billingCustomerID)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove payment method"})
+					return
+				}
+				if owed {
+					log.Info("payment methods: removal refused, outstanding balance", "account_id", acct.ID, "billing_customer_id", billingCustomerID)
+					c.JSON(http.StatusConflict, gin.H{"error": "this account has an outstanding balance; settle it before removing your payment method. To change cards, save the new one instead: it replaces the old card without leaving the account unpayable"})
+					return
+				}
+			}
+		}
+
 		if err := paymentProvider.RemoveCard(c.Request.Context(), customerID); err != nil {
 			log.Error("payment methods: remove payment method failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to remove payment method"})
@@ -218,7 +244,11 @@ func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusS
 	if status == nil {
 		return
 	}
-	ctx := c.Request.Context()
+	// The card is already saved, so everything from here has to outlive the
+	// request: a client that hangs up must not leave the status unwritten and
+	// the gateway ceiling stale.
+	ctx, cancel := reconcileContext(c)
+	defer cancel()
 	newStatus, changed, err := billing.ApplySignal(ctx, status, accountID, sig, time.Now())
 	if err != nil {
 		log.Error("payment methods: apply card billing signal failed", "error", err, "account_id", accountID, "signal", string(sig))
@@ -229,6 +259,11 @@ func applyCardSignal(c *gin.Context, log *logger.Logger, status *billing.StatusS
 	}
 	if queue == nil {
 		return
+	}
+	// A card is the fact the gateway ceiling is derived from, so it moves on the
+	// same signal that moves the status.
+	if err := queue.InsertBillingGatewayBudget(ctx, accountID); err != nil {
+		log.Error("payment methods: enqueue gateway budget after card change failed", "error", err, "account_id", accountID)
 	}
 	// Reconcile on every card change, not only on a transition, so a dropped
 	// enqueue is re-attempted by the next one. Suspend/resume are idempotent.

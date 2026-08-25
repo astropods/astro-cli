@@ -82,6 +82,22 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			},
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
+
+		// AI gateway budget sweep: re-derives every account's gateway ceiling from
+		// its spend limit and card. Runs on a shorter period than the other
+		// billing sweeps because the ceiling is enforced in real time, so drift
+		// here either blocks a paying customer or spends money we cannot collect.
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(15*time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return BillingGatewayBudgetSweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 15 * time.Minute,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
 	}
 
 	jobs = append(jobs, river.NewPeriodicJob(

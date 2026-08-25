@@ -489,7 +489,9 @@ func setupDeleteAccountTestWithJudgeKeys(t *testing.T, provisioner *aigateway.Pr
 		AIGateway: provisioner,
 		JudgeKeys: judgeStore,
 	}
-	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, deleter, nil))
+	// No billing provider: this case covers the delete sequence, and the balance
+	// gate is exercised in accounts_delete_balance_test.go.
+	router.DELETE("/api/v1/accounts/:account", DeleteAccount(log, deleter, nil, accountStore, nil, nil, ""))
 
 	return router, accountMock, deployMock, queue
 }

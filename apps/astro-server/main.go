@@ -1381,11 +1381,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountOwner.Use(middleware.ResolveAccount(accountStore))
 			accountOwner.Use(middleware.RequireAccountOwner(accountStore))
 			{
-				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, deps.Clients.AccountDeleter, auditStore),
+				api.DELETE(accountOwner, "", "Delete account", handlers.DeleteAccount(log, deps.Clients.AccountDeleter, auditStore, accountStore, billingProvider, deps.Stores.BillingStatus, cfg.BillingBackend()),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(409, &handlers.ErrorResponse{}),
 					oapispec.Response(500, &handlers.ErrorResponse{}),
 				)
 			}
@@ -1670,11 +1671,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider, deps.Stores.BillingStatus, queue),
+				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.MessageResponse{}),
+					oapispec.Response(409, &handlers.ErrorResponse{}),
+					oapispec.Response(500, &handlers.ErrorResponse{}),
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
@@ -1781,12 +1784,17 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				// dev` startup. Each call mints a fresh short-lived key; the
 				// LiteLLM-side TTL is the only lifecycle mechanism, so the CLI
 				// has no cleanup responsibility.
+				//
+				// Gated: this is the one spend path a suspended account can
+				// still reach, because unlike a deployment it needs no running
+				// workload.
 				api.POST(accountMember, "/ai-gateway-keys", "Issue an ephemeral AI Gateway key for local dev",
-					handlers.IssueAIGatewayDevKey(log, aiGatewayProvisioner, aiGatewayDevStore, deps.Vault),
+					ent.Wrap(handlers.IssueAIGatewayDevKey(log, aiGatewayProvisioner, aiGatewayDevStore, deps.Vault)),
 					oapispec.Tags("AI Gateway"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.AIGatewayKeyResponse{}),
+					oapispec.Response(402, &handlers.ErrorResponse{}),
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 					oapispec.Response(503, &handlers.ErrorResponse{}),
 				)

@@ -870,6 +870,49 @@ func (s *AccountStore) SetBifrostCustomerID(accountID, customerID string) error 
 	return nil
 }
 
+// ListStaleGatewayBudgetAccounts returns the accounts whose AI gateway ceiling
+// was applied longest ago, never-swept first.
+//
+// Ordering by staleness is what makes a bounded sweep cover everything: an
+// account left out of one tick becomes staler and sorts earlier in the next.
+// Ordering by id instead would mean the accounts past the bound are swept never
+// rather than late, because every tick would restart from the same end.
+func (s *AccountStore) ListStaleGatewayBudgetAccounts(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id FROM accounts
+		 WHERE bifrost_customer_id IS NOT NULL AND bifrost_customer_id <> ''
+		   AND deleted_at IS NULL
+		 ORDER BY gateway_budget_swept_at ASC NULLS FIRST
+		 LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stale gateway budget accounts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan account id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// MarkGatewayBudgetSwept stamps an attempt to apply the account's gateway
+// ceiling. Called after a failure as well, so one unreachable account cannot
+// hold the front of the sweep's worklist and starve the rest.
+func (s *AccountStore) MarkGatewayBudgetSwept(ctx context.Context, accountID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE accounts SET gateway_budget_swept_at = now() WHERE id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("failed to stamp gateway_budget_swept_at: %w", err)
+	}
+	return nil
+}
+
 // billingCustomerColumns whitelists the DB column holding the provider customer
 // ID for each billing backend. Backends without customer records (e.g. noop) are
 // absent, so the generic accessors below no-op for them.

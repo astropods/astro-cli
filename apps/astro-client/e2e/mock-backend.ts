@@ -728,6 +728,8 @@ const orgKnowledgeStores = [
 
 // GitHub state
 let githubAccountConnected = false;
+let savedCard: { brand: string; last4: string; exp_month: number; exp_year: number } | null = null;
+let billingOwesBalance = false;
 let githubConnections: Array<{ agent_name: string; repo_full_name: string; created_at: string }> = [];
 const githubRepos = [
   { full_name: "testuser/my-repo", default_branch: "main", private: false, permissions: { admin: true } },
@@ -885,6 +887,8 @@ Bun.serve({
       forceUnauth = false;
       createdBlueprints = new Set();
       githubAccountConnected = false;
+      savedCard = { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 };
+      billingOwesBalance = false;
       githubConnections = [];
       accountVariables = [];
       return json({ ok: true });
@@ -898,6 +902,13 @@ Bun.serve({
     }
 
     // Toggle unauthenticated mode for subsequent auth requests
+    // Mirrors the server's 409: removing the card is the other way out of a bill.
+    if (pathname === "/test/set-billing-owed" && request.method === "POST") {
+      const body = (await request.json()) as { owed: boolean };
+      billingOwesBalance = body.owed;
+      return json({ ok: true, owed: billingOwesBalance });
+    }
+
     if (pathname === "/test/set-unauth" && request.method === "POST") {
       const body = (await request.json()) as { unauth: boolean };
       forceUnauth = body.unauth;
@@ -1914,6 +1925,26 @@ Bun.serve({
         cost_over_time: [],
         cost_by_model: [],
       });
+    }
+
+    const paymentMethodMatch = pathname.match(
+      /^\/api\/v1\/accounts\/([^/]+)\/billing\/payment-method$/,
+    );
+    if (paymentMethodMatch && request.method === "GET") {
+      return json({ available: true, ...(savedCard ? { card: savedCard } : {}) });
+    }
+    if (paymentMethodMatch && request.method === "DELETE") {
+      if (billingOwesBalance) {
+        return json(
+          {
+            error:
+              "this account has an outstanding balance; settle it before removing your payment method. To change cards, save the new one instead: it replaces the old card without leaving the account unpayable",
+          },
+          409,
+        );
+      }
+      savedCard = null;
+      return json({ status: "ok" });
     }
 
     const accountUsageMatch = pathname.match(/^\/api\/v1\/accounts\/([^/]+)\/usage$/);

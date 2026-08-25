@@ -168,6 +168,15 @@ const (
 	SpendThresholdLimit   SpendThresholdKind = "limit"   // suspends the account
 )
 
+// MaxSelfServeSpendUSD is the highest monthly spend an account can put itself on
+// the hook for without a human. A limit is collectible only up to what the card
+// behind it settles, so an unbounded self-serve number is our exposure and not
+// the customer's. $1,000 is where both OpenAI and Anthropic end self-serve and
+// require an increase request, so past it an account should be talking to us.
+//
+// Dollars. Callers working in minor units scale it themselves.
+const MaxSelfServeSpendUSD = 1000.00
+
 // SpendThresholdReader reads the customer's own spend controls. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.
 type SpendThresholdReader interface {

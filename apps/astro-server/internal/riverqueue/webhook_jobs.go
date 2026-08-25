@@ -634,6 +634,12 @@ func reconcileWorkloads(ctx context.Context, queue *Queue, accountID string, sta
 	if queue == nil {
 		return nil
 	}
+	// The gateway ceiling is derived from the same record the status is, so it is
+	// re-applied wherever the status is reconciled rather than on the card signal
+	// alone.
+	if err := queue.InsertBillingGatewayBudget(ctx, accountID); err != nil {
+		return err
+	}
 	switch status {
 	case billing.StatusSuspended:
 		return queue.InsertBillingSuspend(ctx, accountID)

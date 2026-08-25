@@ -11,6 +11,7 @@ import {
 import { PaymentIcon } from "react-svg-credit-card-payment-icons";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { RemovePaymentMethodDialog } from "@/components/settings/RemovePaymentMethodDialog";
 import { Spinner } from "@/components/ui/spinner";
 import { Tag } from "@/components/Tag";
 import {
@@ -24,7 +25,6 @@ import { api, type SavedCard } from "@/lib/api";
 import { useResolvedTheme } from "@/lib/theme";
 import {
   useConfirmPaymentMethod,
-  useDeletePaymentMethod,
   usePaymentMethod,
 } from "@/api/queries/billing";
 
@@ -207,8 +207,8 @@ function AddCardDialog({
 
 export function PaymentMethod({ account }: { account: string }) {
   const { data, isLoading } = usePaymentMethod(account);
-  const removeCard = useDeletePaymentMethod(account);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   // Payments aren't configured for this environment (no Stripe) — show a
   // "coming soon" placeholder instead of a working card form.
@@ -238,13 +238,6 @@ export function PaymentMethod({ account }: { account: string }) {
   }
 
   const card: SavedCard | undefined = data?.card;
-
-  const handleRemove = () => {
-    removeCard.mutate(undefined, {
-      onSuccess: () => toast.success("Payment method removed"),
-      onError: () => toast.error("Couldn't remove payment method"),
-    });
-  };
 
   return (
     <>
@@ -276,8 +269,7 @@ export function PaymentMethod({ account }: { account: string }) {
             <Button
               size="sm"
               variant="ghost"
-              onClick={handleRemove}
-              disabled={removeCard.isPending}
+              onClick={() => setRemoveOpen(true)}
             >
               Remove
             </Button>
@@ -289,6 +281,12 @@ export function PaymentMethod({ account }: { account: string }) {
       </Card>
 
       <AddCardDialog account={account} open={dialogOpen} onOpenChange={setDialogOpen} />
+      <RemovePaymentMethodDialog
+        account={account}
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        onUpdateCard={() => setDialogOpen(true)}
+      />
     </>
   );
 }

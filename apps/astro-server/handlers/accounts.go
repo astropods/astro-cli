@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -386,12 +387,38 @@ func GetAccount(log *logger.Logger, accountStore *account.AccountStore, avatarSt
 // DeleteAccount handles DELETE /api/v1/accounts/:account (owner only)
 // Soft-deletes the account, starts best-effort cleanup of account resources,
 // and enqueues undeploy jobs for active deployments.
-func DeleteAccount(log *logger.Logger, deleter *accountlifecycle.Deleter, auditStore *auditlog.Store) gin.HandlerFunc {
+func DeleteAccount(log *logger.Logger, deleter *accountlifecycle.Deleter, auditStore *auditlog.Store, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingStatus *billing.StatusStore, billingBackend string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
 			return
+		}
+
+		// Archiving the customer is what makes an unpaid balance uncollectable,
+		// so refuse before the Deleter runs. Here and not inside it: the admin
+		// console runs the same sequence, and should still remove a defunct
+		// account that owes money.
+		if billingProvider != nil {
+			customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)
+			if err != nil {
+				log.Error("accounts: load billing customer id for delete failed", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+				return
+			}
+			if customerID != "" {
+				owed, err := outstandingBalance(c.Request.Context(), billingProvider, billingStatus, acct.ID, customerID)
+				if err != nil {
+					log.Error("accounts: read balance for delete failed", "error", err, "account_id", acct.ID, "billing_customer_id", customerID)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete account"})
+					return
+				}
+				if owed {
+					log.Info("accounts: delete refused, outstanding balance", "account_id", acct.ID, "billing_customer_id", customerID)
+					c.JSON(http.StatusConflict, gin.H{"error": "this account has an outstanding balance; settle it before deleting the account"})
+					return
+				}
+			}
 		}
 
 		if _, err := deleter.Delete(c.Request.Context(), acct); errors.Is(err, account.ErrAlreadyDeleted) {
@@ -413,6 +440,39 @@ func DeleteAccount(log *logger.Logger, deleter *accountlifecycle.Deleter, auditS
 
 		c.JSON(http.StatusOK, gin.H{"message": "account deleted"})
 	}
+}
+
+// minOwedUSD is the smallest balance worth refusing a delete over: rounding in
+// the cents-to-dollars conversion leaves fractions nobody can pay off.
+const minOwedUSD = 0.01
+
+// outstandingBalance reports whether the account owes money that deleting it
+// would destroy rather than settle. Archiving the provider customer voids every
+// open invoice, so a delete that runs first is an unreviewed write-off.
+//
+// Dunning is checked as well as the draft total because the two describe
+// different periods: dunning is a finalized invoice that failed to collect, and
+// the open draft says nothing about it. The draft total is net of credit
+// drawdown, so an account still inside its grant owes nothing.
+func outstandingBalance(ctx context.Context, provider billing.BillingProvider, status *billing.StatusStore, accountID, customerID string) (bool, error) {
+	if status != nil {
+		rec, err := status.Record(ctx, accountID)
+		if err != nil {
+			return false, err
+		}
+		if rec.DunningSince != nil {
+			return true, nil
+		}
+	}
+	reporter, ok := provider.(billing.SpendReporter)
+	if !ok {
+		return false, nil
+	}
+	spend, err := reporter.CustomerSpend(ctx, customerID)
+	if err != nil {
+		return false, err
+	}
+	return spend.HasCurrentSpend && spend.CurrentSpend >= minOwedUSD, nil
 }
 
 // UpdateAccountRequest represents the request body for updating account fields.

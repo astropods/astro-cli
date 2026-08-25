@@ -166,6 +166,8 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	// dunning sweep ages past_due→suspended (pure timer), and the suspend/resume
 	// workers scale an account's deployments to zero and restore them.
 	var dunningWorker *DunningSweepWorker
+	var billingStatusStore *billingpkg.StatusStore
+	var billingSuspendWorker *BillingSuspendWorker
 	var billingResumeWorker *BillingResumeWorker
 	var metronomeHook *MetronomeWebhookWorker
 	var stripeHook *StripeWebhookWorker
@@ -179,6 +181,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			unlimitedDomains = cfg.ServerConfig.BillingUnlimitedEmailDomains
 		}
 		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays)
+		billingStatusStore = statusStore
 		billingDepStore := deploymentstore.NewStore(cfg.DB)
 		dunningWorker = &DunningSweepWorker{
 			status: statusStore,
@@ -192,13 +195,16 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		addWorkerWithCatalogCheck(log, workers, dunningWorker)
 		log.Info("river: registered worker", "worker", "DunningSweepWorker", "period", "1h")
 
-		addWorkerWithCatalogCheck(log, workers, &BillingSuspendWorker{
+		// The AI gateway fields are filled in below, once the deployer that owns
+		// the provisioner exists.
+		billingSuspendWorker = &BillingSuspendWorker{
 			store:  billingDepStore,
 			status: statusStore,
 			reg:    cfg.K8sRegistry,
 			cache:  cfg.K8sCache,
 			log:    log,
-		})
+		}
+		addWorkerWithCatalogCheck(log, workers, billingSuspendWorker)
 		billingResumeWorker = &BillingResumeWorker{store: billingDepStore, log: log}
 		addWorkerWithCatalogCheck(log, workers, billingResumeWorker)
 		log.Info("river: registered worker", "worker", "BillingSuspend/ResumeWorker")
@@ -538,6 +544,43 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	purger := accountlifecycle.NewPurger(purgerDeps)
 	pw := &AccountPurgeWorker{purger: purger, log: log}
 	// purger.Undeploy is set after client creation in New(), which owns the queue.
+
+	// The suspend path revokes the same gateway keys the purge does, but
+	// NewPurger builds the purger's handles from PurgerDeps.DB and keeps them
+	// private, so this needs its own.
+	if billingSuspendWorker != nil && dep != nil &&
+		cfg.ServerConfig != nil && cfg.ServerConfig.Deployment.AIGatewayURL != "" {
+		billingSuspendWorker.aigwProvisioner = dep.AIGatewayProvisioner
+		billingSuspendWorker.aigwDevStore = aigateway.NewDevStore(cfg.DB)
+		billingSuspendWorker.aigwJudgeStore = aigateway.NewJudgeStore(cfg.DB)
+	}
+
+	// Registered whenever the status store is, even with no gateway configured.
+	// The kind is inserted from every status reconcile, so leaving the worker out
+	// would leave those jobs retrying against an unhandled kind forever.
+	if billingStatusStore != nil {
+		budgetWorker := &BillingGatewayBudgetWorker{
+			accounts: cfg.AccountStore,
+			status:   billingStatusStore,
+			provider: cfg.Billing,
+			backend:  cfg.BillingBackend,
+			log:      log,
+		}
+		if dep != nil && dep.AIGatewayProvisioner != nil {
+			budgetWorker.gateway = dep.AIGatewayProvisioner.Client()
+		}
+		addWorkerWithCatalogCheck(log, workers, budgetWorker)
+		log.Info("river: registered worker", "worker", "BillingGatewayBudgetWorker")
+
+		sweepWorker := &BillingGatewayBudgetSweepWorker{apply: budgetWorker.applyBudget, log: log}
+		// A nil *AccountStore held in an interface is non-nil, defeating the
+		// worker's nil check.
+		if cfg.AccountStore != nil {
+			sweepWorker.accounts = cfg.AccountStore
+		}
+		addWorkerWithCatalogCheck(log, workers, sweepWorker)
+		log.Info("river: registered worker", "worker", "BillingGatewayBudgetSweepWorker", "period", "15m")
+	}
 	addWorkerWithCatalogCheck(log, workers, pw)
 	log.Info("river: registered worker", "worker", "AccountPurgeWorker", "period", "1h")
 

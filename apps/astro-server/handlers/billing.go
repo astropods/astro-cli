@@ -426,9 +426,25 @@ func writeSpendThresholds(
 }
 
 // A threshold too high to ever fire leaves the account uncapped while the
-// settings page still shows a cap. This is a typo guard in the caller's unit,
-// not a product ceiling.
+// settings page still shows a cap. Usage thresholds carry a different unit per
+// metric, so theirs is a typo guard rather than a product ceiling.
 const maxThresholdAmount = 1e9
+
+// Cents, matching the request body. The spend limit is the one control a
+// customer can use to raise our exposure, so it stops where self-serve does
+// instead of at a typo guard.
+const maxSpendThresholdCents = billing.MaxSelfServeSpendUSD * 100
+
+// billingReconcileTimeout bounds a reconcile that outlives its request.
+const billingReconcileTimeout = 15 * time.Second
+
+// reconcileContext detaches from the request so a post-write reconcile survives
+// a client that hangs up. By the time these run the provider write has already
+// landed, so cancelling here leaves our side stale. Bounded, so a hung provider
+// cannot pin a goroutine after the response is gone.
+func reconcileContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(c.Request.Context()), billingReconcileTimeout)
+}
 
 // SetSpendThresholdsRequest replaces both of an account's controls. A null
 // clears that one. PUT rather than PATCH: partial updates would make an omitted
@@ -463,9 +479,10 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 				c.JSON(http.StatusBadRequest, gin.H{"error": "a spend threshold cannot be negative"})
 				return
 			}
-			if *v > maxThresholdAmount {
+			if *v > maxSpendThresholdCents {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("a spend threshold cannot exceed %.0f", maxThresholdAmount)})
+					"error": fmt.Sprintf("a spend threshold cannot exceed $%.0f per month; contact support about an enterprise plan to raise it",
+						billing.MaxSelfServeSpendUSD)})
 				return
 			}
 		}
@@ -488,6 +505,17 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		}
 
 		applied, failed, err := writeSpendThresholds(c.Request.Context(), writer, customerID, req.Warning, req.Limit)
+		// Unconditional, and before the error branch: a failure can leave the
+		// limit unset too, because replacing a threshold archives the old alert
+		// before creating the new one. This only shortens the delay, so a miss
+		// costs one sweep interval rather than the ceiling.
+		reconcileCtx, cancelReconcile := reconcileContext(c)
+		defer cancelReconcile()
+		if queue != nil {
+			if qerr := queue.InsertBillingGatewayBudget(reconcileCtx, acct.ID); qerr != nil {
+				log.Error("billing: enqueue gateway budget re-derive failed", "error", qerr, "account_id", acct.ID)
+			}
+		}
 		if err != nil {
 			log.Error("billing: write spend threshold failed", "error", err, "account_id", acct.ID, "kind", string(failed))
 			// Changing a threshold archives the old alert before creating its
@@ -502,7 +530,7 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 			return
 		}
 		resp := BillingDataResponse{Available: true}
-		if err := liftSelfLimit(c.Request.Context(), status, queue, billingProvider, acct.ID, customerID); err != nil {
+		if err := liftSelfLimit(reconcileCtx, status, queue, billingProvider, acct.ID, customerID); err != nil {
 			log.Error("billing: lift the self-limit latch failed", "error", err, "account_id", acct.ID)
 			resp.LimitLiftFailed = true
 		}
@@ -619,7 +647,9 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 		}
 
 		resp := BillingDataResponse{Available: true}
-		if err := liftSelfLimit(ctx, status, queue, billingProvider, acct.ID, customerID); err != nil {
+		reconcileCtx, cancelReconcile := reconcileContext(c)
+		defer cancelReconcile()
+		if err := liftSelfLimit(reconcileCtx, status, queue, billingProvider, acct.ID, customerID); err != nil {
 			log.Error("billing: lift the self-limit latch failed", "error", err, "account_id", acct.ID)
 			resp.LimitLiftFailed = true
 		}

@@ -176,8 +176,55 @@ func TestCreateCustomer_CreatesWithBudgetAndReturnsID(t *testing.T) {
 	if captured.Name != "acct-9" {
 		t.Errorf("customer name should be the account-id, got %q", captured.Name)
 	}
-	if len(captured.Budgets) != 1 || captured.Budgets[0].MaxLimit != 20.00 || captured.Budgets[0].ResetDuration != "1M" {
-		t.Errorf("expected $20/1M budget on customer, got %+v", captured.Budgets)
+	if len(captured.Budgets) != 1 || captured.Budgets[0].MaxLimit != CardlessBudgetUSD || captured.Budgets[0].ResetDuration != monthlyReset {
+		t.Errorf("a new customer has no card, so it starts on the card-less budget, got %+v", captured.Budgets)
+	}
+}
+
+func TestSetCustomerBudget_RewritesTheMonthlyLimit(t *testing.T) {
+	var captured bifrostCustomerUpdate
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "wrong method", http.StatusBadRequest)
+			return
+		}
+		path = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer srv.Close()
+
+	c := NewClient("https://aig.example", srv.URL, "")
+	if err := c.SetCustomerBudget(context.Background(), "cust-1", CardedBudgetUSD); err != nil {
+		t.Fatalf("SetCustomerBudget: %v", err)
+	}
+	if path != "/api/governance/customers/cust-1" {
+		t.Errorf("path: got %q", path)
+	}
+	// The window is what the gateway matches the existing budget on, so a
+	// mismatch here would add a second budget instead of raising the limit.
+	if len(captured.Budgets) != 1 || captured.Budgets[0].MaxLimit != CardedBudgetUSD || captured.Budgets[0].ResetDuration != monthlyReset {
+		t.Errorf("budgets: got %+v", captured.Budgets)
+	}
+}
+
+func TestSetCustomerBudget_FloorsAtTheSmallestLimitTheGatewayAccepts(t *testing.T) {
+	var captured bifrostCustomerUpdate
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer srv.Close()
+
+	c := NewClient("https://aig.example", srv.URL, "")
+	if err := c.SetCustomerBudget(context.Background(), "cust-1", 0); err != nil {
+		t.Fatalf("SetCustomerBudget: %v", err)
+	}
+	// A zero limit is rejected by the gateway, and a rejected update would leave
+	// the previous limit in force.
+	if len(captured.Budgets) != 1 || captured.Budgets[0].MaxLimit != 0.01 {
+		t.Errorf("budgets: got %+v", captured.Budgets)
 	}
 }
 

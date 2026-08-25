@@ -13,7 +13,7 @@ const ManagedByLabel = "app.kubernetes.io/managed-by=astro-server"
 // StopNamespaceWorkloads scales all Deployments and StatefulSets to zero
 // and suspends all CronJobs in the given namespace that carry the astro-server
 // managed-by label. It does not delete any resources.
-func StopNamespaceWorkloads(ctx context.Context, clientset *kubernetes.Clientset, ns string) error {
+func StopNamespaceWorkloads(ctx context.Context, clientset kubernetes.Interface, ns string) error {
 	opts := metav1.ListOptions{LabelSelector: ManagedByLabel}
 	var zero int32 = 0
 

@@ -74,6 +74,10 @@ CREATE TABLE public.accounts (
     -- Stamps when the account was put on the rate card and granted its signup
     -- credit. NULL means the provisioning sweep still owes it work.
     billing_provisioned_at timestamptz,
+    -- Stamps the last attempt to apply the account's AI gateway ceiling, which is
+    -- what orders the sweep's bounded worklist. Stamped on failure too, so one
+    -- unreachable account cannot hold the front of the queue.
+    gateway_budget_swept_at timestamptz,
     deleted_at timestamp,
     created_at timestamp NOT NULL DEFAULT now(),
     updated_at timestamp NOT NULL DEFAULT now(),
@@ -118,6 +122,13 @@ CREATE INDEX idx_accounts_name_prefix ON public.accounts(name text_pattern_ops);
 CREATE INDEX idx_accounts_pending_billing_provision
     ON public.accounts(created_at)
     WHERE billing_provisioned_at IS NULL AND deleted_at IS NULL;
+
+-- The gateway budget sweep takes the least recently swept accounts each tick, so
+-- the ordering has to be indexed. Partial: only accounts holding a gateway
+-- customer are ever swept.
+CREATE INDEX idx_accounts_gateway_budget_swept
+    ON public.accounts(gateway_budget_swept_at NULLS FIRST)
+    WHERE bifrost_customer_id IS NOT NULL AND deleted_at IS NULL;
 
 -- Clusters an account may deploy to. No rows means the primary cluster.
 CREATE TABLE public.account_clusters (
