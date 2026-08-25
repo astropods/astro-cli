@@ -425,6 +425,11 @@ func writeSpendThresholds(
 	return applied, "", nil
 }
 
+// A threshold too high to ever fire leaves the account uncapped while the
+// settings page still shows a cap. This is a typo guard in the caller's unit,
+// not a product ceiling.
+const maxThresholdAmount = 1e9
+
 // SetSpendThresholdsRequest replaces both of an account's controls. A null
 // clears that one. PUT rather than PATCH: partial updates would make an omitted
 // field ambiguous between "leave it" and "remove it", and removing a spend limit
@@ -451,8 +456,16 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		// A negative threshold fires the moment it exists, which reads as an
 		// outage rather than a control the owner chose.
 		for _, v := range []*float64{req.Warning, req.Limit} {
-			if v != nil && *v < 0 {
+			if v == nil {
+				continue
+			}
+			if *v < 0 {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "a spend threshold cannot be negative"})
+				return
+			}
+			if *v > maxThresholdAmount {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("a spend threshold cannot exceed %.0f", maxThresholdAmount)})
 				return
 			}
 		}
@@ -552,8 +565,16 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 			return
 		}
 		for _, v := range []*float64{req.Warning, req.Limit} {
-			if v != nil && *v < 0 {
+			if v == nil {
+				continue
+			}
+			if *v < 0 {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "a usage threshold cannot be negative"})
+				return
+			}
+			if *v > maxThresholdAmount {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("a usage threshold cannot exceed %.0f", maxThresholdAmount)})
 				return
 			}
 		}
