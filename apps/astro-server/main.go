@@ -2209,6 +2209,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("name", "Agent name"),
 				oapispec.Response(200, &handlers.DeploymentHistoryResponse{}),
 			)
+			api.GET(protected, "/agents/:account/:name/evaluation-set", "Get the agent's evaluation set", handlers.GetAgentEvaluationSet(log, accountStore, agentIndex),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.PathParam("name", "Agent name"),
+				oapispec.Response(200, &handlers.EvaluationSetResponse{}),
+			)
 			api.GET(protected, "/deployments/count", "Count deployments", handlers.CountDeployments(log, accountStore, deploymentStore, deploymentDiscovery),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),

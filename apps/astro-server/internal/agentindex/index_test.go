@@ -303,6 +303,56 @@ func TestGet_ReturnsNameReservedFalse(t *testing.T) {
 	}
 }
 
+func TestExists(t *testing.T) {
+	tests := []struct {
+		name string
+		row  bool
+		want bool
+	}{
+		{name: "live agent", row: true, want: true},
+		{name: "missing or archived agent", row: false, want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("failed to create sqlmock: %v", err)
+			}
+			defer db.Close()
+
+			mock.ExpectQuery(`(?s)SELECT EXISTS.*FROM agents.*archived_at IS NULL`).
+				WithArgs("acct-1", "my-agent").
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(test.row))
+
+			got, err := NewIndexWithDB(db).Exists("acct-1", "my-agent")
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if got != test.want {
+				t.Errorf("expected %v, got %v", test.want, got)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unfulfilled expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestExists_QueryFailureReturnsError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT EXISTS`).WillReturnError(errors.New("connection lost"))
+
+	if _, err := NewIndexWithDB(db).Exists("acct-1", "my-agent"); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // BatchLatestBuildIDs
 // ---------------------------------------------------------------------------

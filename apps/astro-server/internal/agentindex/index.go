@@ -207,6 +207,21 @@ func (idx *Index) Create(accountID, name string) error {
 	return nil
 }
 
+// Exists reports whether the account owns a live agent by that name, without
+// loading the agent or its versions. An archived agent does not exist.
+func (idx *Index) Exists(accountID, name string) (bool, error) {
+	var exists bool
+	if err := idx.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM agents
+			WHERE account_id = $1 AND name = $2 AND archived_at IS NULL
+		)
+	`, accountID, name).Scan(&exists); err != nil {
+		return false, fmt.Errorf("failed to query agent: %w", err)
+	}
+	return exists, nil
+}
+
 // Get retrieves an agent by account ID and name
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
