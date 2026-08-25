@@ -197,33 +197,75 @@ func utcMidnight(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
+// maxBillingWindowDays bounds how wide a caller can make [from, to). The
+// invoice breakdown pages 35 days at a time, so an unbounded window pages
+// serially until the request's own deadline cuts it off; the caller then
+// sees a bare 502 with nothing pointing at the window as the cause. A year
+// covers any real report without leaving that failure mode reachable.
+const maxBillingWindowDays = 366
+
+// parseBillingWindow reads the optional from/to query params shared by every
+// billing endpoint windowed on [from, to), defaulting to the current
+// calendar month. Metronome requires the bounds to be UTC midnight; the end
+// defaults to the start of tomorrow so today's partial data is included.
+// Returns ok=false, having already written the 400 response, when the
+// resulting window is wider than maxBillingWindowDays.
+func parseBillingWindow(c *gin.Context) (from, to time.Time, ok bool) {
+	now := time.Now().UTC()
+	from = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	to = utcMidnight(now).AddDate(0, 0, 1)
+	if v := c.Query("from"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			from = utcMidnight(t)
+		}
+	}
+	if v := c.Query("to"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			to = utcMidnight(t)
+		}
+	}
+	if !to.After(from) {
+		to = from.AddDate(0, 0, 1)
+	}
+	if to.Sub(from) > maxBillingWindowDays*24*time.Hour {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("window cannot exceed %d days", maxBillingWindowDays)})
+		return from, to, false
+	}
+	return from, to, true
+}
+
 // GetBillingUsage handles GET /api/v1/accounts/:account/billing/usage. It
 // returns metered usage over [from, to) (defaults to the current calendar
 // month), aggregated per day, exactly as the provider reports it.
 func GetBillingUsage(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		now := time.Now().UTC()
-		from := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-		// Metronome requires the window bounds to be UTC midnight; default the
-		// end to the start of tomorrow so today's partial data is included.
-		to := utcMidnight(now).AddDate(0, 0, 1)
-		if v := c.Query("from"); v != "" {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				from = utcMidnight(t)
-			}
+		from, to, ok := parseBillingWindow(c)
+		if !ok {
+			return
 		}
-		if v := c.Query("to"); v != "" {
-			if t, err := time.Parse(time.RFC3339, v); err == nil {
-				to = utcMidnight(t)
-			}
-		}
-		if !to.After(from) {
-			to = from.AddDate(0, 0, 1)
-		}
-
 		billingData(log, accountStore, billingProvider, billingBackend, "usage",
 			func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
 				return billingProvider.UsageData(ctx, customerID, from, to)
+			})(c)
+	}
+}
+
+// GetBillingDailySpend handles
+// GET /api/v1/accounts/:account/billing/usage/daily-spend. It returns the
+// account's rated spend per calendar day over [from, to) (defaults to the
+// current calendar month): one dollar figure per day, already summed across
+// every billable metric, for a daily spend chart. UsageData's raw per-metric
+// rows can't answer this on their own, since a quantity metric like Compute
+// Units has no dollar figure at any window size.
+func GetBillingDailySpend(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		from, to, ok := parseBillingWindow(c)
+		if !ok {
+			return
+		}
+		billingData(log, accountStore, billingProvider, billingBackend, "daily-spend",
+			func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
+				return billingProvider.DailySpend(ctx, customerID, from, to)
 			})(c)
 	}
 }
@@ -284,7 +326,6 @@ func GetBillingInvoicePDF(log *logger.Logger, accountStore *account.AccountStore
 	}
 }
 
-// GetBillingBalances handles GET /api/v1/accounts/:account/billing/balances.
 // BillingSpendResponse is the customer-facing view of what an account is running
 // up and the controls it set on itself. Spend and thresholds ship together
 // because a threshold is meaningless without the number it is measured against.
@@ -293,9 +334,10 @@ type BillingSpendResponse struct {
 
 	Plan string `json:"plan,omitempty"`
 
-	CurrentSpend     float64   `json:"current_spend"`
-	HasCurrentSpend  bool      `json:"has_current_spend"`
-	CurrentPeriodEnd time.Time `json:"current_period_end,omitempty"`
+	CurrentSpend       float64   `json:"current_spend"`
+	HasCurrentSpend    bool      `json:"has_current_spend"`
+	CurrentPeriodStart time.Time `json:"current_period_start,omitzero"`
+	CurrentPeriodEnd   time.Time `json:"current_period_end,omitzero"`
 
 	// UsageSpend is what the thresholds below are measured against: the period's
 	// usage before credit drawdown. It differs from CurrentSpend whenever credit
@@ -306,6 +348,12 @@ type BillingSpendResponse struct {
 
 	CreditRemaining float64 `json:"credit_remaining"`
 	HasCredit       bool    `json:"has_credit"`
+
+	// Most recently finalized invoice. Only HasLastInvoice is read today
+	// (gates "View invoices"); the rest is exposed for a future client.
+	LastInvoiceTotal float64   `json:"last_invoice_total,omitempty"`
+	LastInvoiceAt    time.Time `json:"last_invoice_at,omitzero"`
+	HasLastInvoice   bool      `json:"has_last_invoice"`
 
 	// Absent when the customer set none. Nil rather than zero, which is a
 	// threshold a customer could legitimately set.
@@ -342,14 +390,18 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 				return nil, err
 			}
 			resp := BillingSpendResponse{
-				Currency:         spend.Currency,
-				CurrentSpend:     spend.CurrentSpend,
-				HasCurrentSpend:  spend.HasCurrentSpend,
-				CurrentPeriodEnd: spend.CurrentPeriodEnd,
-				UsageSpend:       spend.UsageSpend,
-				HasUsageSpend:    spend.HasUsageSpend,
-				CreditRemaining:  spend.CreditRemaining,
-				HasCredit:        spend.HasCredit,
+				Currency:           spend.Currency,
+				CurrentSpend:       spend.CurrentSpend,
+				HasCurrentSpend:    spend.HasCurrentSpend,
+				CurrentPeriodStart: spend.CurrentPeriodStart,
+				CurrentPeriodEnd:   spend.CurrentPeriodEnd,
+				UsageSpend:         spend.UsageSpend,
+				HasUsageSpend:      spend.HasUsageSpend,
+				CreditRemaining:    spend.CreditRemaining,
+				HasCredit:          spend.HasCredit,
+				LastInvoiceTotal:   spend.LastInvoiceTotal,
+				LastInvoiceAt:      spend.LastInvoiceAt,
+				HasLastInvoice:     spend.HasLastInvoice,
 			}
 			if planner, ok := billingProvider.(billing.PlanReporter); ok {
 				plan, covered, perr := planner.CustomerPlan(ctx, customerID)
@@ -536,13 +588,6 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		}
 		c.JSON(http.StatusOK, resp)
 	}
-}
-
-func GetBillingBalances(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
-	return billingData(log, accountStore, billingProvider, billingBackend, "balances",
-		func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
-			return billingProvider.Balances(ctx, customerID)
-		})
 }
 
 func usageThresholdsResponse(in map[billing.UsageMetric]billing.UsageThresholds) map[string]UsageThresholdsResponse {

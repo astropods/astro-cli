@@ -99,12 +99,12 @@ func (p *fakeProvider) GetIngestAliases(context.Context, string) ([]string, erro
 func (p *fakeProvider) UsageData(context.Context, string, time.Time, time.Time) (any, error) {
 	return nil, billing.ErrBillingUnavailable
 }
+func (p *fakeProvider) DailySpend(context.Context, string, time.Time, time.Time) (any, error) {
+	return nil, billing.ErrBillingUnavailable
+}
 func (p *fakeProvider) Invoices(context.Context, string) (any, error) {
 	return nil, billing.ErrBillingUnavailable
 }
 func (p *fakeProvider) InvoicePDF(context.Context, string, string) (io.ReadCloser, error) {
-	return nil, billing.ErrBillingUnavailable
-}
-func (p *fakeProvider) Balances(context.Context, string) (any, error) {
 	return nil, billing.ErrBillingUnavailable
 }

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/Metronome-Industries/metronome-go/v3"
@@ -470,6 +471,82 @@ func (p *Provider) UsageData(ctx context.Context, customerID string, from, to ti
 	return rows, nil
 }
 
+// DailySpendPoint is one day's rated spend, summed across every usage-type
+// line item in that day's invoice breakdown. Day is the breakdown's own
+// window start, not derived from anything inside it. ByProduct breaks the
+// same total down by line item name (for example "Compute Units" against
+// "LLM Usage"), so a caller that needs the Compute/Models split reads it
+// straight from the rated breakdown instead of approximating it against a
+// raw usage quantity.
+type DailySpendPoint struct {
+	Day       time.Time          `json:"day"`
+	Amount    float64            `json:"amount"`
+	ByProduct map[string]float64 `json:"by_product,omitempty"`
+}
+
+// invoiceStatusVoid marks an invoice that has been superseded. Its breakdown
+// still carries a full day's line items, so counting it alongside its
+// replacement would double that day's total.
+const invoiceStatusVoid = "VOID"
+
+// DailySpend returns the account's rated spend per calendar day over
+// [from, to), read from Metronome's invoice breakdown rather than the raw
+// usage list: usage-list never rates a quantity metric like Compute Units,
+// at any window size, so it can't answer "how many dollars did the account
+// spend on Tuesday" the way a breakdown of the invoice itself can, since
+// each breakdown window carries that window's own line items with real
+// dollar totals. Reuses usageSpend's usage-vs-credit-drawdown split, so a
+// day's figure means the same thing here as it does in the period total.
+//
+// A day can be covered by more than one invoice: a finalized one for a past
+// period abutting a draft one for the current period, or a correction that
+// supersedes an earlier invoice. A voided invoice is dropped outright, and
+// when two non-void invoices still cover the same day, the one issued last
+// wins rather than being summed with the other, which would double the day.
+func (p *Provider) DailySpend(ctx context.Context, customerID string, from, to time.Time) (any, error) {
+	type dayAgg struct {
+		amount    float64
+		byProduct map[string]float64
+		issuedAt  time.Time
+	}
+	byDay := map[time.Time]dayAgg{}
+
+	iter := p.mc.V1.Customers.Invoices.ListBreakdownsAutoPaging(ctx, metronome.V1CustomerInvoiceListBreakdownsParams{
+		CustomerID:   customerID,
+		StartingOn:   from,
+		EndingBefore: to,
+		WindowSize:   metronome.V1CustomerInvoiceListBreakdownsParamsWindowSizeDay,
+	})
+	for iter.Next() {
+		bd := iter.Current()
+		if bd.Status == invoiceStatusVoid {
+			continue
+		}
+		day := bd.BreakdownStartTimestamp
+		if existing, ok := byDay[day]; ok && !bd.IssuedAt.After(existing.issuedAt) {
+			continue
+		}
+		amount, _ := usageSpend(&bd.Invoice)
+		byDay[day] = dayAgg{amount: amount, byProduct: usageSpendByProduct(&bd.Invoice), issuedAt: bd.IssuedAt}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("metronome list invoice breakdowns: %w", err)
+	}
+
+	days := make([]time.Time, 0, len(byDay))
+	for day := range byDay {
+		days = append(days, day)
+	}
+	sort.Slice(days, func(i, j int) bool { return days[i].Before(days[j]) })
+
+	points := make([]DailySpendPoint, 0, len(days))
+	for _, day := range days {
+		agg := byDay[day]
+		points = append(points, DailySpendPoint{Day: day, Amount: agg.amount, ByProduct: agg.byProduct})
+	}
+	return points, nil
+}
+
 // Invoices returns the customer's invoices (with line items), passed through
 // as-is for the client to render.
 func (p *Provider) Invoices(ctx context.Context, customerID string) (any, error) {
@@ -502,31 +579,4 @@ func (p *Provider) InvoicePDF(ctx context.Context, customerID, invoiceID string)
 		return nil, fmt.Errorf("metronome get invoice pdf: %w", err)
 	}
 	return resp.Body, nil
-}
-
-// Balances returns the customer's credits and commits, passed through as-is.
-func (p *Provider) Balances(ctx context.Context, customerID string) (any, error) {
-	credits := []shared.Credit{}
-	creditIter := p.mc.V1.Customers.Credits.ListAutoPaging(ctx, metronome.V1CustomerCreditListParams{
-		CustomerID: customerID,
-	})
-	for creditIter.Next() {
-		credits = append(credits, creditIter.Current())
-	}
-	if err := creditIter.Err(); err != nil {
-		return nil, fmt.Errorf("metronome list credits: %w", err)
-	}
-
-	commits := []shared.Commit{}
-	commitIter := p.mc.V1.Customers.Commits.ListAutoPaging(ctx, metronome.V1CustomerCommitListParams{
-		CustomerID: customerID,
-	})
-	for commitIter.Next() {
-		commits = append(commits, commitIter.Current())
-	}
-	if err := commitIter.Err(); err != nil {
-		return nil, fmt.Errorf("metronome list commits: %w", err)
-	}
-
-	return map[string]any{"credits": credits, "commits": commits}, nil
 }

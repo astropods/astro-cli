@@ -1596,6 +1596,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
+				api.GET(accountManage, "/billing/usage/daily-spend", "Get billing spend per day", handlers.GetBillingDailySpend(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.QueryParam("from", "Start of period (RFC3339, defaults to start of current month)", false),
+					oapispec.QueryParam("to", "End of period (RFC3339, defaults to now)", false),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
 				api.GET(accountManage, "/billing/invoices", "Get billing invoices", handlers.GetBillingInvoices(log, accountStore, billingProvider, cfg.BillingBackend()),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
@@ -1607,14 +1617,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				// Binary PDF stream — registered directly (not via the OpenAPI
 				// helper) since it returns application/pdf, not JSON.
 				accountManage.GET("/billing/invoices/:invoiceId/pdf", handlers.GetBillingInvoicePDF(log, accountStore, billingProvider, cfg.BillingBackend()))
-
-				api.GET(accountManage, "/billing/balances", "Get billing credits and commits", handlers.GetBillingBalances(log, accountStore, billingProvider, cfg.BillingBackend()),
-					oapispec.Tags("Billing"),
-					oapispec.BearerAuth(),
-					oapispec.PathParam("account", "Account name"),
-					oapispec.Response(200, &handlers.BillingDataResponse{}),
-					oapispec.Response(502, &handlers.ErrorResponse{}),
-				)
 
 				api.GET(accountManage, "/billing/spend", "Get current spend and the account's own thresholds", handlers.GetBillingSpend(log, accountStore, billingProvider, cfg.BillingBackend()),
 					oapispec.Tags("Billing"),

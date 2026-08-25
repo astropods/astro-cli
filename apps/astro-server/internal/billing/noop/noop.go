@@ -47,6 +47,11 @@ func (p *Provider) UsageData(ctx context.Context, customerID string, from, to ti
 	return nil, billing.ErrBillingUnavailable
 }
 
+// DailySpend reports no billing data; OSS keeps none.
+func (p *Provider) DailySpend(ctx context.Context, customerID string, from, to time.Time) (any, error) {
+	return nil, billing.ErrBillingUnavailable
+}
+
 // Invoices reports no billing data; OSS keeps none.
 func (p *Provider) Invoices(ctx context.Context, customerID string) (any, error) {
 	return nil, billing.ErrBillingUnavailable
@@ -54,10 +59,5 @@ func (p *Provider) Invoices(ctx context.Context, customerID string) (any, error)
 
 // InvoicePDF reports no billing data; OSS keeps none.
 func (p *Provider) InvoicePDF(ctx context.Context, customerID, invoiceID string) (io.ReadCloser, error) {
-	return nil, billing.ErrBillingUnavailable
-}
-
-// Balances reports no billing data; OSS keeps none.
-func (p *Provider) Balances(ctx context.Context, customerID string) (any, error) {
 	return nil, billing.ErrBillingUnavailable
 }

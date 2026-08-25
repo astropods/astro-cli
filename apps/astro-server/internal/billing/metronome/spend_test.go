@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Metronome-Industries/metronome-go/v3"
 	"github.com/Metronome-Industries/metronome-go/v3/option"
@@ -60,6 +61,39 @@ func TestCustomerSpend_KeepsCreditWhenInvoicesFail(t *testing.T) {
 	}
 	if spend.HasCurrentSpend || spend.HasLastInvoice {
 		t.Error("invoice figures are marked present after the lookup failed")
+	}
+}
+
+// The draft invoice carries the real cycle boundaries; a client reconstructing
+// them by counting back a month from the end can land on the wrong day for a
+// short month, so the start has to come from the same invoice as the end.
+func TestCustomerSpend_ReadsCurrentPeriodFromDraftInvoice(t *testing.T) {
+	draftInvoice := `{"data":[{"id":"inv_1","status":"DRAFT","type":"USAGE","total":4502,` +
+		`"start_timestamp":"2026-08-11T00:00:00Z","end_timestamp":"2026-09-11T00:00:00Z",` +
+		`"credit_type":{"id":"2714e483-4ff1-48e4-9e25-ac732e8f24f2","name":"USD (cents)"},` +
+		`"line_items":[]}],"next_page":null}`
+	empty := `{"data":[],"next_page":null}`
+
+	p := spendProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "invoices") && r.URL.Query().Get("status") == "DRAFT" {
+			_, _ = w.Write([]byte(draftInvoice))
+			return
+		}
+		_, _ = w.Write([]byte(empty))
+	})
+
+	spend, err := p.CustomerSpend(context.Background(), "cust_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantStart := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 9, 11, 0, 0, 0, 0, time.UTC)
+	if !spend.CurrentPeriodStart.Equal(wantStart) {
+		t.Errorf("period start = %v, want %v", spend.CurrentPeriodStart, wantStart)
+	}
+	if !spend.CurrentPeriodEnd.Equal(wantEnd) {
+		t.Errorf("period end = %v, want %v", spend.CurrentPeriodEnd, wantEnd)
 	}
 }
 

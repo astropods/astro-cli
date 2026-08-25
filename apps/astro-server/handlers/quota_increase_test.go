@@ -9,14 +9,23 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
+
+func injectUser(id string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(string(auth.UserContextKey), &auth.User{ID: id})
+		c.Next()
+	}
+}
 
 func setupQuotaIncreaseRouter(db *sql.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(injectAccount(testAccount()))
+	router.Use(injectUser("user-1"))
 	log := logger.New("error", "json")
 	router.POST("/quota-increase", RequestQuotaIncrease(log, db))
 	return router
@@ -75,11 +84,30 @@ func TestRequestQuotaIncrease_MissingReason(t *testing.T) {
 	}
 }
 
+func TestRequestQuotaIncrease_WhitespaceOnlyReason(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+	router := setupQuotaIncreaseRouter(db)
+
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key": "agent_builds",
+		"reason":      "   ",
+	})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRequestQuotaIncrease_Success(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
 
+	// Pins requested_by (the 7th bound param) to the authenticated user's ID;
+	// a handler that reads the wrong context key fails this expectation
+	// instead of silently inserting an empty string.
 	mock.ExpectQuery(`INSERT INTO quota_increase_requests`).
+		WithArgs(testAccount().ID, "agent_builds", 8.5, nil, nil, "running large workloads", "user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-abc123"))
 
 	router := setupQuotaIncreaseRouter(db)
@@ -102,6 +130,31 @@ func TestRequestQuotaIncrease_Success(t *testing.T) {
 	}
 	if resp.Status != "pending" {
 		t.Errorf("status: want %q, got %q", "pending", resp.Status)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestRequestQuotaIncrease_Unauthenticated(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	defer db.Close()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(injectAccount(testAccount()))
+	// No injectUser: simulates a request that reached this handler without
+	// the auth middleware ever populating the user context.
+	log := logger.New("error", "json")
+	router.POST("/quota-increase", RequestQuotaIncrease(log, db))
+
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key": "agent_builds",
+		"reason":      "running large workloads",
+	})
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

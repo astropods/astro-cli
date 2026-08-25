@@ -53,6 +53,7 @@ func (p *Provider) CustomerSpend(ctx context.Context, customerID string) (billin
 	case draft != nil:
 		amount, unit := scaleAmount(draft.Total, draft.CreditType)
 		out.CurrentSpend = amount
+		out.CurrentPeriodStart = draft.StartTimestamp
 		out.CurrentPeriodEnd = draft.EndTimestamp
 		out.HasCurrentSpend = true
 		out.UsageSpend, out.HasUsageSpend = usageSpend(draft)
@@ -98,6 +99,22 @@ func usageSpend(inv *metronome.Invoice) (float64, bool) {
 		found = true
 	}
 	return total, found
+}
+
+// usageSpendByProduct is usageSpend broken down by line item name (for
+// example "Compute Units" against "LLM Usage") instead of collapsed into one
+// total. Named generically rather than by any specific product, since a
+// billable metric added later needs no change here to show up.
+func usageSpendByProduct(inv *metronome.Invoice) map[string]float64 {
+	byProduct := map[string]float64{}
+	for _, li := range inv.LineItems {
+		if li.Type != usageLineItemType {
+			continue
+		}
+		amount, _ := scaleAmount(li.Total, li.CreditType)
+		byProduct[li.Name] += amount
+	}
+	return byProduct
 }
 
 // usdCentsCreditTypeID is Metronome's built-in fiat unit, in hundredths. The id

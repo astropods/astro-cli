@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -34,8 +35,11 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		userID, _ := c.Get("user_id")
-		uid, _ := userID.(string)
+		user, exists := middleware.GetUser(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
 
 		var input QuotaIncreaseInput
 		if err := c.ShouldBindJSON(&input); err != nil {
@@ -48,6 +52,7 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		input.Reason = strings.TrimSpace(input.Reason)
 		if input.Reason == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "reason is required"})
 			return
@@ -58,7 +63,7 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			`INSERT INTO quota_increase_requests (account_id, feature_key, current_usage, current_quota, requested_amount, reason, requested_by)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)
 			 RETURNING id`,
-			acct.ID, input.FeatureKey, input.CurrentUsage, input.CurrentQuota, input.RequestedAmount, input.Reason, uid,
+			acct.ID, input.FeatureKey, input.CurrentUsage, input.CurrentQuota, input.RequestedAmount, input.Reason, user.ID,
 		).Scan(&id)
 		if err != nil {
 			log.Error("quota increase: create quota increase request failed", "error", err, "account_id", acct.ID)

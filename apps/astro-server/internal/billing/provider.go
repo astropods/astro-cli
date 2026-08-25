@@ -108,9 +108,10 @@ type Spend struct {
 
 	// CurrentSpend is the open billing period's draft invoice total, which is
 	// net of credit drawdown. It is what the account will be charged.
-	CurrentSpend     float64
-	CurrentPeriodEnd time.Time
-	HasCurrentSpend  bool
+	CurrentSpend       float64
+	CurrentPeriodStart time.Time
+	CurrentPeriodEnd   time.Time
+	HasCurrentSpend    bool
 
 	// UsageSpend is the same period's usage-based spend before credit drawdown.
 	// The provider's spend threshold notification measures this, not the total,
@@ -283,11 +284,14 @@ type BillingProvider interface {
 
 	// UsageData returns metered usage over [from, to), aggregated per window.
 	UsageData(ctx context.Context, customerID string, from, to time.Time) (any, error)
+	// DailySpend returns the account's rated spend per calendar day over
+	// [from, to). Unlike UsageData, this is priced: a quantity metric like
+	// Compute Units has no dollar figure at any window size in the raw usage
+	// data, so a daily dollar chart reads this instead.
+	DailySpend(ctx context.Context, customerID string, from, to time.Time) (any, error)
 	// Invoices returns the customer's invoices (including line items).
 	Invoices(ctx context.Context, customerID string) (any, error)
 	// InvoicePDF returns a single invoice rendered as a PDF byte stream. The
 	// caller must close the returned reader.
 	InvoicePDF(ctx context.Context, customerID, invoiceID string) (io.ReadCloser, error)
-	// Balances returns the customer's credits and commits.
-	Balances(ctx context.Context, customerID string) (any, error)
 }
