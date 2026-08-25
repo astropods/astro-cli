@@ -442,18 +442,21 @@ export function DeploymentHistoryPanel({
     sourceAccount === account ||
     (!!sourceBlueprint && sourceBlueprint.visibility !== "private");
 
+  const githubSourced = currentRecord?.source === "github" && sourceReadable;
+
   // Build-in-progress detection — surface an in-flight GitHub build above the
   // current deploy. The query self-polls while builds[0] is pending/building.
-  const { data: githubStatus } = useGitHubStatus(sourceAccount, agentName, {
-    enabled: currentRecord?.source === "github" && sourceReadable,
+  const { data: githubStatusData } = useGitHubStatus(sourceAccount, agentName, {
+    enabled: githubSourced,
     // Baseline poll so a newly pushed build appears without a manual refresh (#1627).
     refetchInterval: 15_000,
   });
-  const activeBuild = useMemo(() => {
-    const latest = githubStatus?.builds?.[0];
-    if (!latest || (latest.status !== "pending" && latest.status !== "building")) return null;
-    return latest;
-  }, [githubStatus]);
+  // A disabled query still serves its cached entry, and this key is shared with
+  // the blueprint page. An `ast push` build id matches nothing in those builds.
+  const githubStatus = githubSourced ? githubStatusData : undefined;
+  const latestBuild = githubStatus?.builds?.[0];
+  const activeBuild =
+    latestBuild?.status === "pending" || latestBuild?.status === "building" ? latestBuild : null;
   // Deploy runs after the build, so the build-in-progress card and the tile's
   // live "Deploying" status are sequential phases, not concurrent. While a
   // deploy/undeploy is live the tile already shows that phase, so suppress the
@@ -462,36 +465,35 @@ export function DeploymentHistoryPanel({
   const deploying = statusData?.value === "deploying" || statusData?.value === "undeploying";
   // Prefer the newest finished build from the polling GitHub status so a build
   // that just completed becomes the upgrade target without a refresh (#1627).
-  const githubUpgrade = useMemo(() => {
-    const finished = githubStatus?.builds?.find((b) => b.status === "registered");
-    if (!finished || finished.build_id === deployment.build_id) return null;
-    return {
-      buildId: finished.build_id,
-      commitMessage: finished.commit_message,
-      commitSha: finished.commit_sha,
-      repoFullName: githubStatus?.repo_full_name,
-      branch: finished.branch,
-    };
-  }, [githubStatus, deployment.build_id]);
+  const finishedBuild = githubStatus?.builds?.find((b) => b.status === "registered");
+  const githubUpgrade =
+    finishedBuild && finishedBuild.build_id !== deployment.build_id
+      ? {
+          buildId: finishedBuild.build_id,
+          commitMessage: finishedBuild.commit_message,
+          commitSha: finishedBuild.commit_sha,
+          repoFullName: githubStatus?.repo_full_name,
+          branch: finishedBuild.branch,
+        }
+      : null;
 
   // Fallback to the server's latest_build_id (shared authority; omitted for
   // cross-account private blueprints), enriched with commit metadata when the
   // blueprint versions are readable.
-  const blueprintUpgrade = useMemo(() => {
-    if (!hasNewerBuild(deployment)) return null;
-    const latest = sourceBlueprint?.versions?.find(
-      (version) => version.build_id === deployment.latest_build_id,
-    );
-    return {
-      buildId: deployment.latest_build_id!,
-      commitMessage: latest?.commit_message,
-      commitSha: latest?.commit_sha,
-      repoFullName: latest?.repo_full_name,
-      // Blueprint versions carry no branch; the active record's is the right
-      // proxy since the upgrade is the same lineage (#1629).
-      branch: currentRecord?.branch,
-    };
-  }, [sourceBlueprint, deployment, currentRecord?.branch]);
+  const latestVersion = sourceBlueprint?.versions?.find(
+    (version) => version.build_id === deployment.latest_build_id,
+  );
+  const blueprintUpgrade = hasNewerBuild(deployment)
+    ? {
+        buildId: deployment.latest_build_id!,
+        commitMessage: latestVersion?.commit_message,
+        commitSha: latestVersion?.commit_sha,
+        repoFullName: latestVersion?.repo_full_name,
+        // Blueprint versions carry no branch; the active record's is the right
+        // proxy since the upgrade is the same lineage (#1629).
+        branch: currentRecord?.branch,
+      }
+    : null;
 
   const upgrade = githubUpgrade ?? blueprintUpgrade;
 
@@ -499,8 +501,7 @@ export function DeploymentHistoryPanel({
   // panel "on latest build" so the header doesn't just fall silent when the
   // build / upgrade nudges clear (issue #1627 design).
   const onLatestBuild =
-    currentRecord?.source === "github" &&
-    sourceReadable &&
+    githubSourced &&
     (!!githubStatus || (sourceBlueprint?.versions?.length ?? 0) > 0) &&
     !activeBuild &&
     !upgrade &&

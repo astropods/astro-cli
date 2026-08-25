@@ -63,6 +63,29 @@ describe('useGitHubStatus', () => {
     expect(result.current.fetchStatus).toBe('idle');
   });
 
+  it('does not poll a cached in-flight build when the caller is disabled', async () => {
+    let requests = 0;
+    server.use(
+      http.get('/api/v1/agents/:account/:name/github', () => {
+        requests += 1;
+        return HttpResponse.json(mockStatusPending);
+      }),
+    );
+
+    const { wrapper, queryClient } = createHookWrapper();
+    queryClient.setQueryData(githubKeys.status('testuser', 'code-reviewer'), mockStatusPending);
+    const { result } = renderHook(
+      () => useGitHubStatus('testuser', 'code-reviewer', { enabled: false }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.data).toEqual(mockStatusPending));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(requests).toBe(0);
+  });
+
   it('polls when latest build status is pending', async () => {
     server.use(
       http.get('/api/v1/agents/:account/:name/github', () =>

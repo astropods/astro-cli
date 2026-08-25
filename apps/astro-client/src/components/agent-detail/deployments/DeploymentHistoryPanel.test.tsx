@@ -1,10 +1,12 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { screen, waitFor, cleanup } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { renderWithProviders } from "@/test/test-utils";
+import type { QueryClient } from "@tanstack/react-query";
+import { renderWithProviders, createTestQueryClient } from "@/test/test-utils";
 import { server } from "@/test/msw/server";
+import { githubKeys } from "@/api/queries/keys";
 import { DeploymentHistoryPanel } from "./DeploymentHistoryPanel";
-import type { AgentDeployment, DeploymentHistoryRecord, GitHubBuild } from "@/lib/api";
+import type { AgentDeployment, DeploymentHistoryRecord, GitHubBuild, GitHubStatusResponse } from "@/lib/api";
 
 afterEach(cleanup);
 
@@ -370,5 +372,79 @@ describe("DeploymentHistoryPanel build-in-progress card", () => {
     });
     expect(githubRequested).toBe(false);
     expect(screen.queryByText("Building")).not.toBeInTheDocument();
+  });
+
+  // Seeding after render races the rerender, so absences would pass unrendered.
+  const CACHED_STATUS = {
+    connected: true,
+    repo_full_name: "acme/code-reviewer",
+    branch: "main",
+    builds: [
+      build({
+        build_id: "6dfc2c86",
+        status: "registered",
+        branch: "main",
+        commit_message: "chore: add log for tracking",
+        enqueued_at: "2026-05-02T00:00:00Z",
+      }),
+    ],
+  };
+
+  function renderWithCachedStatus(record: Partial<DeploymentHistoryRecord>, status = CACHED_STATUS) {
+    server.use(
+      http.get(`/api/v1/agents/${ACCOUNT}/${AGENT}/deployment/history`, () =>
+        HttpResponse.json({ deployments: [historyRecord(record)], count: 1 }),
+      ),
+    );
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(githubKeys.status(ACCOUNT, AGENT), status);
+    return renderWithProviders(
+      <DeploymentHistoryPanel
+        account={ACCOUNT}
+        agentName={AGENT}
+        deploymentId={DEPLOYMENT_ID}
+        deployment={deployment({ build_id: record.build_id ?? "b2c3d4e5" })}
+      />,
+      { queryClient },
+    );
+  }
+
+  // Without this a mismatched key would make every absence assertion vacuous.
+  function expectStatusObserved(queryClient: QueryClient, status: GitHubStatusResponse) {
+    const entry = queryClient.getQueryCache().find({ queryKey: githubKeys.status(ACCOUNT, AGENT) });
+    expect(entry?.getObserversCount()).toBeGreaterThan(0);
+    expect(entry?.state.data).toBe(status);
+  }
+
+  const AST_PUSH_RECORD = {
+    source: "direct" as const,
+    branch: "",
+    build_id: "75dd9ad0",
+    deployed_at: "2026-06-01T00:00:00Z",
+  };
+
+  it("keeps the upgrade nudge hidden when the ast push deploy is newer than the last GitHub build", async () => {
+    mockEndpoints([]);
+    const { queryClient } = renderWithCachedStatus(AST_PUSH_RECORD);
+
+    expect(await screen.findByText("ast push")).toBeInTheDocument();
+    expectStatusObserved(queryClient, CACHED_STATUS);
+    expect(screen.queryByText("New build available")).not.toBeInTheDocument();
+    expect(screen.queryByText("chore: add log for tracking")).not.toBeInTheDocument();
+  });
+
+  it("keeps the build-in-progress card hidden when the current deploy came from ast push", async () => {
+    mockEndpoints([]);
+    const buildingStatus = {
+      ...CACHED_STATUS,
+      builds: [build({ status: "building", commit_message: "wip on another branch" })],
+    };
+    const { queryClient } = renderWithCachedStatus(AST_PUSH_RECORD, buildingStatus);
+
+    expect(await screen.findByText("ast push")).toBeInTheDocument();
+    expectStatusObserved(queryClient, buildingStatus);
+    expect(screen.queryByText("wip on another branch")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pushing new build")).not.toBeInTheDocument();
+    expect(screen.queryByText("Preparing build")).not.toBeInTheDocument();
   });
 });

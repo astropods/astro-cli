@@ -3,10 +3,11 @@ import { api, type GitHubLinkInput, type GitHubStatusResponse } from '../../lib/
 import { githubKeys, blueprintKeys } from './keys';
 
 export function useGitHubStatus(account: string, name: string, opts?: { enabled?: boolean; refetchInterval?: number | false; initialData?: GitHubStatusResponse }) {
+  const enabled = (opts?.enabled ?? true) && !!account && !!name;
   const result = useQuery({
     queryKey: githubKeys.status(account, name),
     queryFn: () => api.getGitHubStatus(account, name),
-    enabled: (opts?.enabled ?? true) && !!account && !!name,
+    enabled,
     refetchInterval: opts?.refetchInterval,
     initialData: opts?.initialData,
     // Keep previous data during refetches so callers never see a brief undefined
@@ -16,12 +17,13 @@ export function useGitHubStatus(account: string, name: string, opts?: { enabled?
 
   // Poll every 5 seconds only while the most recent build is still in-flight.
   // Older stuck builds (e.g. from a server restart) don't keep the poll alive.
+  // A disabled caller still reads cached data, which would otherwise drive this poll.
   const latestBuild = result.data?.builds[0];
   const hasActiveBuilds = latestBuild?.status === 'pending' || latestBuild?.status === 'building';
   useQuery({
     queryKey: githubKeys.status(account, name),
     queryFn: () => api.getGitHubStatus(account, name),
-    enabled: !!hasActiveBuilds,
+    enabled: enabled && !!hasActiveBuilds,
     refetchInterval: 5000,
   });
 

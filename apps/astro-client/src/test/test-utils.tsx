@@ -7,7 +7,7 @@ import { AuthContext, type AuthContextType } from '@/lib/auth-context';
 import { ActiveAccountProvider } from '@/hooks/use-active-account';
 
 // Fresh QueryClient per test — no retries, no gc delay, instant stale
-function createTestQueryClient() {
+export function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
@@ -24,10 +24,12 @@ function createTestQueryClient() {
 
 interface WrapperOptions {
   initialEntries?: InitialEntry[];
+  /** Seeded client, for cache entries that must exist on the first render. */
+  queryClient?: QueryClient;
 }
 
-function createWrapper({ initialEntries = ['/'] }: WrapperOptions = {}) {
-  const queryClient = createTestQueryClient();
+function createWrapper({ initialEntries = ['/'], queryClient: provided }: WrapperOptions = {}) {
+  const queryClient = provided ?? createTestQueryClient();
 
   function Wrapper({ children }: { children: ReactNode }) {
     return (
@@ -46,8 +48,8 @@ export function renderWithProviders(
   ui: ReactNode,
   options?: WrapperOptions & Omit<RenderOptions, 'wrapper'>,
 ) {
-  const { initialEntries, ...renderOptions } = options ?? {};
-  const { Wrapper, queryClient } = createWrapper({ initialEntries });
+  const { initialEntries, queryClient: provided, ...renderOptions } = options ?? {};
+  const { Wrapper, queryClient } = createWrapper({ initialEntries, queryClient: provided });
   const result = render(ui, { wrapper: Wrapper, ...renderOptions });
   return { ...result, queryClient };
 }
