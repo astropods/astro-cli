@@ -41,6 +41,12 @@ type Config struct {
 	// BillingUnlimitedEmailDomains. Same rates at a zero multiplier.
 	MetronomePackageIDUnlimited  string   // METRONOME_PACKAGE_ID_UNLIMITED
 	BillingUnlimitedEmailDomains []string // BILLING_UNLIMITED_EMAIL_DOMAINS
+	// BillingExemptAccounts holds the account ids billing must never suspend. It
+	// is checked before every suspension reason, so it holds even when the
+	// provider is unreachable or the account has no contract at all. Ids rather
+	// than slugs: the id is what the gate has in hand, and a rename cannot
+	// silently drop the protection.
+	BillingExemptAccounts []string // BILLING_EXEMPT_ACCOUNTS
 	// MetronomeDashboardEnv is the environment segment in Metronome dashboard
 	// URLs (app.metronome.com/<env>/customers/...), used only to build admin
 	// deep links. Empty for the default environment. The API token is scoped to
@@ -434,6 +440,7 @@ func Load() (*Config, error) {
 		MetronomePackageIDNoCredit:   getEnv("METRONOME_PACKAGE_ID_NO_CREDIT", ""),
 		MetronomePackageIDUnlimited:  getEnv("METRONOME_PACKAGE_ID_UNLIMITED", ""),
 		BillingUnlimitedEmailDomains: getEnvSliceOrOff("BILLING_UNLIMITED_EMAIL_DOMAINS", []string{"postman.com"}),
+		BillingExemptAccounts:        getEnvSlice("BILLING_EXEMPT_ACCOUNTS", nil),
 		MetronomeDashboardEnv:        getEnv("METRONOME_DASHBOARD_ENV", ""),
 		StripeSecretKey:              getEnv("STRIPE_SECRET_KEY", ""),
 		StripePublishableKey:         getEnv("STRIPE_PUBLISHABLE_KEY", ""),

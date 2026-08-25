@@ -91,34 +91,66 @@ func (w *BillingGatewayBudgetWorker) applyBudget(ctx context.Context, accountID 
 // An account with no limit falls back to the card-derived default rather than
 // running uncapped.
 func (w *BillingGatewayBudgetWorker) ceilingUSD(ctx context.Context, accountID string, rec billing.StatusRecord) (float64, string, error) {
-	reader, ok := w.provider.(billing.SpendThresholdReader)
-	if ok && w.backend != "" {
-		billingID, err := w.accounts.GetBillingCustomerID(accountID, w.backend)
-		if err != nil {
-			return 0, "", fmt.Errorf("load billing customer id: %w", err)
+	exempt := w.status.IsExempt(accountID)
+	// A failed read means the limit is unknown, so nothing is written. Falling
+	// back to the floor here would overwrite an operator-raised ceiling with a
+	// lower one every time the provider is unreachable, which is worse than
+	// leaving the account on the number it already has.
+	limitUSD, hasLimit, err := w.spendLimitUSD(ctx, accountID)
+	if err != nil {
+		return 0, "", err
+	}
+
+	if exempt {
+		// The floor is the standard ceiling, not the seeded limit, which is far
+		// below it. Raising an exempt account past the floor is an operator
+		// action: set a higher limit on the account and it is honoured here
+		// unclamped, because the self-serve bound governs what a customer can
+		// choose for itself, not what an operator grants.
+		if hasLimit && limitUSD > billing.MaxSelfServeSpendUSD {
+			return limitUSD, "exempt_operator_limit", nil
 		}
-		if billingID != "" {
-			thresholds, err := reader.CustomerSpendThresholds(ctx, billingID)
-			if err != nil {
-				return 0, "", fmt.Errorf("read spend limit: %w", err)
-			}
-			if thresholds.HasLimit {
-				// The provider stores thresholds in minor units.
-				limit := thresholds.Limit.Amount / 100
-				// The handler bounds what a customer can set, but a limit can
-				// reach the provider without passing it: an admin or a backfill
-				// writes there directly.
-				if limit > billing.MaxSelfServeSpendUSD {
-					return billing.MaxSelfServeSpendUSD, "spend_limit_clamped", nil
-				}
-				return limit, "spend_limit", nil
-			}
+		return billing.MaxSelfServeSpendUSD, "exempt_floor", nil
+	}
+
+	if hasLimit {
+		// The handler bounds what a customer can set, but a limit can reach the
+		// provider without passing it: an admin or a backfill writes there
+		// directly.
+		if limitUSD > billing.MaxSelfServeSpendUSD {
+			return billing.MaxSelfServeSpendUSD, "spend_limit_clamped", nil
 		}
+		return limitUSD, "spend_limit", nil
 	}
 	if rec.HasPaymentMethod {
 		return aigateway.CardedBudgetUSD, "default_carded", nil
 	}
 	return aigateway.CardlessBudgetUSD, "default_cardless", nil
+}
+
+// spendLimitUSD reads the account's own spend limit, reporting false when it has
+// none or the provider cannot supply one.
+func (w *BillingGatewayBudgetWorker) spendLimitUSD(ctx context.Context, accountID string) (float64, bool, error) {
+	reader, ok := w.provider.(billing.SpendThresholdReader)
+	if !ok || w.backend == "" {
+		return 0, false, nil
+	}
+	billingID, err := w.accounts.GetBillingCustomerID(accountID, w.backend)
+	if err != nil {
+		return 0, false, fmt.Errorf("load billing customer id: %w", err)
+	}
+	if billingID == "" {
+		return 0, false, nil
+	}
+	thresholds, err := reader.CustomerSpendThresholds(ctx, billingID)
+	if err != nil {
+		return 0, false, fmt.Errorf("read spend limit: %w", err)
+	}
+	if !thresholds.HasLimit {
+		return 0, false, nil
+	}
+	// The provider stores thresholds in minor units.
+	return thresholds.Limit.Amount / 100, true, nil
 }
 
 // gatewayBudgetSweepLimit bounds one tick. The bound is a count we choose rather

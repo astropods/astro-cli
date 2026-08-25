@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/lib/pq"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -64,8 +67,9 @@ func (r StatusRecord) signals() signals {
 // It is called only off the request path (webhook, timer, card save); the gate
 // reads Status with a cheap keyed lookup.
 type StatusStore struct {
-	db    *sql.DB
-	grace time.Duration
+	db     *sql.DB
+	grace  time.Duration
+	exempt map[string]struct{}
 }
 
 // NewStatusStore builds the store. graceDays is the dunning window before a
@@ -77,8 +81,48 @@ func NewStatusStore(db *sql.DB, graceDays int) *StatusStore {
 	return &StatusStore{db: db, grace: time.Duration(graceDays) * 24 * time.Hour}
 }
 
+// WithExemptAccounts fixes the accounts billing must never suspend, by account
+// id (BILLING_EXEMPT_ACCOUNTS). Call it at construction: the set is read
+// without a lock, so it must not change once the store is in use.
+func (s *StatusStore) WithExemptAccounts(accountIDs []string) *StatusStore {
+	if len(accountIDs) == 0 {
+		return s
+	}
+	s.exempt = make(map[string]struct{}, len(accountIDs))
+	for _, id := range accountIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			s.exempt[id] = struct{}{}
+		}
+	}
+	return s
+}
+
+// IsExempt reports whether billing must never suspend this account.
+func (s *StatusStore) IsExempt(accountID string) bool {
+	if s == nil || len(s.exempt) == 0 || accountID == "" {
+		return false
+	}
+	_, ok := s.exempt[accountID]
+	return ok
+}
+
+// ExemptAccountIDs lists the exempt accounts, sorted so a caller iterating them
+// does so in a stable order.
+func (s *StatusStore) ExemptAccountIDs() []string {
+	if s == nil || len(s.exempt) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(s.exempt))
+	for id := range s.exempt {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // signals is the raw per-account state the status machine reads.
 type signals struct {
+	exempt           bool
 	dunningSince     *time.Time
 	alertActive      bool
 	forceSuspended   bool
@@ -91,6 +135,9 @@ type signals struct {
 // anyFlagSet reports whether any collection flag is raised. hasPaymentMethod is
 // excluded: it is a fact about the account, not a reason to gate it.
 func (s signals) anyFlagSet() bool {
+	if s.exempt {
+		return false
+	}
 	return s.dunningSince != nil || s.alertActive || s.forceSuspended || s.creditsExhausted ||
 		s.usageLimitActive || s.notProvisioned
 }
@@ -100,6 +147,7 @@ func (s signals) anyFlagSet() bool {
 // with one on file the account bills pay-as-you-go, so a spent balance is
 // expected rather than a reason to stop it.
 // computeStatus is the pure state machine. First match wins:
+//  0. an exempt account         → active, whatever every other signal says
 //  1. no contract covers it     → suspended (not_provisioned)
 //  2. a terminal write-off      → suspended (uncollectible)
 //  3. an uncleared hard alert   → suspended (balance_alert)
@@ -113,6 +161,12 @@ func (s signals) anyFlagSet() bool {
 // with one on file the account bills pay-as-you-go, so a spent balance is
 // expected rather than a reason to stop it.
 func computeStatus(s signals, grace time.Duration, now time.Time) (Status, string) {
+	// Checked before every reason on purpose. An exemption sitting behind
+	// notProvisioned would lapse exactly when it has to hold: an expired
+	// contract or an unreachable provider both raise that flag.
+	if s.exempt {
+		return StatusActive, ""
+	}
 	if s.notProvisioned {
 		return StatusSuspended, ReasonNotProvisioned
 	}
@@ -153,6 +207,11 @@ func (s *StatusStore) Get(ctx context.Context, accountID string) (Status, string
 	if st == "" {
 		st = StatusActive
 	}
+	// The gate reads this, not computeStatus, so a row written before the
+	// account was exempt would otherwise keep blocking it until a recompute.
+	if st != StatusActive && s.IsExempt(accountID) {
+		return StatusActive, "", nil
+	}
 	return st, reason.String, nil
 }
 
@@ -170,7 +229,21 @@ const recordSelect = `
 // inputs plus the status and reason it last produced. A missing row means
 // active with no flags set.
 func (s *StatusStore) Record(ctx context.Context, accountID string) (StatusRecord, error) {
-	return readRecord(ctx, s.db, accountID, recordSelect)
+	rec, err := readRecord(ctx, s.db, accountID, recordSelect)
+	if err != nil {
+		return rec, err
+	}
+	// The gate reads this rather than Get, so the exemption has to hold here or
+	// a row written before the account was exempt still returns a 402. Applied
+	// here and not in readRecord: Recompute reads that raw, and would otherwise
+	// see the status it is about to write and skip the correction.
+	if rec.Status != StatusActive && s.IsExempt(accountID) {
+		rec.Status = StatusActive
+		rec.Reason = ""
+		// An account we never expect payment from must not be shown a pay link.
+		rec.PayLink = ""
+	}
+	return rec, nil
 }
 
 func readRecord(ctx context.Context, q rowQuerier, accountID, query string) (StatusRecord, error) {
@@ -385,13 +458,48 @@ func (s *StatusStore) SetPaymentMethod(ctx context.Context, accountID string, pr
 	return nil
 }
 
-// ListInDunning returns account IDs currently in past_due (the timer's work set).
-func (s *StatusStore) ListInDunning(ctx context.Context, limit int) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT account_id FROM account_billing_status WHERE status = $1 ORDER BY updated_at LIMIT $2`,
-		string(StatusPastDue), limit)
+// ListForRecompute returns the accounts the timer has to re-evaluate: those in
+// past_due, plus those stored active while their own flags say the machine would
+// not have produced active.
+//
+// The second half is what catches an account that was delinquent while it was
+// exempt. The exemption persists active, so removing it would otherwise leave
+// the account outside every work set and running unpaid forever.
+//
+// The predicate mirrors computeStatus rather than listing every flag, so a
+// carded account with spent credits is not re-read on every tick: it is
+// legitimately active. Suspended accounts stay out for the same reason, which
+// keeps this from re-evaluating every stopped account.
+func (s *StatusStore) ListForRecompute(ctx context.Context, limit int) ([]string, error) {
+	// Exempt accounts match the drift half permanently: stored active with their
+	// flags raised, and Recompute writes nothing, so updated_at never moves and
+	// they sort to the front of every tick. reconcileExempt already recomputes
+	// them, so leaving them here only holds slots this bounded set needs.
+	//
+	// Passed as one array parameter rather than built into the SQL: an empty
+	// array excludes nobody, so the query is the same shape either way. It must
+	// not be nil, because `<> ALL(NULL)` is NULL and would match no rows at all.
+	exempt := s.ExemptAccountIDs()
+	if exempt == nil {
+		exempt = []string{}
+	}
+	// The status test is parenthesised as a whole: without that, the exclusion
+	// would bind to the drift branch only and still sweep exempt past_due rows.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT account_id FROM account_billing_status
+		 WHERE (status = $1
+		    OR (status = $2 AND (
+		          dunning_since IS NOT NULL
+		       OR alert_active
+		       OR force_suspended
+		       OR (credits_exhausted AND NOT has_payment_method)
+		       OR usage_limit_active
+		       OR not_provisioned)))
+		   AND account_id::text <> ALL($3::text[])
+		 ORDER BY updated_at LIMIT $4`,
+		string(StatusPastDue), string(StatusActive), pq.Array(exempt), limit)
 	if err != nil {
-		return nil, fmt.Errorf("list in dunning: %w", err)
+		return nil, fmt.Errorf("list for recompute: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck
 	var ids []string
@@ -425,6 +533,7 @@ func (s *StatusStore) Recompute(ctx context.Context, accountID string, now time.
 		return StatusActive, false, err
 	}
 	sig := rec.signals()
+	sig.exempt = s.IsExempt(accountID)
 	next, reason := computeStatus(sig, s.grace, now)
 	if next == rec.Status && reason == rec.Reason {
 		return next, false, nil

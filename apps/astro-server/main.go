@@ -211,7 +211,8 @@ func main() {
 	// backends → pass-through. BILLING_GATE_ENFORCE=false is observe mode.
 	var billingStatus *billing.StatusStore
 	if cfg.BillingBackend() == config.BillingBackendMetronome {
-		billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays)
+		billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays).
+			WithExemptAccounts(cfg.BillingExemptAccounts)
 	}
 	ent := middleware.NewEntitlements(billingStatus, cfg.BillingGateEnforce, log)
 

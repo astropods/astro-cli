@@ -175,12 +175,15 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var provisionWorker *BillingProvisionWorker
 	if cfg.BillingBackend == "metronome" {
 		graceDays := 7
-		var unlimitedDomains []string
+		var unlimitedDomains, exemptAccounts []string
 		if cfg.ServerConfig != nil {
 			graceDays = cfg.ServerConfig.BillingDunningGraceDays
 			unlimitedDomains = cfg.ServerConfig.BillingUnlimitedEmailDomains
+			exemptAccounts = cfg.ServerConfig.BillingExemptAccounts
 		}
-		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays)
+		// The sweep suspends on its own timer, so it needs the same exemptions
+		// the API has or it would suspend an exempt account behind the gate.
+		statusStore := billingpkg.NewStatusStore(cfg.DB, graceDays).WithExemptAccounts(exemptAccounts)
 		billingStatusStore = statusStore
 		billingDepStore := deploymentstore.NewStore(cfg.DB)
 		dunningWorker = &DunningSweepWorker{

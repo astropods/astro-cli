@@ -435,3 +435,107 @@ func TestGatewayBudgetSweep_AppliesThroughTheRealWorker(t *testing.T) {
 		t.Errorf("db: %v", err)
 	}
 }
+
+// exemptLimitHarness is limitHarness with the account in the never-suspend set.
+func exemptLimitHarness(t *testing.T, provider billing.BillingProvider, hasCard bool) (float64, error) {
+	t.Helper()
+
+	var limit float64
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Budgets []struct {
+				MaxLimit float64 `json:"max_limit"`
+			} `json:"budgets"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Budgets) == 1 {
+			limit = body.Budgets[0].MaxLimit
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer gw.Close()
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery("SELECT bifrost_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"bifrost_customer_id"}).AddRow("bf-1"))
+	mock.ExpectQuery("FROM account_billing_status").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"status", "reason", "dunning_since", "alert_active", "force_suspended",
+			"credits_exhausted", "has_payment_method", "pay_link", "usage_limit_active", "not_provisioned",
+		}).AddRow("active", "", nil, false, false, false, hasCard, nil, false, false))
+	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+
+	w := &BillingGatewayBudgetWorker{
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7).WithExemptAccounts([]string{"acct-1"}),
+		gateway:  aigateway.NewClient("https://aig.example", gw.URL, ""),
+		provider: provider,
+		backend:  "metronome",
+		log:      logger.New("error", "json"),
+	}
+	return limit, w.Work(context.Background(), &river.Job[BillingGatewayBudgetArgs]{
+		Args: BillingGatewayBudgetArgs{AccountID: "acct-1"},
+	})
+}
+
+// Provisioning seeds every account a $20 limit. An exempt account is one billing
+// never suspends, so letting that seeded figure through would stop it at $20 by
+// the one control the exemption does not reach.
+func TestGatewayBudget_ExemptAccountFloorsAtTheStandardCeiling(t *testing.T) {
+	limit, err := exemptLimitHarness(t, limitProvider{hasLimit: true, limitCents: 2000}, true)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit != billing.MaxSelfServeSpendUSD {
+		t.Errorf("limit = %v, want the standard ceiling %v", limit, billing.MaxSelfServeSpendUSD)
+	}
+}
+
+// An account with no limit falls through to the card default, which is lower
+// still, so the floor has to cover that path too.
+func TestGatewayBudget_ExemptAccountWithNoLimitStillFloors(t *testing.T) {
+	limit, err := exemptLimitHarness(t, limitProvider{hasLimit: false}, false)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit == aigateway.CardlessBudgetUSD {
+		t.Fatalf("limit = %v, the cardless default capped an exempt account", limit)
+	}
+	if limit != billing.MaxSelfServeSpendUSD {
+		t.Errorf("limit = %v, want the standard ceiling %v", limit, billing.MaxSelfServeSpendUSD)
+	}
+}
+
+// Raising an exempt account past the floor is an operator action: a limit set
+// above the self-serve bound has to survive, since that bound governs what a
+// customer can choose for itself and not what an operator grants.
+func TestGatewayBudget_ExemptOperatorLimitIsNotClamped(t *testing.T) {
+	limit, err := exemptLimitHarness(t, limitProvider{hasLimit: true, limitCents: 2_500_000}, true)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit == billing.MaxSelfServeSpendUSD {
+		t.Fatalf("limit = %v, the self-serve bound clamped an operator raise", limit)
+	}
+	if limit != 25000 {
+		t.Errorf("limit = %v, want the operator limit 25000", limit)
+	}
+}
+
+// An exempt account can be raised above the floor by an operator, so falling
+// back to the floor on an unreadable limit would demote it every time the
+// provider is unreachable. Writing nothing leaves the granted ceiling standing.
+func TestGatewayBudget_ExemptUnreadableLimitWritesNothing(t *testing.T) {
+	limit, err := exemptLimitHarness(t, limitProvider{err: errors.New("provider down")}, false)
+	if err == nil {
+		t.Fatal("want the read failure returned so the job retries")
+	}
+	if limit != 0 {
+		t.Errorf("the gateway was written to anyway: limit = %v", limit)
+	}
+}

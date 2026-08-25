@@ -190,3 +190,35 @@ func TestBillingAction_WriteOffNeverOffersThePayLink(t *testing.T) {
 		t.Error("the 402 body carries a pay link for a written-off invoice")
 	}
 }
+
+// The gate reads Record, not Get, so an exemption honoured only in Get would
+// still answer 402 here. This is the assertion that catches that.
+func TestEntitlementsCheck_ExemptAccountIsNeverBlocked(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	row := func() *sqlmock.Rows {
+		return statusRow("suspended", billing.ReasonCreditsExhausted, nil)
+	}
+
+	// The same suspended row through a store that does not exempt the account,
+	// so a gate that never blocks anything cannot pass this test.
+	mock.ExpectQuery("SELECT status, reason").WithArgs("acct-1").WillReturnRows(row())
+	if got := NewEntitlements(billing.NewStatusStore(db, 7), true, nil).
+		Check(context.Background(), "acct-1"); !got.Blocked {
+		t.Fatal("Blocked = false without the exemption, so the case proves nothing")
+	}
+
+	mock.ExpectQuery("SELECT status, reason").WithArgs("acct-1").WillReturnRows(row())
+	exempt := billing.NewStatusStore(db, 7).WithExemptAccounts([]string{"acct-1"})
+	got := NewEntitlements(exempt, true, nil).Check(context.Background(), "acct-1")
+	if got.Blocked {
+		t.Errorf("an exempt account was blocked: reason %q", got.Reason)
+	}
+	if got.Reason != "" {
+		t.Errorf("Reason = %q, want empty", got.Reason)
+	}
+}

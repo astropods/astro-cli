@@ -33,6 +33,7 @@ func init() {
 // part of this worker worth proving; the recompute only decides that it happens.
 type dunningQueue interface {
 	InsertBillingSuspend(ctx context.Context, accountID string) error
+	InsertBillingResume(ctx context.Context, accountID string) error
 	EmitBillingNotify(ctx context.Context, ev notify.Event) error
 }
 
@@ -76,7 +77,7 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 	if w.status == nil {
 		return nil
 	}
-	ids, err := w.status.ListInDunning(ctx, dunningSweepLimit)
+	ids, err := w.status.ListForRecompute(ctx, dunningSweepLimit)
 	if err != nil {
 		return err
 	}
@@ -104,5 +105,33 @@ func (w *DunningSweepWorker) Work(ctx context.Context, _ *river.Job[DunningSweep
 	if len(ids) > 0 {
 		w.log.Info("billing dunning: sweep", "evaluated", len(ids), "suspended", suspended)
 	}
+	w.reconcileExempt(ctx, now)
 	return nil
+}
+
+// reconcileExempt returns exempt accounts to active and resumes whatever an
+// earlier suspension stopped.
+//
+// The sweep above only scans past_due rows, so an account already suspended when
+// it became exempt is never re-evaluated. Its reads report active while its
+// deployments stay stopped, which is the one failure the exemption exists to
+// prevent. Running every sweep rather than once at startup makes it self-healing
+// whatever order the exemption and the suspension arrived in.
+func (w *DunningSweepWorker) reconcileExempt(ctx context.Context, now time.Time) {
+	for _, id := range w.status.ExemptAccountIDs() {
+		st, _, err := w.status.Recompute(ctx, id, now)
+		if err != nil {
+			w.log.Error("billing exempt reconcile: recompute failed", "account_id", id, "error", err)
+			continue
+		}
+		if st != billing.StatusActive || w.queue == nil {
+			continue
+		}
+		// Unconditional, not only on a transition: a resume touches suspended
+		// deployments and nothing else, so it repairs a row that already read
+		// active while its workloads were still stopped.
+		if err := w.queue.InsertBillingResume(ctx, id); err != nil {
+			w.log.Error("billing exempt reconcile: enqueue resume failed", "account_id", id, "error", err)
+		}
+	}
 }

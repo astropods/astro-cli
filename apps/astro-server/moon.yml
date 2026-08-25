@@ -31,7 +31,9 @@ tasks:
       - "go.mod"
       - "go.sum"
 
-  # Billing suite. Needs no Postgres, Kubernetes, or browser.
+  # Billing suite. Runs without Postgres, Kubernetes, or a browser, and says so:
+  # the SQL-backed billing tests are skipped unless DATABASE_URL is set, and the
+  # run reports itself partial when they are. test-integration runs them.
   test-billing:
     command: "bash scripts/test-billing.sh"
     inputs:
