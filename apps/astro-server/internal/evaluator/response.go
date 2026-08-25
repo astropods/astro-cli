@@ -38,7 +38,7 @@ func parseResult(response *aigateway.ChatCompletionResponse, output Output) (Res
 		return Result{}, invalidOutput("missing required field")
 	}
 
-	value, err := validateValue(output, *model.Value)
+	value, err := ValidateValue(output, *model.Value)
 	if err != nil {
 		return Result{}, err
 	}
@@ -97,7 +97,13 @@ func decodeResult(content string) (modelResult, error) {
 	return model, nil
 }
 
-func validateValue(output Output, raw json.RawMessage) (any, error) {
+// ValidateValue checks a value against the evaluator's declared output contract.
+func ValidateValue(output Output, raw json.RawMessage) (any, error) {
+	// Unmarshalling JSON null into a bool, float64, or string is a no-op that
+	// reports no error, so every type would silently accept it as its zero value.
+	if isJSONNull(raw) {
+		return nil, invalidOutput("value is null")
+	}
 	switch output.Type {
 	case OutputBoolean:
 		var value bool
@@ -144,6 +150,10 @@ func validateValue(output Output, raw json.RawMessage) (any, error) {
 	default:
 		return nil, invalidOutput("output type %q is not supported", output.Type)
 	}
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 func decodeString(raw json.RawMessage) (string, error) {

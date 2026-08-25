@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -72,6 +73,24 @@ func TestParseResultRejectsValuesFailingTheDeclaredOutput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := parseResult(responseWithContent(testCase.content), testCase.output)
 			require.ErrorIs(t, err, ErrInvalidOutput)
+		})
+	}
+}
+
+func TestValidateValueRejectsNullForEveryOutputType(t *testing.T) {
+	outputs := map[string]Output{
+		"boolean": {Type: OutputBoolean},
+		"enum":    enumEvaluator().Output,
+		"number":  {Type: OutputNumber},
+		"string":  {Type: OutputString},
+	}
+
+	for name, output := range outputs {
+		t.Run(name, func(t *testing.T) {
+			for _, raw := range []string{`null`, ` null `} {
+				_, err := ValidateValue(output, json.RawMessage(raw))
+				require.ErrorIs(t, err, ErrInvalidOutput)
+			}
 		})
 	}
 }

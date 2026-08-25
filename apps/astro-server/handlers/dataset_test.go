@@ -7,6 +7,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
+	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 )
@@ -19,6 +20,7 @@ type datasetFixture struct {
 	*traceDetailFixture
 	datasetMock  sqlmock.Sqlmock
 	judgmentMock sqlmock.Sqlmock
+	itemMock     sqlmock.Sqlmock
 	runMock      sqlmock.Sqlmock
 }
 
@@ -34,6 +36,10 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	t.Cleanup(func() { judgmentDB.Close() })
 	judgmentStore := judgmentstore.NewStore(judgmentDB)
 
+	itemDB, itemMock, _ := sqlmock.New()
+	t.Cleanup(func() { itemDB.Close() })
+	itemStore := evalitemstore.NewStore(itemDB)
+
 	runDB, runMock, _ := sqlmock.New()
 	t.Cleanup(func() { runDB.Close() })
 	runStore := evalrunstore.NewStore(runDB)
@@ -42,6 +48,8 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		GetEvalDataset(log, accountStore, deployStore, dsStore, judgmentStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/items",
 		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
+	f.router.POST("/api/v1/deployments/:id/dataset/items",
+		PostDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
 		DownloadEvalDataset(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
@@ -63,6 +71,7 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		traceDetailFixture: f,
 		datasetMock:        datasetMock,
 		judgmentMock:       judgmentMock,
+		itemMock:           itemMock,
 		runMock:            runMock,
 	}
 }

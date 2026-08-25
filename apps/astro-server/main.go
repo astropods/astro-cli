@@ -51,6 +51,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
@@ -2499,6 +2500,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
 			datasetStore := evaldatasetstore.NewStore(db)
 			judgmentStore := judgmentstore.NewStore(db)
+			evalItemStore := evalitemstore.NewStore(db)
 			evalRunStore := evalrunstore.NewStore(db)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
 				oapispec.Tags("Dataset"),
@@ -2513,6 +2515,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("page", "Unfiltered page number (default 1)", false),
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
 				oapispec.Response(200, nil),
+			)
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/items", "Add a trace to the dataset", handlers.PostDatasetItem(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.Body(&handlers.DatasetItemRequest{}),
+				oapispec.Response(201, &handlers.DatasetItemResponse{}),
 			)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
 				oapispec.Tags("Dataset"),

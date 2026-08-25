@@ -6,8 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 )
 
@@ -162,5 +166,310 @@ func TestGetEvalDatasetItems_OK(t *testing.T) {
 	}
 	if resp.TotalItems != 1 {
 		t.Fatalf("total_items = %d, want 1", resp.TotalItems)
+	}
+}
+
+const validItemOutputs = `[
+	{"key":"exposed_pii","value":false},
+	{"key":"leaked_credentials","value":false},
+	{"key":"disclosed_system_instructions","value":false},
+	{"key":"unnecessary_tool_call","value":true},
+	{"key":"claim_grounding","value":"grounded"},
+	{"key":"user_sentiment","value":"positive"}
+]`
+
+type datasetItemUpsert struct {
+	called   atomic.Bool
+	metadata map[string]any
+	status   int
+}
+
+func langfuseItemHandler(t *testing.T, upsert *datasetItemUpsert) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/public/traces/trace-1":
+			_ = json.NewEncoder(w).Encode(langfuse.TraceDetail{
+				Trace: langfuse.Trace{
+					ID:        "trace-1",
+					Input:     map[string]any{"prompt": "hello"},
+					Output:    map[string]any{"answer": "world"},
+					Tags:      []string{"deployment:dep-1"},
+					CreatedAt: "2026-06-01T12:00:00Z",
+				},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/public/dataset-items":
+			upsert.called.Store(true)
+			var body struct {
+				Metadata map[string]any `json:"metadata"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode dataset item body: %v", err)
+			}
+			upsert.metadata = body.Metadata
+			if upsert.status != 0 {
+				w.WriteHeader(upsert.status)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "item-1"})
+		default:
+			t.Errorf("unexpected upstream call %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}
+}
+
+func postDatasetItem(t *testing.T, f *datasetFixture, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/deployments/dep-1/dataset/items",
+		bytes.NewBufferString(body),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	return rec
+}
+
+func expectItemInsert(f *datasetFixture, runID any, affected int64) {
+	f.itemMock.ExpectBegin()
+	f.itemMock.ExpectExec("INSERT INTO eval_dataset_items").
+		WithArgs("dataset-dep-1", "trace-1", evalpreset.RefDefaultSet, runID, "user-1").
+		WillReturnResult(sqlmock.NewResult(0, affected))
+	if affected == 0 {
+		f.itemMock.ExpectRollback()
+		return
+	}
+	f.itemMock.ExpectExec("INSERT INTO eval_dataset_item_evaluator_outputs").
+		WillReturnResult(sqlmock.NewResult(0, 6))
+	f.itemMock.ExpectCommit()
+}
+
+func expectRunLookup(f *datasetFixture, datasetID, traceID, evaluationRef, status string) {
+	f.runMock.ExpectQuery("FROM eval_dataset_evaluation_runs").
+		WithArgs("run-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "eval_dataset_id", "trace_id", "evaluation_ref", "status", "error_message"}).
+			AddRow("run-1", datasetID, traceID, evaluationRef, status, nil))
+}
+
+func TestPostDatasetItem_WithoutARunStoresEveryOutput(t *testing.T) {
+	upsert := &datasetItemUpsert{}
+	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectItemInsert(f, nil, 1)
+
+	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetItemResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvalDatasetID != "dataset-dep-1" || resp.TraceID != "trace-1" {
+		t.Errorf("response = %+v, want dataset-dep-1 / trace-1", resp)
+	}
+	if resp.EvaluationRef != evalpreset.RefDefaultSet {
+		t.Errorf("evaluation_ref = %q, want %q", resp.EvaluationRef, evalpreset.RefDefaultSet)
+	}
+	if !upsert.called.Load() {
+		t.Error("expected a Langfuse dataset item upsert")
+	}
+	if len(upsert.metadata) != 0 {
+		t.Errorf("item metadata = %v, want none; evaluator outputs belong to the item store", upsert.metadata)
+	}
+	if err := f.itemMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet item expectations: %v", err)
+	}
+}
+
+func TestPostDatasetItem_AcceptsAnyRunStatusForTheTrace(t *testing.T) {
+	for _, status := range []string{"queued", "in_progress", "completed", "failed"} {
+		t.Run(status, func(t *testing.T) {
+			upsert := &datasetItemUpsert{}
+			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+			expectAuthorizedDeployment(f.traceDetailFixture)
+			expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+			expectRunLookup(f, "dataset-dep-1", "trace-1", evalpreset.RefDefaultSet, status)
+			expectItemInsert(f, "run-1", 1)
+
+			rec := postDatasetItem(t, f,
+				`{"trace_id":"trace-1","evaluation_run_id":"run-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if err := f.itemMock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("unmet item expectations: %v", err)
+			}
+			if err := f.runMock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("unmet run expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestPostDatasetItem_RejectsAMismatchedRun(t *testing.T) {
+	tests := []struct {
+		name          string
+		datasetID     string
+		traceID       string
+		evaluationRef string
+	}{
+		{name: "another trace", datasetID: "dataset-dep-1", traceID: "trace-other", evaluationRef: evalpreset.RefDefaultSet},
+		{name: "another dataset", datasetID: "dataset-other", traceID: "trace-1", evaluationRef: evalpreset.RefDefaultSet},
+		{name: "another evaluation set", datasetID: "dataset-dep-1", traceID: "trace-1", evaluationRef: "preset/retired"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upsert := &datasetItemUpsert{}
+			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+			expectAuthorizedDeployment(f.traceDetailFixture)
+			expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+			expectRunLookup(f, test.datasetID, test.traceID, test.evaluationRef, "completed")
+
+			rec := postDatasetItem(t, f,
+				`{"trace_id":"trace-1","evaluation_run_id":"run-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if upsert.called.Load() {
+				t.Error("a rejected run must not write a Langfuse item")
+			}
+		})
+	}
+}
+
+func TestPostDatasetItem_RejectsAnUnknownRun(t *testing.T) {
+	upsert := &datasetItemUpsert{}
+	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	f.runMock.ExpectQuery("FROM eval_dataset_evaluation_runs").
+		WithArgs("run-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "eval_dataset_id", "trace_id", "evaluation_ref", "status", "error_message"}))
+
+	rec := postDatasetItem(t, f,
+		`{"trace_id":"trace-1","evaluation_run_id":"run-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPostDatasetItem_RejectsADuplicate(t *testing.T) {
+	upsert := &datasetItemUpsert{}
+	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectItemInsert(f, nil, 0)
+
+	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if upsert.called.Load() {
+		t.Error("the duplicate gate must run before the Langfuse write")
+	}
+}
+
+func TestPostDatasetItem_RollsBackWhenTheLangfuseWriteFails(t *testing.T) {
+	upsert := &datasetItemUpsert{status: http.StatusInternalServerError}
+	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectItemInsert(f, nil, 1)
+	f.itemMock.ExpectExec("DELETE FROM eval_dataset_items").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := f.itemMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet item expectations: %v", err)
+	}
+}
+
+func TestPostDatasetItem_RejectsInvalidOutputs(t *testing.T) {
+	tests := []struct {
+		name    string
+		outputs string
+	}{
+		{
+			name:    "missing evaluator",
+			outputs: `[{"key":"exposed_pii","value":false}]`,
+		},
+		{
+			name: "unknown evaluator",
+			outputs: `[
+				{"key":"exposed_pii","value":false},
+				{"key":"leaked_credentials","value":false},
+				{"key":"disclosed_system_instructions","value":false},
+				{"key":"unnecessary_tool_call","value":true},
+				{"key":"claim_grounding","value":"grounded"},
+				{"key":"user_sentiment","value":"positive"},
+				{"key":"not_an_evaluator","value":true}
+			]`,
+		},
+		{
+			name: "wrong value type",
+			outputs: `[
+				{"key":"exposed_pii","value":"nope"},
+				{"key":"leaked_credentials","value":false},
+				{"key":"disclosed_system_instructions","value":false},
+				{"key":"unnecessary_tool_call","value":true},
+				{"key":"claim_grounding","value":"grounded"},
+				{"key":"user_sentiment","value":"positive"}
+			]`,
+		},
+		{
+			name: "value outside the enum",
+			outputs: `[
+				{"key":"exposed_pii","value":false},
+				{"key":"leaked_credentials","value":false},
+				{"key":"disclosed_system_instructions","value":false},
+				{"key":"unnecessary_tool_call","value":true},
+				{"key":"claim_grounding","value":"grounded"},
+				{"key":"user_sentiment","value":"ecstatic"}
+			]`,
+		},
+		{
+			name: "omitted value",
+			outputs: `[
+				{"key":"exposed_pii"},
+				{"key":"leaked_credentials","value":false},
+				{"key":"disclosed_system_instructions","value":false},
+				{"key":"unnecessary_tool_call","value":true},
+				{"key":"claim_grounding","value":"grounded"},
+				{"key":"user_sentiment","value":"positive"}
+			]`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upsert := &datasetItemUpsert{}
+			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+			expectAuthorizedDeployment(f.traceDetailFixture)
+
+			rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+test.outputs+`}`)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if upsert.called.Load() {
+				t.Error("an invalid request must not write a Langfuse item")
+			}
+		})
 	}
 }

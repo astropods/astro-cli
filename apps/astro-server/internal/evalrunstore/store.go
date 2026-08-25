@@ -246,6 +246,25 @@ func (s *Store) FailQueuedRuns(
 	return nil
 }
 
+// GetRun returns the run, or nil when no run carries the id.
+func (s *Store) GetRun(ctx context.Context, runID string) (*Run, error) {
+	var run Run
+	var message sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, eval_dataset_id, trace_id, evaluation_ref, status, error_message
+		FROM eval_dataset_evaluation_runs
+		WHERE id = $1
+	`, runID).Scan(&run.ID, &run.EvalDatasetID, &run.TraceID, &run.EvaluationRef, &run.Status, &message)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("evalrunstore get run: %w", err)
+	}
+	run.ErrorMessage = message.String
+	return &run, nil
+}
+
 // FinalizeRun writes the run's terminal state, rejecting a non-terminal one.
 func (s *Store) FinalizeRun(ctx context.Context, runID string, status Status, errorMessage *string) error {
 	if status != StatusCompleted && status != StatusFailed {

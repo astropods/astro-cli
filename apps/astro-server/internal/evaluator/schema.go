@@ -4,7 +4,7 @@ const responseSchemaName = "eval_dataset_evaluator_result"
 
 // responseFormat builds the strict response schema for one evaluator's declared
 // output. Range and length bounds are deliberately absent: structured output does
-// not support them, and validateValue has to enforce the stored value anyway.
+// not support them, and ValidateValue has to enforce the stored value anyway.
 func responseFormat(output Output) map[string]any {
 	return map[string]any{
 		"type": "json_schema",

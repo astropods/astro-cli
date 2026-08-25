@@ -1254,6 +1254,28 @@ CREATE TABLE public.eval_dataset_evaluator_results (
     CONSTRAINT eval_dataset_evaluator_results_confidence_check CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1)
 );
 
+CREATE TABLE public.eval_dataset_items (
+    eval_dataset_id          uuid        NOT NULL,
+    trace_id                 text        NOT NULL,
+    evaluation_ref           text        NOT NULL,
+    source_evaluation_run_id uuid,
+    added_by_user_id         text        NOT NULL,
+    created_at               timestamptz NOT NULL DEFAULT now(),
+    updated_at               timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_items_pkey PRIMARY KEY (eval_dataset_id, trace_id),
+    CONSTRAINT eval_dataset_items_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
+    CONSTRAINT eval_dataset_items_run_fkey FOREIGN KEY (source_evaluation_run_id) REFERENCES public.eval_dataset_evaluation_runs(id)
+);
+
+CREATE TABLE public.eval_dataset_item_evaluator_outputs (
+    eval_dataset_id uuid  NOT NULL,
+    trace_id        text  NOT NULL,
+    evaluator_key   text  NOT NULL,
+    value_json      jsonb NOT NULL,
+    CONSTRAINT eval_dataset_item_evaluator_outputs_pkey PRIMARY KEY (eval_dataset_id, trace_id, evaluator_key),
+    CONSTRAINT eval_dataset_item_evaluator_outputs_item_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_items(eval_dataset_id, trace_id) ON DELETE CASCADE
+);
+
 -- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
 -- when the user connects their Slack account via WorkOS Pipes — the link
 -- handler exchanges the Pipes-issued access token for the slack identity via
