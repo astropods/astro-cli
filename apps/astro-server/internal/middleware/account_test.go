@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -168,6 +169,73 @@ func TestRequireAccountPermission_PersonalAccount_NotMember(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("non-owner of personal account should be forbidden, got %d", rec.Code)
+	}
+}
+
+func TestRequireAccountPermission_PersonalAccount_JWTPath_Granted(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := setupPermissionTestRouter(store, "org:manage",
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "wos-personal-1", Permissions: []string{"org:manage"}},
+		&account.Account{ID: "acct-1", Name: "saswat", Type: "personal", WorkOSOrganizationID: "wos-personal-1"})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("scoped session should be authorized from the JWT, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("the JWT answer should need no membership query: %v", err)
+	}
+}
+
+func TestRequireAccountPermission_PersonalAccount_JWTMissingPermissionFallsBackToMembership(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
+		WithArgs("acct-1", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	router := setupPermissionTestRouter(store, "org:manage",
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "wos-personal-1", Permissions: []string{"agents:read"}},
+		&account.Account{ID: "acct-1", Name: "saswat", Type: "personal", WorkOSOrganizationID: "wos-personal-1"})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("owner must keep access when the role lacks the permission, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestRequireAccountPermission_OrgAccount_UnscopedSessionNeverFallsBackToMembership(t *testing.T) {
+	db, _, _ := sqlmock.New()
+	store := account.NewAccountStore(db)
+
+	router := setupPermissionTestRouter(store, "org:manage",
+		&auth.User{ID: "user-1"},
+		&auth.Session{OrganizationID: "wos-other", Permissions: []string{"org:manage"}},
+		&account.Account{ID: "acct-1", Name: "acme", Type: "organization", WorkOSOrganizationID: "wos-acme"})
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "switch-org") {
+		t.Errorf("error should point at switch-org: %s", rec.Body.String())
 	}
 }
 

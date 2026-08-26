@@ -16,6 +16,7 @@ The real rule is that a personal account holds one person. The account type sets
 | --- | --- | --- |
 | `Type == "organization"` | The account may hold more than one person | No |
 | `WorkOSOrganizationID != ""` | The organization link exists | Yes. Empty only until provisioning finishes |
+| `session.OrganizationID == acct.WorkOSOrganizationID` | This caller's JWT claims apply to this account | Per request. Authorization reads this first |
 
 Four call sites read the link but meant the type: invitations, member roles in the member list, the alert manager lookup, and the Insights role fallback. They now check the type. So a personal account still cannot be invited into, even though it has an organization. `org.Sync` already checked the type when adding, removing, and re-roling members.
 
@@ -31,26 +32,44 @@ Where a path still reads the link, it needs the ID to call WorkOS. A missing lin
 
 Account creation rolls an organization account back when provisioning fails, so this state should not occur. The log line is there to prove that.
 
-### Authorization does not change
+### Authorization: the session's scope decides, not the account type
 
 ```mermaid
 flowchart TD
     Req["account-scoped request"] --> App{"caller is an app?"}
-    App -->|yes| Scope{"app bound to this account<br>and holds the scope?"}
-    Scope -->|no| F403["403"]
-    Scope -->|yes| Pass["proceed"]
-    App -->|no| Type{"account type"}
-    Type -->|personal| Member{"IsMember?"}
-    Member -->|no| F403
-    Member -->|yes| Pass
-    Type -->|organization| Scoped{"session.org == account.workos_org_id?"}
+    App -->|yes| AppScope{"app bound to this account<br>and holds the scope?"}
+    AppScope -->|no| F403["403"]
+    AppScope -->|yes| Pass["proceed"]
+    App -->|no| Scoped{"session.org == account.workos_org_id?"}
     Scoped -->|no| Switch["403 use switch-org first"]
     Scoped -->|yes| Perm{"permission in JWT?"}
     Perm -->|no| F403
     Perm -->|yes| Pass
 ```
 
-Personal accounts still authorize by membership. Their new organization is not used here. No session is ever scoped to it, so reading permissions from the JWT would lock every owner out of their own account.
+The rule used to start with the account type. It now starts with the session. A JWT scoped to the account's organization answers from its permission claims, for a personal account as much as an organization one. There is no account-type branch left in it. `HasAccountPermission` holds the rule and the middleware calls it, so the two cannot drift apart.
+
+The web app now scopes its session to the personal organization, so browser callers take this path. Login does it: when AuthKit returns no organization, the callback re-mints the session against the user's personal organization. That is one extra WorkOS refresh at login, and it means landing on your own account costs no round trip afterwards. A user with no personal account yet, or whose organization link is still pending, is left unscoped.
+
+Two write paths already scoped the session on demand and excluded personal accounts, the deploy variable picker and blueprint publishing. They now scope for any account with an organization. The session refresh asks for the organization the session already records, so a refresh cannot quietly return claims for a different scope than the session reports.
+
+The diagram is the rule, not the whole code path. Two fallbacks sit under it while other clients still send unscoped sessions:
+
+- **Personal account, unscoped session.** Membership decides, as before. The CLI still sends an unscoped token, a browser session sealed before this change stays unscoped until the next login, and a session scoped to another organization is unscoped as far as this account is concerned.
+- **Personal account, scoped session, permission absent from the JWT.** Membership decides. This one is temporary. If the WorkOS `owner` role turns out to be missing a permission that a personal-account route checks, the owner keeps working instead of losing access to their own account.
+
+An organization account never falls back to membership. That direction would let any member pass every permission check by being a member, so a `member` would hold `org:manage`.
+
+### What is left to finish it
+
+| Piece | State |
+| --- | --- |
+| Server: authorize from the JWT whenever the session is scoped | Done |
+| Web: scope the session to the personal organization at login | Done |
+| CLI: mint the org-scoped token for personal accounts too | Not started. `cmd/account.go` already does this for organization accounts, so dropping the account-type condition is the change, plus a release |
+| Verify the WorkOS `owner` role's permission set, then remove both fallbacks | Not started. Do this before the CLI change, so a scoped token cannot grant less than membership does |
+
+The payoff is larger than one branch. Personal accounts are excluded from FGA resource management, access groups, deployment visibility, the access service, and the Insights role fallback, in each case only because they had no organization. The cost is that personal-account authorization starts depending on WorkOS claims, where today membership lives in our own database.
 
 ### Provisioning
 

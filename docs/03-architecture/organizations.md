@@ -15,9 +15,11 @@ Astro has two account types, both stored in the `accounts` table:
 
 Every account has members tracked in `account_members`. Personal accounts have a single member (the creator). Organization accounts can have many members — roles are managed entirely in WorkOS, not stored locally.
 
-Both types are linked to a WorkOS organization, because WorkOS scopes applications, roles, and groups to one: an account without an organization can own none of them. Type, not the link, decides what only a team can do. Invitations and member management check `type = 'organization'`, so a personal account keeps exactly one human. Authorization also splits on type: a personal account authorizes by membership, because no session is ever scoped to its organization.
+Both types are linked to a WorkOS organization. WorkOS scopes applications, roles, and groups to an organization, so an account without one can own none of them. The type, not the link, decides what only a team can do. Invitations and member management check `type = 'organization'`, so a personal account keeps exactly one member.
 
-`org.Provisioner` links the organization at signup and the hourly `account.org_provision_sweep` covers any account still unlinked. The organization carries the account ID as its WorkOS `external_id`, which is what lets a retry adopt an organization a failed attempt created instead of minting a second one.
+Authorization also splits on type. A personal account authorizes by membership, because no session is ever scoped to its organization.
+
+`org.Provisioner` links the organization at signup, and the hourly `account.org_provision_sweep` covers any account still unlinked. Each organization stores the account ID as its WorkOS `external_id`. That is how a retry finds and reuses an organization a failed attempt created, instead of creating a second one.
 
 ## System Overview
 

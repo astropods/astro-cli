@@ -830,3 +830,45 @@ func TestSwitchOrg_PopulatesWorkOSMembershipIDFromDBWhenClaimMissing(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "om_from_db", sessionData.Session.WorkOSMembershipID)
 }
+
+func TestPersonalOrgTokens_ScopesToThePersonalOrganization(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.accountStore = &stubAccountGetter{accounts: []account.AccountWithRole{
+		{ID: "acct-2", Name: "acme", Type: "organization", WorkOSOrganizationID: "wos-acme"},
+		{ID: "acct-1", Name: "saswat", Type: "personal", WorkOSOrganizationID: "wos-personal"},
+	}}
+	handler.orgRefresher = &stubOrgRefresher{result: &auth.RefreshResult{
+		AccessToken:  "scoped-access",
+		RefreshToken: "rotated-refresh",
+	}}
+
+	scoped, organizationID := handler.personalOrgTokens(context.Background(), "user-1", "refresh-token")
+	require.NotNil(t, scoped)
+	require.Equal(t, "wos-personal", organizationID)
+	require.Equal(t, "scoped-access", scoped.AccessToken)
+	require.Equal(t, "rotated-refresh", scoped.RefreshToken)
+}
+
+func TestPersonalOrgTokens_NoPersonalOrganizationYet(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.accountStore = &stubAccountGetter{accounts: []account.AccountWithRole{
+		{ID: "acct-1", Name: "saswat", Type: "personal"},
+	}}
+	handler.orgRefresher = &stubOrgRefresher{err: fmt.Errorf("must not be called")}
+
+	scoped, organizationID := handler.personalOrgTokens(context.Background(), "user-1", "refresh-token")
+	require.Nil(t, scoped)
+	require.Empty(t, organizationID)
+}
+
+func TestPersonalOrgTokens_RefreshFailureLeavesTheSessionUnscoped(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.accountStore = &stubAccountGetter{accounts: []account.AccountWithRole{
+		{ID: "acct-1", Name: "saswat", Type: "personal", WorkOSOrganizationID: "wos-personal"},
+	}}
+	handler.orgRefresher = &stubOrgRefresher{err: fmt.Errorf("workos down")}
+
+	scoped, organizationID := handler.personalOrgTokens(context.Background(), "user-1", "refresh-token")
+	require.Nil(t, scoped)
+	require.Empty(t, organizationID)
+}

@@ -124,4 +124,29 @@ describe('VaultPicker scope switching', () => {
     expect(switchOrg).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /^new$/i })).toBeInTheDocument()
   })
+
+  it('scopes the session to a personal account org too', () => {
+    const personal: Account = {
+      id: 'acct-me',
+      name: 'saswat',
+      type: 'personal',
+      organization_id: 'wos-personal',
+    }
+    const switchOrg = vi.fn().mockResolvedValue(undefined)
+    render(
+      <Providers
+        auth={{
+          ...mockAuthContext,
+          organizationId: 'wos-other',
+          accounts: [personal],
+          switchOrg,
+        }}
+        queryClient={makeQueryClient()}
+      >
+        <VaultPicker onSelect={() => {}} accountName="saswat" entries={entries} open />
+      </Providers>,
+    )
+
+    expect(switchOrg).toHaveBeenCalledWith('wos-personal')
+  })
 })

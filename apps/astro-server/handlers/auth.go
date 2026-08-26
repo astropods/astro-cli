@@ -323,16 +323,23 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		}
 
 		// Create session data with role and permissions from JWT claims
+		accessToken, refreshToken, organizationID := result.AccessToken, result.RefreshToken, result.OrganizationID
+		if organizationID == "" {
+			if scoped, personalOrgID := h.personalOrgTokens(c.Request.Context(), result.User.ID, result.RefreshToken); scoped != nil {
+				accessToken, refreshToken, organizationID = scoped.AccessToken, scoped.RefreshToken, personalOrgID
+			}
+		}
+
 		session := h.sessionManager.CreateSession(
 			result.SessionID,
 			result.User.ID,
-			result.OrganizationID,
-			result.AccessToken,
-			result.RefreshToken,
+			organizationID,
+			accessToken,
+			refreshToken,
 			int(h.cfg.Auth.SessionMaxAge.Seconds()),
 		)
 
-		claims := auth.ExtractTokenClaims(result.AccessToken)
+		claims := auth.ExtractTokenClaims(accessToken)
 		session.Role = claims.Role
 		session.Permissions = claims.Permissions
 		h.populateSessionMembership(session, claims)
@@ -714,6 +721,38 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 	}
 }
 
+// personalOrgTokens re-mints the session scoped to the user's personal
+// organization. AuthKit leaves a session unscoped when it does not pick an
+// organization itself, and an unscoped session carries no permission claims, so
+// the account's own routes would fall back to a membership check.
+func (h *AuthHandler) personalOrgTokens(ctx context.Context, userID, refreshToken string) (*auth.RefreshResult, string) {
+	if h.orgRefresher == nil || h.accountStore == nil || refreshToken == "" {
+		return nil, ""
+	}
+	accounts, err := h.accountStore.GetAccountsForUser(userID)
+	if err != nil {
+		h.log.Warn("auth: resolve personal organization failed", "error", err, "user_id", userID)
+		return nil, ""
+	}
+	organizationID := ""
+	for _, a := range accounts {
+		if a.Type == "personal" && a.WorkOSOrganizationID != "" {
+			organizationID = a.WorkOSOrganizationID
+			break
+		}
+	}
+	if organizationID == "" {
+		return nil, ""
+	}
+	scoped, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(ctx, refreshToken, organizationID)
+	if err != nil {
+		h.log.Warn("auth: scope session to personal organization failed",
+			"error", err, "user_id", userID, "workos_org_id", organizationID)
+		return nil, ""
+	}
+	return scoped, organizationID
+}
+
 // fetchAccounts returns the accounts for a user, always returning a non-nil slice.
 // For organization accounts it includes the user's role, fetched from WorkOS.
 func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.AuthAccountResponse {
@@ -756,7 +795,13 @@ func (h *AuthHandler) fetchAccounts(ctx context.Context, userID string) []auth.A
 
 // refreshSession refreshes the session using the refresh token
 func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionData) (*auth.SessionData, error) {
-	result, err := h.workos.AuthenticateWithRefreshToken(c.Request.Context(), sessionData.Session.RefreshToken)
+	// Ask for the organization the session already records, so its permission
+	// claims cannot come back for a different scope than the session reports.
+	result, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(
+		c.Request.Context(),
+		sessionData.Session.RefreshToken,
+		sessionData.Session.OrganizationID,
+	)
 	if err != nil {
 		return nil, err
 	}

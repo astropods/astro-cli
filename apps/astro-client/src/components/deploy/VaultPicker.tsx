@@ -66,7 +66,7 @@ export function VaultPicker({ onSelect, entries = [], expectedSecret, accountNam
   const { accounts, organizationId, switchOrg } = useAuth()
   const acct = accountName ? accounts.find((a) => a.name === accountName) : undefined
   const targetOrgId =
-    acct?.type === 'organization' && acct.organization_id && acct.organization_id !== organizationId
+    acct?.organization_id && acct.organization_id !== organizationId
       ? acct.organization_id
       : null
   const scopeReady = targetOrgId === null

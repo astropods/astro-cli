@@ -302,9 +302,9 @@ function NewBlueprintContent() {
     setActiveStep("publishing");
 
     try {
-      // Scope the JWT to the selected org before writing, if not already scoped.
+      // Scope the JWT to the selected account's org before writing, if not already scoped.
       const acct = accounts.find(a => a.name === selectedOrg);
-      if (acct?.type === "organization" && acct.organization_id && acct.organization_id !== organizationId) {
+      if (acct?.organization_id && acct.organization_id !== organizationId) {
         await switchOrg(acct.organization_id);
       }
 

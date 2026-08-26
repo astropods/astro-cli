@@ -54,30 +54,40 @@ func appHoldsScope(app *auth.App, acct *account.Account, scope string) bool {
 	return slices.Contains(app.Scopes, scope)
 }
 
+func sessionScopedToAccount(c *gin.Context, acct *account.Account) (*auth.Session, bool) {
+	session, ok := GetSession(c)
+	if !ok || session == nil || acct.WorkOSOrganizationID == "" {
+		return nil, false
+	}
+	return session, session.OrganizationID == acct.WorkOSOrganizationID
+}
+
 // HasAccountPermission checks whether a user holds a given permission on the
 // resolved account. It mirrors the logic of RequireAccountPermission but
 // returns a bool instead of aborting the request, so handlers can branch on it.
 func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, acct *account.Account, user *auth.User, permission string) bool {
-	if acct.Type == "personal" {
-		isMember, err := accountStore.IsMember(acct.ID, user.ID)
-		return err == nil && isMember
-	}
-	session, ok := GetSession(c)
-	if !ok || acct.WorkOSOrganizationID == "" || session.OrganizationID != acct.WorkOSOrganizationID {
-		return false
-	}
-	for _, p := range session.Permissions {
-		if p == permission {
+	if session, scoped := sessionScopedToAccount(c, acct); scoped {
+		if slices.Contains(session.Permissions, permission) {
 			return true
 		}
 	}
-	return false
+	// Remove this fallback once the web app scopes its session at login and the
+	// CLI mints an org-scoped token for personal accounts too (cmd/account.go).
+	// Check first that the WorkOS owner role carries every permission a
+	// personal-account route asks for, or an owner loses their own account.
+	if acct.Type != "personal" {
+		return false
+	}
+	isMember, err := accountStore.IsMember(acct.ID, user.ID)
+	return err == nil && isMember
 }
 
-// RequireAccountPermission checks authorization based on account type:
-//   - Personal account: owner has all permissions implicitly
-//   - Organization account: JWT must be scoped to the target org via
-//     switch-org; permissions are read from the JWT permissions claim
+// RequireAccountPermission authorizes a caller against the resolved account:
+//   - Session scoped to the account's organization: the JWT permission claims
+//     decide, for a personal account as much as an organization one
+//   - Personal account with an unscoped session: membership decides, since the
+//     account has one member
+//   - Organization account with an unscoped session: refused, use switch-org
 //
 // Must be used after ResolveAccount and RequireAuth.
 func RequireAccountPermission(accountStore *account.AccountStore, permission string) gin.HandlerFunc {
@@ -115,34 +125,16 @@ func RequireAccountPermission(accountStore *account.AccountStore, permission str
 			return
 		}
 
-		if acct.Type == "personal" {
-			// Personal accounts: only one member (the creator) who has all permissions
-			isMember, err := accountStore.IsMember(acct.ID, user.ID)
-			if err != nil || !isMember {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-					"error": "insufficient permissions for this account",
-				})
-				return
-			}
+		if HasAccountPermission(c, accountStore, acct, user, permission) {
 			c.Next()
 			return
 		}
 
-		// Organization account: JWT must be scoped to this org
-		session, sessionOk := GetSession(c)
-		if !sessionOk || acct.WorkOSOrganizationID == "" || session.OrganizationID != acct.WorkOSOrganizationID {
+		if _, scoped := sessionScopedToAccount(c, acct); !scoped && acct.Type != "personal" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 				"error": "session is not scoped to this organization, use switch-org first",
 			})
 			return
-		}
-
-		// Check permissions from JWT
-		for _, p := range session.Permissions {
-			if p == permission {
-				c.Next()
-				return
-			}
 		}
 
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
