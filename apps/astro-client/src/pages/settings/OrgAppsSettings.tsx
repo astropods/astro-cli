@@ -282,9 +282,15 @@ function AppRow({
                               <KeyRound className="size-4" />
                             </span>
                             <div className="flex min-w-0 flex-col gap-0.5">
-                              <span className="text-body-sm font-medium text-foreground">
-                                {isNew ? "New secret" : `••••••••${secret.hint}`}
-                              </span>
+                              {isNew ? (
+                                <span className="text-body-sm font-medium text-foreground">
+                                  New secret
+                                </span>
+                              ) : (
+                                <span className="font-mono text-xs text-foreground">
+                                  ••••••••{secret.hint}
+                                </span>
+                              )}
                               <span className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
                                 {isNew ? (
                                   <span>Copy it now. It is not shown again.</span>
@@ -325,15 +331,15 @@ function AppRow({
                         </div>
 
                         {isNew && newSecret && (
-                          <div className="mt-2.5 flex min-w-0 items-start gap-2 rounded-md border border-border bg-card px-3 py-2">
-                            <code className="min-w-0 flex-1 break-all font-mono text-mono-sm text-foreground">
+                          <div className="relative mt-3 min-w-0 rounded-md border border-border bg-background">
+                            <pre className="min-w-0 overflow-x-auto whitespace-pre-wrap break-all p-3 pr-11 font-mono text-xs leading-relaxed text-foreground">
                               {newSecret.value}
-                            </code>
+                            </pre>
                             <CopyButton
                               copyText={newSecret.value}
                               title="Copy secret"
-                              iconClassName="size-4"
-                              className="shrink-0"
+                              iconClassName="size-3.5"
+                              className="absolute top-1.5 right-1.5 shrink-0"
                             />
                           </div>
                         )}
