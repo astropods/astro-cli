@@ -162,7 +162,16 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 	}
 	resources, assignments, err := s.loadAccount(ctx, operation.AccountID)
 	if err != nil {
-		_ = s.store.Fail(ctx, operationID, 0, 0, 0, 1, nil, err)
+		_ = s.store.Fail(
+			ctx,
+			operationID,
+			operation.TargetCount,
+			operation.ProcessedCount,
+			operation.SucceededCount,
+			operation.FailedCount+1,
+			nil,
+			err,
+		)
 		return err
 	}
 	report := make([]ReportEntry, 0, len(resources))
@@ -172,7 +181,7 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 		}
 		return s.store.Complete(ctx, operationID, len(resources), len(resources), len(resources), report)
 	}
-	if operation.AttemptCount == 1 && (operation.ConfirmedCount == nil || *operation.ConfirmedCount != len(resources)) {
+	if operation.SucceededCount == 0 && (operation.ConfirmedCount == nil || *operation.ConfirmedCount != len(resources)) {
 		err := fmt.Errorf("confirmed resource count does not match current WorkOS count: confirmed %s, current %d", confirmedCount(operation.ConfirmedCount), len(resources))
 		_ = s.store.Fail(ctx, operationID, len(resources), 0, 0, 1, report, err)
 		return err
@@ -180,7 +189,8 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 	sort.SliceStable(resources, func(i, j int) bool {
 		return deletionRank(resources[i].Resource.Type) < deletionRank(resources[j].Resource.Type)
 	})
-	processed, succeeded, failed := 0, 0, 0
+	processed, succeeded, failed := operation.SucceededCount, operation.SucceededCount, 0
+	targetCount := max(operation.TargetCount, succeeded+len(resources))
 	var resetErr error
 	for _, resource := range resources {
 		entryErr := s.deleteResource(ctx, resource, assignments[resourceKey(resource.Resource)])
@@ -193,17 +203,17 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 			succeeded++
 			report = append(report, reportEntry(resource, "deleted", nil))
 		}
-		if err := s.store.Progress(ctx, operationID, len(resources), processed, succeeded, failed, report); err != nil {
+		if err := s.store.Progress(ctx, operationID, targetCount, processed, succeeded, failed, report); err != nil {
 			return errors.Join(resetErr, err)
 		}
 	}
 	if resetErr != nil {
-		if err := s.store.Fail(ctx, operationID, len(resources), processed, succeeded, failed, report, resetErr); err != nil {
+		if err := s.store.Fail(ctx, operationID, targetCount, processed, succeeded, failed, report, resetErr); err != nil {
 			return errors.Join(resetErr, err)
 		}
 		return resetErr
 	}
-	return s.store.Complete(ctx, operationID, len(resources), processed, succeeded, report)
+	return s.store.Complete(ctx, operationID, targetCount, processed, succeeded, report)
 }
 
 func (s *Service) loadAccount(ctx context.Context, accountID string) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, error) {

@@ -539,6 +539,10 @@ CREATE TABLE public.authorization_admin_operations (
 CREATE INDEX idx_authorization_admin_operations_created
     ON public.authorization_admin_operations(created_at DESC);
 
+CREATE UNIQUE INDEX idx_authorization_admin_operations_active_account
+    ON public.authorization_admin_operations(account_id)
+    WHERE status IN ('queued', 'running');
+
 -- Who gets alerted about a deployment. A member becomes a watcher implicitly by
 -- acting on it (deploying, changing config, rolling back, …); registration is
 -- driven off the audit-log seam, so any action recorded there enrolls its actor.

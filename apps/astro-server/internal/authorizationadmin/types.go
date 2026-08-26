@@ -6,10 +6,11 @@ import (
 )
 
 var (
-	ErrNotConfigured     = errors.New("authorization administration is not configured")
-	ErrOperationNotFound = errors.New("authorization administration operation not found")
-	ErrAccountNotFound   = errors.New("authorization reset account not found")
-	ErrAccountNotLinked  = errors.New("authorization reset account has no WorkOS organization")
+	ErrNotConfigured       = errors.New("authorization administration is not configured")
+	ErrOperationNotFound   = errors.New("authorization administration operation not found")
+	ErrOperationInProgress = errors.New("authorization reset already in progress for account")
+	ErrAccountNotFound     = errors.New("authorization reset account not found")
+	ErrAccountNotLinked    = errors.New("authorization reset account has no WorkOS organization")
 )
 
 type Resource struct {

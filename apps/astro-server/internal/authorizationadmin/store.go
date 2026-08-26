@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 )
+
+const activeOperationConstraint = "idx_authorization_admin_operations_active_account"
 
 type Store struct {
 	db *sql.DB
@@ -32,6 +36,10 @@ func (s *Store) CreateReset(ctx context.Context, accountID string, dryRun bool, 
 		accountID, dryRun, confirmedCount,
 	).Scan(operationScan(&operation)...)
 	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && string(pqErr.Code) == "23505" && pqErr.Constraint == activeOperationConstraint {
+			return nil, fmt.Errorf("%w: %s", ErrOperationInProgress, accountID)
+		}
 		return nil, fmt.Errorf("create authorization reset operation: %w", err)
 	}
 	return &operation, nil
@@ -85,14 +93,9 @@ func (s *Store) Start(ctx context.Context, operationID string) (*Operation, erro
 	err := s.db.QueryRowContext(ctx, `
 		UPDATE authorization_admin_operations
 		SET status = 'running',
-		    target_count = 0,
-		    processed_count = 0,
-		    succeeded_count = 0,
-		    failed_count = 0,
 		    attempt_count = attempt_count + 1,
 		    last_error = NULL,
-		    report = '[]'::jsonb,
-		    started_at = NOW(),
+		    started_at = COALESCE(started_at, NOW()),
 		    completed_at = NULL,
 		    updated_at = NOW()
 		WHERE id = $1

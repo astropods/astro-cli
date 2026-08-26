@@ -2,6 +2,7 @@ package authorizationadmin
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -41,6 +42,7 @@ type fakeOperationStore struct {
 }
 
 func (f *fakeOperationStore) Start(context.Context, string) (*Operation, error) {
+	f.operation.AttemptCount++
 	return f.operation, nil
 }
 func (f *fakeOperationStore) Progress(_ context.Context, _ string, _ int, processed, _ int, _ int, _ []ReportEntry) error {
@@ -231,7 +233,7 @@ func TestResetRemovesAssignmentsThenDeletesProductResources(t *testing.T) {
 			{ID: "other_dep", OrganizationID: "org_456", Resource: authz.DeploymentResource("dep_other")},
 		},
 	}
-	store := &fakeOperationStore{operation: &Operation{ID: "op_123", AccountID: "acct_123", AttemptCount: 1, ConfirmedCount: &confirmed}}
+	store := &fakeOperationStore{operation: &Operation{ID: "op_123", AccountID: "acct_123", ConfirmedCount: &confirmed}}
 	service := newService(db, workos, store)
 
 	if err := service.RunReset(context.Background(), "op_123"); err != nil {
@@ -248,6 +250,56 @@ func TestResetRemovesAssignmentsThenDeletesProductResources(t *testing.T) {
 	}
 	if store.progressed != 1 || store.completedTarget != 1 {
 		t.Fatalf("progress = %d, completed target = %d", store.progressed, store.completedTarget)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResetRetryRechecksCountBeforeAnyDeletion(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for range 2 {
+		mock.ExpectQuery(`SELECT COALESCE\(ao.workos_org_id, ''\)`).
+			WithArgs("acct_123").
+			WillReturnRows(sqlmock.NewRows([]string{"workos_org_id"}).AddRow("org_123"))
+	}
+
+	confirmed := 1
+	workos := &fakeWorkOS{
+		FakeFGA: &authz.FakeFGA{
+			ListRoleAssignmentsFunc:      func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) { return nil, nil },
+			ListGroupRoleAssignmentsFunc: func(context.Context, string) ([]authz.RoleAssignment, error) { return nil, nil },
+		},
+		FakeGroups: &authz.FakeGroups{
+			ListGroupsFunc: func(context.Context, string, authz.PageRequest) (authz.GroupPage, error) {
+				return authz.GroupPage{}, nil
+			},
+		},
+		listResourcesErr: errors.New("temporary WorkOS failure"),
+	}
+	store := &fakeOperationStore{operation: &Operation{ID: "op_123", AccountID: "acct_123", ConfirmedCount: &confirmed}}
+	service := newService(db, workos, store)
+
+	if err := service.RunReset(context.Background(), "op_123"); err == nil {
+		t.Fatal("first RunReset() error = nil, want WorkOS failure")
+	}
+	workos.listResourcesErr = nil
+	workos.resources = []authz.AuthorizationResource{
+		{ID: "dep_1", OrganizationID: "org_123", Resource: authz.DeploymentResource("dep_1")},
+		{ID: "dep_2", OrganizationID: "org_123", Resource: authz.DeploymentResource("dep_2")},
+	}
+	if err := service.RunReset(context.Background(), "op_123"); err == nil {
+		t.Fatal("retry RunReset() error = nil, want confirmed-count mismatch")
+	}
+	if len(workos.deleted) != 0 {
+		t.Fatalf("deleted resources = %v, want none", workos.deleted)
+	}
+	if store.operation.AttemptCount != 2 || store.operation.SucceededCount != 0 {
+		t.Fatalf("operation = %+v", store.operation)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

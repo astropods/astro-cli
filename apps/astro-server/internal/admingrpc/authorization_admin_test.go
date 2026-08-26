@@ -32,9 +32,13 @@ func (f *fakeAuthorizationAdminService) Inventory(context.Context) (*authorizati
 type fakeAuthorizationAdminStore struct {
 	operation *authorizationadmin.Operation
 	jobID     int64
+	createErr error
 }
 
 func (f *fakeAuthorizationAdminStore) CreateReset(_ context.Context, accountID string, dryRun bool, confirmedCount *int) (*authorizationadmin.Operation, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
 	f.operation = &authorizationadmin.Operation{ID: "op_123", AccountID: accountID, DryRun: dryRun, ConfirmedCount: confirmedCount, Status: "queued", CreatedAt: time.Now()}
 	return f.operation, nil
 }
@@ -99,5 +103,23 @@ func TestAuthorizationResetRequiresAccount(t *testing.T) {
 	_, err := server.StartAuthorizationResourceReset(context.Background(), &adminv1.StartAuthorizationResourceResetRequest{DryRun: true})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("status = %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestAuthorizationResetRejectsConcurrentOperation(t *testing.T) {
+	server := &Server{
+		authorizationAdminResetEnabled: true,
+		authorizationAdmin:             &fakeAuthorizationAdminService{},
+		authorizationAdminStore: &fakeAuthorizationAdminStore{
+			createErr: authorizationadmin.ErrOperationInProgress,
+		},
+		queue: &mockAdminJobQueue{},
+	}
+	_, err := server.StartAuthorizationResourceReset(context.Background(), &adminv1.StartAuthorizationResourceResetRequest{
+		AccountID: "acct_123",
+		DryRun:    true,
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("status = %v, want AlreadyExists", status.Code(err))
 	}
 }

@@ -96,7 +96,6 @@ export function ResourcesPage() {
     return <p className="text-sm text-destructive">Resource inventory failed: {resourcesQuery.error.message}</p>;
   }
 
-  const activeOperation = operations.find((operation) => operation.status === "queued" || operation.status === "running");
   const directAdmins = resources.reduce((total, resource) => total + (resource.direct_admins?.length ?? 0), 0);
   const errorCount = resources.filter((resource) => resource.last_error).length;
 
@@ -123,7 +122,6 @@ export function ResourcesPage() {
             enabled={resourcesQuery.data?.reset_enabled ?? false}
             accounts={accounts}
             operations={operations}
-            activeOperation={activeOperation}
             startReset={startReset}
           />
         </div>
@@ -264,33 +262,71 @@ function ResetDialog({
   enabled,
   accounts,
   operations,
-  activeOperation,
   startReset,
 }: {
   enabled: boolean;
   accounts: AccountOption[];
   operations: AuthorizationOperation[];
-  activeOperation?: AuthorizationOperation;
   startReset: ReturnType<typeof useStartAuthorizationResourceReset>;
 }) {
   const [open, setOpen] = useState(false);
   const [accountID, setAccountID] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [validationError, setValidationError] = useState("");
   const selectedAccount = accounts.find((current) => current.id === accountID);
+  const activeAccountOperation = operations.find(
+    (operation) => operation.account_id === accountID && (operation.status === "queued" || operation.status === "running"),
+  );
   const latestDryRun = operations.find(
     (operation) => operation.account_id === accountID && operation.dry_run && operation.status === "succeeded",
   );
   const count = latestDryRun?.target_count;
+  const runDryRun = () => {
+    if (!selectedAccount) {
+      setValidationError("Select an account before running a dry run.");
+      return;
+    }
+    if (activeAccountOperation) {
+      setValidationError("A reset operation is already running for this account.");
+      return;
+    }
+    setValidationError("");
+    startReset.mutate({ account_id: selectedAccount.id, dry_run: true });
+  };
+  const runReset = () => {
+    if (!selectedAccount) {
+      setValidationError("Select an account before resetting resources.");
+      return;
+    }
+    if (activeAccountOperation) {
+      setValidationError("A reset operation is already running for this account.");
+      return;
+    }
+    if (count == null) {
+      setValidationError("Run a successful dry run for this account before resetting resources.");
+      return;
+    }
+    if (confirmation !== selectedAccount.name) {
+      setValidationError(`Type ${selectedAccount.name} exactly to confirm this reset.`);
+      return;
+    }
+    setValidationError("");
+    startReset.mutate(
+      { account_id: selectedAccount.id, dry_run: false, confirmed_count: count },
+      { onSuccess: () => setOpen(false) },
+    );
+  };
   return (
     <AlertDialog open={open} onOpenChange={(next) => {
       setOpen(next);
       if (!next) {
         setAccountID("");
         setConfirmation("");
+        setValidationError("");
       }
     }}>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive" size="sm" disabled={!enabled || accounts.length === 0 || Boolean(activeOperation)} title={!enabled ? "Preview reset is disabled by server configuration" : undefined}>
+        <Button variant="destructive" size="sm" disabled={!enabled || accounts.length === 0} title={!enabled ? "Resource reset is disabled by server configuration" : undefined}>
           <Trash2 className="size-3.5" /> Reset FGA resources
         </Button>
       </AlertDialogTrigger>
@@ -310,6 +346,7 @@ function ResetDialog({
               onChange={(event) => {
                 setAccountID(event.target.value);
                 setConfirmation("");
+                setValidationError("");
               }}
             >
               <option value="">Select an account</option>
@@ -322,27 +359,32 @@ function ResetDialog({
             ) : (
               <p>Choose an account, then run a dry run to capture its exact deletion target.</p>
             )}
-            <Button className="mt-2" variant="outline" size="xs" disabled={!accountID || startReset.isPending || Boolean(activeOperation)} onClick={() => startReset.mutate({ account_id: accountID, dry_run: true })}>
+            <Button className="mt-2" variant="outline" size="xs" disabled={startReset.isPending} onClick={runDryRun}>
               Run dry run
             </Button>
           </div>
           {latestDryRun && selectedAccount && (
             <label className="block space-y-1.5 text-xs">
               <span>Type <strong>{selectedAccount.name}</strong> to confirm this account.</span>
-              <Input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={selectedAccount.name} />
+              <Input
+                value={confirmation}
+                onChange={(event) => {
+                  setConfirmation(event.target.value);
+                  setValidationError("");
+                }}
+                placeholder={selectedAccount.name}
+              />
             </label>
           )}
+          {validationError && <p role="alert" aria-live="polite" className="text-xs text-destructive">{validationError}</p>}
           {startReset.error && <p className="text-xs text-destructive">{mutationErrorMessage(startReset.error)}</p>}
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={!selectedAccount || count == null || confirmation !== selectedAccount.name || startReset.isPending || Boolean(activeOperation)}
-            onClick={() => startReset.mutate(
-              { account_id: selectedAccount?.id ?? "", dry_run: false, confirmed_count: count },
-              { onSuccess: () => setOpen(false) },
-            )}
+            disabled={startReset.isPending}
+            onClick={runReset}
           >
             Reset {selectedAccount?.name ?? "account"}
           </Button>

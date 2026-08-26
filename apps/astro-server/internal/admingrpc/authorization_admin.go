@@ -25,7 +25,7 @@ type authorizationAdminStore interface {
 }
 
 // SetAuthorizationAdmin wires Queen's read-only WorkOS resource inventory and
-// the separately guarded Preview reset workflow.
+// the separately guarded reset workflow.
 func (s *Server) SetAuthorizationAdmin(service *authorizationadmin.Service, store *authorizationadmin.Store, resetEnabled bool) {
 	if service == nil {
 		s.authorizationAdmin = nil
@@ -128,6 +128,8 @@ func (s *Server) StartAuthorizationResourceReset(ctx context.Context, req *admin
 
 func authorizationAdminError(err error) error {
 	switch {
+	case errors.Is(err, authorizationadmin.ErrOperationInProgress):
+		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, authorizationadmin.ErrOperationNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, authorizationadmin.ErrAccountNotFound):
