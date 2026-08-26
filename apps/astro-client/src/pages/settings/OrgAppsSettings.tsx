@@ -99,7 +99,7 @@ export default function OrgAppsSettings() {
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="lumos-connector"
+              placeholder="ci-pipeline"
               autoComplete="off"
               maxLength={100}
             />

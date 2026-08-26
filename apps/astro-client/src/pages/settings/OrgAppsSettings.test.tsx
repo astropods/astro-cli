@@ -14,7 +14,7 @@ const SCOPES = [
 
 const app = {
   id: "app-1",
-  name: "lumos-connector",
+  name: "ci-pipeline",
   client_id: "client_abc123",
   scopes: ["audiences:read"],
   secrets: [
@@ -48,7 +48,7 @@ describe("OrgAppsSettings", () => {
     server.use(...listing([app]));
     renderPage();
 
-    expect(await screen.findByText("lumos-connector")).toBeInTheDocument();
+    expect(await screen.findByText("ci-pipeline")).toBeInTheDocument();
     expect(screen.getByText("client_abc123")).toBeInTheDocument();
     expect(screen.getByText("1 secret")).toBeInTheDocument();
     expect(screen.queryByText(/wxyz/)).not.toBeInTheDocument();
@@ -60,7 +60,7 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText("lumos-connector"));
+    await user.click(await screen.findByText("ci-pipeline"));
 
     expect(await screen.findByText(/wxyz/)).toBeInTheDocument();
     expect(screen.getByText(/Added/)).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("OrgAppsSettings", () => {
     expect(screen.getByRole("button", { name: /Delete app/ })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("lumos-connector"));
+    await user.click(screen.getByText("ci-pipeline"));
     await waitFor(() => expect(screen.queryByText(/wxyz/)).not.toBeInTheDocument());
   });
 
@@ -94,7 +94,7 @@ describe("OrgAppsSettings", () => {
     await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Name"), "lumos-connector");
+    await user.type(screen.getByLabelText("Name"), "ci-pipeline");
 
     await user.click(await screen.findByRole("button", { name: "Select scopes" }));
     await user.type(await screen.findByPlaceholderText("Search scopes…"), "audien");
@@ -105,7 +105,7 @@ describe("OrgAppsSettings", () => {
     await user.click(screen.getByRole("button", { name: "Create OAuth app" }));
 
     await waitFor(() =>
-      expect(created).toEqual({ name: "lumos-connector", scopes: ["audiences:manage"] }),
+      expect(created).toEqual({ name: "ci-pipeline", scopes: ["audiences:manage"] }),
     );
     expect(await screen.findByText("sk_live_plaintext")).toBeInTheDocument();
     expect(screen.getByText("New secret")).toBeInTheDocument();
@@ -177,7 +177,7 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText("lumos-connector"));
+    await user.click(await screen.findByText("ci-pipeline"));
     expect(await screen.findByText("audiences:read")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Change scopes/ }));
@@ -202,7 +202,7 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText("lumos-connector"));
+    await user.click(await screen.findByText("ci-pipeline"));
     const revoke = screen.getByRole("button", { name: "Revoke secret ending wxyz" });
     expect(revoke).toHaveAttribute("aria-disabled", "true");
 
@@ -216,7 +216,7 @@ describe("OrgAppsSettings", () => {
     server.use(...listing([{ ...app, secrets: [...app.secrets, { id: "sec_2", hint: "abcd" }] }]));
     renderPage();
 
-    await userEvent.setup().click(await screen.findByText("lumos-connector"));
+    await userEvent.setup().click(await screen.findByText("ci-pipeline"));
 
     expect(await screen.findByRole("button", { name: "Revoke secret ending wxyz" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke secret ending abcd" })).toBeInTheDocument();
@@ -234,7 +234,7 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByText("lumos-connector"));
+    await user.click(await screen.findByText("ci-pipeline"));
     await user.click(screen.getByRole("button", { name: /Delete app/ }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
