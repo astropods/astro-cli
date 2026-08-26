@@ -256,6 +256,8 @@ export interface AppScope {
   slug: string;
   name: string;
   description?: string;
+  /** WorkOS resource type the permission is scoped to, when it has one. */
+  resource_type?: string;
 }
 
 export interface AppScopesResponse {

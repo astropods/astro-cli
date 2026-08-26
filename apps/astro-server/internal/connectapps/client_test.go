@@ -16,7 +16,7 @@ func TestListPermissionsHidesSystemPermissions(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[
-			{"object":"permission","id":"p1","slug":"audiences:manage","name":"Manage audiences","description":"Add and remove members","system":false},
+			{"object":"permission","id":"p1","slug":"audiences:manage","name":"Manage audiences","description":"Add and remove members","system":false,"resource_type_slug":"audience"},
 			{"object":"permission","id":"p2","slug":"widgets:read","name":"WorkOS internal","system":true},
 			{"object":"permission","id":"p3","slug":"members:read","name":"Read members","system":false}
 		],"list_metadata":{}}`))
@@ -39,6 +39,9 @@ func TestListPermissionsHidesSystemPermissions(t *testing.T) {
 	}
 	if permissions[0].Description != "Add and remove members" {
 		t.Fatalf("description lost: %+v", permissions[0])
+	}
+	if permissions[0].ResourceType != "audience" {
+		t.Fatalf("resource type lost, so the picker cannot group: %+v", permissions[0])
 	}
 }
 

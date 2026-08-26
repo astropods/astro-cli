@@ -19,6 +19,18 @@ export interface AppScopePickerProps {
   error?: string;
 }
 
+// A permission's resource comes from WorkOS when it is scoped to one. Otherwise
+// the slug's own prefix is the resource, which is the convention WorkOS
+// recommends for naming them (resource:action).
+function groupByResource(scopes: AppScope[]): [string, AppScope[]][] {
+  const groups = new Map<string, AppScope[]>();
+  for (const scope of scopes) {
+    const key = scope.resource_type || scope.slug.split(":")[0] || "other";
+    groups.set(key, [...(groups.get(key) ?? []), scope]);
+  }
+  return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
+
 export function AppScopePicker({ scopes, value, onChange, loading, error }: AppScopePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -34,6 +46,7 @@ export function AppScopePicker({ scopes, value, onChange, loading, error }: AppS
         s.description?.toLowerCase().includes(q),
     );
   }, [scopes, query]);
+  const groups = useMemo(() => groupByResource(matches), [matches]);
 
   if (error) {
     return <p className="text-body-sm text-muted-foreground">{error}</p>;
@@ -74,15 +87,24 @@ export function AppScopePicker({ scopes, value, onChange, loading, error }: AppS
             {matches.length === 0 ? (
               <p className="px-3 py-2 text-body-sm text-muted-foreground">No scopes match that.</p>
             ) : (
-              matches.map((scope) => (
-                <MultiSelectItem key={scope.slug} value={scope.slug}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate font-mono text-xs text-foreground">{scope.slug}</span>
-                    <span className="truncate text-[11px] text-muted-foreground">
-                      {scope.description || scope.name}
-                    </span>
-                  </span>
-                </MultiSelectItem>
+              groups.map(([resource, entries]) => (
+                <div key={resource}>
+                  <p className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-faint-foreground">
+                    {resource}
+                  </p>
+                  {entries.map((scope) => (
+                    <MultiSelectItem key={scope.slug} value={scope.slug}>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-mono text-xs text-foreground">
+                          {scope.slug}
+                        </span>
+                        <span className="truncate text-[11px] text-muted-foreground">
+                          {scope.description || scope.name}
+                        </span>
+                      </span>
+                    </MultiSelectItem>
+                  ))}
+                </div>
               ))
             )}
           </MultiSelectList>

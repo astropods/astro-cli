@@ -8,7 +8,8 @@ import OrgAppsSettings from "./OrgAppsSettings";
 
 const SCOPES = [
   { slug: "members:read", name: "Read members", description: "Read the people in this organization" },
-  { slug: "audiences:manage", name: "Manage audiences", description: "Add and remove members" },
+  { slug: "audiences:manage", name: "Manage audiences", description: "Add and remove members", resource_type: "audience" },
+  { slug: "audiences:read", name: "Read audiences", description: "Read audiences and membership", resource_type: "audience" },
 ];
 
 const app = {
@@ -112,6 +113,22 @@ describe("OrgAppsSettings", () => {
 
     await user.click(screen.getByRole("button", { name: "I saved it" }));
     await waitFor(() => expect(screen.queryByText("sk_live_plaintext")).not.toBeInTheDocument());
+  });
+
+  it("groups scopes by resource", async () => {
+    server.use(...listing([]));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
+    await user.click(await screen.findByRole("button", { name: "Select scopes" }));
+
+    // WorkOS gives audience permissions a resource type; members:read has none,
+    // so its slug prefix stands in.
+    expect(await screen.findByText("audience")).toBeInTheDocument();
+    expect(screen.getByText("members")).toBeInTheDocument();
+    expect(screen.getByText("audiences:manage")).toBeInTheDocument();
+    expect(screen.getByText("audiences:read")).toBeInTheDocument();
   });
 
   it("shows selected scopes as removable chips", async () => {

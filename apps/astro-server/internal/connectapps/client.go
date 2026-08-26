@@ -31,9 +31,10 @@ type NewSecret struct {
 }
 
 type Permission struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Slug         string `json:"slug"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	ResourceType string `json:"resource_type,omitempty"`
 }
 
 type Client interface {
@@ -73,7 +74,7 @@ func (c *workosClient) ListPermissions(ctx context.Context) ([]Permission, error
 		if p.System {
 			continue
 		}
-		entry := Permission{Slug: p.Slug, Name: p.Name}
+		entry := Permission{Slug: p.Slug, Name: p.Name, ResourceType: p.ResourceTypeSlug}
 		if p.Description != nil {
 			entry.Description = *p.Description
 		}
