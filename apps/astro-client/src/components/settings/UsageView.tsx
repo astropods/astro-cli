@@ -19,7 +19,7 @@ import { EmptyState, LoadError, SectionHeader, Unavailable } from "@/components/
 import { formatNumber } from "@/lib/format-utils";
 import { ResourceLimitsSection } from "@/components/settings/ResourceLimitsSection";
 import { formatMoney, thresholdDollars } from "@/lib/billing-balances";
-import { DEFAULT_CURRENCY, METRIC_COMPUTE, METRIC_GATEWAY } from "@/lib/billing-provider";
+import { DEFAULT_CURRENCY, METRIC_COMPUTE, METRIC_GATEWAY, PRODUCT_COMPUTE } from "@/lib/billing-provider";
 import { formatDayKey, utcDayKey } from "@/lib/date-utils";
 import { GRID_PROPS, SeriesTooltip, yAxisProps } from "@/components/activity/chart-chrome";
 import {
@@ -150,9 +150,10 @@ function splitSpend(points: DailySpendPoint[]) {
   let modelsDollars = 0;
   let computeDollars = 0;
   for (const point of points) {
-    const byProduct = point.by_product ?? {};
-    modelsDollars += byProduct[METRIC_GATEWAY] ?? 0;
-    computeDollars += byProduct[METRIC_COMPUTE] ?? 0;
+    for (const [product, amount] of Object.entries(point.by_product ?? {})) {
+      if (product === PRODUCT_COMPUTE) computeDollars += amount;
+      else modelsDollars += amount;
+    }
   }
   return { modelsDollars, computeDollars };
 }

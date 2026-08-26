@@ -6,6 +6,8 @@
 export const METRIC_COMPUTE = "Compute Units";
 export const METRIC_GATEWAY = "LLM Usage";
 
+export const PRODUCT_COMPUTE = "Compute Units";
+
 /** Says whether the invoice is closed, never whether anyone paid it. */
 export const INVOICE_DRAFT = "DRAFT";
 export const INVOICE_FINALIZED = "FINALIZED";

@@ -89,6 +89,55 @@ describe("UsageView header", () => {
     expect(screen.getByText("$12.41")).toBeInTheDocument();
     expect(screen.getByText("$32.61")).toBeInTheDocument();
   });
+
+  // by_product is keyed by the invoice line item's product name, which is not
+  // the billable metric name: the gateway bills through a product called "AI
+  // Gateway" while its metric is "LLM Usage". Compute hides the difference
+  // because both of its names happen to match.
+  it("counts a gateway line item named for its product rather than its metric", () => {
+    mockBillingDailySpend.mockReturnValue({
+      data: {
+        available: true,
+        data: [
+          {
+            day: "2026-08-01T00:00:00Z",
+            amount: 45.02,
+            by_product: { "AI Gateway": 12.41, "Compute Units": 32.61 },
+          },
+        ],
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    renderView();
+
+    expect(screen.getByText("$12.41")).toBeInTheDocument();
+    expect(screen.getByText("$32.61")).toBeInTheDocument();
+  });
+
+  // A product nobody mapped still has to land in a stream, because a closed
+  // period totals the two streams. Dropping it would understate that total.
+  it("folds an unrecognised usage product into models rather than dropping it", () => {
+    mockSpend.mockReturnValue(spendResponse({ has_usage_spend: false }));
+    mockBillingDailySpend.mockReturnValue({
+      data: {
+        available: true,
+        data: [
+          {
+            day: "2026-08-01T00:00:00Z",
+            amount: 15,
+            by_product: { "Compute Units": 10, "Sandbox Minutes": 5 },
+          },
+        ],
+      },
+      isLoading: false,
+      refetch: vi.fn(),
+    });
+    renderView();
+
+    expect(screen.getByText("$5.00")).toBeInTheDocument();
+    expect(screen.getByText("$10.00")).toBeInTheDocument();
+  });
 });
 
 describe("UsageView spend breakdown", () => {
