@@ -11,6 +11,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -112,8 +113,21 @@ func GetBillingStatus(log *logger.Logger, billingStatus *billing.StatusStore, de
 // available for this environment (OSS/noop) or the customer can't be
 // created/resolved — the caller should respond with Available:false.
 func resolveBillingCustomer(c *gin.Context, log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string, acct *account.Account) (string, bool) {
-	if billingProvider == nil || billingBackend != "metronome" {
+	if billingProvider == nil || !config.BillingBackendHasCustomers(billingBackend) {
 		return "", false
+	}
+
+	// The fake derives its customer id, so it never persists one. Sharing a
+	// stored column would leave a bogus id behind on every account browsed,
+	// and DATABASE_URL in local development points at a shared database.
+	if billingBackend == config.BillingBackendFake {
+		id, err := billingProvider.CreateCustomer(c.Request.Context(), billing.Account{
+			ID: acct.ID, Name: acct.Name, Type: acct.Type,
+		})
+		if err != nil {
+			return "", false
+		}
+		return id, true
 	}
 
 	customerID, err := accountStore.GetBillingCustomerID(acct.ID, billingBackend)

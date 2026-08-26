@@ -129,7 +129,7 @@ describe("PayAsYouGoCard free credit chip", () => {
     );
     renderCard();
 
-    expect(creditChip()).toHaveClass("bg-success/10", "text-success");
+    expect(creditChip()!.getAttribute("style")).toContain("var(--success)");
   });
 
   it("drops the chip entirely when the account never had credit", () => {
@@ -197,7 +197,7 @@ describe("PayAsYouGoCard spend limit reached", () => {
 
   it("tints the paused chip with the destructive token", () => {
     renderCard();
-    expect(creditChip()).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(creditChip()!.getAttribute("style")).toContain("var(--destructive)");
   });
 
   it("opens the limits dialog from the resume link", async () => {
@@ -376,7 +376,7 @@ describe("PayAsYouGoCard invoices", () => {
       spendResponse({ current_spend: 45.02, usage_spend: 45.02, has_last_invoice: true }),
     );
     renderCard();
-    await userEvent.click(screen.getByRole("button", { name: "View invoices" }));
+    await userEvent.click(screen.getByRole("button", { name: "View invoice" }));
 
     expect(onViewInvoices).toHaveBeenCalledTimes(1);
   });

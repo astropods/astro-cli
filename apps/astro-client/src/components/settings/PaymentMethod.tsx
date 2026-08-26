@@ -221,11 +221,9 @@ function AddCardDialog({
   );
 }
 
-/** One row of the payment details card: a label on the left, its value (or a
- *  loading/empty placeholder) on the right. */
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-border/60 py-3 first:border-0">
+    <div className="grid grid-cols-[140px_1fr] items-center gap-3 border-t border-border/60 py-3 first:border-0">
       <span className="text-body-sm text-foreground">{label}</span>
       <span className="text-body-sm text-muted-foreground">{children}</span>
     </div>

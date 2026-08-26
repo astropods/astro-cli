@@ -36,6 +36,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/billing/fake"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metronome"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/noop"
@@ -178,6 +179,9 @@ func main() {
 	case config.BillingBackendNoop:
 		billingProvider = noop.New()
 		log.Info("billing: provider selected", "provider", "noop", "metered", false)
+	case config.BillingBackendFake:
+		billingProvider = fake.New()
+		log.Warn("billing: provider selected, spend and invoices are canned", "provider", "fake")
 	case config.BillingBackendMetronome:
 		mp := metronome.New(metronome.Config{
 			APIKey:            cfg.MetronomeAPIKey,
@@ -210,7 +214,8 @@ func main() {
 	// by the Metronome webhook + dunning sweep); nil store for non-metronome
 	// backends → pass-through. BILLING_GATE_ENFORCE=false is observe mode.
 	var billingStatus *billing.StatusStore
-	if cfg.BillingBackend() == config.BillingBackendMetronome {
+	switch cfg.BillingBackend() {
+	case config.BillingBackendMetronome, config.BillingBackendFake:
 		billingStatus = billing.NewStatusStore(db, cfg.BillingDunningGraceDays).
 			WithExemptAccounts(cfg.BillingExemptAccounts)
 	}
@@ -2908,11 +2913,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		// usage/alert lifecycle; Stripe delivers payment-collection lifecycle
 		// (payment failure, 3DS, uncollectible, void) that Metronome does not relay.
 		//
-		// Registered only for the metronome backend: the webhook.* workers that
-		// drain these jobs exist only then (riverqueue.addWorkers), so on other
-		// backends we return 404 rather than enqueue jobs nothing will process.
+		// Each is registered only where its worker is (riverqueue.addWorkers), so
+		// an unhandled event 404s rather than enqueueing a job nothing drains.
+		// Metronome's resolves accounts by Metronome customer id; Stripe's
+		// resolves by Stripe customer id, which the payment provider persists
+		// whatever the billing backend is.
 		if cfg.BillingBackend() == config.BillingBackendMetronome {
 			router.POST("/webhooks/metronome", handlers.MetronomeWebhook(log, cfg.MetronomeWebhookSecret, queue))
+		}
+		if config.BillingBackendHasCustomers(cfg.BillingBackend()) {
 			router.POST("/webhooks/stripe", handlers.StripeWebhook(log, cfg.StripeWebhookSecret, queue))
 		}
 	}

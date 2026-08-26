@@ -2310,9 +2310,20 @@ export interface BillingInvoiceLineItem {
   credit_type?: BillingCreditType;
 }
 
+/** The only place a payment outcome is reported. Empty until the downstream
+ *  billing provider is connected. */
+export interface BillingExternalInvoice {
+  billing_provider_type?: string;
+  /** "PAID", "PARTIALLY_PAID", "PAYMENT_FAILED", "UNCOLLECTIBLE", "VOID", ... */
+  external_status?: string;
+  invoice_id?: string;
+  billing_provider_error?: string;
+}
+
 export interface BillingInvoice {
   id?: string;
   status?: string;
+  external_invoice?: BillingExternalInvoice | null;
   type?: string;
   total?: number;
   subtotal?: number;

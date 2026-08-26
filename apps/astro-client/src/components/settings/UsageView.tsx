@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Check, ChevronDown } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -10,18 +11,97 @@ import {
   Text,
 } from "recharts";
 import type { XAxisTickContentProps } from "recharts/types/util/types";
-import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { useBillingUsage, useBillingDailySpend } from "@/api/queries";
+import { useBillingUsage, useBillingDailySpend, useBillingInvoices } from "@/api/queries";
 import { useBillingSpend } from "@/api/queries/billing";
 import { EmptyState, LoadError, SectionHeader, Unavailable } from "@/components/settings/SettingsShared";
 import { formatNumber } from "@/lib/format-utils";
 import { ResourceLimitsSection } from "@/components/settings/ResourceLimitsSection";
 import { formatMoney, thresholdDollars } from "@/lib/billing-balances";
+import { DEFAULT_CURRENCY, METRIC_COMPUTE, METRIC_GATEWAY } from "@/lib/billing-provider";
 import { formatDayKey, utcDayKey } from "@/lib/date-utils";
-import type { BillingSpend, BillingUsageRow, DailySpendPoint } from "@/lib/api";
+import { GRID_PROPS, SeriesTooltip, yAxisProps } from "@/components/activity/chart-chrome";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { BillingInvoice, BillingSpend, BillingUsageRow, DailySpendPoint } from "@/lib/api";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
+
+interface Period {
+  from: string;
+  to: string;
+}
+
+// ---------------------------------------------------------------------------
+// Billing period selection
+// ---------------------------------------------------------------------------
+
+// The window is half-open, so labelling `to` would claim a day it never bills.
+function periodLabel(period: Period): string {
+  const opts = { month: "short", day: "numeric", timeZone: "UTC" } as const;
+  const from = new Date(period.from);
+  const lastDay = new Date(new Date(period.to).getTime() - 86_400_000);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(lastDay.getTime())) return "This period";
+  return `${from.toLocaleDateString(undefined, opts)} – ${lastDay.toLocaleDateString(undefined, opts)}`;
+}
+
+function samePeriod(a: Period | undefined, b: Period | undefined): boolean {
+  return !!a && !!b && a.from === b.from && a.to === b.to;
+}
+
+// The open period is the caller's own, so an invoice covering it is dropped.
+function pastPeriods(invoices: BillingInvoice[], current: Period | undefined): Period[] {
+  const seen = new Set<string>();
+  const out: Period[] = [];
+  for (const inv of invoices) {
+    if (!inv.start_timestamp || !inv.end_timestamp) continue;
+    const period = { from: inv.start_timestamp, to: inv.end_timestamp };
+    const key = `${period.from}|${period.to}`;
+    if (seen.has(key) || samePeriod(period, current)) continue;
+    seen.add(key);
+    out.push(period);
+  }
+  return out.sort((a, b) => b.from.localeCompare(a.from));
+}
+
+function PeriodPicker({
+  periods,
+  selected,
+  onSelect,
+}: {
+  periods: Period[];
+  selected: Period | undefined;
+  onSelect: (period: Period) => void;
+}) {
+  if (!selected) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={periods.length < 2}
+        className="inline-flex items-center gap-1.5 rounded-sm border border-border px-3 py-1.5 text-body-sm text-foreground hover:bg-muted disabled:cursor-default disabled:hover:bg-transparent"
+      >
+        {periodLabel(selected)}
+        {periods.length > 1 && <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {periods.map((period) => (
+          <DropdownMenuItem key={`${period.from}|${period.to}`} onSelect={() => onSelect(period)}>
+            <Check
+              className={cn("size-3.5", !samePeriod(period, selected) && "invisible")}
+              aria-hidden
+            />
+            {periodLabel(period)}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Header: total spend against the account's own limit, split by stream.
@@ -54,9 +134,7 @@ function ChartsSkeleton() {
             <Skeleton className="h-5 w-32" />
             <Skeleton className="h-4 w-28" />
           </div>
-          <Card className="p-5">
-            <Skeleton className="h-[200px] w-full" />
-          </Card>
+          <Skeleton className="h-[200px] w-full" />
         </div>
       ))}
     </div>
@@ -73,17 +151,30 @@ function splitSpend(points: DailySpendPoint[]) {
   let computeDollars = 0;
   for (const point of points) {
     const byProduct = point.by_product ?? {};
-    modelsDollars += byProduct["LLM Usage"] ?? 0;
-    computeDollars += byProduct["Compute Units"] ?? 0;
+    modelsDollars += byProduct[METRIC_GATEWAY] ?? 0;
+    computeDollars += byProduct[METRIC_COMPUTE] ?? 0;
   }
   return { modelsDollars, computeDollars };
+}
+
+// The gateway metric aggregates cost_usd rather than tokens, so only Compute
+// has a raw quantity to show under its dollars.
+function computeUnitHours(rows: BillingUsageRow[]): number | null {
+  let total = 0;
+  let sawAny = false;
+  for (const row of rows) {
+    if (row.billable_metric_name !== METRIC_COMPUTE || row.value == null) continue;
+    sawAny = true;
+    total += row.value;
+  }
+  return sawAny ? total : null;
 }
 
 // Uses the real current_period_start/end when both are sent (same draft
 // invoice server-side). Otherwise approximates start by stepping back one
 // calendar month (Metronome bills on a fixed day), clamped for a day-31
 // anchor rolling into the next month.
-function billingPeriod(periodStart?: string, periodEnd?: string): { from: string; to: string } | undefined {
+function billingPeriod(periodStart?: string, periodEnd?: string): Period | undefined {
   if (!periodEnd) return undefined;
   const end = new Date(periodEnd);
   if (Number.isNaN(end.getTime())) return undefined;
@@ -101,18 +192,21 @@ function billingPeriod(periodStart?: string, periodEnd?: string): { from: string
 }
 
 // Spend, usage, and daily spend share one window so the header and charts
-// describe the same billing period.
-function usePeriodUsage(account: string) {
+// describe the same billing period. `selected` overrides it for the two
+// windowed queries; useBillingSpend has no window and always answers for the
+// open period.
+function usePeriodUsage(account: string, selected?: Period) {
   const {
     data: spendResp,
     isLoading: spendLoading,
     isLoadingError: spendError,
     refetch: refetchSpend,
   } = useBillingSpend(account);
-  const period = billingPeriod(
+  const currentPeriod = billingPeriod(
     spendResp?.available ? spendResp.data?.current_period_start : undefined,
     spendResp?.available ? spendResp.data?.current_period_end : undefined,
   );
+  const period = selected ?? currentPeriod;
   const {
     data: usageResp,
     isLoading: usageLoading,
@@ -134,6 +228,7 @@ function usePeriodUsage(account: string) {
     usageResp,
     dailySpendResp,
     period,
+    currentPeriod,
     isLoading: spendLoading || (!!period && (usageLoading || dailySpendLoading)),
     spendError,
     usageError,
@@ -144,11 +239,35 @@ function usePeriodUsage(account: string) {
   };
 }
 
-function UsageHeader({ spend, dailySpend }: { spend: BillingSpend; dailySpend: DailySpendPoint[] }) {
-  const currency = spend.currency ?? "USD";
-  const totalSpend = spend.has_usage_spend ? spend.usage_spend : 0;
-  const limitAmount = thresholdDollars(spend.limit?.amount);
+// The spend query only ever answers for the open period, so a closed one totals
+// its own breakdown rather than borrowing a number about today.
+function periodTotal(spend: BillingSpend, isCurrentPeriod: boolean, breakdownTotal: number): number {
+  if (!isCurrentPeriod) return breakdownTotal;
+  return spend.has_usage_spend ? spend.usage_spend : 0;
+}
+
+function totalCaption(limitAmount: number | undefined, isCurrentPeriod: boolean, currency: string): string {
+  if (limitAmount != null) return `of ${formatMoney(limitAmount, currency)} spend limit`;
+  return isCurrentPeriod ? "No spend limit set" : "Closed billing period";
+}
+
+function UsageHeader({
+  spend,
+  dailySpend,
+  rows,
+  isCurrentPeriod,
+}: {
+  spend: BillingSpend;
+  dailySpend: DailySpendPoint[];
+  rows: BillingUsageRow[];
+  isCurrentPeriod: boolean;
+}) {
+  const currency = spend.currency ?? DEFAULT_CURRENCY;
   const { modelsDollars, computeDollars } = splitSpend(dailySpend);
+  // The spend query only answers for today, and the limit is a live cap.
+  const totalSpend = periodTotal(spend, isCurrentPeriod, modelsDollars + computeDollars);
+  const limitAmount = isCurrentPeriod ? thresholdDollars(spend.limit?.amount) : undefined;
+  const cuHours = computeUnitHours(rows);
 
   return (
     <div className="flex flex-col gap-3">
@@ -156,12 +275,18 @@ function UsageHeader({ spend, dailySpend }: { spend: BillingSpend; dailySpend: D
         <div>
           <p className="text-heading-1 tabular-nums text-foreground">{formatMoney(totalSpend, currency)}</p>
           <p className="text-body-sm text-muted-foreground">
-            {limitAmount != null ? `of ${formatMoney(limitAmount, currency)} spend limit` : "No spend limit set"}
+            {totalCaption(limitAmount, isCurrentPeriod, currency)}
           </p>
         </div>
         <div className="flex gap-6">
-          <StreamTotal metric="Compute Units" label="Compute" amount={computeDollars} currency={currency} />
-          <StreamTotal metric="LLM Usage" label="Models" amount={modelsDollars} currency={currency} />
+          <StreamTotal
+            metric={METRIC_COMPUTE}
+            label="Compute"
+            amount={computeDollars}
+            currency={currency}
+            unit={cuHours != null ? `${formatNumber(cuHours, 2)} CU-hours` : undefined}
+          />
+          <StreamTotal metric={METRIC_GATEWAY} label="Models" amount={modelsDollars} currency={currency} />
         </div>
       </div>
       {limitAmount != null && (
@@ -186,7 +311,7 @@ function startOfTomorrowUTC(): Date {
 // happened yet has no rows to zero-fill or a real date to label the axis with.
 // Exported for direct unit testing: Recharts' rendered axis ticks aren't
 // reliably queryable in jsdom, so the date math is tested as a pure function.
-export function periodDayKeys(period: { from: string; to: string }): string[] {
+export function periodDayKeys(period: Period): string[] {
   const keys: string[] = [];
   const to = new Date(Math.min(new Date(period.to).getTime(), startOfTomorrowUTC().getTime()));
   for (const d = new Date(period.from); d < to; d.setUTCDate(d.getUTCDate() + 1)) {
@@ -199,7 +324,7 @@ export function periodDayKeys(period: { from: string; to: string }): string[] {
 // doesn't shrink the axis to however many days actually have a point.
 // Points outside the window are dropped, not appended, so a stray point
 // can't widen the axis past the period it belongs to.
-function buildSpendChart(points: DailySpendPoint[], period: { from: string; to: string }) {
+function buildSpendChart(points: DailySpendPoint[], period: Period) {
   const dayKeys = periodDayKeys(period);
   const byDay = new Map(dayKeys.map((key) => [key, { ts: key, day: formatDayKey(key), value: 0 }]));
 
@@ -217,8 +342,8 @@ function buildSpendChart(points: DailySpendPoint[], period: { from: string; to: 
 // opacity; kept as a Tailwind class since the swatch is real DOM, not a
 // recharts prop.
 const METRIC_FILL_OPACITY_CLASS: Record<string, string> = {
-  "Compute Units": "opacity-100",
-  "LLM Usage": "opacity-40",
+  [METRIC_COMPUTE]: "opacity-100",
+  [METRIC_GATEWAY]: "opacity-40",
 };
 
 function fillOpacityClassFor(metric: string): string {
@@ -230,24 +355,27 @@ function StreamTotal({
   label,
   amount,
   currency,
+  unit,
 }: {
   metric: string;
   label: string;
   amount: number;
   currency: string;
+  unit?: string;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span
-        className={`size-2 rounded-full bg-primary ${fillOpacityClassFor(metric)}`}
-        aria-hidden
-      />
-      <div>
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5">
+        <span
+          className={`size-2 shrink-0 rounded-full bg-primary ${fillOpacityClassFor(metric)}`}
+          aria-hidden
+        />
         <p className="text-body-sm text-muted-foreground">{label}</p>
-        <p className="text-body-sm font-medium tabular-nums text-foreground">
-          {formatMoney(amount, currency)}
-        </p>
       </div>
+      <p className="text-body-sm font-medium tabular-nums text-foreground">
+        {formatMoney(amount, currency)}
+      </p>
+      {unit && <p className="text-body-sm tabular-nums text-faint-foreground">{unit}</p>}
     </div>
   );
 }
@@ -272,13 +400,15 @@ function EdgeDateTick({ index, visibleTicksCount, payload, x, y, verticalAnchor 
   );
 }
 
+const SPEND_SERIES_COLOR = { Spend: "var(--color-primary)" };
+
 function DailySpendChart({
   points,
   period,
   currency,
 }: {
   points: DailySpendPoint[];
-  period: { from: string; to: string };
+  period: Period;
   currency: string;
 }) {
   // period is a fresh object each render (billingPeriod constructs one), so
@@ -286,6 +416,7 @@ function DailySpendChart({
   // actually memoizes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const days = useMemo(() => buildSpendChart(points, period), [points, period.from, period.to]);
+  const yAxis = useMemo(() => yAxisProps((v: number) => formatNumber(v, 2)), []);
 
   if (!points.length) return <EmptyState message="No usage recorded for this period." />;
 
@@ -299,42 +430,31 @@ function DailySpendChart({
           {formatMoney(total, currency)} this period
         </span>
       </div>
-      <Card className="p-5">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={days} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
-            <XAxis
-              dataKey="day"
-              interval={0}
-              tick={EdgeDateTick}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={8}
-            />
-            <YAxis
-              tickFormatter={(v: number) => formatNumber(v, 2)}
-              tick={{ fill: "var(--color-muted-foreground)", fontSize: 11, fontFamily: "var(--font-mono)" }}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={4}
-              width={56}
-            />
-            <Tooltip
-              cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }}
-              contentStyle={{
-                background: "var(--color-popover)",
-                border: "1px solid var(--color-border)",
-                borderRadius: 8,
-                fontSize: 12,
-                color: "var(--color-popover-foreground)",
-              }}
-              labelFormatter={(_label, payload) => payload?.[0]?.payload?.day ?? ""}
-              formatter={(value) => [formatMoney(Number(value ?? 0), currency), "Spend"]}
-            />
-            <Bar dataKey="value" name="Spend" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={days} margin={{ top: 8, right: 4, bottom: 0, left: 0 }} barCategoryGap="20%">
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis
+            dataKey="day"
+            interval={0}
+            tick={EdgeDateTick}
+            axisLine={false}
+            tickLine={false}
+            tickMargin={8}
+          />
+          <YAxis {...yAxis} />
+          <Tooltip
+            cursor={{ fill: "var(--color-border)", fillOpacity: 0.3 }}
+            content={
+              <SeriesTooltip
+                colors={SPEND_SERIES_COLOR}
+                format={(v) => formatMoney(v, currency)}
+                includeZero
+              />
+            }
+          />
+          <Bar dataKey="value" name="Spend" fill="var(--color-primary)" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -391,25 +511,26 @@ function SpendTable({
 // cu_hours, and pricing those into dollars is a step astro-server doesn't
 // do yet. Add it here, next to Models, once that lands.
 function SpendBreakdown({ rows, currency }: { rows: BillingUsageRow[]; currency: string }) {
-  const models = groupedSpend(rows, "LLM Usage");
+  const models = groupedSpend(rows, METRIC_GATEWAY);
   if (!models) return null;
   return <SpendTable title="Models" rows={models} currency={currency} />;
 }
 
 // ---------------------------------------------------------------------------
 
-function PeriodSection({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-heading-4 text-foreground">This billing period</h2>
-      <Card className="p-5">{children}</Card>
-    </div>
-  );
+function Section({ children }: { children: ReactNode }) {
+  return <div className="border-b border-border py-6 first:pt-0 last:border-0">{children}</div>;
 }
 
 // One availability check for header, chart, and breakdown; they share the
 // same three queries, so checking separately in each stacked duplicate notices.
-function PeriodSpend({ account }: { account: string }) {
+function PeriodSpend({
+  usage,
+  isCurrentPeriod,
+}: {
+  usage: ReturnType<typeof usePeriodUsage>;
+  isCurrentPeriod: boolean;
+}) {
   const {
     spendResp,
     usageResp,
@@ -422,23 +543,25 @@ function PeriodSpend({ account }: { account: string }) {
     refetchSpend,
     refetchUsage,
     refetchDailySpend,
-  } = usePeriodUsage(account);
+  } = usage;
 
   if (isLoading) {
     return (
       <>
-        <PeriodSection>
+        <Section>
           <HeaderSkeleton />
-        </PeriodSection>
-        <ChartsSkeleton />
+        </Section>
+        <Section>
+          <ChartsSkeleton />
+        </Section>
       </>
     );
   }
   if (spendError) {
     return (
-      <PeriodSection>
+      <Section>
         <LoadError onRetry={() => refetchSpend()} />
-      </PeriodSection>
+      </Section>
     );
   }
   if (!spendResp?.available || !spendResp.data) return <Unavailable />;
@@ -448,27 +571,42 @@ function PeriodSpend({ account }: { account: string }) {
   const dailySpend = dailySpendResp?.available ? dailySpendResp.data ?? [] : [];
   return (
     <>
-      <PeriodSection>
-        <UsageHeader spend={spend} dailySpend={dailySpend} />
-      </PeriodSection>
+      <Section>
+        <UsageHeader
+          spend={spend}
+          dailySpend={dailySpend}
+          rows={rows}
+          isCurrentPeriod={isCurrentPeriod}
+        />
+      </Section>
       {period ? (
         usageError || dailySpendError ? (
-          <LoadError
-            message="Couldn't load daily usage."
-            onRetry={() => {
-              refetchUsage();
-              refetchDailySpend();
-            }}
-          />
+          <Section>
+            <LoadError
+              message="Couldn't load daily usage."
+              onRetry={() => {
+                refetchUsage();
+                refetchDailySpend();
+              }}
+            />
+          </Section>
         ) : (
           <>
-            <DailySpendChart points={dailySpend} period={period} currency={spend.currency ?? "USD"} />
-            <SpendBreakdown rows={rows} currency={spend.currency ?? "USD"} />
+            <Section>
+              <DailySpendChart points={dailySpend} period={period} currency={spend.currency ?? DEFAULT_CURRENCY} />
+            </Section>
+            {groupedSpend(rows, METRIC_GATEWAY) && (
+              <Section>
+                <SpendBreakdown rows={rows} currency={spend.currency ?? DEFAULT_CURRENCY} />
+              </Section>
+            )}
           </>
         )
       ) : (
-        // Header totals hold without a window; a daily series needs one.
-        <EmptyState message="Daily usage isn't available until the provider reports a billing period." />
+        <Section>
+          {/* Header totals hold without a window; a daily series needs one. */}
+          <EmptyState message="Daily usage isn't available until the provider reports a billing period." />
+        </Section>
       )}
     </>
   );
@@ -481,12 +619,34 @@ export function UsageView({
   account: string;
   canRequestIncrease?: boolean;
 }) {
+  const [selected, setSelected] = useState<Period | undefined>(undefined);
+  const usage = usePeriodUsage(account, selected);
+  const { data: invoicesResp } = useBillingInvoices(account);
+
+  const { currentPeriod } = usage;
+  const periods = currentPeriod
+    ? [currentPeriod, ...pastPeriods(invoicesResp?.data ?? [], currentPeriod)]
+    : [];
+  const isCurrentPeriod = !selected || samePeriod(selected, currentPeriod);
+
   return (
     <>
-      <SectionHeader title="Usage" subtitle="View your spend distribution." />
-      <div className="flex flex-col gap-8">
-        <PeriodSpend account={account} />
-        <ResourceLimitsSection account={account} canRequestIncrease={canRequestIncrease} />
+      <SectionHeader
+        title="Usage"
+        subtitle="View your spend distribution."
+        action={
+          <PeriodPicker
+            periods={periods}
+            selected={selected ?? currentPeriod}
+            onSelect={setSelected}
+          />
+        }
+      />
+      <div className="flex flex-col">
+        <PeriodSpend usage={usage} isCurrentPeriod={isCurrentPeriod} />
+        <Section>
+          <ResourceLimitsSection account={account} canRequestIncrease={canRequestIncrease} />
+        </Section>
       </div>
     </>
   );

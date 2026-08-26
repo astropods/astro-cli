@@ -41,7 +41,8 @@ export function yAxisProps(tickFormatter: (v: number) => string) {
  *
  *  Zero-valued series are dropped: every series carries a key on every row so
  *  segments hold their slot, which without this fills the tooltip with rows
- *  reading nothing. */
+ *  reading nothing. A single-series chart opts out with `includeZero`: there
+ *  the zero is the reading. */
 export function SeriesTooltip({
   active,
   payload,
@@ -49,6 +50,7 @@ export function SeriesTooltip({
   colors,
   names,
   format,
+  includeZero = false,
 }: {
   active?: boolean;
   payload?: { name: string; value: number }[];
@@ -56,8 +58,9 @@ export function SeriesTooltip({
   colors: Record<string, string>;
   names?: Record<string, string>;
   format: (v: number) => string;
+  includeZero?: boolean;
 }) {
-  const shown = (payload ?? []).filter((p) => (p.value ?? 0) > 0);
+  const shown = (payload ?? []).filter((p) => includeZero || (p.value ?? 0) > 0);
   if (!active || shown.length === 0) return null;
   const total = shown.reduce((sum, p) => sum + (p.value ?? 0), 0);
   return (

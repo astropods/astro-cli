@@ -6,7 +6,7 @@ import { EmptyState, LoadError, LoadingRows } from "@/components/settings/Settin
 import { RequestIncreaseDialog, meterMeta } from "@/components/RequestIncreaseDialog";
 import { formatNumber } from "@/lib/format-utils";
 import { formatShortDateLocal } from "@/lib/date-utils";
-import type { UsageMeter } from "@/lib/api";
+import type { QuotaIncreaseListItem, UsageMeter } from "@/lib/api";
 import {
   Table,
   TableBody,
@@ -23,18 +23,10 @@ const statusBadgeColor: Record<string, StatusBadgeColor> = {
 };
 
 // ---------------------------------------------------------------------------
-// Limits: the account's resource quotas, moved here from the old Quotas tab.
+// The account's resource quotas, and any outstanding request to raise one.
 // ---------------------------------------------------------------------------
 
-function QuotaRequestsTable({ account }: { account: string }) {
-  const { data, isLoading, isLoadingError, refetch } = useQuotaIncreaseRequests(account);
-
-  if (isLoading) return <LoadingRows rows={2} />;
-  if (isLoadingError) return <LoadError onRetry={() => refetch()} />;
-  if (!data?.requests?.length) {
-    return <EmptyState message="No quota increase requests." />;
-  }
-
+function QuotaRequestsTable({ requests }: { requests: QuotaIncreaseListItem[] }) {
   return (
     <Table>
       <TableHeader>
@@ -47,7 +39,7 @@ function QuotaRequestsTable({ account }: { account: string }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {data.requests.map((req) => (
+        {requests.map((req) => (
           <TableRow key={req.id}>
             <TableCell className="font-medium">
               {meterMeta[req.feature_key]?.label ?? req.feature_key}
@@ -87,7 +79,7 @@ function LimitsMeterGrid({ meters }: { meters: Record<string, UsageMeter> }) {
         const decimals = info?.decimals ?? 0;
         const hasQuota = meter.quota != null;
         return (
-          <div key={key} className="flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+          <div key={key} className="flex items-center justify-between gap-2">
             <span className="text-body-sm text-foreground">{label}</span>
             <span className="text-body-sm tabular-nums text-muted-foreground">
               {formatNumber(meter.usage, decimals)} / {hasQuota ? formatNumber(meter.quota!, 0) : "∞"}
@@ -101,20 +93,19 @@ function LimitsMeterGrid({ meters }: { meters: Record<string, UsageMeter> }) {
 
 export function ResourceLimitsSection({ account, canRequestIncrease }: { account: string; canRequestIncrease: boolean }) {
   const { data: usage, isLoading, isLoadingError, refetch } = useAccountUsage(account);
+  const requestsQuery = useQuotaIncreaseRequests(account);
   const [dialogOpen, setDialogOpen] = useState(false);
   const meters = usage?.meters ?? {};
   const hasMeters = Object.keys(meters).length > 0;
+  const requests = requestsQuery.data?.requests ?? [];
+  // An empty table under a permanent heading reads as something to act on.
+  const showRequests = requestsQuery.isLoading || requestsQuery.isLoadingError || requests.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-heading-4 text-foreground">Resource limits</h3>
-            <p className="text-body-sm text-muted-foreground">
-              The maximum number of each resource this account can create.
-            </p>
-          </div>
+          <h3 className="text-heading-4 text-foreground">Quotas</h3>
           {canRequestIncrease && (
             <Button size="sm" variant="outline" disabled={!hasMeters} onClick={() => setDialogOpen(true)}>
               Request increase
@@ -130,10 +121,18 @@ export function ResourceLimitsSection({ account, canRequestIncrease }: { account
         )}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <h3 className="text-heading-4 text-foreground">Quota increase requests</h3>
-        <QuotaRequestsTable account={account} />
-      </div>
+      {showRequests && (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-heading-4 text-foreground">Quota increase requests</h3>
+          {requestsQuery.isLoading ? (
+            <LoadingRows rows={2} />
+          ) : requestsQuery.isLoadingError ? (
+            <LoadError onRetry={() => requestsQuery.refetch()} />
+          ) : (
+            <QuotaRequestsTable requests={requests} />
+          )}
+        </div>
+      )}
 
       {canRequestIncrease && hasMeters && (
         <RequestIncreaseDialog

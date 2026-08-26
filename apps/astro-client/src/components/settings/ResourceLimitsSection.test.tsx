@@ -78,10 +78,10 @@ describe("ResourceLimitsSection meters", () => {
 });
 
 describe("ResourceLimitsSection quota requests", () => {
-  it("shows an empty state when there are no requests", () => {
+  it("hides the whole section when there are no requests", () => {
     renderSection();
 
-    expect(screen.getByText("No quota increase requests.")).toBeInTheDocument();
+    expect(screen.queryByText("Quota increase requests")).not.toBeInTheDocument();
   });
 
   it("shows a retry state on a requests query that's never loaded", async () => {

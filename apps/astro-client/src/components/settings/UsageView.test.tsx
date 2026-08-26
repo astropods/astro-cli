@@ -9,6 +9,7 @@ import { periodDayKeys, UsageView } from "./UsageView";
 const mockAccountUsage = vi.fn();
 const mockBillingUsage = vi.fn();
 const mockBillingDailySpend = vi.fn();
+const mockInvoices = vi.fn();
 const mockQuotaRequests = vi.fn();
 const mockSpend = vi.fn();
 
@@ -16,6 +17,7 @@ vi.mock("@/api/queries", () => ({
   useAccountUsage: () => mockAccountUsage(),
   useBillingUsage: (...args: unknown[]) => mockBillingUsage(...args),
   useBillingDailySpend: (...args: unknown[]) => mockBillingDailySpend(...args),
+  useBillingInvoices: () => mockInvoices(),
   useQuotaIncreaseRequests: () => mockQuotaRequests(),
 }));
 vi.mock("@/api/queries/billing", () => ({
@@ -52,6 +54,7 @@ beforeEach(() => {
   });
   mockBillingUsage.mockReturnValue({ data: { available: true, data: [] }, isLoading: false, refetch: vi.fn() });
   mockBillingDailySpend.mockReturnValue({ data: { available: true, data: [] }, isLoading: false, refetch: vi.fn() });
+  mockInvoices.mockReturnValue({ data: { available: true, data: [] }, isLoading: false });
   mockQuotaRequests.mockReturnValue({ data: undefined, isLoading: false });
   mockSpend.mockReturnValue(spendResponse());
 });

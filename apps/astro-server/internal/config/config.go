@@ -80,7 +80,22 @@ type Config struct {
 const (
 	BillingBackendNoop      = "noop"
 	BillingBackendMetronome = "metronome"
+	// BillingBackendFake answers billing reads from canned data. Local
+	// development only: it reports spend and invoices nobody accrued.
+	BillingBackendFake = "fake"
 )
+
+// BillingBackendHasCustomers reports whether a backend keeps per-account
+// customer records. Noop keeps none, so the billing reads that need a customer
+// id report unavailable for it rather than provisioning one that goes nowhere.
+func BillingBackendHasCustomers(backend string) bool {
+	switch backend {
+	case BillingBackendMetronome, BillingBackendFake:
+		return true
+	default:
+		return false
+	}
+}
 
 // BillingBackend resolves the effective billing backend. An explicit
 // BILLING_PROVIDER wins; otherwise it defaults to noop.
@@ -479,9 +494,9 @@ func (c *Config) Validate() error {
 
 	if c.BillingProvider != "" {
 		switch c.BillingProvider {
-		case BillingBackendNoop, BillingBackendMetronome:
+		case BillingBackendNoop, BillingBackendMetronome, BillingBackendFake:
 		default:
-			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop or metronome)", c.BillingProvider)
+			return fmt.Errorf("invalid BILLING_PROVIDER: %q (must be noop, metronome, or fake)", c.BillingProvider)
 		}
 	}
 

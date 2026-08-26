@@ -68,9 +68,10 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
-	// Billing dunning-grace sweep (hosted/metronome only) — ages past_due
-	// accounts to suspended once their grace window elapses.
-	if cfg.BillingBackend == "metronome" {
+	// Billing dunning-grace sweep — ages past_due accounts to suspended once
+	// their grace window elapses. Runs on the fake too: its status store is the
+	// same DB-backed one, so the transition is real.
+	if cfg.BillingBackend == "metronome" || cfg.BillingBackend == "fake" {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(1*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) {

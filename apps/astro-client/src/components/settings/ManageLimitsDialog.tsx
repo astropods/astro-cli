@@ -17,6 +17,8 @@ import { formatMoney, thresholdDollars } from "@/lib/billing-balances";
 import { canManageAccountBilling } from "@/lib/billing-copy";
 import { useAuth } from "@/lib/auth";
 
+const AMOUNT_PLACEHOLDER = "0.00";
+
 function parseAmount(input: string): number | null {
   const trimmed = input.trim();
   if (trimmed === "") return null;
@@ -64,7 +66,7 @@ function useRowInputs(
   return { warningInput, setWarningInput, limitInput, setLimitInput };
 }
 
-// Label + optional Remove + input ($ prefix) + helper text.
+// The message that needs acting on sits closest to the control it is about.
 function LimitField({
   id,
   label,
@@ -76,6 +78,8 @@ function LimitField({
   onChange,
   onRemove,
   helperText,
+  error,
+  notice,
 }: {
   id: string;
   label: string;
@@ -87,7 +91,10 @@ function LimitField({
   onChange: (value: string) => void;
   onRemove: () => void;
   helperText: string;
+  error?: string | null;
+  notice?: string | null;
 }) {
+  const messageId = `${id}-message`;
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
@@ -105,6 +112,7 @@ function LimitField({
           </button>
         )}
       </div>
+      <p className="text-body-sm text-muted-foreground">{helperText}</p>
       <div className="relative">
         {prefix && (
           <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-body-sm text-muted-foreground">
@@ -119,9 +127,21 @@ function LimitField({
           disabled={disabled}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          aria-invalid={!!error}
+          aria-describedby={error || notice ? messageId : undefined}
         />
       </div>
-      <p className="text-body-sm text-muted-foreground">{helperText}</p>
+      {error ? (
+        <p id={messageId} className="text-body-sm text-destructive">
+          {error}
+        </p>
+      ) : (
+        notice && (
+          <p id={messageId} className="text-body-sm text-warning">
+            {notice}
+          </p>
+        )
+      )}
     </div>
   );
 }
@@ -156,12 +176,17 @@ export function ManageLimitsDialog({
   const warning = parseAmount(spendRow.warningInput);
   const limit = parseAmount(spendRow.limitInput);
 
-  let blockingError: string | null = null;
-  if ([warning, limit].some((v) => v != null && (Number.isNaN(v) || v < 0))) {
-    blockingError = "Enter an amount of zero or more.";
-  } else if (warning != null && limit != null && warning >= limit) {
-    blockingError = `Agents already pause at your ${formatMoney(limit, currency)} spend limit, so you never get this alert. Enter an amount lower than the spend limit.`;
+  // A field reports the cross-field conflict only once both parse, so a
+  // half-typed "-" doesn't also claim it is above the spend limit.
+  const invalid = (v: number | null) => v != null && (Number.isNaN(v) || v < 0);
+  const AMOUNT_ERROR = "Enter an amount of zero or more.";
+
+  let warningError: string | null = invalid(warning) ? AMOUNT_ERROR : null;
+  const limitError: string | null = invalid(limit) ? AMOUNT_ERROR : null;
+  if (!warningError && !limitError && warning != null && limit != null && warning >= limit) {
+    warningError = `Agents already pause at your ${formatMoney(limit, currency)} spend limit, so you never get this alert. Enter an amount lower than the spend limit.`;
   }
+  const blockingError = warningError ?? limitError;
 
   // Not blocking: valid, but the provider re-evaluates the account the
   // moment this saves (SetCustomerSpendThreshold resets the alert rather
@@ -209,37 +234,34 @@ export function ManageLimitsDialog({
             id="alert-at"
             label="Alert threshold"
             removeLabel="Remove alert threshold"
-            placeholder="No alert"
+            placeholder={AMOUNT_PLACEHOLDER}
             prefix="$"
             disabled={!canManage}
             value={spendRow.warningInput}
             onChange={spendRow.setWarningInput}
             onRemove={() => spendRow.setWarningInput("")}
             helperText="We notify you when spend reaches this amount. No interruptions to your agents."
+            error={warningError}
           />
 
-          <div className="flex flex-col gap-1.5">
-            <LimitField
-              id="spend-limit"
-              label="Spend limit"
-              removeLabel="Remove spend limit"
-              placeholder="No limit"
-              prefix="$"
-              disabled={!canManage}
-              value={spendRow.limitInput}
-              onChange={spendRow.setLimitInput}
-              onRemove={() => spendRow.setLimitInput("")}
-              helperText="Agents pause when spend reaches this amount. You won't be charged past it."
-            />
-            {pausesNow && (
-              <p className="text-body-sm text-warning">
-                Spend this period is already {formatMoney(currentSpend, currency)}. Saving this limit pauses
-                your agents immediately.
-              </p>
-            )}
-          </div>
-
-          {blockingError && <p className="text-body-sm text-destructive">{blockingError}</p>}
+          <LimitField
+            id="spend-limit"
+            label="Spend limit"
+            removeLabel="Remove spend limit"
+            placeholder={AMOUNT_PLACEHOLDER}
+            prefix="$"
+            disabled={!canManage}
+            value={spendRow.limitInput}
+            onChange={spendRow.setLimitInput}
+            onRemove={() => spendRow.setLimitInput("")}
+            helperText="Agents pause when spend reaches this amount. You won't be charged past it."
+            error={limitError}
+            notice={
+              pausesNow
+                ? `Spend this period is already ${formatMoney(currentSpend, currency)}. Saving this limit pauses your agents immediately.`
+                : null
+            }
+          />
 
           {!canManage && (
             <p className="text-body-sm text-muted-foreground">Only owners and admins can change limits.</p>

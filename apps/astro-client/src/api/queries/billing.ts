@@ -1,7 +1,23 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import type { BillingDataResponse, BillingSpend, SpendThresholdsInput } from '../../lib/api';
+import type {
+  BillingDataResponse,
+  BillingInvoice,
+  BillingSpend,
+  SpendThresholdsInput,
+} from '../../lib/api';
 import { billingKeys } from './keys';
+import {
+  EXTERNAL_DELETED,
+  EXTERNAL_INVALID_REQUEST,
+  EXTERNAL_PAID,
+  EXTERNAL_SKIPPED,
+  EXTERNAL_UNCOLLECTIBLE,
+  EXTERNAL_VOID,
+  INVOICE_FINALIZED,
+  normalizeStatus,
+} from '../../lib/billing-provider';
 import { downloadBlob } from '../../lib/download';
 
 // `enabled` also waits on the period window (resolved by a second query);
@@ -35,12 +51,48 @@ export function useBillingDailySpend(
   });
 }
 
+// An empty status is not here: that is where a finalized invoice waits.
+const SETTLED_PAYMENT = new Set([
+  EXTERNAL_PAID,
+  EXTERNAL_VOID,
+  EXTERNAL_DELETED,
+  EXTERNAL_UNCOLLECTIBLE,
+  EXTERNAL_SKIPPED,
+  EXTERNAL_INVALID_REQUEST,
+]);
+
+// Without a provider the status stays empty forever.
+function awaitingPayment(inv: BillingInvoice): boolean {
+  if (normalizeStatus(inv.status) !== INVOICE_FINALIZED) return false;
+  const external = inv.external_invoice;
+  if (!external?.billing_provider_type) return false;
+  return !SETTLED_PAYMENT.has(normalizeStatus(external.external_status));
+}
+
+function hasUnsettledPayment(data: BillingDataResponse<BillingInvoice[]> | undefined): boolean {
+  return (data?.data ?? []).some(awaitingPayment);
+}
+
+const RECHECK_MS = 30_000;
+
+// A declined card sits unfixed for weeks, and each recheck walks the provider's
+// whole invoice list, which takes no date bound.
+const RECHECK_WINDOW_MS = 5 * 60_000;
+
 export function useBillingInvoices(account: string) {
+  // Read inside refetchInterval, not held in state: no render carries the news.
+  const watchingSince = useRef(Date.now());
+
   return useQuery({
     queryKey: billingKeys.invoices(account),
     queryFn: () => api.getBillingInvoices(account),
     enabled: !!account,
     staleTime: 60_000,
+    refetchInterval: (query) =>
+      Date.now() - watchingSince.current < RECHECK_WINDOW_MS &&
+      hasUnsettledPayment(query.state.data)
+        ? RECHECK_MS
+        : false,
   });
 }
 
@@ -65,6 +117,25 @@ export function useBillingStatus(account: string) {
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
+}
+
+/** Refetches invoices when the gating status moves, which is the only trace of
+ *  a payment landing that reaches this app. Reason is in the signature: a
+ *  payment can clear dunning while another gate holds the status still. */
+export function useWatchInvoicePayments(account: string) {
+  const { data: status } = useBillingStatus(account);
+  const qc = useQueryClient();
+  const previous = useRef<string | undefined>(undefined);
+
+  const signature = status
+    ? `${status.status}:${status.reason ?? ''}:${status.has_payment_method}`
+    : undefined;
+  useEffect(() => {
+    if (signature && previous.current && signature !== previous.current) {
+      qc.invalidateQueries({ queryKey: billingKeys.invoices(account) });
+    }
+    previous.current = signature;
+  }, [account, qc, signature]);
 }
 
 /** Current-period spend plus the account's own warning and limit. The provider
@@ -160,6 +231,8 @@ export function useConfirmPaymentMethod(account: string) {
       qc.invalidateQueries({ queryKey: billingKeys.paymentMethod(account) });
       // A card change flips credits_exhausted gating, so the banner must refetch.
       qc.invalidateQueries({ queryKey: billingKeys.status(account) });
+      // Charging what the account owes changes the invoices' payment status.
+      qc.invalidateQueries({ queryKey: billingKeys.invoices(account) });
     },
   });
 }

@@ -111,6 +111,69 @@ atlas migrate apply \
   --revisions-schema atlas_schema_revisions \
   --allow-dirty
 
+# Forward Stripe webhooks when everything needed is already in place, and stay
+# silent when it is not: this is a convenience, not a requirement to boot.
+#
+# Every value is read the way the server reads it, environment first and .env
+# only as a fallback, because godotenv.Load skips a key already exported. A
+# `PORT=9000 moon run astro-server:dev` that resolved the port from .env alone
+# would forward to a port nothing is listening on.
+#
+# Gated on the backend registering /webhooks/stripe at all. The route follows
+# its worker, so on a backend without one an event would post into a 404.
+#
+# The listener is pinned to the server's own key. `stripe listen` otherwise
+# uses whatever account `stripe login` last saved, which is a separate
+# credential: it can be a different account, or live where the server is test.
+# Signature verification would still pass, so events for customers the server
+# has never seen would arrive and resolve to nothing, looking like a broken
+# webhook. Passed by environment rather than --api-key to keep the key out of
+# the process list.
+#
+# The secret comes from `--print-secret` rather than .env because the listener
+# generates it. Exporting is what delivers it, for the same godotenv reason.
+start_stripe_listen() {
+  local provider secret target port key
+  provider="${BILLING_PROVIDER:-$(env_value BILLING_PROVIDER noop)}"
+  case "$provider" in metronome | fake) ;; *) return 0 ;; esac
+  command -v stripe >/dev/null 2>&1 || return 0
+  key="${STRIPE_SECRET_KEY:-$(env_value STRIPE_SECRET_KEY)}"
+  [ -n "$key" ] || return 0
+
+  # Allow-listed, not deny-listed. Live keys come in more than one shape
+  # (sk_live_, rk_live_), so naming the ones to refuse means an unlisted shape
+  # forwards live events into local dev. Naming the two that are safe fails
+  # closed instead.
+  case "$key" in
+    sk_test_* | rk_test_*) ;;
+    *)
+      echo "==> STRIPE_SECRET_KEY is not a test key; skipping webhook forwarding"
+      return 0
+      ;;
+  esac
+
+  # Doubles as a reachability check on that key: a listener that cannot sign is
+  # worse than none.
+  if ! secret=$(STRIPE_API_KEY="$key" stripe listen --print-secret 2>/dev/null) || [ -z "$secret" ]; then
+    echo "==> Stripe CLI could not authenticate with STRIPE_SECRET_KEY; skipping webhook forwarding"
+    return 0
+  fi
+
+  port="${PORT:-$(env_value PORT 8080)}"
+  target="localhost:${port}/webhooks/stripe"
+  # Any listener on this endpoint, not just one on this port: a run that changed
+  # PORT would otherwise leave the old one forwarding, and two listeners deliver
+  # every event twice. Cleared on the way in because this script execs air, so
+  # nothing of ours runs after the server stops.
+  pkill -f "stripe listen --forward-to localhost:[0-9]*/webhooks/stripe" 2>/dev/null || true
+
+  STRIPE_API_KEY="$key" stripe listen --forward-to "$target" &
+  export STRIPE_WEBHOOK_SECRET="$secret"
+  echo "==> Forwarding Stripe webhooks to $target"
+}
+
+start_stripe_listen
+
 # exec so air replaces bash and receives parent signals directly — no trap
 # hop, so air has time to kill its astro-server child (which lives in its
 # own process group via Setpgid:true) before we exit.

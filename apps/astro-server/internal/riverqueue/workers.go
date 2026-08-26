@@ -176,7 +176,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	// Held so the eval judge worker below can reuse the same cached status the
 	// HTTP gate reads.
 	var evalBillingGate evalJudgeBillingGate
-	if cfg.BillingBackend == "metronome" {
+	// Fake included: its status store is the same DB-backed one, so dunning,
+	// suspend/resume and the Stripe webhook all behave for real against it. The
+	// two workers that need Metronome itself stay behind the narrower check
+	// below.
+	if cfg.BillingBackend == "metronome" || cfg.BillingBackend == "fake" {
 		graceDays := 7
 		var exemptAccounts []string
 		if cfg.ServerConfig != nil {
@@ -227,23 +231,36 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		})
 		log.Info("river: registered worker", "worker", "BillingCollectWorker")
 
-		metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), thresholds: spendThresholds(cfg.Billing), usage: usageThresholds(cfg.Billing), spend: spendReports(cfg.Billing), log: log}
-		addWorkerWithCatalogCheck(log, workers, metronomeHook)
+		// Resolves accounts by Metronome customer id, which only the metronome
+		// backend persists.
+		if cfg.BillingBackend == "metronome" {
+			metronomeHook = &MetronomeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), thresholds: spendThresholds(cfg.Billing), usage: usageThresholds(cfg.Billing), spend: spendReports(cfg.Billing), log: log}
+			addWorkerWithCatalogCheck(log, workers, metronomeHook)
+			log.Info("river: registered worker", "worker", "MetronomeWebhookWorker")
+		}
+		// Resolves by Stripe customer id, which the payment provider persists
+		// whatever the billing backend is.
 		stripeHook = &StripeWebhookWorker{accounts: cfg.AccountStore, status: statusStore, cards: paymentCards(cfg.PaymentProvider), log: log}
 		addWorkerWithCatalogCheck(log, workers, stripeHook)
-		log.Info("river: registered worker", "worker", "Metronome/StripeWebhookWorker")
+		log.Info("river: registered worker", "worker", "StripeWebhookWorker")
 
-		provisionWorker = &BillingProvisionWorker{
-			accounts: cfg.AccountStore,
-			provider: cfg.Billing,
-			backend:  cfg.BillingBackend,
-			status:   statusStore,
-			log:      log,
+		// Provisioning writes a customer id keyed on the backend and then looks
+		// for a contract. Only the metronome backend has a column for one, so on
+		// any other backend the sweep would create a customer every hour and
+		// store none of them.
+		if cfg.BillingBackend == "metronome" {
+			provisionWorker = &BillingProvisionWorker{
+				accounts: cfg.AccountStore,
+				provider: cfg.Billing,
+				backend:  cfg.BillingBackend,
+				status:   statusStore,
+				log:      log,
+			}
+			addWorkerWithCatalogCheck(log, workers, provisionWorker)
+			provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}
+			addWorkerWithCatalogCheck(log, workers, provisionSweep)
+			log.Info("river: registered worker", "worker", "BillingProvision/SweepWorker")
 		}
-		addWorkerWithCatalogCheck(log, workers, provisionWorker)
-		provisionSweep = &BillingProvisionSweepWorker{accounts: cfg.AccountStore, log: log}
-		addWorkerWithCatalogCheck(log, workers, provisionSweep)
-		log.Info("river: registered worker", "worker", "BillingProvision/SweepWorker")
 	}
 
 	memberEmailStore := memberemails.NewStore(cfg.DB)

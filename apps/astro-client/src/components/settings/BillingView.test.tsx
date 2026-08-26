@@ -18,6 +18,7 @@ vi.mock("@/api/queries", () => ({
 }));
 vi.mock("@/api/queries/billing", () => ({
   useBillingSpend: () => mockSpend(),
+  useWatchInvoicePayments: () => undefined,
   useBillingStatus: () => ({ data: { credits_exhausted: false, has_payment_method: true } }),
   useSetBillingSpendThresholds: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -221,5 +222,52 @@ describe("BillingView invoices without a PDF", () => {
     await userEvent.click(button);
 
     expect(mockDownload).not.toHaveBeenCalled();
+  });
+});
+
+describe("BillingView invoice status", () => {
+  function withInvoice(inv: Record<string, unknown>) {
+    mockInvoices.mockReturnValue({
+      data: { available: true, data: [{ id: "inv-1", total: 1200, ...inv }] },
+      isLoading: false,
+    });
+  }
+
+  it("does not claim a finalized invoice is paid when no payment is reported", () => {
+    withInvoice({ status: "FINALIZED", issued_at: "2026-08-01T00:00:00Z" });
+    renderView();
+
+    expect(screen.queryByText("Paid")).not.toBeInTheDocument();
+    expect(screen.getByText("Issued")).toBeInTheDocument();
+  });
+
+  it("reads Paid only from the billing provider's own payment status", () => {
+    withInvoice({
+      status: "FINALIZED",
+      issued_at: "2026-08-01T00:00:00Z",
+      external_invoice: { billing_provider_type: "stripe", external_status: "PAID" },
+    });
+    renderView();
+
+    expect(screen.getByText("Paid")).toBeInTheDocument();
+  });
+
+  it("surfaces a failed charge rather than reporting the invoice as settled", () => {
+    withInvoice({
+      status: "FINALIZED",
+      issued_at: "2026-08-01T00:00:00Z",
+      external_invoice: { billing_provider_type: "stripe", external_status: "PAYMENT_FAILED" },
+    });
+    renderView();
+
+    expect(screen.getByText("Payment failed")).toBeInTheDocument();
+    expect(screen.queryByText("Paid")).not.toBeInTheDocument();
+  });
+
+  it("reads a still-accruing draft as pending", () => {
+    withInvoice({ status: "DRAFT", end_timestamp: "2026-09-01T00:00:00Z" });
+    renderView();
+
+    expect(screen.getByText("Pending")).toBeInTheDocument();
   });
 });
