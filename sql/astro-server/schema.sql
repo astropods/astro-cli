@@ -347,8 +347,13 @@ CREATE TABLE public.member_email_reconcile_attempts (
 
 CREATE TABLE public.agents (
     account_id uuid NOT NULL,
+    -- Stable WorkOS authorization external id. New rows populate this in PR3;
+    -- PR4 fills historical rows before adding NOT NULL and a unique index.
+    uid uuid,
     name text NOT NULL,
     registry text NOT NULL,
+    -- WorkOS user id that first created this Blueprint.
+    created_by text,
     visibility varchar(10) NOT NULL DEFAULT 'private',
     archived_at timestamp,
     name_reserved bool NOT NULL DEFAULT false,
@@ -468,6 +473,47 @@ CREATE TABLE public.deployment_fga_sync (
 
 CREATE INDEX idx_deployment_fga_sync_pending
     ON public.deployment_fga_sync(next_attempt_at, updated_at)
+    WHERE synced_state IS DISTINCT FROM desired_state
+       OR synced_version IS DISTINCT FROM desired_version
+       OR creator_assignment_pending;
+
+-- Generic desired state for Account-rooted WorkOS authorization resources.
+-- Astro commits intent with its resource write; River applies it after commit.
+CREATE TABLE public.authorization_resource_sync (
+    account_id uuid NOT NULL,
+    organization_id text NOT NULL,
+    resource_type text NOT NULL,
+    resource_id text NOT NULL,
+    parent_resource_type text NOT NULL,
+    parent_resource_id text NOT NULL,
+    desired_name text NOT NULL,
+    desired_state text NOT NULL,
+    desired_version bigint NOT NULL DEFAULT 1,
+    synced_state text,
+    synced_version bigint,
+    workos_authorization_resource_id text,
+    creator_user_id text,
+    creator_role text,
+    creator_assignment_pending boolean NOT NULL DEFAULT false,
+    attempt_count int NOT NULL DEFAULT 0,
+    last_error text,
+    next_attempt_at timestamptz NOT NULL DEFAULT now(),
+    synced_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT authorization_resource_sync_pkey PRIMARY KEY (organization_id, resource_type, resource_id),
+    CONSTRAINT authorization_resource_sync_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
+    CONSTRAINT authorization_resource_sync_resource_type_check CHECK (resource_type IN ('account', 'blueprint', 'deployment')),
+    CONSTRAINT authorization_resource_sync_parent_type_check CHECK (parent_resource_type IN ('organization', 'account')),
+    CONSTRAINT authorization_resource_sync_desired_state_check CHECK (desired_state IN ('registered', 'deleted')),
+    CONSTRAINT authorization_resource_sync_synced_state_check CHECK (synced_state IS NULL OR synced_state IN ('registered', 'deleted')),
+    CONSTRAINT authorization_resource_sync_workos_id_key UNIQUE (workos_authorization_resource_id)
+);
+
+CREATE INDEX idx_authorization_resource_sync_account
+    ON public.authorization_resource_sync(account_id, resource_type, resource_id);
+
+CREATE INDEX idx_authorization_resource_sync_pending
+    ON public.authorization_resource_sync(next_attempt_at, updated_at)
     WHERE synced_state IS DISTINCT FROM desired_state
        OR synced_version IS DISTINCT FROM desired_version
        OR creator_assignment_pending;

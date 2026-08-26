@@ -166,6 +166,36 @@ func setupAgentTestRouter() (*gin.Engine, *agentindex.Index, sqlmock.Sqlmock) {
 	return router, index, mock
 }
 
+const testAgentAuthorizationID = "11111111-1111-1111-1111-111111111111"
+
+func expectAgentAuthorizationUpsert(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg())
+}
+
+func expectSuccessfulAgentAuthorizationUpsert(mock sqlmock.Sqlmock) {
+	expectAgentAuthorizationUpsert(mock).
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow(testAgentAuthorizationID))
+}
+
+func expectBlueprintAuthorizationUpsert(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg())
+}
+
+func expectSuccessfulBlueprintAuthorizationUpsert(mock sqlmock.Sqlmock) {
+	expectBlueprintAuthorizationUpsert(mock).
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow(testAgentAuthorizationID))
+}
+
+func expectSuccessfulBlueprintArchive(mock sqlmock.Sqlmock, accountID, name string) {
+	mock.ExpectBegin()
+	mock.ExpectQuery("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), accountID, name).
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow(testAgentAuthorizationID))
+	mock.ExpectCommit()
+}
+
 func blueprintAccountListColumns(paginated bool) []string {
 	cols := []string{
 		"account_id", "name", "registry", "visibility", "avatar_colors", "avatar_updated_at", "created_at", "updated_at",
@@ -200,9 +230,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO agents").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectSuccessfulAgentAuthorizationUpsert(mock)
 	mock.ExpectExec("INSERT INTO agent_versions").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -280,9 +308,7 @@ func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
 	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
 
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO agents").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectSuccessfulAgentAuthorizationUpsert(mock)
 	mock.ExpectExec("INSERT INTO agent_versions").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -331,9 +357,7 @@ func TestRegisterAgent_WithReadme_NoHint(t *testing.T) {
 	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
 
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO agents").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectSuccessfulAgentAuthorizationUpsert(mock)
 	mock.ExpectExec("INSERT INTO agent_versions").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -624,9 +648,7 @@ func TestCreateBlueprint_Success(t *testing.T) {
 	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
 
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO agents").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectSuccessfulBlueprintAuthorizationUpsert(mock)
 	mock.ExpectExec("DELETE FROM agent_versions").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -665,11 +687,10 @@ func TestCreateBlueprint_ConflictReturns409(t *testing.T) {
 
 	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
 
-	// Active agent: INSERT returns 0 rows affected → ErrAlreadyExists
+	// Active agent: INSERT returns no row → ErrAlreadyExists
 	mock.ExpectBegin()
-	mock.ExpectExec("INSERT INTO agents").
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	expectBlueprintAuthorizationUpsert(mock).
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}))
 	mock.ExpectRollback()
 
 	body := `{"name": "existing-agent"}`
@@ -763,9 +784,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 
 			if !tt.expectRejected {
 				mock.ExpectBegin()
-				mock.ExpectExec("INSERT INTO agents").
-					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
-					WillReturnResult(sqlmock.NewResult(1, 1))
+				expectSuccessfulAgentAuthorizationUpsert(mock)
 				mock.ExpectExec("INSERT INTO agent_versions").
 					WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 					WillReturnResult(sqlmock.NewResult(1, 1))

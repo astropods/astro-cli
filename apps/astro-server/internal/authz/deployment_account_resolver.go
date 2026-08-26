@@ -60,10 +60,13 @@ func (r *DeploymentAccountResolver) resolve(ctx context.Context, resource Resour
 			       a.type,
 			       COALESCE(ao.workos_org_id, ''),
 			       COALESCE(s.desired_state = 'registered', FALSE)
+			       OR COALESCE(rs.desired_state = 'registered', FALSE)
 			FROM deployments d
 			JOIN accounts a ON a.id = d.account_id
 			LEFT JOIN account_organizations ao ON ao.account_id = a.id
 			LEFT JOIN deployment_fga_sync s ON s.deployment_id = d.id
+			LEFT JOIN authorization_resource_sync rs
+			  ON rs.resource_type = 'deployment' AND rs.resource_id = d.id
 			WHERE d.id = $1 AND a.deleted_at IS NULL
 		`, resource.ExternalID).Scan(
 			&account.accountID,

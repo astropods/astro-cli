@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/colorextract"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
@@ -35,6 +36,37 @@ import (
 	"github.com/lib/pq"
 	"gopkg.in/yaml.v3"
 )
+
+type authorizationResourceQueue interface {
+	InsertAuthorizationResourceReconcileJob(context.Context, authz.ResourceSyncKey) error
+}
+
+// AuthorizationResourceLifecycleDeps wires durable registration without
+// making Blueprint creation depend on WorkOS availability.
+type AuthorizationResourceLifecycleDeps struct {
+	Sync  *authz.AuthorizationResourceSyncStore
+	Queue authorizationResourceQueue
+}
+
+func authorizationLifecycle(deps []AuthorizationResourceLifecycleDeps) AuthorizationResourceLifecycleDeps {
+	if len(deps) == 0 {
+		return AuthorizationResourceLifecycleDeps{}
+	}
+	return deps[0]
+}
+
+func enqueueAuthorizationResource(log *logger.Logger, deps AuthorizationResourceLifecycleDeps, key authz.ResourceSyncKey, recorded bool) {
+	if !recorded || deps.Queue == nil || key.Resource.ExternalID == "" {
+		return
+	}
+	if err := deps.Queue.InsertAuthorizationResourceReconcileJob(context.Background(), key); err != nil {
+		log.Warn("authorization resource: immediate reconciliation enqueue failed; periodic sweep will retry",
+			"resource_type", key.Resource.Type,
+			"resource_id", key.Resource.ExternalID,
+			"error", err,
+		)
+	}
+}
 
 // AgentMetrics holds computed metrics for an agent.
 type AgentMetrics struct {
@@ -669,7 +701,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
 // from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
 // using provider:astro-gateway in a gateway-less env fails at admission.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -681,6 +713,10 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 	}
 
 	return func(c *gin.Context) {
+		creatorUserID := ""
+		if user, ok := middleware.GetUser(c); ok {
+			creatorUserID = user.ID
+		}
 		// Enforce minimum CLI version when configured.
 		if minVer != nil {
 			cliVersion := c.GetHeader("X-Cli-Version")
@@ -810,7 +846,19 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Parse agent card from readme and merge spec-derived integrations at registration time
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
 
-		if err := index.Register(accountID, agentName, req.BuildID, req.Registry, acct.ID, specMap, req.Readme, agentCardJSON, validationWarningsJSON); err != nil {
+		lifecycle := authorizationLifecycle(authorizationDeps)
+		var recorder agentindex.BlueprintAuthorizationRecorder
+		if lifecycle.Sync != nil {
+			recorder = func(ctx context.Context, tx *sql.Tx, accountID, name string) (bool, error) {
+				_, recorded, err := lifecycle.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
+				return recorded, err
+			}
+		}
+		authorizationID, authorizationRecorded, err := index.RegisterWithAuthorization(
+			c.Request.Context(), accountID, agentName, req.BuildID, req.Registry, acct.ID,
+			specMap, req.Readme, agentCardJSON, validationWarningsJSON, creatorUserID, recorder,
+		)
+		if err != nil {
 			log.Error("agents: register agent failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to register agent",
@@ -818,6 +866,10 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 			})
 			return
 		}
+		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+			OrganizationID: acct.WorkOSOrganizationID,
+			Resource:       authz.BlueprintResource(authorizationID),
+		}, authorizationRecorded)
 
 		// Publishing a new build shifts `latest_build_id` for every downstream
 		// deployment whose lineage points at this agent. Bust their per-account
@@ -900,8 +952,12 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		creatorUserID := ""
+		if user, ok := middleware.GetUser(c); ok {
+			creatorUserID = user.ID
+		}
 		accountName := c.Param("account")
 
 		acct, ok := middleware.GetAccountFromContext(c)
@@ -927,7 +983,16 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			return
 		}
 
-		if err := index.Create(acct.ID, req.Name); err != nil {
+		lifecycle := authorizationLifecycle(authorizationDeps)
+		var recorder agentindex.BlueprintAuthorizationRecorder
+		if lifecycle.Sync != nil {
+			recorder = func(ctx context.Context, tx *sql.Tx, accountID, name string) (bool, error) {
+				_, recorded, err := lifecycle.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
+				return recorded, err
+			}
+		}
+		authorizationID, authorizationRecorded, err := index.CreateWithAuthorization(c.Request.Context(), acct.ID, req.Name, creatorUserID, recorder)
+		if err != nil {
 			if errors.Is(err, agentindex.ErrAlreadyExists) {
 				c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("agent %q already exists", req.Name)})
 				return
@@ -941,6 +1006,10 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create blueprint"})
 			return
 		}
+		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+			OrganizationID: acct.WorkOSOrganizationID,
+			Resource:       authz.BlueprintResource(authorizationID),
+		}, authorizationRecorded)
 
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {
@@ -991,7 +1060,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -1002,7 +1071,13 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			return
 		}
 
-		if err := index.Archive(acct.ID, agentName); err != nil {
+		lifecycle := authorizationLifecycle(authorizationDeps)
+		var recorder agentindex.BlueprintAuthorizationDeletionRecorder
+		if lifecycle.Sync != nil {
+			recorder = lifecycle.Sync.RecordBlueprintDeletionTx
+		}
+		authorizationID, authorizationRecorded, err := index.ArchiveWithAuthorization(c.Request.Context(), acct.ID, agentName, recorder)
+		if err != nil {
 			log.Error("agents: archive agent failed", "error", err, "account", accountName, "name", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "failed to archive agent",
@@ -1010,6 +1085,10 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			})
 			return
 		}
+		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+			OrganizationID: acct.WorkOSOrganizationID,
+			Resource:       authz.BlueprintResource(authorizationID),
+		}, authorizationRecorded)
 
 		// Best-effort: disconnect any linked GitHub repo so it can be reused.
 		// Extract session before the goroutine — gin.Context must not be accessed after the handler returns.

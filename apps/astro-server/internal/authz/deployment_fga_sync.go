@@ -151,6 +151,10 @@ func (s *DeploymentFGASyncStore) Pending(ctx context.Context, deploymentID strin
 		LEFT JOIN account_member_workos amw
 		  ON amw.account_id = d.account_id AND amw.user_id = d.deployed_by
 		WHERE s.deployment_id = $1
+		  AND NOT EXISTS (
+		    SELECT 1 FROM authorization_resource_sync ars
+		    WHERE ars.resource_type = 'deployment' AND ars.resource_id = s.deployment_id
+		  )
 		  AND (s.synced_state IS DISTINCT FROM s.desired_state
 		       OR s.synced_version IS DISTINCT FROM s.desired_version
 		       OR s.creator_assignment_pending)
@@ -187,11 +191,15 @@ func (s *DeploymentFGASyncStore) DueDeploymentIDs(ctx context.Context, limit int
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT deployment_id
-		FROM deployment_fga_sync
+		FROM deployment_fga_sync s
 		WHERE (synced_state IS DISTINCT FROM desired_state
 		       OR synced_version IS DISTINCT FROM desired_version
 		       OR creator_assignment_pending)
 		  AND next_attempt_at <= NOW()
+		  AND NOT EXISTS (
+		    SELECT 1 FROM authorization_resource_sync ars
+		    WHERE ars.resource_type = 'deployment' AND ars.resource_id = s.deployment_id
+		  )
 		ORDER BY next_attempt_at, updated_at
 		LIMIT $1
 	`, limit)

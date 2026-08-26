@@ -47,8 +47,10 @@ type UndeployWorker struct {
 	log      *logger.Logger
 	cache    k8scache.Cache
 	billing  *metering.BillingStateManager
-	fgaSync  *authz.DeploymentFGASyncStore
-	fgaQueue deploymentFGAQueue
+	fgaSync  authz.DeploymentResourceSyncRecorder
+	fgaQueue interface {
+		InsertDeploymentFGAReconcileJob(context.Context, string) error
+	}
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {

@@ -129,22 +129,23 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // River client exists (the Queue wraps the client). New() sets .queue on each
 // non-nil field once the client is built.
 type wiredWorkers struct {
-	purge             *AccountPurgeWorker
-	insightsRollup    *InsightsRollupWorker
-	classification    *ClassificationDiscoveryWorker
-	migrate           *MigrateDeploymentClusterWorker
-	dunning           *DunningSweepWorker
-	billingResume     *BillingResumeWorker
-	metronomeHook     *MetronomeWebhookWorker
-	stripeHook        *StripeWebhookWorker
-	provisionSweep    *BillingProvisionSweepWorker
-	provisionWorker   *BillingProvisionWorker
-	orgProvisionSweep *AccountOrgProvisionSweepWorker
-	ghBuild           *GitHubBuildWorker
-	observation       *ObservationSweepWorker
-	undeploy          *UndeployWorker
-	deploymentFGA     *DeploymentFGAReconcileWorker
-	resourceAccess    *ResourceAccessFGAReconcileWorker
+	purge                 *AccountPurgeWorker
+	insightsRollup        *InsightsRollupWorker
+	classification        *ClassificationDiscoveryWorker
+	migrate               *MigrateDeploymentClusterWorker
+	dunning               *DunningSweepWorker
+	billingResume         *BillingResumeWorker
+	metronomeHook         *MetronomeWebhookWorker
+	stripeHook            *StripeWebhookWorker
+	provisionSweep        *BillingProvisionSweepWorker
+	provisionWorker       *BillingProvisionWorker
+	orgProvisionSweep     *AccountOrgProvisionSweepWorker
+	ghBuild               *GitHubBuildWorker
+	observation           *ObservationSweepWorker
+	undeploy              *UndeployWorker
+	deploymentFGA         *DeploymentFGAReconcileWorker
+	authorizationResource *AuthorizationResourceReconcileWorker
+	resourceAccess        *ResourceAccessFGAReconcileWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -316,6 +317,17 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 	addWorkerWithCatalogCheck(log, workers, deploymentFGAWorker)
 	log.Info("river: registered worker", "worker", "DeploymentFGAReconcileWorker", "period", "1m")
+	var authorizationResourceWorker *AuthorizationResourceReconcileWorker
+	if cfg.AuthorizationResourceSync != nil {
+		authorizationResourceWorker = &AuthorizationResourceReconcileWorker{
+			lifecycle:     cfg.AuthorizationResourceLifecycle,
+			sync:          cfg.AuthorizationResourceSync,
+			organizations: cfg.OrgClient,
+			log:           log,
+		}
+		addWorkerWithCatalogCheck(log, workers, authorizationResourceWorker)
+		log.Info("river: registered worker", "worker", "AuthorizationResourceReconcileWorker", "period", "1m")
+	}
 	var resourceAccessWorker *ResourceAccessFGAReconcileWorker
 	if cfg.AccessReconciler != nil && cfg.ResourceAccessSync != nil {
 		resourceAccessWorker = &ResourceAccessFGAReconcileWorker{
@@ -470,7 +482,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log:      log,
 		cache:    cfg.K8sCache,
 		billing:  billing,
-		fgaSync:  cfg.DeploymentFGASync,
+		fgaSync:  cfg.DeploymentResourceSync,
 	}
 	addWorkerWithCatalogCheck(log, workers, undeployWorker)
 	log.Info("river: registered worker", "worker", "UndeployWorker")
@@ -582,7 +594,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		Log:         log,
 		DB:          cfg.DB,
 		Deployments: store,
-		FGASync:     cfg.DeploymentFGASync,
+		FGASync:     cfg.DeploymentResourceSync,
 	}
 	if dep != nil {
 		purgerDeps.Langfuse = dep.LangfuseProvisioner
@@ -678,22 +690,22 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	}
 
 	return wiredWorkers{
-		purge:           pw,
-		migrate:         migrateWorker,
-		dunning:         dunningWorker,
-		billingResume:   billingResumeWorker,
-		metronomeHook:   metronomeHook,
-		stripeHook:      stripeHook,
-		provisionSweep:  provisionSweep,
-		provisionWorker: provisionWorker,
-
-		orgProvisionSweep: orgProvisionSweep,
-		ghBuild:           ghBuildWorker,
-		observation:       observationSweep,
-		insightsRollup:    insightsRollupDiscovery,
-		classification:    classificationDiscovery,
-		undeploy:          undeployWorker,
-		deploymentFGA:     deploymentFGAWorker,
-		resourceAccess:    resourceAccessWorker,
+		purge:                 pw,
+		migrate:               migrateWorker,
+		dunning:               dunningWorker,
+		billingResume:         billingResumeWorker,
+		metronomeHook:         metronomeHook,
+		stripeHook:            stripeHook,
+		provisionSweep:        provisionSweep,
+		provisionWorker:       provisionWorker,
+		orgProvisionSweep:     orgProvisionSweep,
+		ghBuild:               ghBuildWorker,
+		observation:           observationSweep,
+		insightsRollup:        insightsRollupDiscovery,
+		classification:        classificationDiscovery,
+		undeploy:              undeployWorker,
+		deploymentFGA:         deploymentFGAWorker,
+		authorizationResource: authorizationResourceWorker,
+		resourceAccess:        resourceAccessWorker,
 	}
 }

@@ -54,7 +54,7 @@ type deploymentFGAOrganizationClient interface {
 }
 
 type deploymentFGAQueue interface {
-	InsertDeploymentFGAReconcileJob(context.Context, string) error
+	InsertLegacyDeploymentFGAReconcileJob(context.Context, string) error
 }
 
 // DeploymentFGAReconcileWorker applies Astro's desired deployment resource
@@ -86,7 +86,7 @@ func (w *DeploymentFGAReconcileWorker) Work(ctx context.Context, job *river.Job[
 			enqueueErr = errors.Join(enqueueErr, errors.New("deployment FGA reconciliation queue is not configured"))
 			break
 		}
-		if err := w.queue.InsertDeploymentFGAReconcileJob(ctx, id); err != nil {
+		if err := w.queue.InsertLegacyDeploymentFGAReconcileJob(ctx, id); err != nil {
 			enqueueErr = errors.Join(enqueueErr, fmt.Errorf("enqueue deployment %s: %w", id, err))
 			w.log.Warn("deployment fga: enqueue deployment FGA reconciliation failed",
 				"deployment_id", id,

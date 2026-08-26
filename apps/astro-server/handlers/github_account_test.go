@@ -713,9 +713,7 @@ func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
 	store := githubconnection.New(ghDB)
 	whStore := githubwebhook.New(ghDB)
 
-	indexMock.ExpectExec("UPDATE agents SET archived_at").
-		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectSuccessfulBlueprintArchive(indexMock, "test-account-id", "service-a")
 
 	// Get: returns service-a's connection on the subpath.
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
@@ -780,9 +778,7 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	store := githubconnection.New(ghDB)
 	whStore := githubwebhook.New(ghDB)
 
-	indexMock.ExpectExec("UPDATE agents SET archived_at").
-		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectSuccessfulBlueprintArchive(indexMock, "test-account-id", "service-a")
 
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("test-account-id", "service-a").

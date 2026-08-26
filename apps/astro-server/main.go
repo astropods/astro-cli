@@ -130,6 +130,7 @@ func main() {
 	accountStore := account.NewAccountStoreWithClusters(db, clusterid.New(cfg.Deployment.DefaultClusterID))
 	agentIndex := agentindex.NewIndexWithDB(db)
 	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
+	authorizationResourceSync := authz.NewAuthorizationResourceSyncStore(db, cfg.Auth.WorkOSAPIKey != "")
 	var deploymentFGA authz.FGA
 	var workosFGA *authz.WorkOSFGA
 	if deploymentFGASync.Enabled() {
@@ -267,12 +268,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, authorizationAdminService, authorizationAdminStore, vault)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, authorizationResourceSync, resourceAccessSync, deploymentFGA, authorizationAdminService, authorizationAdminStore, vault)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA, authorizationAdminService, vault)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, authorizationResourceSync, resourceAccessSync, accessReconciler, deploymentFGA, authorizationAdminService, vault)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -433,6 +434,7 @@ func runAPI(
 	readmeAssetStore *readmeassets.Store,
 	k8sCache k8scache.Cache,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
+	authorizationResourceSync *authz.AuthorizationResourceSyncStore,
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	deploymentFGA authz.FGA,
 	authorizationAdminService *authorizationadmin.Service,
@@ -603,25 +605,26 @@ func runAPI(
 		Quota: quotaChecker,
 		Probe: probeHandler,
 		Stores: Stores{
-			Account:            accountStore,
-			App:                appStore,
-			Deployment:         deploymentStore,
-			AccountVars:        accountVarsStore,
-			Heart:              heartStore,
-			AgentMetrics:       agentMetricsStore,
-			Cluster:            clusterStore,
-			Audit:              auditStore,
-			Avatar:             avatarStore,
-			ReadmeAssets:       readmeAssetStore,
-			Knowledge:          ksStore,
-			GH:                 ghStore,
-			Webhook:            webhookStore,
-			SlackID:            slackIdentityStore,
-			Watcher:            watcherStore,
-			DeploymentFGASync:  deploymentFGASync,
-			ResourceAccessSync: resourceAccessSync,
-			Experiment:         experimentStore,
-			BillingStatus:      billingStatus,
+			Account:                   accountStore,
+			App:                       appStore,
+			Deployment:                deploymentStore,
+			AccountVars:               accountVarsStore,
+			Heart:                     heartStore,
+			AgentMetrics:              agentMetricsStore,
+			Cluster:                   clusterStore,
+			Audit:                     auditStore,
+			Avatar:                    avatarStore,
+			ReadmeAssets:              readmeAssetStore,
+			Knowledge:                 ksStore,
+			GH:                        ghStore,
+			Webhook:                   webhookStore,
+			SlackID:                   slackIdentityStore,
+			Watcher:                   watcherStore,
+			DeploymentFGASync:         deploymentFGASync,
+			AuthorizationResourceSync: authorizationResourceSync,
+			ResourceAccessSync:        resourceAccessSync,
+			Experiment:                experimentStore,
+			BillingStatus:             billingStatus,
 		},
 		Clients: Clients{
 			AgentIndex:  agentIndex,
@@ -801,6 +804,7 @@ func runWorker(
 	k8sCache k8scache.Cache,
 	imagePreflighter *k8s.ImagePreflighter,
 	deploymentFGASync *authz.DeploymentFGASyncStore,
+	authorizationResourceSync *authz.AuthorizationResourceSyncStore,
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	accessReconciler *authz.AccessReconciler,
 	deploymentFGA authz.FGA,
@@ -920,11 +924,14 @@ func runWorker(
 		K8sCache:                       k8sCache,
 		ServerConfig:                   cfg,
 		DeploymentFGASync:              deploymentFGASync,
+		AuthorizationResourceSync:      authorizationResourceSync,
+		DeploymentResourceSync:         authorizationResourceSync,
 		ResourceAccessSync:             resourceAccessSync,
 		AccessReconciler:               accessReconciler,
 		AuthorizationAdmin:             authorizationAdminService,
 		AuthorizationAdminResetEnabled: cfg.AuthorizationAdminResetEnabled,
 		FGA:                            deploymentFGA,
+		AuthorizationResourceLifecycle: authorizationResourceLifecycle(deploymentFGA),
 		WorkOSClient:                   workosClient,
 		OrgClient:                      orgClient,
 		PromClient:                     promClient,
@@ -976,6 +983,11 @@ func runWorker(
 	return cancel
 }
 
+func authorizationResourceLifecycle(fga authz.FGA) authz.AuthorizationResourceLifecycle {
+	lifecycle, _ := fga.(authz.AuthorizationResourceLifecycle)
+	return lifecycle
+}
+
 func setupRoutes(router *gin.Engine, deps *Deps) {
 	// Local aliases keep the route registration body unchanged while the
 	// outer signature stays small. If you're adding a new dependency, add
@@ -1002,9 +1014,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	imagePreflighter := deps.Clients.Preflight
 	queue := deps.Clients.Queue
 	deploymentFGA := deps.Clients.FGA
-	deploymentFGASync := deps.Stores.DeploymentFGASync
+	authorizationResourceSync := deps.Stores.AuthorizationResourceSync
 	resourceAccessSync := deps.Stores.ResourceAccessSync
 	experimentStore := deps.Stores.Experiment
+	authorizationLifecycle := handlers.AuthorizationResourceLifecycleDeps{
+		Sync: authorizationResourceSync,
+	}
+	if queue != nil {
+		authorizationLifecycle.Queue = queue
+	}
 
 	// Novu client for the browser Inbox config (HMAC subscriber hash) and the
 	// per-user notification-preference proxy. Novu owns the catalog and
@@ -1372,7 +1390,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("deployment", "Repeated visible deployment ID (max 100)", true),
 				oapispec.Response(200, &handlers.DeploymentSummariesResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgProvisioner, orgSync, memberEmailStore, billingProvider, auditStore, queue),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgProvisioner, orgSync, memberEmailStore, billingProvider, auditStore, queue, authorizationLifecycle),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),
@@ -1406,7 +1424,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				Log:         log,
 				DB:          db,
 				Deployments: deploymentStore,
-				FGASync:     deploymentFGASync,
+				FGASync:     authorizationResourceSync,
 				Langfuse:    ingestLangfuseProvisioner,
 				AIGateway:   aiGatewayProvisioner,
 				Undeploy:    queue.UndeployFunc(deploymentStore),
@@ -2057,7 +2075,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			createBlueprintRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(createBlueprintRoutes, "", "Create a blueprint",
-					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db), quota.ResourceBlueprints),
+					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db, authorizationLifecycle), quota.ResourceBlueprints),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2093,7 +2111,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					quotaChecker.WrapRegister(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != "")),
+					quotaChecker.WrapRegister(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != "", authorizationLifecycle)),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2103,7 +2121,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(400, &handlers.ErrorResponse{}),
 					oapispec.Response(426, &handlers.ErrorResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, db, auditStore, ghStore, webhookStore, pipesClient),
+				api.POST(agentWriteRoutes, "/archive", "Archive an agent template", handlers.ArchiveAgent(log, agentIndex, db, auditStore, ghStore, webhookStore, pipesClient, authorizationLifecycle),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2161,7 +2179,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deps.Vault, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, deploymentFGASync, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deps.Vault, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, authorizationResourceSync, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),
@@ -2185,7 +2203,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.GetDeploymentStatusResponse{}),
 			)
-			deploymentRoutes.ObservedPATCH(authz.ActionDeploymentEdit, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, deploymentFGASync, queue),
+			deploymentRoutes.ObservedPATCH(authz.ActionDeploymentEdit, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, authorizationResourceSync, queue),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

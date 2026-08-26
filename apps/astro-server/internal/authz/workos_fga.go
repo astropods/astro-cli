@@ -36,6 +36,7 @@ var _ ResourceDiscovery = (*WorkOSFGA)(nil)
 var _ Groups = (*WorkOSFGA)(nil)
 var _ ResourceMembershipDiscovery = (*WorkOSFGA)(nil)
 var _ AuthorizationResourceCatalog = (*WorkOSFGA)(nil)
+var _ AuthorizationResourceLifecycle = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -68,6 +69,58 @@ func (f *WorkOSFGA) RegisterResource(ctx context.Context, organizationID string,
 		return fmt.Errorf("register WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusConflict, ErrResourceExists))
 	}
 	return nil
+}
+
+// RegisterResourceWithParent registers a resource in Astro's Account-rooted
+// hierarchy and returns the WorkOS resource id. Existing resources are
+// resolved by external id so reconciliation remains idempotent.
+func (f *WorkOSFGA) RegisterResourceWithParent(
+	ctx context.Context,
+	organizationID string,
+	resource, parent ResourceRef,
+	name string,
+) (string, error) {
+	if organizationID == "" {
+		return "", errors.New("organization id is required")
+	}
+	if name == "" {
+		return "", errors.New("resource name is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return "", err
+	}
+	if err := validateResource(parent); err != nil {
+		return "", fmt.Errorf("parent %w", err)
+	}
+	parentResource, err := f.workOSParentResource(ctx, parent)
+	if err != nil {
+		return "", err
+	}
+
+	created, err := f.authorization.CreateResource(ctx, &workos.AuthorizationCreateResourceParams{
+		OrganizationID:   organizationID,
+		ResourceTypeSlug: string(resource.Type),
+		ExternalID:       resource.ExternalID,
+		Name:             name,
+		ParentResource:   parentResource,
+	})
+	if err == nil {
+		return created.ID, nil
+	}
+	classified := classifyAPIError(err, http.StatusConflict, ErrResourceExists)
+	if !errors.Is(classified, ErrResourceExists) {
+		return "", fmt.Errorf("register WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classified)
+	}
+	existing, getErr := f.authorization.GetResourceByExternalID(
+		ctx,
+		organizationID,
+		string(resource.Type),
+		resource.ExternalID,
+	)
+	if getErr != nil {
+		return "", fmt.Errorf("resolve existing WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, getErr)
+	}
+	return existing.ID, nil
 }
 
 func (f *WorkOSFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {

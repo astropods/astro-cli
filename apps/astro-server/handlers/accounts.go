@@ -52,6 +52,21 @@ func accountDisplayNameLengthError(accountType string, maxLength int) string {
 	return "display names cannot exceed " + strconv.Itoa(maxLength) + " characters"
 }
 
+func compensateAccountCreation(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, accountID, organizationID string) {
+	if organizationID != "" && orgClient != nil {
+		if err := orgClient.DeleteOrganization(ctx, organizationID); err != nil {
+			log.Warn("accounts: compensating WorkOS organization deletion failed",
+				"error", err,
+				"account_id", accountID,
+				"organization_id", organizationID,
+			)
+		}
+	}
+	if err := accountStore.DeleteByID(accountID); err != nil {
+		log.Warn("accounts: compensating local account deletion failed", "error", err, "account_id", accountID)
+	}
+}
+
 // AccountOwner represents the owner's public profile in account responses
 type AccountOwner struct {
 	FirstName         string `json:"first_name,omitempty"`
@@ -120,7 +135,7 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -228,6 +243,26 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			switch {
 			case err == nil:
 				acct.WorkOSOrganizationID = workosOrgID
+				lifecycle := authorizationLifecycle(authorizationDeps)
+				if lifecycle.Sync != nil {
+					key, recorded, recordErr := lifecycle.Sync.RecordAccountRegistration(ctx, acct.ID)
+					if recordErr != nil {
+						log.Error("accounts: record Account authorization registration failed", "error", recordErr, "account_id", acct.ID)
+						if req.Type == "organization" {
+							orgProvisioner.DiscardOrganization(ctx, acct.ID)
+							_ = accountStore.DeleteByID(acct.ID)
+							c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register account authorization"})
+							return
+						}
+						if q, ok := queue.(orgProvisionQueue); ok {
+							if err := q.InsertAccountOrgProvision(ctx, acct.ID); err != nil {
+								log.Error("accounts: enqueue WorkOS organization provisioning failed", "error", err, "account_id", acct.ID)
+							}
+						}
+					} else {
+						enqueueAuthorizationResource(log, lifecycle, key, recorded)
+					}
+				}
 			case req.Type == "organization":
 				log.Error("accounts: provision WorkOS organization failed", "error", err, "account_id", acct.ID)
 				orgProvisioner.DiscardOrganization(ctx, acct.ID)

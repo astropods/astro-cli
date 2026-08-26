@@ -186,9 +186,11 @@ function ResourceRow({ resource }: { resource: AuthorizationResource }) {
           <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{resource.type}</div>
         </td>
         <td className="px-3 py-2.5 font-mono">
-          <Link className="inline-flex items-center gap-1 text-honey-dark hover:underline" to={resourceHref}>
-            {resource.external_id}<ExternalLink className="size-2.5" />
-          </Link>
+          {resource.type === "deployment" ? (
+            <Link className="inline-flex items-center gap-1 text-honey-dark hover:underline" to={resourceHref}>
+              {resource.external_id}<ExternalLink className="size-2.5" />
+            </Link>
+          ) : resource.external_id}
         </td>
         <td className="px-3 py-2.5 font-mono" title={resource.workos_resource_id}>{truncateUUID(resource.workos_resource_id)}</td>
         <td className="px-3 py-2.5">

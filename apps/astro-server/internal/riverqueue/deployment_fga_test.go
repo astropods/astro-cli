@@ -18,9 +18,13 @@ type deploymentFGATestQueue struct {
 	reconciled []string
 }
 
-func (q *deploymentFGATestQueue) InsertDeploymentFGAReconcileJob(_ context.Context, deploymentID string) error {
+func (q *deploymentFGATestQueue) InsertLegacyDeploymentFGAReconcileJob(_ context.Context, deploymentID string) error {
 	q.reconciled = append(q.reconciled, deploymentID)
 	return nil
+}
+
+func (q *deploymentFGATestQueue) InsertDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error {
+	return q.InsertLegacyDeploymentFGAReconcileJob(ctx, deploymentID)
 }
 
 type deploymentFGATestOrganizations struct {

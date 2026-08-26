@@ -6,6 +6,7 @@ type ResourceType string
 const (
 	ResourceOrganization ResourceType = "organization"
 	ResourceAccount      ResourceType = "account"
+	ResourceBlueprint    ResourceType = "blueprint"
 	ResourceDeployment   ResourceType = "deployment"
 )
 
@@ -18,4 +19,12 @@ type ResourceRef struct {
 
 func DeploymentResource(id string) ResourceRef {
 	return ResourceRef{Type: ResourceDeployment, ExternalID: id}
+}
+
+func AccountResource(id string) ResourceRef {
+	return ResourceRef{Type: ResourceAccount, ExternalID: id}
+}
+
+func BlueprintResource(id string) ResourceRef {
+	return ResourceRef{Type: ResourceBlueprint, ExternalID: id}
 }

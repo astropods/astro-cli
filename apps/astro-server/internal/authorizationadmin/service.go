@@ -72,7 +72,7 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 	if err != nil {
 		return nil, err
 	}
-	local, err := s.localDeploymentMetadata(ctx)
+	local, err := s.localAuthorizationMetadata(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 			row.AccountID = accountResource.Resource.ExternalID
 			row.AccountName = accountResource.Name
 		}
-		if metadata, ok := local[resource.Resource.ExternalID]; ok {
+		if metadata, ok := local[resourceKey(resource.Resource)]; ok {
 			if row.AccountID == "" {
 				row.AccountID = metadata.AccountID
 				row.AccountName = metadata.AccountName
@@ -496,44 +496,61 @@ func (s *Service) deleteResource(ctx context.Context, resource authz.Authorizati
 	return nil
 }
 
-type deploymentMetadata struct {
+type resourceMetadata struct {
 	AccountID   string
 	AccountName string
 	SyncState   string
 	LastError   string
 }
 
-func (s *Service) localDeploymentMetadata(ctx context.Context) (map[string]deploymentMetadata, error) {
+func (s *Service) localAuthorizationMetadata(ctx context.Context) (map[string]resourceMetadata, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id,
-		       d.account_id,
+		SELECT s.resource_type,
+		       s.resource_id,
+		       s.account_id,
 		       COALESCE(NULLIF(a.display_name, ''), a.name),
 		       CASE
-		         WHEN f.deployment_id IS NULL THEN 'registered'
+		         WHEN s.synced_state IS NOT DISTINCT FROM s.desired_state
+		          AND s.synced_version IS NOT DISTINCT FROM s.desired_version
+		          AND NOT s.creator_assignment_pending THEN 'synced'
+		         ELSE 'pending'
+		       END,
+		       COALESCE(s.last_error, '')
+		FROM authorization_resource_sync s
+		JOIN accounts a ON a.id = s.account_id
+		UNION ALL
+		SELECT 'deployment', d.id, d.account_id,
+		       COALESCE(NULLIF(a.display_name, ''), a.name),
+		       CASE
 		         WHEN f.synced_state IS NOT DISTINCT FROM f.desired_state
-		          AND f.synced_version IS NOT DISTINCT FROM f.desired_version THEN 'synced'
+		          AND f.synced_version IS NOT DISTINCT FROM f.desired_version
+		          AND NOT f.creator_assignment_pending THEN 'synced'
 		         ELSE 'pending'
 		       END,
 		       COALESCE(f.last_error, '')
 		FROM deployments d
 		JOIN accounts a ON a.id = d.account_id
-		LEFT JOIN deployment_fga_sync f ON f.deployment_id = d.id
+		JOIN deployment_fga_sync f ON f.deployment_id = d.id
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM authorization_resource_sync s
+		  WHERE s.resource_type = 'deployment' AND s.resource_id = d.id
+		)
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("load authorization inventory deployment metadata: %w", err)
+		return nil, fmt.Errorf("load authorization inventory metadata: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck
-	metadata := make(map[string]deploymentMetadata)
+	metadata := make(map[string]resourceMetadata)
 	for rows.Next() {
-		var id string
-		var current deploymentMetadata
-		if err := rows.Scan(&id, &current.AccountID, &current.AccountName, &current.SyncState, &current.LastError); err != nil {
-			return nil, fmt.Errorf("scan authorization inventory deployment metadata: %w", err)
+		var resource authz.ResourceRef
+		var current resourceMetadata
+		if err := rows.Scan(&resource.Type, &resource.ExternalID, &current.AccountID, &current.AccountName, &current.SyncState, &current.LastError); err != nil {
+			return nil, fmt.Errorf("scan authorization inventory metadata: %w", err)
 		}
-		metadata[id] = current
+		metadata[resourceKey(resource)] = current
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate authorization inventory deployment metadata: %w", err)
+		return nil, fmt.Errorf("iterate authorization inventory metadata: %w", err)
 	}
 	return metadata, nil
 }

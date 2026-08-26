@@ -42,6 +42,38 @@ func TestWorkOSFGARegisterResource(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGARegisterResourceWithAccountParent(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		assertRequest(t, request, http.MethodPost, "/authorization/resources", map[string]any{
+			"external_id":                 "blueprint_123",
+			"name":                        "Support agent",
+			"organization_id":             "org_123",
+			"parent_resource_external_id": "account_123",
+			"parent_resource_type_slug":   "account",
+			"resource_type_slug":          "blueprint",
+		})
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"id":                 "resource_123",
+			"external_id":        "blueprint_123",
+			"name":               "Support agent",
+			"organization_id":    "org_123",
+			"resource_type_slug": "blueprint",
+			"description":        nil,
+			"parent_resource_id": "account_resource_123",
+		})
+	})
+	defer closeServer()
+
+	id, err := fga.RegisterResourceWithParent(
+		context.Background(), "org_123", BlueprintResource("blueprint_123"), AccountResource("account_123"), "Support agent",
+	)
+	if err != nil || id != "resource_123" {
+		t.Fatalf("RegisterResourceWithParent() = (%q, %v)", id, err)
+	}
+}
+
 func TestWorkOSFGAUpdateResourceName(t *testing.T) {
 	t.Parallel()
 
