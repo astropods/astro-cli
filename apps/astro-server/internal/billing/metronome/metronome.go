@@ -574,15 +574,13 @@ func (p *Provider) InvoicePDF(ctx context.Context, customerID, invoiceID string)
 	return resp.Body, nil
 }
 
-// Balances returns the customer's credits and commits, passed through as-is.
-// Unlike CustomerSpend's own credit read, this omits CoveringDate so the
-// client sees the full record, past and future grants included.
+// Omits CoveringDate, unlike CustomerSpend's own credit read, so the client
+// sees past and future grants too.
 func (p *Provider) Balances(ctx context.Context, customerID string) (any, error) {
 	credits := []shared.Credit{}
 	creditIter := p.mc.V1.Customers.Credits.ListAutoPaging(ctx, metronome.V1CustomerCreditListParams{
 		CustomerID: customerID,
-		// Without this, every credit's Balance reads as zero (see the same
-		// flag in CustomerSpend), which the client would show as fully spent.
+		// Without this every Balance reads zero, which shows as fully spent.
 		IncludeBalance: param.NewOpt(true),
 	})
 	for creditIter.Next() {

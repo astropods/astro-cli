@@ -11,10 +11,8 @@ import (
 	"github.com/Metronome-Industries/metronome-go/v3/shared"
 )
 
-// Without include_balance, every credit and commit comes back with Balance
-// zero (Metronome's own behavior, also why CustomerSpend sets it). A client
-// reading that as "what's left" would show every grant as fully spent. These
-// list endpoints take their params as a JSON body, not a query string.
+// Without include_balance every Balance comes back zero, which a client reads
+// as fully spent. These list endpoints take their params as a JSON body.
 func TestBalances_RequestsIncludeBalanceForCreditsAndCommits(t *testing.T) {
 	var sawCreditFlag, sawCommitFlag bool
 
@@ -57,8 +55,7 @@ func TestBalances_RequestsIncludeBalanceForCreditsAndCommits(t *testing.T) {
 	if !ok || len(credits) != 1 {
 		t.Fatalf("credits = %v, want one credit", out["credits"])
 	}
-	// oneCredit's balance is 250; this is what a request that dropped the
-	// flag would silently zero out.
+	// What a request that dropped the flag would silently zero out.
 	if credits[0].Balance != 250 {
 		t.Errorf("credits[0].Balance = %v, want 250", credits[0].Balance)
 	}

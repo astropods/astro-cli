@@ -180,9 +180,8 @@ func TestSpendReportsCreditPartlyApplied(t *testing.T) {
 	}
 }
 
-// The free-trial modal reads the granted amount off access_schedule and checks
-// the credit type is USD before announcing a dollar figure. A shape it cannot
-// read leaves the modal silently closed, which looks the same as no grant.
+// A shape the modal cannot read leaves it silently closed, which looks the
+// same as no grant.
 func TestBalancesCarryAUsdGrantTheClientCanRead(t *testing.T) {
 	raw, err := New().Balances(context.Background(), "fake-cus-1")
 	if err != nil {
@@ -215,8 +214,7 @@ func TestBalancesCarryAUsdGrantTheClientCanRead(t *testing.T) {
 		t.Fatalf("credits = %d, want 1", len(out.Credits))
 	}
 	credit := out.Credits[0]
-	// The id the client keys on. The label alone happens to parse as USD, so a
-	// wrong id passes by accident; assert the id itself.
+	// The label alone parses as USD, so a wrong id would pass by accident.
 	if credit.AccessSchedule.CreditType.ID != usdCentsCreditTypeID {
 		t.Errorf("credit type id = %q, want %q", credit.AccessSchedule.CreditType.ID, usdCentsCreditTypeID)
 	}
