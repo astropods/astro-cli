@@ -4,6 +4,8 @@
 
 Queen can now dry-run and delete one Astro account's WorkOS product resources in Preview. This prepares that account for rebuilding the authorization hierarchy with Account as the practical parent.
 
+Queen labels this action **Reset FGA resources** so it cannot be confused with deleting the Astro account or its WorkOS organization.
+
 ## Design
 
 The reset is a durable River operation:

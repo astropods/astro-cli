@@ -313,12 +313,12 @@ function ResetDialog({
     }}>
       <AlertDialogTrigger asChild>
         <Button variant="destructive" size="sm" disabled={!enabled || accounts.length === 0 || Boolean(activeOperation)} title={!enabled ? "Preview reset is disabled by server configuration" : undefined}>
-          <Trash2 className="size-3.5" /> Nuke account resources
+          <Trash2 className="size-3.5" /> Reset FGA resources
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Nuke one account's WorkOS resources?</AlertDialogTitle>
+          <AlertDialogTitle>Reset WorkOS authorization resources for one account?</AlertDialogTitle>
           <AlertDialogDescription>
             Queen deletes product resources only inside the selected account's WorkOS organization. The WorkOS organization root is never targeted.
           </AlertDialogDescription>
@@ -366,7 +366,7 @@ function ResetDialog({
               { onSuccess: () => setOpen(false) },
             )}
           >
-            Nuke {selectedAccount?.name ?? "account"}
+            Reset {selectedAccount?.name ?? "account"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
