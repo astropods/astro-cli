@@ -505,11 +505,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 
 	var result struct {
 		Accounts []struct {
-			ID                   string `json:"id"`
-			Name                 string `json:"name"`
-			Type                 string `json:"type"`
-			Role                 string `json:"role"`
-			WorkOSOrganizationID string `json:"workos_org_id"`
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			Type           string `json:"type"`
+			Role           string `json:"role"`
+			OrganizationID string `json:"workos_org_id"`
 		} `json:"accounts"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -519,11 +519,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 	var accounts []auth.StoredAccount
 	for _, a := range result.Accounts {
 		accounts = append(accounts, auth.StoredAccount{
-			ID:                   a.ID,
-			Name:                 a.Name,
-			Type:                 a.Type,
-			Role:                 a.Role,
-			WorkOSOrganizationID: a.WorkOSOrganizationID,
+			ID:             a.ID,
+			Name:           a.Name,
+			Type:           a.Type,
+			Role:           a.Role,
+			OrganizationID: a.OrganizationID,
 		})
 	}
 	return accounts, nil
@@ -554,7 +554,7 @@ func mergePriorAccountsOnFetchFailure(profile *auth.Profile, priorAccounts []aut
 // restorePriorLoginSelection reapplies the last active account after login.
 // When accountsFetched is false (transient /api/v1/me failure), the prior selection
 // is copied only if it exists in the stored account list (avoids orphan CurrentAccount
-// without WorkOS org metadata). When true, applyPriorLoginAccount validates against
+// without org metadata). When true, applyPriorLoginAccount validates against
 // the non-empty fresh list so removed org members fall back to personal.
 func restorePriorLoginSelection(profile *auth.Profile, priorCurrent, priorPrevious string, priorAccounts []auth.StoredAccount, accountsFetched bool) string {
 	if priorCurrent == "" {

@@ -53,11 +53,11 @@ type StoredUser struct {
 
 // StoredAccount represents an account stored with the profile
 type StoredAccount struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Type                 string `json:"type"`
-	Role                 string `json:"role,omitempty"`
-	WorkOSOrganizationID string `json:"workos_org_id,omitempty"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	Role           string `json:"role,omitempty"`
+	OrganizationID string `json:"workos_org_id,omitempty"`
 }
 
 // Storage handles secure credential storage
