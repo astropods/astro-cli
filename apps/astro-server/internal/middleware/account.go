@@ -67,14 +67,10 @@ func sessionScopedToAccount(c *gin.Context, acct *account.Account) (*auth.Sessio
 // returns a bool instead of aborting the request, so handlers can branch on it.
 func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, acct *account.Account, user *auth.User, permission string) bool {
 	if session, scoped := sessionScopedToAccount(c, acct); scoped {
-		if slices.Contains(session.Permissions, permission) {
-			return true
-		}
+		return slices.Contains(session.Permissions, permission)
 	}
-	// Remove this fallback once the web app scopes its session at login and the
-	// CLI mints an org-scoped token for personal accounts too (cmd/account.go).
-	// Check first that the WorkOS admin role carries every permission a
-	// personal-account route asks for, or an owner loses their own account.
+	// Remove this fallback once the CLI mints an org-scoped token for personal
+	// accounts too (cmd/account.go), and no unscoped session is left in play.
 	if acct.Type != "personal" {
 		return false
 	}
@@ -84,7 +80,7 @@ func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, ac
 
 // RequireAccountPermission authorizes a caller against the resolved account:
 //   - Session scoped to the account's organization: the JWT permission claims
-//     decide, for a personal account as much as an organization one
+//     decide, and they also refuse. Account type grants nothing here
 //   - Personal account with an unscoped session: membership decides, since the
 //     account has one member
 //   - Organization account with an unscoped session: refused, use switch-org

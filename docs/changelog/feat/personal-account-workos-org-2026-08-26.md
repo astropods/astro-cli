@@ -53,12 +53,32 @@ The web app now scopes its session to the personal organization, so browser call
 
 Two write paths already scoped the session on demand and excluded personal accounts, the deploy variable picker and blueprint publishing. They now scope for any account with an organization. The session refresh asks for the organization the session already records, so a refresh cannot quietly return claims for a different scope than the session reports.
 
-The diagram is the rule, not the whole code path. Two fallbacks sit under it while other clients still send unscoped sessions:
+A scoped session is answered by its claims alone, including when they refuse. Being the account owner grants nothing on top, and no code path lets an owner around a permission the JWT withholds.
 
-- **Personal account, unscoped session.** Membership decides, as before. The CLI still sends an unscoped token, a browser session sealed before this change stays unscoped until the next login, and a session scoped to another organization is unscoped as far as this account is concerned.
-- **Personal account, scoped session, permission absent from the JWT.** Membership decides. This one is temporary. WorkOS has no owner role, so the membership carries `admin`. If that role turns out to be missing a permission that a personal-account route checks, the owner keeps working instead of losing access to their own account.
+One fallback sits under the diagram, for callers that send no scope at all: a personal account with an unscoped session is answered by membership, as before. That is version tolerance, not privilege. An installed CLI binary sends an unscoped token, a browser session sealed before this change stays unscoped until the next login, and a session scoped to another organization is unscoped as far as this account is concerned.
+
+`astro-cli` 0.17.1 mints the org-scoped token for every account, so a current CLI takes the JWT path too. It keeps the stored personal token only for the calls that have no account to scope to: device login, `/me`, and creating the account. A profile cached before that release carries no `workos_org_id` for the personal account, so it stays on the unscoped path until the next login refreshes the profile.
+
+Once old binaries have drained, change what the fallback triggers on. Today it is caller-controlled: send no scope, get membership. Make it server state instead, so nobody can arrange it:
+
+| Condition | Answer |
+| --- | --- |
+| Account has an organization | The JWT decides, always |
+| Account has no organization yet | A personal account falls back to membership |
+
+The second row happens only while provisioning is pending, where there is no permission set to bypass. Keeping that narrow case means a WorkOS outage during signup does not lock someone out of a brand-new account.
 
 An organization account never falls back to membership. That direction would let any member pass every permission check by being a member, so a `member` would hold `org:manage`.
+
+Because the claims now refuse, the WorkOS `admin` role has to carry every permission an account-scoped route asks for. The full set is small:
+
+| Permission | Asked for by |
+| --- | --- |
+| `org:manage` | Account settings, members, invitations, apps, billing, audit log, Insights for everyone |
+| `agents:write` | Agent visibility |
+| `variable:read`, `variable:write` | Account variables and secrets |
+
+All four are on the `admin` role, so a scoped session answers every account-scoped route. A permission removed from that role later is a 403 on the owner's own account, so the role set is now part of the contract.
 
 ### What is left to finish it
 
@@ -66,8 +86,9 @@ An organization account never falls back to membership. That direction would let
 | --- | --- |
 | Server: authorize from the JWT whenever the session is scoped | Done |
 | Web: scope the session to the personal organization at login | Done |
-| CLI: mint the org-scoped token for personal accounts too | Not started. `cmd/account.go` already does this for organization accounts, so dropping the account-type condition is the change, plus a release |
-| Verify the WorkOS `admin` role's permission set, then remove both fallbacks | Not started. Do this before the CLI change, so a scoped token cannot grant less than membership does |
+| Verify `org:manage`, `agents:write`, `variable:read`, and `variable:write` on the WorkOS `admin` role | Done. The role carries all four |
+| CLI: mint the org-scoped token for personal accounts too | Done in the `astro-cli` submodule, released as `0.17.1`. This repo's pointer moves when that merges |
+| Remove the last membership fallback, once old CLI binaries have drained | Not started |
 
 The payoff is larger than one branch. Personal accounts are excluded from FGA resource management, access groups, deployment visibility, the access service, and the Insights role fallback, in each case only because they had no organization. The cost is that personal-account authorization starts depending on WorkOS claims, where today membership lives in our own database.
 

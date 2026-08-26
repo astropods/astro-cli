@@ -193,13 +193,9 @@ func TestRequireAccountPermission_PersonalAccount_JWTPath_Granted(t *testing.T) 
 	}
 }
 
-func TestRequireAccountPermission_PersonalAccount_JWTMissingPermissionFallsBackToMembership(t *testing.T) {
+func TestRequireAccountPermission_PersonalAccount_ScopedSessionMissingPermissionIsRefused(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	store := account.NewAccountStore(db)
-
-	mock.ExpectQuery("SELECT COUNT.+ FROM account_members").
-		WithArgs("acct-1", "user-1").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	router := setupPermissionTestRouter(store, "org:manage",
 		&auth.User{ID: "user-1"},
@@ -210,11 +206,11 @@ func TestRequireAccountPermission_PersonalAccount_JWTMissingPermissionFallsBackT
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("owner must keep access when the role lacks the permission, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a scoped session must be refused by its own claims, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unmet expectations: %v", err)
+		t.Errorf("membership must not be consulted for a scoped session: %v", err)
 	}
 }
 
