@@ -93,4 +93,19 @@ const (
 	SessionContextKey ContextKey = "session"
 	// AccountContextKey is the context key for the resolved account
 	AccountContextKey ContextKey = "account"
+	// AppContextKey is the context key for an authenticated machine app. Set
+	// instead of UserContextKey, never alongside it, so a handler that reads a
+	// user fails closed rather than reading a client ID as a person.
+	AppContextKey ContextKey = "app"
 )
+
+// App is an authenticated machine caller: one WorkOS M2M application bound to
+// one Astro account. Scopes come from the stored row rather than the token, so
+// a scope change takes effect immediately instead of at the next expiry.
+type App struct {
+	ID        string
+	AccountID string
+	ClientID  string
+	Name      string
+	Scopes    []string
+}

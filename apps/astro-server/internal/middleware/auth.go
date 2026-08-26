@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
+	"slices"
 	"strings"
 
+	"github.com/astropods/astro/apps/astro-server/internal/appstore"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -16,6 +19,14 @@ type AuthMiddleware struct {
 	cfg            *config.Config
 	sessionManager *auth.SessionManager
 	jwtValidator   *auth.JWTValidator
+	apps           MachineAppResolver
+}
+
+// MachineAppResolver resolves a machine token's client back to the app row that
+// authorizes it. A client with no row is denied, which is what makes deleting an
+// app revoke its tokens before they expire.
+type MachineAppResolver interface {
+	GetByClientID(ctx context.Context, clientID string) (*appstore.App, error)
 }
 
 // NewAuthMiddleware creates a new auth middleware instance
@@ -24,12 +35,14 @@ func NewAuthMiddleware(
 	cfg *config.Config,
 	sessionManager *auth.SessionManager,
 	jwtValidator *auth.JWTValidator,
+	apps MachineAppResolver,
 ) *AuthMiddleware {
 	return &AuthMiddleware{
 		log:            log,
 		cfg:            cfg,
 		sessionManager: sessionManager,
 		jwtValidator:   jwtValidator,
+		apps:           apps,
 	}
 }
 
@@ -172,6 +185,13 @@ func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) boo
 		return false
 	}
 
+	// A machine token names its own client in both aud and sub; a WorkOS user
+	// access token carries no aud at all. Discriminating here matters because
+	// the user path below would otherwise present a client ID as a person.
+	if isMachineToken(claims) {
+		return m.authenticateApp(c, claims, token)
+	}
+
 	// Create session from claims
 	session := &auth.Session{
 		ID:                 claims.SessionID,
@@ -192,6 +212,43 @@ func (m *AuthMiddleware) authenticateWithToken(c *gin.Context, token string) boo
 	c.Set(string(auth.UserContextKey), user)
 	c.Set(string(auth.SessionContextKey), session)
 
+	return true
+}
+
+func isMachineToken(claims *auth.JWTClaims) bool {
+	return claims.Subject != "" && slices.Contains(claims.Audience, claims.Subject)
+}
+
+// authenticateApp sets an app on the context and no user, and fills the
+// session's permissions from the app's stored scopes so the existing
+// permission checks read one field for both caller kinds.
+func (m *AuthMiddleware) authenticateApp(c *gin.Context, claims *auth.JWTClaims, token string) bool {
+	if m.apps == nil {
+		m.log.Warn("auth: machine token presented with no app resolver configured")
+		return false
+	}
+	app, err := m.apps.GetByClientID(c.Request.Context(), claims.Subject)
+	if err != nil {
+		m.log.Error("auth: resolve machine app failed", "error", err)
+		return false
+	}
+	if app == nil {
+		m.log.Warn("auth: machine token for an unknown client", "client_id", claims.Subject)
+		return false
+	}
+
+	c.Set(string(auth.AppContextKey), &auth.App{
+		ID:        app.ID,
+		AccountID: app.AccountID,
+		ClientID:  app.ClientID,
+		Name:      app.Name,
+		Scopes:    app.Scopes,
+	})
+	c.Set(string(auth.SessionContextKey), &auth.Session{
+		OrganizationID: claims.OrganizationID,
+		Permissions:    app.Scopes,
+		AccessToken:    token,
+	})
 	return true
 }
 

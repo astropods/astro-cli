@@ -50,10 +50,15 @@ func New(apiKey string) Client {
 }
 
 func (c *workosClient) CreateApplication(ctx context.Context, organizationID, name, description string, scopes []string) (*Application, error) {
+	// Scopes are deliberately not handed to WorkOS. They are permission slugs
+	// that must already exist on the WorkOS side, and Astro authorizes from the
+	// stored app row instead, which also makes a scope change take effect at
+	// once rather than at the next token expiry. Pass them here once the slugs
+	// are registered and the token can carry them too.
+	_ = scopes
 	params := &workos.ConnectCreateM2MApplicationParams{
 		Name:           name,
 		OrganizationID: organizationID,
-		Scopes:         scopes,
 	}
 	if description != "" {
 		params.Description = &description

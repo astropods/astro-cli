@@ -72,7 +72,7 @@ func TestAuthenticateWithToken_SetsWorkOSMembershipIDFromClaim(t *testing.T) {
 		},
 	}
 	sm := auth.NewSessionManager(cfg.Auth.CookiePassword, cfg.Auth.SessionMaxAge)
-	mw := NewAuthMiddleware(log, cfg, sm, validator)
+	mw := NewAuthMiddleware(log, cfg, sm, validator, nil)
 
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
@@ -143,7 +143,7 @@ func TestAuthenticateWithToken_LeavesWorkOSMembershipIDEmptyWithoutClaim(t *test
 		},
 	}
 	sm := auth.NewSessionManager(cfg.Auth.CookiePassword, cfg.Auth.SessionMaxAge)
-	mw := NewAuthMiddleware(log, cfg, sm, validator)
+	mw := NewAuthMiddleware(log, cfg, sm, validator, nil)
 
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)

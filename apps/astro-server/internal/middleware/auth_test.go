@@ -29,7 +29,7 @@ func setupTestRouter() (*gin.Engine, *AuthMiddleware) {
 
 	sm := auth.NewSessionManager(cfg.Auth.CookiePassword, cfg.Auth.SessionMaxAge)
 	// JWT validator would need JWKS URL, skip for cookie-based tests
-	mw := NewAuthMiddleware(log, cfg, sm, nil)
+	mw := NewAuthMiddleware(log, cfg, sm, nil, nil)
 
 	router := gin.New()
 	return router, mw
@@ -101,7 +101,7 @@ func TestRequireAuth_ValidCookie(t *testing.T) {
 		},
 	}
 	sm := auth.NewSessionManager(cfg.Auth.CookiePassword, cfg.Auth.SessionMaxAge)
-	mw := NewAuthMiddleware(log, cfg, sm, nil)
+	mw := NewAuthMiddleware(log, cfg, sm, nil, nil)
 
 	router := gin.New()
 	router.GET("/protected", mw.RequireAuth(), func(c *gin.Context) {

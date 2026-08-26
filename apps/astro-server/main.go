@@ -1176,6 +1176,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		cfg,
 		authHandler.GetSessionManager(),
 		authHandler.GetJWTValidator(),
+		deps.Stores.App,
 	)
 	log.Info("auth: enabled", "provider", "WorkOS")
 

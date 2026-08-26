@@ -141,7 +141,7 @@ WorkOS scopes are permission slugs on the application, and they arrive in the to
 
 A route declares the scope it needs. An app holding `audiences:read` gets 403 on a write rather than a 404, because the resource exists and the credential is the thing that falls short.
 
-Scopes are fixed at creation. Changing them means updating the WorkOS application, which changes what future tokens carry but not tokens already issued, so a scope reduction takes up to an hour to bite. Say so in the UI rather than pretending it is instant.
+Scopes live on the app row, and authorization reads them there rather than from the token. That makes a scope change take effect at once instead of at the next expiry, and it keeps the check independent of WorkOS's permission slugs, which have to be registered on their side before an application can carry them. Scopes are therefore not handed to WorkOS yet; pass them once the slugs exist and the token can carry them too.
 
 ### Rotation
 
@@ -246,8 +246,9 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 | Phase | Content | State |
 | --- | --- | --- |
 | 1 | The `account_apps` table, the WorkOS Connect client, create and delete, credential add and revoke, and the org settings screen. | Done |
-| 2 | The middleware branch: discriminate an M2M token, resolve its account, and check its scope. Plus the `/me` machine shape. | Not started. Until this lands an app can be created but its token is not accepted anywhere |
-| 3 | Apply scopes to the audience member endpoints, add cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. | Not started |
+| 2 | The middleware branch: discriminate an M2M token, resolve its account through the app row, and satisfy a permission check from the app's scopes. | Done |
+| 3 | The `/me` machine shape, and applying scopes to the audience member endpoints with cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. | Not started |
+| 4 | Register the scope slugs in WorkOS and pass them on application create, so the token carries them as well as the row. | Not started |
 
 Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) phase 2, and it is small once the credential exists.
 
@@ -262,5 +263,7 @@ Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) p
 | An app is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
 | An app cannot create another app | A credential cannot widen its own reach |
 | Machine scopes are a separate vocabulary from human permissions | A scope never accidentally satisfies a role check |
+| Scopes are read from the app row, not the token | A scope change takes effect at once, and the check does not wait on WorkOS permission slugs being registered. The token does not yet carry scopes |
+| A machine caller is refused by membership checks | Membership never stands in for a scope, so a route an app should reach has to say which scope it needs |
 | No credentials table; WorkOS is the record | Nothing about a secret can drift, at the cost of a WorkOS call to render the list |
 | An app keeps at least one secret | Revoking the last one is refused, so rotation is add-then-revoke rather than a window with no way in |

@@ -154,7 +154,7 @@ func TestAppCreateReturnsSecretOnce(t *testing.T) {
 		t.Fatalf("creation must return the plaintext secret: %s", response.Body.String())
 	}
 	if f.connect.created == nil || f.connect.created.Scopes[0] != "audiences:manage" {
-		t.Fatalf("scopes not passed to WorkOS: %+v", f.connect.created)
+		t.Fatalf("the validated scopes should reach the WorkOS layer: %+v", f.connect.created)
 	}
 	if len(f.audit.events) != 1 || f.audit.events[0].Action != auditlog.AppCreate {
 		t.Fatalf("audit events = %+v", f.audit.events)

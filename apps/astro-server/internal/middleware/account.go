@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
@@ -33,6 +34,26 @@ func ResolveAccount(accountStore *account.AccountStore) gin.HandlerFunc {
 	}
 }
 
+// GetApp returns the authenticated machine app, when the caller is one.
+func GetApp(c *gin.Context) (*auth.App, bool) {
+	value, exists := c.Get(string(auth.AppContextKey))
+	if !exists {
+		return nil, false
+	}
+	app, ok := value.(*auth.App)
+	return app, ok
+}
+
+// appHoldsScope answers a permission check for a machine caller. An app is
+// bound to one account, so the account is compared directly rather than through
+// a membership row, and the scope is matched against the app's own vocabulary.
+func appHoldsScope(app *auth.App, acct *account.Account, scope string) bool {
+	if app.AccountID != acct.ID {
+		return false
+	}
+	return slices.Contains(app.Scopes, scope)
+}
+
 // HasAccountPermission checks whether a user holds a given permission on the
 // resolved account. It mirrors the logic of RequireAccountPermission but
 // returns a bool instead of aborting the request, so handlers can branch on it.
@@ -61,6 +82,23 @@ func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, ac
 // Must be used after ResolveAccount and RequireAuth.
 func RequireAccountPermission(accountStore *account.AccountStore, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if app, isApp := GetApp(c); isApp {
+			acct, ok := GetAccountFromContext(c)
+			if !ok {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"error": "account not resolved",
+				})
+				return
+			}
+			if !appHoldsScope(app, acct, permission) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"error": "this app does not hold the " + permission + " scope on this account",
+				})
+				return
+			}
+			c.Next()
+			return
+		}
 		user, ok := GetUser(c)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -151,6 +189,15 @@ func RequireAccountOwner(accountStore *account.AccountStore) gin.HandlerFunc {
 // resolved account. Must be used after ResolveAccount and RequireAuth.
 func RequireAccountMember(accountStore *account.AccountStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// A machine app is not a member of anything. Routes it should reach
+		// declare a scope through RequireAccountPermission instead, so
+		// membership never stands in for authorization.
+		if _, isApp := GetApp(c); isApp {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"error": "this endpoint requires a signed-in member",
+			})
+			return
+		}
 		user, ok := GetUser(c)
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{

@@ -16,9 +16,8 @@ Connect M2M application, created and managed from organization settings.
 
 The design is specified in
 [docs/01-spec/machine-credentials-spec.md](../../01-spec/machine-credentials-spec.md).
-This change lands the object and its lifecycle. Accepting an app's token on the
-API is the next phase and is not here, so an app can be created today but its
-token is not yet honored anywhere.
+This change lands the object, its lifecycle, and the middleware that accepts its
+token.
 
 ## Design
 
@@ -58,10 +57,15 @@ scope can never satisfy a role check:
 | `audiences:manage` | Add and remove audience members |
 | `slack_identities:manage` | Record which Slack user is which person |
 
-They are validated against that list before anything reaches WorkOS, and passed
-through to the application so WorkOS puts them in the token. `audiences:manage`
-and `slack_identities:manage` are separate on purpose: a system that governs
-access should not also be able to assert who someone is.
+They are validated against that list at creation and stored on the row.
+`audiences:manage` and `slack_identities:manage` are separate on purpose: a
+system that governs access should not also be able to assert who someone is.
+
+Authorization reads scopes from the row rather than from the token. That makes a
+scope change take effect immediately instead of at the next expiry, and it keeps
+the check independent of WorkOS permission slugs, which have to be registered on
+their side before an application can carry them. Scopes are therefore not handed
+to WorkOS yet.
 
 ### Rotation
 
@@ -80,6 +84,30 @@ A WorkOS M2M application is bound to an organization, and a personal account has
 none, so apps are unavailable there and the API says so rather than failing
 obscurely. That is the same constraint access groups and fine-grained access
 already carry.
+
+### Accepting the token
+
+Validation was never the missing piece. `RequireAuth` verifies any WorkOS JWT
+against JWKS, and a machine token is signed by the same keys with the same
+issuer, so it already validated. What was wrong is what the middleware built
+from it: a `user` whose ID was actually a client ID, and an empty permission set,
+because machine tokens carry scopes rather than WorkOS permissions. The result
+failed closed on every account route, but it presented a machine as a person to
+anything reading the user directly.
+
+`authenticateWithToken` now discriminates first. A machine token names its own
+client in both `aud` and `sub`, and a WorkOS user access token carries no `aud`
+at all, so the two are told apart before either is trusted. A machine token
+resolves its client to an app row, sets an app on the context and deliberately no
+user, and fills the session's permissions from the app's scopes. A client with no
+row is denied, which is what makes deleting an app revoke its tokens before they
+expire.
+
+Because scopes land in the same `Permissions` field the role path already reads,
+`RequireAccountPermission` needed one branch rather than a parallel
+authorization path: an app satisfies a route by holding the scope the route
+declares, on the account the route names. `RequireAccountMember` refuses apps
+outright, so membership can never stand in for a scope.
 
 ## Migration
 
