@@ -7,6 +7,9 @@ import type {
   GetDeploymentResponse,
   GetDeploymentAccessResponse,
   ListAuthorizationResourcesResponse,
+  ListAuthorizationOperationsResponse,
+  StartAuthorizationResourceResetResponse,
+  ReleaseAuthorizationMaintenanceResponse,
   ListAccountsResponse,
   GetAccountResponse,
   MetronomeAliasStatus,
@@ -102,6 +105,45 @@ export function useAuthorizationResources() {
       api.get<ListAuthorizationResourcesResponse>("/api/admin/authorization/resources"),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+  });
+}
+
+export function useAuthorizationOperations() {
+  return useQuery({
+    queryKey: adminKeys.authorizationOperations(),
+    queryFn: () =>
+      api.get<ListAuthorizationOperationsResponse>("/api/admin/authorization/operations?limit=10"),
+    refetchInterval: (query) =>
+      query.state.data?.operations?.some((operation) =>
+        operation.status === "queued" || operation.status === "running"
+      ) ? 2_000 : 10_000,
+  });
+}
+
+export function useStartAuthorizationResourceReset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { account_id: string; dry_run: boolean; confirmed_count?: number }) =>
+      api.post<StartAuthorizationResourceResetResponse>("/api/admin/authorization/reset", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });
+    },
+  });
+}
+
+export function useReleaseAuthorizationMaintenance() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (operationId: string) =>
+      api.post<ReleaseAuthorizationMaintenanceResponse>(
+        `/api/admin/authorization/operations/${encodeURIComponent(operationId)}/release-maintenance`,
+        {},
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });
+    },
   });
 }
 

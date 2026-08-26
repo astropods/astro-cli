@@ -8,6 +8,9 @@ service AdminService {
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
   rpc GetDeploymentAccess(GetDeploymentAccessRequest) returns (GetDeploymentAccessResponse);
   rpc ListAuthorizationResources(ListAuthorizationResourcesRequest) returns (ListAuthorizationResourcesResponse);
+  rpc ListAuthorizationOperations(ListAuthorizationOperationsRequest) returns (ListAuthorizationOperationsResponse);
+  rpc StartAuthorizationResourceReset(StartAuthorizationResourceResetRequest) returns (StartAuthorizationResourceResetResponse);
+  rpc ReleaseAuthorizationMaintenance(ReleaseAuthorizationMaintenanceRequest) returns (ReleaseAuthorizationMaintenanceResponse);
   rpc GetClusterStatus(GetClusterStatusRequest) returns (GetClusterStatusResponse);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
@@ -155,6 +158,49 @@ message AuthorizationAssignment {
 
 message ListAuthorizationResourcesResponse {
   repeated AuthorizationResource resources = 1;
+  bool maintenance_active = 2;
+  bool reset_enabled = 3;
+}
+
+message AuthorizationOperation {
+  string id = 1;
+  bool dry_run = 2;
+  string status = 3;
+  int32 target_count = 4;
+  int32 processed_count = 5;
+  int32 succeeded_count = 6;
+  int32 failed_count = 7;
+  bool maintenance_hold = 8;
+  string maintenance_released_at = 9;
+  string last_error = 10;
+  string created_at = 11;
+  string account_id = 12;
+}
+
+message ListAuthorizationOperationsRequest {
+  int32 limit = 1;
+}
+
+message ListAuthorizationOperationsResponse {
+  repeated AuthorizationOperation operations = 1;
+}
+
+message StartAuthorizationResourceResetRequest {
+  bool dry_run = 1;
+  optional int32 confirmed_count = 2;
+  string account_id = 3;
+}
+
+message StartAuthorizationResourceResetResponse {
+  AuthorizationOperation operation = 1;
+}
+
+message ReleaseAuthorizationMaintenanceRequest {
+  string operation_id = 1;
+}
+
+message ReleaseAuthorizationMaintenanceResponse {
+  AuthorizationOperation operation = 1;
 }
 
 message GetDeploymentAccessRequest {

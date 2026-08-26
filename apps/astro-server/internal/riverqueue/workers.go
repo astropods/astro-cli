@@ -324,6 +324,10 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		addWorkerWithCatalogCheck(log, workers, resourceAccessWorker)
 		log.Info("river: registered worker", "worker", "ResourceAccessFGAReconcileWorker", "period", "1m")
 	}
+	if cfg.AuthorizationAdmin != nil && cfg.AuthorizationAdminResetEnabled {
+		addWorkerWithCatalogCheck(log, workers, &AuthorizationResourceResetWorker{service: cfg.AuthorizationAdmin})
+		log.Info("river: registered worker", "worker", "AuthorizationResourceResetWorker")
+	}
 
 	var langfuseBaseURL string
 	if cfg.ServerConfig != nil {

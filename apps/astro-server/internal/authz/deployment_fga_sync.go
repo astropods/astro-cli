@@ -33,13 +33,23 @@ type DeploymentFGAWork struct {
 // DeploymentFGASyncStore persists desired WorkOS state alongside deployment
 // lifecycle writes. It stores reconciliation state, never authorization grants.
 type DeploymentFGASyncStore struct {
-	db      *sql.DB
-	enabled bool
+	db               *sql.DB
+	enabled          bool
+	maintenanceAware bool
 }
 
 // NewDeploymentFGASyncStore creates the deployment reconciliation store.
 func NewDeploymentFGASyncStore(db *sql.DB, enabled bool) *DeploymentFGASyncStore {
 	return &DeploymentFGASyncStore{db: db, enabled: enabled && db != nil}
+}
+
+// WithAuthorizationMaintenance pauses new FGA lifecycle intent while an
+// authorization administration operation owns the maintenance hold.
+func (s *DeploymentFGASyncStore) WithAuthorizationMaintenance() *DeploymentFGASyncStore {
+	if s != nil {
+		s.maintenanceAware = true
+	}
+	return s
 }
 
 // Enabled reports whether deployment FGA synchronization is configured.
@@ -64,6 +74,15 @@ func (s *DeploymentFGASyncStore) RecordNameUpdateTx(ctx context.Context, tx *sql
 	}
 	if deploymentID == "" {
 		return false, errors.New("deployment id is required")
+	}
+	if s.maintenanceAware {
+		maintenance, err := authorizationMaintenanceEnabled(ctx, tx)
+		if err != nil {
+			return false, err
+		}
+		if maintenance {
+			return false, ErrAuthorizationMaintenance
+		}
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE deployment_fga_sync
@@ -95,6 +114,15 @@ func (s *DeploymentFGASyncStore) recordStateTx(ctx context.Context, tx *sql.Tx, 
 	}
 	if deploymentID == "" {
 		return false, errors.New("deployment id is required")
+	}
+	if s.maintenanceAware {
+		maintenance, err := authorizationMaintenanceEnabled(ctx, tx)
+		if err != nil {
+			return false, err
+		}
+		if maintenance {
+			return false, ErrAuthorizationMaintenance
+		}
 	}
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO deployment_fga_sync (deployment_id, desired_state, desired_version, next_attempt_at, updated_at)

@@ -507,6 +507,45 @@ CREATE INDEX idx_resource_access_fga_sync_pending
     ON public.resource_access_fga_sync(next_attempt_at, updated_at)
     WHERE synced_version IS DISTINCT FROM desired_version;
 
+-- Audited Queen operations that inspect or reset WorkOS authorization state.
+-- An unreleased maintenance hold pauses only FGA lifecycle writes and workers.
+CREATE TABLE public.authorization_admin_operations (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    account_id uuid NOT NULL,
+    kind text NOT NULL,
+    dry_run boolean NOT NULL DEFAULT true,
+    status text NOT NULL DEFAULT 'queued',
+    confirmed_count int,
+    target_count int NOT NULL DEFAULT 0,
+    processed_count int NOT NULL DEFAULT 0,
+    succeeded_count int NOT NULL DEFAULT 0,
+    failed_count int NOT NULL DEFAULT 0,
+    attempt_count int NOT NULL DEFAULT 0,
+    maintenance_hold boolean NOT NULL DEFAULT false,
+    maintenance_released_at timestamptz,
+    last_error text,
+    report jsonb NOT NULL DEFAULT '[]'::jsonb,
+    river_job_id bigint,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    completed_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT authorization_admin_operations_pkey PRIMARY KEY (id),
+    CONSTRAINT authorization_admin_operations_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE RESTRICT,
+    CONSTRAINT authorization_admin_operations_kind_check CHECK (kind IN ('resource_reset')),
+    CONSTRAINT authorization_admin_operations_status_check CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    CONSTRAINT authorization_admin_operations_counts_check CHECK (
+        target_count >= 0 AND processed_count >= 0 AND succeeded_count >= 0 AND failed_count >= 0
+    )
+);
+
+CREATE INDEX idx_authorization_admin_operations_created
+    ON public.authorization_admin_operations(created_at DESC);
+
+CREATE UNIQUE INDEX idx_authorization_admin_operations_maintenance_hold
+    ON public.authorization_admin_operations(maintenance_hold)
+    WHERE maintenance_hold AND maintenance_released_at IS NULL;
+
 -- Who gets alerted about a deployment. A member becomes a watcher implicitly by
 -- acting on it (deploying, changing config, rolling back, …); registration is
 -- driven off the audit-log seam, so any action recorded there enrolls its actor.

@@ -1,16 +1,48 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Boxes, ChevronDown, CircleAlert, ExternalLink, RefreshCw, Search, UserRound, UsersRound } from "lucide-react";
+import {
+  AlertTriangle,
+  Boxes,
+  ChevronDown,
+  CircleAlert,
+  ExternalLink,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 
-import { useAuthorizationResources } from "@/api/admin";
+import {
+  useAuthorizationOperations,
+  useAuthorizationResources,
+  useReleaseAuthorizationMaintenance,
+  useStartAuthorizationResourceReset,
+} from "@/api/admin";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, formatDateTime, truncateUUID } from "@/lib/utils";
-import type { AuthorizationResource } from "@/types/admin";
+import { cn, formatDateTime, mutationErrorMessage, truncateUUID } from "@/lib/utils";
+import type { AuthorizationOperation, AuthorizationResource } from "@/types/admin";
+
+type AccountOption = { id: string; name: string };
 
 export function ResourcesPage() {
   const resourcesQuery = useAuthorizationResources();
+  const operationsQuery = useAuthorizationOperations();
+  const startReset = useStartAuthorizationResourceReset();
+  const releaseMaintenance = useReleaseAuthorizationMaintenance();
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [resourceType, setResourceType] = useState("all");
@@ -18,10 +50,16 @@ export function ResourcesPage() {
   const [errorsOnly, setErrorsOnly] = useState(false);
 
   const resources = resourcesQuery.data?.resources ?? [];
+  const operations = operationsQuery.data?.operations ?? [];
   const accounts = useMemo(
-    () => [...new Set(resources
-      .map((resource) => resource.account_name || resource.account_id)
-      .filter((value): value is string => Boolean(value)))].sort(),
+    () => [...resources.reduce((result, resource) => {
+      if (resource.account_id) {
+        result.set(resource.account_id, resource.account_name || resource.account_id);
+      }
+      return result;
+    }, new Map<string, string>())]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     [resources],
   );
   const resourceTypes = useMemo(
@@ -36,7 +74,7 @@ export function ResourcesPage() {
     const needle = search.trim().toLowerCase();
     return resources.filter((resource) => {
       const accountLabel = resource.account_name || resource.account_id || "";
-      if (account !== "all" && accountLabel !== account) return false;
+      if (account !== "all" && resource.account_id !== account) return false;
       if (resourceType !== "all" && resource.type !== resourceType) return false;
       if (syncState !== "all" && resource.sync_state !== syncState) return false;
       if (errorsOnly && !resource.last_error) return false;
@@ -61,6 +99,10 @@ export function ResourcesPage() {
     return <p className="text-sm text-destructive">Resource inventory failed: {resourcesQuery.error.message}</p>;
   }
 
+  const activeOperation = operations.find((operation) => operation.status === "queued" || operation.status === "running");
+  const maintenanceOperation = operations.find(
+    (operation) => operation.maintenance_hold && !operation.maintenance_released_at,
+  );
   const directAdmins = resources.reduce((total, resource) => total + (resource.direct_admins?.length ?? 0), 0);
   const errorCount = resources.filter((resource) => resource.last_error).length;
 
@@ -78,11 +120,36 @@ export function ResourcesPage() {
             WorkOS-backed product resources, synchronization state, and access evidence.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => resourcesQuery.refetch()} disabled={resourcesQuery.isFetching}>
-          <RefreshCw className={cn("size-3.5", resourcesQuery.isFetching && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => resourcesQuery.refetch()} disabled={resourcesQuery.isFetching}>
+            <RefreshCw className={cn("size-3.5", resourcesQuery.isFetching && "animate-spin")} />
+            Refresh
+          </Button>
+          <ResetDialog
+            enabled={resourcesQuery.data?.reset_enabled ?? false}
+            accounts={accounts}
+            operations={operations}
+            activeOperation={activeOperation}
+            startReset={startReset}
+          />
+        </div>
       </div>
+
+      {resourcesQuery.data?.maintenance_active && maintenanceOperation && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="size-3.5" /> FGA lifecycle writes are paused after resetting {accountName(accounts, maintenanceOperation.account_id)}.
+          </span>
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={releaseMaintenance.isPending || maintenanceOperation.status === "queued" || maintenanceOperation.status === "running"}
+            onClick={() => releaseMaintenance.mutate(maintenanceOperation.id)}
+          >
+            Release maintenance
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-2 sm:grid-cols-3">
         <Stat icon={Boxes} value={resources.length} label="WorkOS resources" />
@@ -95,9 +162,9 @@ export function ResourcesPage() {
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search resource, ID, or account" className="pl-8" />
         </label>
-        <Filter value={account} onChange={setAccount} label="All accounts" values={accounts} />
-        <Filter value={resourceType} onChange={setResourceType} label="All resource types" values={resourceTypes} />
-        <Filter value={syncState} onChange={setSyncState} label="All sync states" values={syncStates} />
+        <Filter value={account} onChange={setAccount} label="All accounts" options={accounts.map((current) => ({ value: current.id, label: current.name }))} />
+        <Filter value={resourceType} onChange={setResourceType} label="All resource types" options={resourceTypes.map((current) => ({ value: current, label: current }))} />
+        <Filter value={syncState} onChange={setSyncState} label="All sync states" options={syncStates.map((current) => ({ value: current, label: current }))} />
         <label className="flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-xs">
           <input type="checkbox" checked={errorsOnly} onChange={(event) => setErrorsOnly(event.target.checked)} />
           Has error
@@ -126,6 +193,8 @@ export function ResourcesPage() {
           <div className="px-4 py-12 text-center text-xs text-muted-foreground">No resources match these filters.</div>
         )}
       </div>
+
+      <Operations operations={operations} accounts={accounts} />
     </div>
   );
 }
@@ -213,16 +282,135 @@ function ResourceRow({ resource }: { resource: AuthorizationResource }) {
   );
 }
 
-function Filter({ value, onChange, label, values }: { value: string; onChange: (value: string) => void; label: string; values: string[] }) {
+function ResetDialog({
+  enabled,
+  accounts,
+  operations,
+  activeOperation,
+  startReset,
+}: {
+  enabled: boolean;
+  accounts: AccountOption[];
+  operations: AuthorizationOperation[];
+  activeOperation?: AuthorizationOperation;
+  startReset: ReturnType<typeof useStartAuthorizationResourceReset>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [accountID, setAccountID] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const selectedAccount = accounts.find((current) => current.id === accountID);
+  const latestDryRun = operations.find(
+    (operation) => operation.account_id === accountID && operation.dry_run && operation.status === "succeeded",
+  );
+  const count = latestDryRun?.target_count;
+  return (
+    <AlertDialog open={open} onOpenChange={(next) => {
+      setOpen(next);
+      if (!next) {
+        setAccountID("");
+        setConfirmation("");
+      }
+    }}>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive" size="sm" disabled={!enabled || accounts.length === 0 || Boolean(activeOperation)} title={!enabled ? "Preview reset is disabled by server configuration" : undefined}>
+          <Trash2 className="size-3.5" /> Nuke account resources
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Nuke one account's WorkOS resources?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Queen deletes product resources only inside the selected account's WorkOS organization. The WorkOS organization root is never targeted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-3">
+          <label className="block space-y-1.5 text-xs">
+            <span>Account</span>
+            <select
+              className="h-9 w-full rounded-md border bg-background px-2 text-xs"
+              value={accountID}
+              onChange={(event) => {
+                setAccountID(event.target.value);
+                setConfirmation("");
+              }}
+            >
+              <option value="">Select an account</option>
+              {accounts.map((current) => <option key={current.id} value={current.id}>{current.name}</option>)}
+            </select>
+          </label>
+          <div className="rounded-md border bg-muted/30 p-3 text-xs">
+            {latestDryRun ? (
+              <p>Latest dry run for <strong>{selectedAccount?.name}</strong> found <strong>{latestDryRun.target_count}</strong> resources.</p>
+            ) : (
+              <p>Choose an account, then run a dry run to capture its exact deletion target.</p>
+            )}
+            <Button className="mt-2" variant="outline" size="xs" disabled={!accountID || startReset.isPending || Boolean(activeOperation)} onClick={() => startReset.mutate({ account_id: accountID, dry_run: true })}>
+              Run dry run
+            </Button>
+          </div>
+          {latestDryRun && selectedAccount && (
+            <label className="block space-y-1.5 text-xs">
+              <span>Type <strong>{selectedAccount.name}</strong> to confirm this account.</span>
+              <Input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder={selectedAccount.name} />
+            </label>
+          )}
+          {startReset.error && <p className="text-xs text-destructive">{mutationErrorMessage(startReset.error)}</p>}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={!selectedAccount || count == null || confirmation !== selectedAccount.name || startReset.isPending || Boolean(activeOperation)}
+            onClick={() => startReset.mutate(
+              { account_id: selectedAccount?.id ?? "", dry_run: false, confirmed_count: count },
+              { onSuccess: () => setOpen(false) },
+            )}
+          >
+            Nuke {selectedAccount?.name ?? "account"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function Operations({ operations, accounts }: { operations: AuthorizationOperation[]; accounts: AccountOption[] }) {
+  if (operations.length === 0) return null;
+  return (
+    <div className="rounded-lg glass p-3">
+      <h3 className="text-xs font-semibold">Recent reset operations</h3>
+      <div className="mt-2 space-y-1.5">
+        {operations.slice(0, 5).map((operation) => (
+          <div key={operation.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+            <span className="font-mono text-muted-foreground">{truncateUUID(operation.id)}</span>
+            <span>{operation.dry_run ? "Dry run" : "Reset"}</span>
+            <span>{accountName(accounts, operation.account_id)}</span>
+            <span className="font-medium">{operation.status}</span>
+            <span className="text-muted-foreground">{operation.processed_count}/{operation.target_count} processed</span>
+            {!operation.dry_run && <span className="text-muted-foreground">{operation.succeeded_count} deleted · {operation.failed_count} failed</span>}
+            {operation.last_error && <span className="text-destructive">{operation.last_error}</span>}
+            <span className="ml-auto text-muted-foreground">{formatDateTime(operation.created_at)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Filter({ value, onChange, label, options }: { value: string; onChange: (value: string) => void; label: string; options: Array<{ value: string; label: string }> }) {
   return (
     <select className="h-9 rounded-md border bg-background px-2 text-xs" value={value} onChange={(event) => onChange(event.target.value)}>
       <option value="all">{label}</option>
-      {values.map((item) => <option key={item} value={item}>{item}</option>)}
+      {options.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
     </select>
   );
 }
 
-function Stat({ icon: Icon, value, label, warn }: { icon: typeof Boxes; value: number; label: string; warn?: boolean }) {
+function accountName(accounts: AccountOption[], accountID: string) {
+  return accounts.find((current) => current.id === accountID)?.name ?? truncateUUID(accountID);
+}
+
+function Stat({ icon: Icon, value, label, warn }: { icon: typeof ShieldCheck; value: number; label: string; warn?: boolean }) {
   return (
     <div className="flex items-center gap-3 rounded-lg glass px-3 py-2.5">
       <span className={cn("flex size-8 items-center justify-center rounded-md bg-honey/10 text-honey-dark", warn && "bg-destructive/10 text-destructive")}>

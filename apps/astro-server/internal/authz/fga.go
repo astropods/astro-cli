@@ -83,7 +83,7 @@ type ResourceMembershipDiscovery interface {
 }
 
 // AuthorizationResource is the vendor resource identity Queen needs for
-// inventory.
+// inventory and controlled cleanup.
 type AuthorizationResource struct {
 	ID               string
 	OrganizationID   string
@@ -93,8 +93,10 @@ type AuthorizationResource struct {
 	CreatedAt        string
 }
 
-// AuthorizationResourceCatalog exposes resource inventory that is not
+// AuthorizationResourceCatalog exposes resource administration that is not
 // part of request-time authorization.
 type AuthorizationResourceCatalog interface {
 	ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error)
+	ListAuthorizationResourcesForOrganization(ctx context.Context, organizationID string) ([]AuthorizationResource, error)
+	DeleteAuthorizationResource(ctx context.Context, resourceID string) error
 }

@@ -49,8 +49,17 @@ func writeGRPCErr(w http.ResponseWriter, err error) {
 		return
 	}
 	httpStatus := http.StatusBadGateway
-	if st.Code() == codes.NotFound {
+	switch st.Code() {
+	case codes.InvalidArgument:
+		httpStatus = http.StatusBadRequest
+	case codes.NotFound:
 		httpStatus = http.StatusNotFound
+	case codes.AlreadyExists, codes.FailedPrecondition:
+		httpStatus = http.StatusConflict
+	case codes.PermissionDenied:
+		httpStatus = http.StatusForbidden
+	case codes.Unavailable:
+		httpStatus = http.StatusServiceUnavailable
 	}
 	writeErr(w, httpStatus, st.Message())
 }

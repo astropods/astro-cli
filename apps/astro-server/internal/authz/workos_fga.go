@@ -116,7 +116,18 @@ func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, r
 }
 
 func (f *WorkOSFGA) ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error) {
-	iterator := f.authorization.ListResources(ctx, &workos.AuthorizationListResourcesParams{})
+	return f.listAuthorizationResources(ctx, &workos.AuthorizationListResourcesParams{})
+}
+
+func (f *WorkOSFGA) ListAuthorizationResourcesForOrganization(ctx context.Context, organizationID string) ([]AuthorizationResource, error) {
+	if organizationID == "" {
+		return nil, errors.New("organization id is required")
+	}
+	return f.listAuthorizationResources(ctx, &workos.AuthorizationListResourcesParams{OrganizationID: &organizationID})
+}
+
+func (f *WorkOSFGA) listAuthorizationResources(ctx context.Context, params *workos.AuthorizationListResourcesParams) ([]AuthorizationResource, error) {
+	iterator := f.authorization.ListResources(ctx, params)
 	resources := make([]AuthorizationResource, 0)
 	for iterator.Next() {
 		current := iterator.Current()
@@ -140,6 +151,17 @@ func (f *WorkOSFGA) ListAuthorizationResources(ctx context.Context) ([]Authoriza
 		return nil, fmt.Errorf("list WorkOS authorization resources: %w", err)
 	}
 	return resources, nil
+}
+
+func (f *WorkOSFGA) DeleteAuthorizationResource(ctx context.Context, resourceID string) error {
+	if resourceID == "" {
+		return errors.New("authorization resource id is required")
+	}
+	cascade := false
+	if err := f.authorization.DeleteResource(ctx, resourceID, &workos.AuthorizationDeleteResourceParams{CascadeDelete: &cascade}); err != nil {
+		return fmt.Errorf("delete WorkOS authorization resource %q: %w", resourceID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
+	}
+	return nil
 }
 
 func (f *WorkOSFGA) AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error {

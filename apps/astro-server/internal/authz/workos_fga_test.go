@@ -113,6 +113,53 @@ func TestWorkOSFGAListsAuthorizationResources(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAListsAuthorizationResourcesForOrganization(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/resources" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if got := request.URL.Query().Get("organization_id"); got != "org_123" {
+			t.Fatalf("organization_id = %q, want org_123", got)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"data": []map[string]any{{
+				"id": "authz_resource_123", "external_id": "dep_123", "name": "Support agent",
+				"organization_id": "org_123", "resource_type_slug": "deployment",
+				"parent_resource_id": nil, "description": nil,
+				"created_at": "2026-08-25T12:00:00Z", "updated_at": "2026-08-25T12:00:00Z",
+			}},
+			"list_metadata": map[string]any{"before": nil, "after": nil},
+		})
+	})
+	defer closeServer()
+
+	resources, err := fga.ListAuthorizationResourcesForOrganization(context.Background(), "org_123")
+	if err != nil || len(resources) != 1 {
+		t.Fatalf("ListAuthorizationResourcesForOrganization() = (%+v, %v)", resources, err)
+	}
+}
+
+func TestWorkOSFGADeletesAuthorizationResourceWithoutCascade(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodDelete || request.URL.Path != "/authorization/resources/authz_resource_123" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		if got := request.URL.Query().Get("cascade_delete"); got != "false" {
+			t.Fatalf("cascade_delete = %q, want false", got)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	})
+	defer closeServer()
+
+	if err := fga.DeleteAuthorizationResource(context.Background(), "authz_resource_123"); err != nil {
+		t.Fatalf("DeleteAuthorizationResource() error = %v", err)
+	}
+}
+
 func TestWorkOSFGAClassifiesResourceErrors(t *testing.T) {
 	t.Parallel()
 

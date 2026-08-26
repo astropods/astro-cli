@@ -129,7 +129,11 @@ func main() {
 	// Initialize account store and agent index (needed by both API and worker)
 	accountStore := account.NewAccountStoreWithClusters(db, clusterid.New(cfg.Deployment.DefaultClusterID))
 	agentIndex := agentindex.NewIndexWithDB(db)
+	authorizationAdminResetEnabled := cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled
 	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
+	if authorizationAdminResetEnabled {
+		deploymentFGASync.WithAuthorizationMaintenance()
+	}
 	var deploymentFGA authz.FGA
 	var workosFGA *authz.WorkOSFGA
 	if deploymentFGASync.Enabled() {
@@ -141,11 +145,15 @@ func main() {
 	var accessReconciler *authz.AccessReconciler
 	if accessAssignments != nil {
 		resourceAccessSync = authz.NewResourceAccessSyncStore(db)
+		if authorizationAdminResetEnabled {
+			resourceAccessSync.WithAuthorizationMaintenance()
+		}
 		accessReconciler = authz.NewAccessReconciler(accessAssignments, resourceAccessSync)
 	}
+	authorizationAdminStore := authorizationadmin.NewStore(db)
 	var authorizationAdminService *authorizationadmin.Service
 	if workosFGA != nil {
-		authorizationAdminService = authorizationadmin.NewService(db, workosFGA)
+		authorizationAdminService = authorizationadmin.NewService(db, workosFGA, authorizationAdminStore)
 	}
 
 	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
@@ -266,12 +274,12 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, authorizationAdminService, vault)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, authorizationAdminService, authorizationAdminStore, vault)
 	}
 
 	// --- Worker mode: events consumer ---
 	if cfg.RunWorker() {
-		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA, vault)
+		eventsCancel = runWorker(log, cfg, accountStore, agentIndex, db, billingProvider, paymentProvider, orgClient, avatarStore, readmeAssetStore, k8sCache, newImagePreflighter(cfg), deploymentFGASync, resourceAccessSync, accessReconciler, deploymentFGA, authorizationAdminService, vault)
 	}
 
 	// In worker-only mode, start a minimal health server
@@ -435,6 +443,7 @@ func runAPI(
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	deploymentFGA authz.FGA,
 	authorizationAdminService *authorizationadmin.Service,
+	authorizationAdminStore *authorizationadmin.Store,
 	vault *envelope.Vault,
 ) (*http.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
@@ -644,7 +653,11 @@ func runAPI(
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
 	adminSrv.SetDeploymentAccessInspector(deploymentFGA, orgClient)
-	adminSrv.SetAuthorizationAdmin(authorizationAdminService)
+	adminSrv.SetAuthorizationAdmin(
+		authorizationAdminService,
+		authorizationAdminStore,
+		cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled,
+	)
 	adminSrv.SetPrometheusClient(promClient)
 	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
 	evalDeployer := &deployer.Deployer{
@@ -798,6 +811,7 @@ func runWorker(
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	accessReconciler *authz.AccessReconciler,
 	deploymentFGA authz.FGA,
+	authorizationAdminService *authorizationadmin.Service,
 	vault *envelope.Vault,
 ) context.CancelFunc {
 	workerCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is returned to caller
@@ -900,30 +914,32 @@ func runWorker(
 	}
 
 	rq, rqErr := riverqueue.New(workerCtx, cfg.Database.URL, riverqueue.Config{
-		DB:                 db,
-		NotifyProvider:     notifyProvider,
-		Billing:            billingProvider,
-		BillingBackend:     cfg.BillingBackend(),
-		PaymentProvider:    paymentProvider,
-		AccountStore:       accountStore,
-		AgentIndex:         agentIndex,
-		AvatarStore:        avatarStore,
-		ReadmeAssetStore:   readmeAssetStore,
-		K8sRegistry:        k8sReg,
-		K8sCache:           k8sCache,
-		ServerConfig:       cfg,
-		DeploymentFGASync:  deploymentFGASync,
-		ResourceAccessSync: resourceAccessSync,
-		AccessReconciler:   accessReconciler,
-		FGA:                deploymentFGA,
-		WorkOSClient:       workosClient,
-		OrgClient:          orgClient,
-		PromClient:         promClient,
-		Logger:             log,
-		LangfuseStore:      workerLangfuseStore,
-		PipesClient:        pipesClient,
-		GitHubStore:        ghStore,
-		ImagePreflighter:   imagePreflighter,
+		DB:                             db,
+		NotifyProvider:                 notifyProvider,
+		Billing:                        billingProvider,
+		BillingBackend:                 cfg.BillingBackend(),
+		PaymentProvider:                paymentProvider,
+		AccountStore:                   accountStore,
+		AgentIndex:                     agentIndex,
+		AvatarStore:                    avatarStore,
+		ReadmeAssetStore:               readmeAssetStore,
+		K8sRegistry:                    k8sReg,
+		K8sCache:                       k8sCache,
+		ServerConfig:                   cfg,
+		DeploymentFGASync:              deploymentFGASync,
+		ResourceAccessSync:             resourceAccessSync,
+		AccessReconciler:               accessReconciler,
+		AuthorizationAdmin:             authorizationAdminService,
+		AuthorizationAdminResetEnabled: cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled,
+		FGA:                            deploymentFGA,
+		WorkOSClient:                   workosClient,
+		OrgClient:                      orgClient,
+		PromClient:                     promClient,
+		Logger:                         log,
+		LangfuseStore:                  workerLangfuseStore,
+		PipesClient:                    pipesClient,
+		GitHubStore:                    ghStore,
+		ImagePreflighter:               imagePreflighter,
 		InsightsRollupProducer: &handlers.InsightsRollupProducer{
 			Log:           log,
 			Cfg:           cfg,

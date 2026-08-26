@@ -64,11 +64,21 @@ type accessIntentStore interface {
 // ResourceAccessSyncStore is a durable operation ledger; WorkOS remains the
 // source of truth for effective authorization.
 type ResourceAccessSyncStore struct {
-	db *sql.DB
+	db               *sql.DB
+	maintenanceAware bool
 }
 
 func NewResourceAccessSyncStore(db *sql.DB) *ResourceAccessSyncStore {
 	return &ResourceAccessSyncStore{db: db}
+}
+
+// WithAuthorizationMaintenance pauses new access intent while an
+// authorization administration operation owns the maintenance hold.
+func (s *ResourceAccessSyncStore) WithAuthorizationMaintenance() *ResourceAccessSyncStore {
+	if s != nil {
+		s.maintenanceAware = true
+	}
+	return s
 }
 
 func (s *ResourceAccessSyncStore) Record(ctx context.Context, intent AccessIntent) (AccessIntent, bool, error) {
@@ -77,6 +87,15 @@ func (s *ResourceAccessSyncStore) Record(ctx context.Context, intent AccessInten
 	}
 	if err := validateAccessIntent(intent); err != nil {
 		return AccessIntent{}, false, err
+	}
+	if s.maintenanceAware {
+		maintenance, err := s.MaintenanceEnabled(ctx)
+		if err != nil {
+			return AccessIntent{}, false, err
+		}
+		if maintenance {
+			return AccessIntent{}, false, ErrAuthorizationMaintenance
+		}
 	}
 	const query = `
 		WITH changed AS (

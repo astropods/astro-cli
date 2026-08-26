@@ -130,7 +130,9 @@ type Server struct {
 	deploymentAccessMemberships deploymentAccessMemberships
 	organizationMemberships     organizationMembershipLister
 
-	authorizationAdmin authorizationAdminService
+	authorizationAdmin             authorizationAdminService
+	authorizationAdminStore        authorizationAdminStore
+	authorizationAdminResetEnabled bool
 
 	// alertStore backs the observation-alert admin surface (ListAlerts and the
 	// clear/mute/unmute actions). Constructed in New from the shared db.

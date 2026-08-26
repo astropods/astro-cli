@@ -61,6 +61,10 @@ func (w *ResourceAccessFGAReconcileWorker) Work(ctx context.Context, job *river.
 	if w.store == nil || w.reconciler == nil {
 		return errors.New("resource access FGA reconciliation is not configured")
 	}
+	maintenance, err := w.store.MaintenanceEnabled(ctx)
+	if err != nil || maintenance {
+		return err
+	}
 	if job.Args.ResourceID != "" {
 		resource := authz.ResourceRef{Type: authz.ResourceType(job.Args.ResourceType), ExternalID: job.Args.ResourceID}
 		synced, err := w.reconciler.ReconcileResource(ctx, job.Args.OrganizationID, resource)

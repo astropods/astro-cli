@@ -28,6 +28,9 @@ type Config struct {
 	QuotaEnforce          bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
 	FGAShadowEnabled      bool   // FGA_SHADOW_ENABLED — compare deployment authorization with WorkOS without enforcing
 	FGAEnforcementEnabled bool   // FGA_ENFORCEMENT_ENABLED — enforce opted-in FGA-ready deployment authorization
+	// AuthorizationAdminResetEnabled permits Queen's Preview-only destructive
+	// WorkOS resource reset. Inventory remains available when this is false.
+	AuthorizationAdminResetEnabled bool // FGA_AUTHORIZATION_RESET_ENABLED
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
 	MetronomeAPIKey        string // METRONOME_API_KEY — SDK bearer token
 	MetronomeWebhookSecret string // METRONOME_WEBHOOK_SECRET — HMAC-SHA256 webhook verification
@@ -444,24 +447,25 @@ func Load() (*Config, error) {
 			AppIdentifier:  getEnv("NOVU_APP_IDENTIFIER", ""),
 			SocketURL:      getEnv("NOVU_SOCKET_URL", ""),
 		},
-		BillingProvider:            getEnv("BILLING_PROVIDER", ""),
-		MetronomeAPIKey:            getEnv("METRONOME_API_KEY", ""),
-		MetronomeWebhookSecret:     getEnv("METRONOME_WEBHOOK_SECRET", ""),
-		MetronomePackageID:         getEnv("METRONOME_PACKAGE_ID", ""),
-		MetronomePackageIDNoCredit: getEnv("METRONOME_PACKAGE_ID_NO_CREDIT", ""),
-		BillingExemptAccounts:      getEnvSlice("BILLING_EXEMPT_ACCOUNTS", nil),
-		MetronomeDashboardEnv:      getEnv("METRONOME_DASHBOARD_ENV", ""),
-		StripeSecretKey:            getEnv("STRIPE_SECRET_KEY", ""),
-		StripePublishableKey:       getEnv("STRIPE_PUBLISHABLE_KEY", ""),
-		StripeWebhookSecret:        getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		BillingGateEnforce:         getEnv("BILLING_GATE_ENFORCE", "") == "true",
-		BillingDunningGraceDays:    getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
-		QuotaEnforce:               getEnv("QUOTA_ENFORCE", "") == "true",
-		FGAShadowEnabled:           getEnv("FGA_SHADOW_ENABLED", "") == "true",
-		FGAEnforcementEnabled:      getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
-		QuotaDefaults:              loadQuotaDefaults(),
-		OTelIngestEndpoint:         getEnv("OTEL_INGEST_ENDPOINT", ""),
-		RedisURL:                   getEnv("REDIS_URL", ""),
+		BillingProvider:                getEnv("BILLING_PROVIDER", ""),
+		MetronomeAPIKey:                getEnv("METRONOME_API_KEY", ""),
+		MetronomeWebhookSecret:         getEnv("METRONOME_WEBHOOK_SECRET", ""),
+		MetronomePackageID:             getEnv("METRONOME_PACKAGE_ID", ""),
+		MetronomePackageIDNoCredit:     getEnv("METRONOME_PACKAGE_ID_NO_CREDIT", ""),
+		BillingExemptAccounts:          getEnvSlice("BILLING_EXEMPT_ACCOUNTS", nil),
+		MetronomeDashboardEnv:          getEnv("METRONOME_DASHBOARD_ENV", ""),
+		StripeSecretKey:                getEnv("STRIPE_SECRET_KEY", ""),
+		StripePublishableKey:           getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeWebhookSecret:            getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		BillingGateEnforce:             getEnv("BILLING_GATE_ENFORCE", "") == "true",
+		BillingDunningGraceDays:        getEnvIntDefault("BILLING_DUNNING_GRACE_DAYS", 7),
+		QuotaEnforce:                   getEnv("QUOTA_ENFORCE", "") == "true",
+		FGAShadowEnabled:               getEnv("FGA_SHADOW_ENABLED", "") == "true",
+		FGAEnforcementEnabled:          getEnv("FGA_ENFORCEMENT_ENABLED", "") == "true",
+		AuthorizationAdminResetEnabled: getEnv("FGA_AUTHORIZATION_RESET_ENABLED", "") == "true",
+		QuotaDefaults:                  loadQuotaDefaults(),
+		OTelIngestEndpoint:             getEnv("OTEL_INGEST_ENDPOINT", ""),
+		RedisURL:                       getEnv("REDIS_URL", ""),
 	}
 
 	if err := cfg.Validate(); err != nil {

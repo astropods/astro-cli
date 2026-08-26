@@ -1,0 +1,21 @@
+# Guarded authorization resource reset
+
+## Summary
+
+Queen can now dry-run and delete one Astro account's WorkOS product resources in Preview. This prepares that account for rebuilding the authorization hierarchy with Account as the practical parent.
+
+## Design
+
+The reset is a durable River operation:
+
+1. Queen selects an Astro account. The server resolves its WorkOS organization and records a dry run containing only that account's product resources.
+2. Destructive reset requires that count and is enabled only when Preview sets `FGA_AUTHORIZATION_RESET_ENABLED=true`.
+3. A database maintenance hold pauses deployment and access FGA synchronization while active jobs drain.
+4. The worker removes direct assignments and deletes the selected account's product resources. It never targets the WorkOS organization root or another account's resources.
+5. Queen shows progress and errors. Maintenance remains active until an operator releases it.
+
+The operation ledger makes retries and partial failure visible without pausing unrelated River work.
+
+## Migration
+
+Apply the `authorization_admin_operations` schema, including its required `account_id`, before enabling reset. Production and unconfigured Preview environments remain read-only.

@@ -2,9 +2,17 @@ package authorizationadmin
 
 import (
 	"errors"
+	"time"
 )
 
-var ErrNotConfigured = errors.New("authorization administration is not configured")
+var (
+	ErrNotConfigured        = errors.New("authorization administration is not configured")
+	ErrOperationNotFound    = errors.New("authorization administration operation not found")
+	ErrOperationNotComplete = errors.New("authorization administration operation is still running")
+	ErrMaintenanceActive    = errors.New("authorization maintenance is already active")
+	ErrAccountNotFound      = errors.New("authorization reset account not found")
+	ErrAccountNotLinked     = errors.New("authorization reset account has no WorkOS organization")
+)
 
 type Resource struct {
 	Type             string
@@ -30,5 +38,32 @@ type Assignment struct {
 }
 
 type Inventory struct {
-	Resources []Resource
+	Resources         []Resource
+	MaintenanceActive bool
+}
+
+type Operation struct {
+	ID                    string
+	AccountID             string
+	DryRun                bool
+	Status                string
+	ConfirmedCount        *int
+	TargetCount           int
+	ProcessedCount        int
+	SucceededCount        int
+	FailedCount           int
+	AttemptCount          int
+	MaintenanceHold       bool
+	MaintenanceReleasedAt *time.Time
+	LastError             string
+	CreatedAt             time.Time
+}
+
+type ReportEntry struct {
+	ResourceID string `json:"resource_id"`
+	Type       string `json:"type"`
+	ExternalID string `json:"external_id"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
 }

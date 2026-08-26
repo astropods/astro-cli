@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authorizationadmin"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
@@ -50,12 +51,15 @@ type Config struct {
 	DeploymentFGASync  *authz.DeploymentFGASyncStore
 	ResourceAccessSync *authz.ResourceAccessSyncStore
 	AccessReconciler   *authz.AccessReconciler
-	FGA                authz.FGA
-	OrgClient          *org.Client
-	PromClient         *promquery.Client
-	Logger             *logger.Logger
-	WorkOSClient       *auth.WorkOSClient
-	Vault              *envelope.Vault
+	AuthorizationAdmin *authorizationadmin.Service
+	// AuthorizationAdminResetEnabled is true only for explicitly enabled Preview workers.
+	AuthorizationAdminResetEnabled bool
+	FGA                            authz.FGA
+	OrgClient                      *org.Client
+	PromClient                     *promquery.Client
+	Logger                         *logger.Logger
+	WorkOSClient                   *auth.WorkOSClient
+	Vault                          *envelope.Vault
 	// LangfuseStore is used by the DeployWorker to provision per-deployment
 	// Langfuse datasets at deploy time. Optional — when nil, dataset
 	// provisioning is skipped.

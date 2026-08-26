@@ -13,6 +13,8 @@ type fakeWorkOS struct {
 	*authz.FakeFGA
 	*authz.FakeGroups
 	resources        []authz.AuthorizationResource
+	deleted          []string
+	listedOrgID      string
 	listResourcesErr error
 	listCalls        int
 }
@@ -21,6 +23,42 @@ func (f *fakeWorkOS) ListAuthorizationResources(context.Context) ([]authz.Author
 	f.listCalls++
 	return f.resources, f.listResourcesErr
 }
+
+func (f *fakeWorkOS) ListAuthorizationResourcesForOrganization(_ context.Context, organizationID string) ([]authz.AuthorizationResource, error) {
+	f.listedOrgID = organizationID
+	return f.resources, f.listResourcesErr
+}
+
+func (f *fakeWorkOS) DeleteAuthorizationResource(_ context.Context, resourceID string) error {
+	f.deleted = append(f.deleted, resourceID)
+	return nil
+}
+
+type fakeOperationStore struct {
+	operation       *Operation
+	maintenance     bool
+	completedTarget int
+	progressed      int
+}
+
+func (f *fakeOperationStore) Start(context.Context, string) (*Operation, error) {
+	return f.operation, nil
+}
+func (f *fakeOperationStore) Progress(_ context.Context, _ string, _ int, processed, _ int, _ int, _ []ReportEntry) error {
+	f.progressed = processed
+	return nil
+}
+func (f *fakeOperationStore) Complete(_ context.Context, _ string, target, _ int, _ int, _ []ReportEntry) error {
+	f.completedTarget = target
+	return nil
+}
+func (*fakeOperationStore) Fail(context.Context, string, int, int, int, int, []ReportEntry, error) error {
+	return nil
+}
+func (f *fakeOperationStore) MaintenanceEnabled(context.Context) (bool, error) {
+	return f.maintenance, nil
+}
+func (*fakeOperationStore) RunningFGAJobs(context.Context) (int, error) { return 0, nil }
 
 func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -59,7 +97,8 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 		AddRow("om_admin", "jessye@example.com"))
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}).
 		AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
-	service := NewService(db, workos)
+	store := &fakeOperationStore{}
+	service := newService(db, workos, store)
 
 	inventory, err := service.Inventory(context.Background())
 	if err != nil || len(inventory.Resources) != 1 {
@@ -103,7 +142,7 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 		},
 	}
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
-	service := NewService(db, workos)
+	service := newService(db, workos, &fakeOperationStore{})
 
 	inventory, err := service.Inventory(context.Background())
 	if err != nil {
@@ -147,7 +186,7 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 	rows := []string{"id", "account_id", "account_name", "sync_state", "last_error"}
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
-	service := NewService(db, workos)
+	service := newService(db, workos, &fakeOperationStore{})
 
 	if _, err := service.Inventory(context.Background()); err != nil {
 		t.Fatal(err)
@@ -157,6 +196,64 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 	}
 	if workos.listCalls != 1 {
 		t.Fatalf("WorkOS list calls = %d, want 1", workos.listCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestResetRemovesAssignmentsThenDeletesProductResources(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectQuery(`SELECT COALESCE\(ao.workos_org_id, ''\)`).
+		WithArgs("acct_123").
+		WillReturnRows(sqlmock.NewRows([]string{"workos_org_id"}).AddRow("org_123"))
+
+	confirmed := 1
+	resource := authz.DeploymentResource("dep_123")
+	var removed []authz.AssignmentSubject
+	workos := &fakeWorkOS{
+		FakeFGA: &authz.FakeFGA{
+			ListRoleAssignmentsFunc: func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) {
+				return []authz.RoleAssignment{{Subject: authz.MembershipAssignmentSubject("om_admin"), Role: authz.RoleDeploymentAdmin, Source: authz.AssignmentSourceDirect, Resource: resource}}, nil
+			},
+			ListGroupRoleAssignmentsFunc: func(context.Context, string) ([]authz.RoleAssignment, error) { return nil, nil },
+			RemoveRoleFunc: func(_ context.Context, subject authz.AssignmentSubject, _ authz.RoleSlug, _ authz.ResourceRef) error {
+				removed = append(removed, subject)
+				return nil
+			},
+		},
+		FakeGroups: &authz.FakeGroups{
+			ListGroupsFunc: func(context.Context, string, authz.PageRequest) (authz.GroupPage, error) {
+				return authz.GroupPage{}, nil
+			},
+		},
+		resources: []authz.AuthorizationResource{
+			{ID: "root", OrganizationID: "org_123", Resource: authz.ResourceRef{Type: authz.ResourceOrganization, ExternalID: "org_123"}},
+			{ID: "workos_dep", OrganizationID: "org_123", Resource: resource},
+			{ID: "other_dep", OrganizationID: "org_456", Resource: authz.DeploymentResource("dep_other")},
+		},
+	}
+	store := &fakeOperationStore{operation: &Operation{ID: "op_123", AccountID: "acct_123", AttemptCount: 1, ConfirmedCount: &confirmed}}
+	service := newService(db, workos, store)
+
+	if err := service.RunReset(context.Background(), "op_123"); err != nil {
+		t.Fatalf("RunReset() error = %v", err)
+	}
+	if !reflect.DeepEqual(removed, []authz.AssignmentSubject{authz.MembershipAssignmentSubject("om_admin")}) {
+		t.Fatalf("removed = %+v", removed)
+	}
+	if !reflect.DeepEqual(workos.deleted, []string{"workos_dep"}) {
+		t.Fatalf("deleted = %v", workos.deleted)
+	}
+	if workos.listedOrgID != "org_123" {
+		t.Fatalf("listed organization = %q", workos.listedOrgID)
+	}
+	if store.progressed != 1 || store.completedTarget != 1 {
+		t.Fatalf("progress = %d, completed target = %d", store.progressed, store.completedTarget)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

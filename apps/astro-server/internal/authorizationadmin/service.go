@@ -3,6 +3,7 @@ package authorizationadmin
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 const (
 	assignmentConcurrency   = 5
+	jobDrainTimeout         = 30 * time.Second
 	workOSInventoryCacheTTL = 30 * time.Second
 	workOSInventoryTimeout  = 10 * time.Second
 )
@@ -28,9 +30,19 @@ type workOSAdmin interface {
 	authz.Groups
 }
 
+type operationStore interface {
+	Start(context.Context, string) (*Operation, error)
+	Progress(context.Context, string, int, int, int, int, []ReportEntry) error
+	Complete(context.Context, string, int, int, int, []ReportEntry) error
+	Fail(context.Context, string, int, int, int, int, []ReportEntry, error) error
+	MaintenanceEnabled(context.Context) (bool, error)
+	RunningFGAJobs(context.Context) (int, error)
+}
+
 type Service struct {
 	db              *sql.DB
 	workos          workOSAdmin
+	store           operationStore
 	workOSCacheMu   sync.Mutex
 	workOSCache     *workOSInventorySnapshot
 	workOSCacheLoad singleflight.Group
@@ -43,12 +55,16 @@ type workOSInventorySnapshot struct {
 	expiresAt   time.Time
 }
 
-func NewService(db *sql.DB, workos workOSAdmin) *Service {
-	return &Service{db: db, workos: workos}
+func NewService(db *sql.DB, workos workOSAdmin, store *Store) *Service {
+	return newService(db, workos, store)
+}
+
+func newService(db *sql.DB, workos workOSAdmin, store operationStore) *Service {
+	return &Service{db: db, workos: workos, store: store}
 }
 
 func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
-	if s == nil || s.db == nil || s.workos == nil {
+	if s == nil || s.db == nil || s.workos == nil || s.store == nil {
 		return nil, ErrNotConfigured
 	}
 	resources, assignments, groupNames, err := s.load(ctx)
@@ -136,7 +152,114 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 		}
 		return result[i].ExternalID < result[j].ExternalID
 	})
-	return &Inventory{Resources: result}, nil
+	maintenance, err := s.store.MaintenanceEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &Inventory{Resources: result, MaintenanceActive: maintenance}, nil
+}
+
+func (s *Service) RunReset(ctx context.Context, operationID string) error {
+	if s == nil || s.workos == nil || s.store == nil {
+		return ErrNotConfigured
+	}
+	operation, err := s.store.Start(ctx, operationID)
+	if err != nil {
+		return err
+	}
+	if !operation.DryRun {
+		if err := s.waitForFGAJobs(ctx); err != nil {
+			_ = s.store.Fail(ctx, operationID, 0, 0, 0, 1, nil, err)
+			return err
+		}
+	}
+	resources, assignments, err := s.loadAccount(ctx, operation.AccountID)
+	if err != nil {
+		_ = s.store.Fail(ctx, operationID, 0, 0, 0, 1, nil, err)
+		return err
+	}
+	report := make([]ReportEntry, 0, len(resources))
+	if operation.DryRun {
+		for _, resource := range resources {
+			report = append(report, reportEntry(resource, "target", nil))
+		}
+		return s.store.Complete(ctx, operationID, len(resources), len(resources), len(resources), report)
+	}
+	if operation.AttemptCount == 1 && (operation.ConfirmedCount == nil || *operation.ConfirmedCount != len(resources)) {
+		err := fmt.Errorf("confirmed resource count does not match current WorkOS count: confirmed %s, current %d", confirmedCount(operation.ConfirmedCount), len(resources))
+		_ = s.store.Fail(ctx, operationID, len(resources), 0, 0, 1, report, err)
+		return err
+	}
+	sort.SliceStable(resources, func(i, j int) bool {
+		return deletionRank(resources[i].Resource.Type) < deletionRank(resources[j].Resource.Type)
+	})
+	processed, succeeded, failed := 0, 0, 0
+	var resetErr error
+	for _, resource := range resources {
+		entryErr := s.deleteResource(ctx, resource, assignments[resourceKey(resource.Resource)])
+		processed++
+		if entryErr != nil {
+			failed++
+			resetErr = errors.Join(resetErr, entryErr)
+			report = append(report, reportEntry(resource, "failed", entryErr))
+		} else {
+			succeeded++
+			report = append(report, reportEntry(resource, "deleted", nil))
+		}
+		if err := s.store.Progress(ctx, operationID, len(resources), processed, succeeded, failed, report); err != nil {
+			return errors.Join(resetErr, err)
+		}
+	}
+	if resetErr != nil {
+		if err := s.store.Fail(ctx, operationID, len(resources), processed, succeeded, failed, report, resetErr); err != nil {
+			return errors.Join(resetErr, err)
+		}
+		return resetErr
+	}
+	return s.store.Complete(ctx, operationID, len(resources), processed, succeeded, report)
+}
+
+func (s *Service) loadAccount(ctx context.Context, accountID string) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, error) {
+	organizationID, err := s.workOSOrganizationForAccount(ctx, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	resources, err := s.workos.ListAuthorizationResourcesForOrganization(ctx, organizationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	resources = productResourcesForOrganization(resources, organizationID)
+	assignments, _, err := s.directAssignments(ctx, resources)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resources, assignments, nil
+}
+
+func (s *Service) workOSOrganizationForAccount(ctx context.Context, accountID string) (string, error) {
+	if s == nil || s.db == nil {
+		return "", ErrNotConfigured
+	}
+	if accountID == "" {
+		return "", ErrAccountNotFound
+	}
+	var organizationID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(ao.workos_org_id, '')
+		FROM accounts a
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		WHERE a.id = $1 AND a.deleted_at IS NULL
+	`, accountID).Scan(&organizationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrAccountNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve authorization reset account: %w", err)
+	}
+	if organizationID == "" {
+		return "", ErrAccountNotLinked
+	}
+	return organizationID, nil
 }
 
 func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, map[string]string, error) {
@@ -312,6 +435,44 @@ func (s *Service) allGroups(ctx context.Context, organizationID string) ([]authz
 	}
 }
 
+func (s *Service) deleteResource(ctx context.Context, resource authz.AuthorizationResource, assignments []authz.RoleAssignment) error {
+	var result error
+	for _, assignment := range assignments {
+		err := s.workos.RemoveRole(ctx, assignment.Subject, assignment.Role, resource.Resource)
+		if err != nil && !errors.Is(err, authz.ErrRoleAssignmentNotFound) {
+			result = errors.Join(result, fmt.Errorf("remove %s from %s: %w", assignment.Role, directAdminLabel(assignment.Subject, assignment.Subject.ID), err))
+		}
+	}
+	if result != nil {
+		return result
+	}
+	if err := s.workos.DeleteAuthorizationResource(ctx, resource.ID); err != nil && !errors.Is(err, authz.ErrResourceNotFound) {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) waitForFGAJobs(ctx context.Context) error {
+	drainCtx, cancel := context.WithTimeout(ctx, jobDrainTimeout)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		count, err := s.store.RunningFGAJobs(drainCtx)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return nil
+		}
+		select {
+		case <-drainCtx.Done():
+			return fmt.Errorf("wait for running FGA jobs to drain: %w", drainCtx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
 type deploymentMetadata struct {
 	AccountID   string
 	AccountName string
@@ -364,6 +525,16 @@ func productResources(resources []authz.AuthorizationResource) []authz.Authoriza
 	return result
 }
 
+func productResourcesForOrganization(resources []authz.AuthorizationResource, organizationID string) []authz.AuthorizationResource {
+	result := make([]authz.AuthorizationResource, 0, len(resources))
+	for _, resource := range resources {
+		if resource.OrganizationID == organizationID && resource.Resource.Type != authz.ResourceOrganization {
+			result = append(result, resource)
+		}
+	}
+	return result
+}
+
 func resourceKey(resource authz.ResourceRef) string {
 	return string(resource.Type) + "\x00" + resource.ExternalID
 }
@@ -373,4 +544,34 @@ func directAdminLabel(subject authz.AssignmentSubject, label string) string {
 		return "group:" + label
 	}
 	return label
+}
+
+func reportEntry(resource authz.AuthorizationResource, status string, err error) ReportEntry {
+	entry := ReportEntry{
+		ResourceID: resource.ID,
+		Type:       string(resource.Resource.Type),
+		ExternalID: resource.Resource.ExternalID,
+		Name:       resource.Name,
+		Status:     status,
+	}
+	if err != nil {
+		entry.Error = err.Error()
+	}
+	return entry
+}
+
+func deletionRank(resourceType authz.ResourceType) int {
+	switch resourceType {
+	case authz.ResourceAccount:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func confirmedCount(count *int) string {
+	if count == nil {
+		return "missing"
+	}
+	return fmt.Sprintf("%d", *count)
 }
