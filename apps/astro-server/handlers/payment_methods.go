@@ -7,6 +7,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 	"github.com/astropods/astro/apps/astro-server/internal/payment"
@@ -180,7 +181,7 @@ func GetPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, pa
 }
 
 // DeletePaymentMethod handles DELETE /api/v1/accounts/:account/billing/payment-method.
-func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -196,6 +197,21 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 			// Nothing to remove.
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 			return
+		}
+		// Compute is metered on closed five-minute windows, so the balance below
+		// cannot yet see what a running agent has already spent.
+		if deployStore != nil {
+			running, err := deployStore.CountRunningByAccount(c.Request.Context(), acct.ID)
+			if err != nil {
+				log.Error("payment methods: count running deployments failed", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove payment method"})
+				return
+			}
+			if running > 0 {
+				log.Info("payment methods: removal refused, running deployments", "account_id", acct.ID, "running", running)
+				c.JSON(http.StatusConflict, gin.H{"error": "Pause or delete this account's running agents before removing your payment method. They are still accruing charges."})
+				return
+			}
 		}
 		// Removing the card is the other way out of a bill. Deleting the account
 		// is refused for the same reason, and this door is cheaper to walk

@@ -13,6 +13,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/payment"
 )
@@ -60,11 +61,17 @@ func removalRequest(t *testing.T, r *gin.Engine) *httptest.ResponseRecorder {
 	return rec
 }
 
+func expectRunningDeployments(mock sqlmock.Sqlmock, running int) {
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deployments`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(running))
+}
+
 // expectCustomerIDs queues the two reads the handler makes before it decides:
 // the Stripe id it detaches against, and the billing id it prices against.
 func expectCustomerIDs(mock sqlmock.Sqlmock, billingID string) {
 	mock.ExpectQuery("SELECT stripe_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"stripe_customer_id"}).AddRow("cus_1"))
+	expectRunningDeployments(mock, 0)
 	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow(billingID))
 }
@@ -78,7 +85,7 @@ func newRemovalTest(t *testing.T, provider billing.BillingProvider) (*gin.Engine
 	pay := &recordingPayments{}
 	r := removalRouter(t)
 	r.DELETE("/billing/payment-method", DeletePaymentMethod(
-		logger.New("error", "json"), account.NewAccountStore(db), pay, provider, "metronome", nil, nil))
+		logger.New("error", "json"), account.NewAccountStore(db), deploymentstore.NewStore(db), pay, provider, "metronome", nil, nil))
 	return r, pay, mock, func() { db.Close() }
 }
 
@@ -143,6 +150,7 @@ func TestDeletePaymentMethod_NoBillingProviderStillRemoves(t *testing.T) {
 	defer done()
 	mock.ExpectQuery("SELECT stripe_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"stripe_customer_id"}).AddRow("cus_1"))
+	expectRunningDeployments(mock, 0)
 
 	rec := removalRequest(t, r)
 
@@ -151,5 +159,79 @@ func TestDeletePaymentMethod_NoBillingProviderStillRemoves(t *testing.T) {
 	}
 	if !pay.removed {
 		t.Error("the card survived with no billing provider configured")
+	}
+}
+
+// 0.9846 cents renders as "$0.01" and settles as one cent, so it is owed.
+func TestDeletePaymentMethod_SubCentBalanceThatRoundsToACentRefuses(t *testing.T) {
+	provider := spendingProvider{spend: billing.Spend{HasCurrentSpend: true, CurrentSpend: 0.009846}}
+	r, pay, mock, done := newRemovalTest(t, provider)
+	defer done()
+	expectCustomerIDs(mock, "cust-1")
+
+	rec := removalRequest(t, r)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: a balance shown as $0.01 is owed: %s", rec.Code, rec.Body.String())
+	}
+	if pay.removed {
+		t.Error("the card was detached over a balance the customer is shown as owing")
+	}
+}
+
+// Below half a cent nothing rounds up, so it can never be charged.
+func TestDeletePaymentMethod_DustBelowHalfACentStillRemoves(t *testing.T) {
+	provider := spendingProvider{spend: billing.Spend{HasCurrentSpend: true, CurrentSpend: 0.004}}
+	r, pay, mock, done := newRemovalTest(t, provider)
+	defer done()
+	expectCustomerIDs(mock, "cust-1")
+
+	rec := removalRequest(t, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !pay.removed {
+		t.Error("dust that rounds to $0.00 blocked the removal")
+	}
+}
+
+// The balance can still read zero while a running agent accrues real charges.
+func TestDeletePaymentMethod_RunningDeploymentRefusesEvenWithNothingBilledYet(t *testing.T) {
+	provider := spendingProvider{spend: billing.Spend{HasCurrentSpend: true, CurrentSpend: 0}}
+	r, pay, mock, done := newRemovalTest(t, provider)
+	defer done()
+	mock.ExpectQuery("SELECT stripe_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"stripe_customer_id"}).AddRow("cus_1"))
+	expectRunningDeployments(mock, 1)
+	// Queued so a handler ignoring the count reaches a zero balance and a 200,
+	// rather than failing on an unqueued query.
+	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+
+	rec := removalRequest(t, r)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if pay.removed {
+		t.Error("the card came off while an agent was still running up a bill")
+	}
+}
+
+// Pausing every agent is the way out, so a paused account must not be trapped.
+func TestDeletePaymentMethod_NoRunningDeploymentsRemoves(t *testing.T) {
+	provider := spendingProvider{spend: billing.Spend{HasCurrentSpend: true, CurrentSpend: 0}}
+	r, pay, mock, done := newRemovalTest(t, provider)
+	defer done()
+	expectCustomerIDs(mock, "cust-1")
+
+	rec := removalRequest(t, r)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !pay.removed {
+		t.Error("a paused account could not remove its card")
 	}
 }

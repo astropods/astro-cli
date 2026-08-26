@@ -363,6 +363,20 @@ func (s *Store) GetActiveDeploymentsByAccount(accountID string) ([]*Deployment, 
 	return deployments, nil
 }
 
+// CountRunningByAccount counts deployments still holding workloads up. Not read
+// from deployment_billing_state: the five-minute metering tick advances that
+// table, so a deployment that just went live is missing from it.
+func (s *Store) CountRunningByAccount(ctx context.Context, accountID string) (int, error) {
+	var running int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM deployments WHERE account_id = $1 AND status = ANY($2)`,
+		accountID, pq.Array(RunningStatuses)).Scan(&running)
+	if err != nil {
+		return 0, fmt.Errorf("count running deployments: %w", err)
+	}
+	return running, nil
+}
+
 // GetDeploymentsByAccountInStatuses returns deployments for an account matching any of the given statuses.
 // HasBillingSuspended reports whether billing has actually stopped any of the
 // account's deployments. Distinct from the cached billing status, which records

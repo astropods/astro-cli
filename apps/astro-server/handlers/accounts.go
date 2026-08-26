@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -442,9 +443,10 @@ func DeleteAccount(log *logger.Logger, deleter *accountlifecycle.Deleter, auditS
 	}
 }
 
-// minOwedUSD is the smallest balance worth refusing a delete over: rounding in
-// the cents-to-dollars conversion leaves fractions nobody can pay off.
-const minOwedUSD = 0.01
+// minOwedCents is the smallest balance worth refusing a delete over. Rounded to
+// whole cents first: that is the unit Stripe settles in and the unit the billing
+// page shows, so 0.9846 cents is a cent owed rather than unpayable dust.
+const minOwedCents = 1
 
 // outstandingBalance reports whether the account owes money that deleting it
 // would destroy rather than settle. Archiving the provider customer voids every
@@ -472,7 +474,7 @@ func outstandingBalance(ctx context.Context, provider billing.BillingProvider, s
 	if err != nil {
 		return false, err
 	}
-	return spend.HasCurrentSpend && spend.CurrentSpend >= minOwedUSD, nil
+	return spend.HasCurrentSpend && math.Round(spend.CurrentSpend*100) >= minOwedCents, nil
 }
 
 // UpdateAccountRequest represents the request body for updating account fields.

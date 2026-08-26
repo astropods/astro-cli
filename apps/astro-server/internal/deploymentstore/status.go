@@ -16,3 +16,10 @@ const (
 	// user-initiated StatusStopped so resume restores only what billing stopped.
 	StatusSuspended = "suspended"
 )
+
+// RunningStatuses are the states in which a deployment still holds workloads up,
+// and so keeps the account accruing compute. Everything else is paused
+// (stopped, suspended), torn down (undeployed), or not running (failed).
+var RunningStatuses = []string{
+	StatusPending, StatusProvisioning, StatusDeploying, StatusActive, StatusUndeploying,
+}
