@@ -180,6 +180,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.provisionSweep != nil {
 		wired.provisionSweep.queue = q
 	}
+	if wired.orgProvisionSweep != nil {
+		wired.orgProvisionSweep.queue = q
+	}
 	if wired.ghBuild != nil {
 		wired.ghBuild.queue = q
 	}
@@ -427,6 +430,13 @@ func (q *Queue) billingActs(action, accountID string) bool {
 // account. Deduped by account, so repeat calls collapse.
 func (q *Queue) InsertBillingProvision(ctx context.Context, accountID string) error {
 	_, err := q.Insert(ctx, BillingProvisionArgs{AccountID: accountID}, nil)
+	return err
+}
+
+// InsertAccountOrgProvision enqueues WorkOS organization provisioning for an
+// account.
+func (q *Queue) InsertAccountOrgProvision(ctx context.Context, accountID string) error {
+	_, err := q.Insert(ctx, AccountOrgProvisionArgs{AccountID: accountID}, nil)
 	return err
 }
 

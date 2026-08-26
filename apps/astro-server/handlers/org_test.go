@@ -608,6 +608,25 @@ func TestCreateInvitations_NonOrgAccount(t *testing.T) {
 	}
 }
 
+func TestCreateInvitations_PersonalAccountWithOrganization(t *testing.T) {
+	log := logger.New("error", "json")
+	acct := &account.Account{ID: "acct-1", Name: "saswat", Type: "personal", WorkOSOrganizationID: "org_p"}
+	user := &auth.User{ID: "user-1", Email: "test@example.com"}
+
+	router := gin.New()
+	router.POST("/invitations", injectTestOrgAccount(acct, user), CreateInvitations(log, nil, nil))
+
+	body := `{"invitations": [{"value": "invite@example.com", "kind": "email", "role": "member"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/invitations", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for a personal account, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateInvitations_NoAuth(t *testing.T) {
 	log := logger.New("error", "json")
 	acct := &account.Account{ID: "acct-1", Name: "myorg", Type: "organization", WorkOSOrganizationID: "org_123"}

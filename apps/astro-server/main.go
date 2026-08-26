@@ -1017,6 +1017,9 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 
 	accountStore := deps.Stores.Account
 	deploymentStore := deps.Stores.Deployment
+	// Signup provisions the account's WorkOS organization inline; the worker's
+	// hourly sweep covers whatever that attempt fails to link.
+	orgProvisioner := org.NewProvisioner(orgClient, accountStore, log)
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
 	fgaExperiment := experiment.NewGate(experimentStore, experiment.FineGrainedAccess)
 	classificationExperiment := experiment.NewGate(experimentStore, experiment.PromptClassificationStats)
@@ -1369,7 +1372,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("deployment", "Repeated visible deployment ID (max 100)", true),
 				oapispec.Response(200, &handlers.DeploymentSummariesResponse{}),
 			)
-			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgClient, orgSync, memberEmailStore, billingProvider, auditStore, queue),
+			api.POST(protected, "/accounts", "Create an account", handlers.CreateAccount(log, accountStore, orgProvisioner, orgSync, memberEmailStore, billingProvider, auditStore, queue),
 				oapispec.Tags("Accounts"),
 				oapispec.BearerAuth(),
 				oapispec.Body(&handlers.CreateAccountRequest{}),

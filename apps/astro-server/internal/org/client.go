@@ -54,6 +54,16 @@ func (c *Client) GetOrganization(ctx context.Context, workosOrgID string) (Organ
 	return Organization{ID: org.ID, Name: org.Name}, nil
 }
 
+func (c *Client) GetOrganizationByExternalID(ctx context.Context, externalID string) (Organization, error) {
+	org, err := c.orgs.GetOrganizationByExternalID(ctx, organizations.GetOrganizationByExternalIDOpts{
+		ExternalID: externalID,
+	})
+	if err != nil {
+		return Organization{}, fmt.Errorf("workos: get organization by external id: %w", classifyOrganizationError(err))
+	}
+	return Organization{ID: org.ID, Name: org.Name, ExternalID: externalID}, nil
+}
+
 func classifyOrganizationError(err error) error {
 	var httpErr workos_errors.HTTPError
 	if errors.As(err, &httpErr) && httpErr.Code == http.StatusNotFound {

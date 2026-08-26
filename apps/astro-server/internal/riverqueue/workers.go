@@ -27,6 +27,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/notify"
 	"github.com/astropods/astro/apps/astro-server/internal/observation"
 	"github.com/astropods/astro/apps/astro-server/internal/obssummary"
+	"github.com/astropods/astro/apps/astro-server/internal/org"
 	"github.com/astropods/astro/apps/astro-server/internal/systemaudit"
 	"github.com/astropods/astro/apps/astro-server/internal/watcher"
 )
@@ -128,21 +129,22 @@ func addWorkerWithCatalogCheck[T river.JobArgs](log *logger.Logger, workers *riv
 // River client exists (the Queue wraps the client). New() sets .queue on each
 // non-nil field once the client is built.
 type wiredWorkers struct {
-	purge           *AccountPurgeWorker
-	insightsRollup  *InsightsRollupWorker
-	classification  *ClassificationDiscoveryWorker
-	migrate         *MigrateDeploymentClusterWorker
-	dunning         *DunningSweepWorker
-	billingResume   *BillingResumeWorker
-	metronomeHook   *MetronomeWebhookWorker
-	stripeHook      *StripeWebhookWorker
-	provisionSweep  *BillingProvisionSweepWorker
-	provisionWorker *BillingProvisionWorker
-	ghBuild         *GitHubBuildWorker
-	observation     *ObservationSweepWorker
-	undeploy        *UndeployWorker
-	deploymentFGA   *DeploymentFGAReconcileWorker
-	resourceAccess  *ResourceAccessFGAReconcileWorker
+	purge             *AccountPurgeWorker
+	insightsRollup    *InsightsRollupWorker
+	classification    *ClassificationDiscoveryWorker
+	migrate           *MigrateDeploymentClusterWorker
+	dunning           *DunningSweepWorker
+	billingResume     *BillingResumeWorker
+	metronomeHook     *MetronomeWebhookWorker
+	stripeHook        *StripeWebhookWorker
+	provisionSweep    *BillingProvisionSweepWorker
+	provisionWorker   *BillingProvisionWorker
+	orgProvisionSweep *AccountOrgProvisionSweepWorker
+	ghBuild           *GitHubBuildWorker
+	observation       *ObservationSweepWorker
+	undeploy          *UndeployWorker
+	deploymentFGA     *DeploymentFGAReconcileWorker
+	resourceAccess    *ResourceAccessFGAReconcileWorker
 }
 
 // addWorkers registers all River workers and returns the ones needing a
@@ -563,6 +565,17 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	})
 	log.Info("river: registered worker", "worker", "SystemAuditWorker", "period", "1h")
 
+	var orgProvisionSweep *AccountOrgProvisionSweepWorker
+	if provisioner := org.NewProvisioner(cfg.OrgClient, cfg.AccountStore, log); provisioner != nil {
+		addWorkerWithCatalogCheck(log, workers, &AccountOrgProvisionWorker{
+			provisioner: provisioner,
+			log:         log,
+		})
+		orgProvisionSweep = &AccountOrgProvisionSweepWorker{accounts: cfg.AccountStore, log: log}
+		addWorkerWithCatalogCheck(log, workers, orgProvisionSweep)
+		log.Info("river: registered worker", "worker", "AccountOrgProvision/SweepWorker", "period", "1h")
+	}
+
 	// Account purge worker — takes the langfuse and gateway provisioners from the
 	// deployer when its backends are configured.
 	purgerDeps := accountlifecycle.PurgerDeps{
@@ -673,12 +686,14 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		stripeHook:      stripeHook,
 		provisionSweep:  provisionSweep,
 		provisionWorker: provisionWorker,
-		ghBuild:         ghBuildWorker,
-		observation:     observationSweep,
-		insightsRollup:  insightsRollupDiscovery,
-		classification:  classificationDiscovery,
-		undeploy:        undeployWorker,
-		deploymentFGA:   deploymentFGAWorker,
-		resourceAccess:  resourceAccessWorker,
+
+		orgProvisionSweep: orgProvisionSweep,
+		ghBuild:           ghBuildWorker,
+		observation:       observationSweep,
+		insightsRollup:    insightsRollupDiscovery,
+		classification:    classificationDiscovery,
+		undeploy:          undeployWorker,
+		deploymentFGA:     deploymentFGAWorker,
+		resourceAccess:    resourceAccessWorker,
 	}
 }

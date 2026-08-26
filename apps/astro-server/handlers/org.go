@@ -184,7 +184,7 @@ func ListMembers(log *logger.Logger, accountStore *account.AccountStore, avatarS
 			CreatedAt string
 		}
 		infoByUserID := map[string]memberInfo{}
-		if acct.WorkOSOrganizationID != "" && orgClient != nil {
+		if acct.Type == "organization" && acct.WorkOSOrganizationID != "" && orgClient != nil {
 			memberships, err := orgClient.ListAllMemberships(c.Request.Context(), acct.WorkOSOrganizationID)
 			if err != nil {
 				log.Error("org: fetch WorkOS memberships failed", "error", err, "account_id", acct.ID)
@@ -615,8 +615,13 @@ func CreateInvitations(log *logger.Logger, orgSync *org.Sync, auditStore *auditl
 			return
 		}
 
-		if acct.WorkOSOrganizationID == "" {
+		if acct.Type != "organization" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invitations are only supported for organization accounts"})
+			return
+		}
+		if acct.WorkOSOrganizationID == "" {
+			log.Error("org: invitations refused, account has no WorkOS organization", "account_id", acct.ID)
+			c.JSON(http.StatusConflict, gin.H{"error": "this account is still being set up, try again in a moment"})
 			return
 		}
 
@@ -689,8 +694,13 @@ func ListAccountInvitations(log *logger.Logger, orgClient *org.Client) gin.Handl
 			return
 		}
 
-		if acct.WorkOSOrganizationID == "" {
+		if acct.Type != "organization" {
 			c.JSON(http.StatusOK, gin.H{"invitations": []any{}})
+			return
+		}
+		if acct.WorkOSOrganizationID == "" {
+			log.Error("org: list invitations refused, account has no WorkOS organization", "account_id", acct.ID)
+			c.JSON(http.StatusConflict, gin.H{"error": "this account is still being set up, try again in a moment"})
 			return
 		}
 

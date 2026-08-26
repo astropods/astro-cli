@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/org"
@@ -13,8 +14,8 @@ var managerRoleSlugs = map[string]bool{"owner": true, "admin": true}
 
 // managerResolver resolves an account's org managers to WorkOS user ids by
 // querying WorkOS org memberships. It satisfies notify's managerLookup. A
-// personal account (no WorkOS org) returns an empty slice, so the Deliverer
-// falls back to the owner.
+// personal account returns an empty slice, so the Deliverer falls back to the
+// owner.
 type managerResolver struct {
 	accounts *account.AccountStore
 	org      *org.Client
@@ -26,8 +27,11 @@ func (m *managerResolver) ManagerUserIDs(ctx context.Context, accountID string) 
 	if err != nil {
 		return nil, err
 	}
+	if acct.Type != "organization" {
+		return nil, nil
+	}
 	if acct.WorkOSOrganizationID == "" {
-		return nil, nil // personal account — no org roles; caller uses the owner
+		return nil, fmt.Errorf("account %s has no WorkOS organization", accountID)
 	}
 	mems, err := m.org.ListAllMemberships(ctx, acct.WorkOSOrganizationID)
 	if err != nil {

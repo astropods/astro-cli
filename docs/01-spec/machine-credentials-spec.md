@@ -27,8 +27,7 @@ WorkOS Connect already issues machine-to-machine applications using the OAuth 2.
 1. **Replacing user authentication.** The device flow and the session cookie stay exactly as they are.
 2. **A first-party credential.** WorkOS M2M applications can only be third-party, so this is a credential Astro hands to a customer's system, not one Astro's own services use.
 3. **Per-deployment credentials.** The deploy token already covers the agent runtime.
-4. **Personal accounts.** An M2M application requires a WorkOS organization, and a personal account has none.
-5. **Custom grant types.** Only `client_credentials`. Authorization code stays for humans.
+4. **Custom grant types.** Only `client_credentials`. Authorization code stays for humans.
 
 ## What WorkOS provides
 
@@ -85,7 +84,7 @@ sequenceDiagram
     participant WorkOS
 
     Admin->>Server: POST /accounts/:account/apps {label, scopes}
-    Server->>Server: account must be an organization
+    Server->>Server: account must have a WorkOS organization
     Server->>WorkOS: create m2m application (organization_id, scopes)
     WorkOS-->>Server: application id, client_id
     Server->>WorkOS: create credential
@@ -194,7 +193,7 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 | Session cookie | Unchanged, and never carries an app |
 | Deploy token | Unchanged. Still the only credential on the two `/deployments/*` routes |
 | `RequireAccountPermission` | Reused for org scoping. It reads a user first, so it needs a branch that accepts an app and checks a scope instead of a role permission |
-| Personal accounts | No WorkOS organization, so apps are unavailable. The UI hides the section rather than failing at create time |
+| Personal accounts | Every account is linked to a WorkOS organization, so apps are available on a personal account too. An account whose link is still pending gets 409 rather than a refusal |
 | FGA platform roles | Untouched. A machine scope grants no deployment role |
 
 ## Test cases
@@ -220,7 +219,8 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 | B2 | Credential for account X on a path for account Y | 403 |
 | B3 | `org_id` that maps to no Astro account | 401 |
 | B4 | `GET /me` with an app token | Returns the bound account slug and the granted scopes |
-| B5 | App on a personal account | Cannot be created |
+| B5 | App on a personal account | Created, bound to that account's organization |
+| B6 | App on an account with no organization linked yet | 409, and the provisioning sweep clears it |
 
 ### C. Scopes
 
@@ -263,7 +263,7 @@ Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) p
 | Store no secret material | These rows leaking exposes nothing. Rotation has to go through WorkOS |
 | Discriminate on `aud` plus a `sub` that resolves to a stored client | The empty-audience exemption for user tokens stops being a hole an M2M token can walk through |
 | Deny a token whose client has no row | Revocation is immediate without the introspection call on the hot path |
-| An app is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
+| An app belongs to an account, not to an account type | WorkOS binds an M2M application to an organization, so every account owns one. A personal account stays single-human by type, which the membership and invitation paths check |
 | An app cannot create another app | A credential cannot widen its own reach |
 | Machine scopes are a separate vocabulary from human permissions | A scope never accidentally satisfies a role check |
 | The scope vocabulary comes from WorkOS, not a list in Astro | The picker and validation cannot drift from what is grantable. Nothing is selectable until the slugs are registered there |

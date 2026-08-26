@@ -38,6 +38,7 @@ export default [
           route("billing", "pages/settings/BillingSettings.tsx"),
           route("secrets", "pages/settings/SecretsSettings.tsx"),
           route("api-keys", "pages/settings/ApiKeysSettings.tsx"),
+          route("apps", "pages/settings/AppsSettings.tsx"),
           route("notifications", "pages/settings/NotificationsSettings.tsx"),
           route("connectors", "pages/settings/ConnectorsSettings.tsx"),
           route("organizations", "pages/settings/OrganizationsSettings.tsx"),

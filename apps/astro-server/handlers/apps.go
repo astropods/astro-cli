@@ -332,8 +332,8 @@ func (h *AppHandler) scope(c *gin.Context) (*account.Account, context.Context, c
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
 		return nil, nil, nil, false
 	}
-	if acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "apps are only available for organizations"})
+	if acct.WorkOSOrganizationID == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "this account is still being set up, try again in a moment"})
 		return nil, nil, nil, false
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), appTimeout)

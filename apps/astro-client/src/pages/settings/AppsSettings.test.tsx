@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { afterEach, describe, expect, it } from "vitest";
 import { server } from "@/test/msw/server";
 import { renderRoute } from "@/test/test-utils";
+import AppsSettings from "./AppsSettings";
 import OrgAppsSettings from "./OrgAppsSettings";
 
 const SCOPES = [
@@ -246,5 +247,18 @@ describe("OrgAppsSettings", () => {
     await user.click(screen.getByRole("button", { name: /Delete app/ }));
     await user.click(screen.getByRole("button", { name: "Delete app" }));
     await waitFor(() => expect(deleted).toBe(true));
+  });
+});
+
+describe("AppsSettings", () => {
+  it("lists the signed-in user's personal apps", async () => {
+    server.use(
+      http.get("/api/v1/accounts/testuser/apps", () => HttpResponse.json({ apps: [app] })),
+    );
+    renderRoute([{ path: "/settings/apps", Component: AppsSettings }], {
+      initialEntries: ["/settings/apps"],
+    });
+
+    expect(await screen.findByText("ci-pipeline")).toBeInTheDocument();
   });
 });

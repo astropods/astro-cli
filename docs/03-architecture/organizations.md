@@ -10,10 +10,14 @@ Astro has two account types, both stored in the `accounts` table:
 
 | Type           | Description                     | WorkOS Integration                                |
 | -------------- | ------------------------------- | ------------------------------------------------- |
-| `personal`     | One per user, created on signup | None                                              |
+| `personal`     | One per user, created on signup | Linked to WorkOS Organization via `workos_org_id` |
 | `organization` | Shared team account             | Linked to WorkOS Organization via `workos_org_id` |
 
 Every account has members tracked in `account_members`. Personal accounts have a single member (the creator). Organization accounts can have many members — roles are managed entirely in WorkOS, not stored locally.
+
+Both types are linked to a WorkOS organization, because WorkOS scopes applications, roles, and groups to one: an account without an organization can own none of them. Type, not the link, decides what only a team can do. Invitations and member management check `type = 'organization'`, so a personal account keeps exactly one human. Authorization also splits on type: a personal account authorizes by membership, because no session is ever scoped to its organization.
+
+`org.Provisioner` links the organization at signup and the hourly `account.org_provision_sweep` covers any account still unlinked. The organization carries the account ID as its WorkOS `external_id`, which is what lets a retry adopt an organization a failed attempt created instead of minting a second one.
 
 ## System Overview
 
@@ -264,7 +268,7 @@ accounts (
   updated_at    timestamptz NOT NULL
 )
 
--- Links organization accounts to WorkOS
+-- Links every account, personal or organization, to its WorkOS organization
 account_organizations (
   account_id    uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
   workos_org_id text NOT NULL UNIQUE

@@ -119,9 +119,8 @@ type ProfileUser struct {
 }
 
 // CreateAccount handles POST /api/v1/accounts
-// For organization accounts, also creates a WorkOS Organization and links it.
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -215,49 +214,32 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgCl
 			}
 		}
 
-		// Step 2: For org accounts, create WorkOS Organization and link
-		if req.Type == "organization" && orgClient != nil {
+		if orgProvisioner != nil {
 			ctx := c.Request.Context()
-
-			// Create WorkOS organization with external_id = account.ID
-			workosOrg, err := orgClient.CreateOrganization(ctx, req.Name, acct.ID)
-			if err != nil {
-				log.Error("accounts: create WorkOS organization failed", "error", err, "account_id", acct.ID)
-				// Compensating action: delete local account
+			workosOrgID, err := orgProvisioner.EnsureOrganization(ctx, acct.ID)
+			switch {
+			case err == nil:
+				acct.WorkOSOrganizationID = workosOrgID
+			case req.Type == "organization":
+				log.Error("accounts: provision WorkOS organization failed", "error", err, "account_id", acct.ID)
+				orgProvisioner.DiscardOrganization(ctx, acct.ID)
 				_ = accountStore.DeleteByID(acct.ID)
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":   "failed to create organization",
 					"details": err.Error(),
 				})
 				return
-			}
-
-			// Link WorkOS org to local account
-			if err := accountStore.SetWorkOSOrganizationID(acct.ID, workosOrg.ID); err != nil {
-				log.Error("accounts: link WorkOS org failed", "error", err, "account_id", acct.ID)
-				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
-				_ = accountStore.DeleteByID(acct.ID)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to link organization"})
-				return
-			}
-			acct.WorkOSOrganizationID = workosOrg.ID
-
-			// Create WorkOS membership for creator as owner
-			m, err := orgClient.CreateMembership(ctx, workosOrg.ID, user.ID, "owner")
-			if err != nil {
-				log.Error("accounts: create WorkOS membership for org creator failed", "error", err, "account_id", acct.ID)
-				// Compensating action: clean up WorkOS org and local account
-				_ = orgClient.DeleteOrganization(ctx, workosOrg.ID)
-				_ = accountStore.DeleteByID(acct.ID)
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":   "failed to create organization membership",
-					"details": err.Error(),
-				})
-				return
-			}
-			if err := accountStore.UpsertMemberByWorkosMembershipID(acct.ID, user.ID, m.ID); err != nil {
-				log.Warn("accounts: record WorkOS membership for org creator failed, healed at next login",
-					"error", err, "account_id", acct.ID, "workos_membership_id", m.ID)
+			default:
+				// A personal account authorizes by membership, so it works without
+				// an organization. Queue a retry instead of failing signup. The
+				// account cannot own an OAuth app until the link lands.
+				log.Warn("accounts: provision WorkOS organization failed, retrying off the request path",
+					"error", err, "account_id", acct.ID)
+				if q, ok := queue.(orgProvisionQueue); ok {
+					if err := q.InsertAccountOrgProvision(ctx, acct.ID); err != nil {
+						log.Error("accounts: enqueue WorkOS organization provisioning failed", "error", err, "account_id", acct.ID)
+					}
+				}
 			}
 		}
 

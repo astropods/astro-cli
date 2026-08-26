@@ -147,16 +147,27 @@ func (f *appFixture) expectApp(accountID string) {
 	f.mock.ExpectQuery("FROM account_apps").WithArgs("app-1").WillReturnRows(appRow(accountID))
 }
 
-func TestAppRejectsPersonalAccount(t *testing.T) {
+func TestAppAllowsPersonalAccount(t *testing.T) {
+	f := newAppFixture(t)
+	f.acct = &account.Account{ID: "acct_p", Type: "personal", WorkOSOrganizationID: "org_p"}
+	f.mock.ExpectQuery("FROM account_apps").WithArgs("acct_p").WillReturnRows(appRow("acct_p"))
+
+	response := f.call(f.handler.List, http.MethodGet, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s, want 200", response.Code, response.Body.String())
+	}
+}
+
+func TestAppRejectsAccountWithNoOrganization(t *testing.T) {
 	f := newAppFixture(t)
 	f.acct = &account.Account{ID: "acct_p", Type: "personal"}
 
 	response := f.call(f.handler.List, http.MethodGet, "")
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d body=%s, want 400", response.Code, response.Body.String())
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s, want 409", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "organizations") {
-		t.Fatalf("error should name the constraint: %s", response.Body.String())
+	if !strings.Contains(response.Body.String(), "still being set up") {
+		t.Fatalf("error should say the account is not ready yet: %s", response.Body.String())
 	}
 }
 

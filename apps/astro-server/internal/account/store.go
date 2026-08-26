@@ -1006,6 +1006,31 @@ func (s *AccountStore) GetAccountsPendingBillingProvision(limit int) ([]Account,
 	return accounts, rows.Err()
 }
 
+// GetAccountsPendingOrgProvision returns live accounts with no WorkOS
+// organization linked yet, oldest first.
+func (s *AccountStore) GetAccountsPendingOrgProvision(limit int) ([]Account, error) {
+	rows, err := s.db.Query(`
+		SELECT a.id, a.name, a.type, a.created_at, a.updated_at
+		FROM accounts a
+		LEFT JOIN account_organizations ao ON ao.account_id = a.id
+		WHERE ao.account_id IS NULL AND a.deleted_at IS NULL
+		ORDER BY a.created_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query accounts pending org provision: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.Type, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan account: %w", err)
+		}
+		accounts = append(accounts, a)
+	}
+	return accounts, rows.Err()
+}
+
 // IsBillingProvisioned reports whether the account has already been stamped.
 func (s *AccountStore) IsBillingProvisioned(accountID string) (bool, error) {
 	var at sql.NullTime

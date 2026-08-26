@@ -108,7 +108,7 @@ func insightsSeesEveryone(
 	if middleware.HasAccountPermission(c, accountStore, acct, user, insightsElevatedPermission) {
 		return true
 	}
-	if roles == nil || acct.WorkOSOrganizationID == "" {
+	if roles == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
 		return false
 	}
 	// Only when the session is scoped elsewhere. A session on this organization

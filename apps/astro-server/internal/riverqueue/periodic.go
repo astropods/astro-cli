@@ -167,6 +167,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
+	if cfg.OrgClient != nil && cfg.AccountStore != nil {
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(1*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return AccountOrgProvisionSweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 1 * time.Hour,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
 	if cfg.DeploymentFGASync != nil && cfg.DeploymentFGASync.Enabled() {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(1*time.Minute),
