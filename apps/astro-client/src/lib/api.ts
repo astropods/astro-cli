@@ -2745,7 +2745,7 @@ class ApiClient {
 
   async createApp(
     account: string,
-    body: { name: string; description?: string; scopes: string[] },
+    body: { name: string; description?: string; scopes?: string[] },
   ): Promise<CreateAppResponse> {
     return this.request<CreateAppResponse>(this.appPath(account), {
       method: "POST",

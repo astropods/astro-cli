@@ -15,7 +15,7 @@ export function useApps(account: string, enabled = true) {
 export function useCreateApp(account: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
-  return useMutation<CreateAppResponse, Error, { name: string; description?: string; scopes: string[] }>({
+  return useMutation<CreateAppResponse, Error, { name: string; description?: string; scopes?: string[] }>({
     mutationFn: (body) => api.createApp(account, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appKeys.all(account) });

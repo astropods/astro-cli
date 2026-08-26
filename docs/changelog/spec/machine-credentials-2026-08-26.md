@@ -57,7 +57,18 @@ scope can never satisfy a role check:
 | `audiences:manage` | Add and remove audience members |
 | `slack_identities:manage` | Record which Slack user is which person |
 
-They are validated against that list at creation and stored on the row.
+Nothing selects them yet. WorkOS models a Connect application's scopes as
+permission slugs, drawn from the same registry as the RBAC permissions Astro
+already relies on for human roles, and those slugs are not registered. So the
+create dialog marks scope selection as coming soon and an app is created without
+any, which every scoped endpoint refuses. Unknown scopes are still rejected if
+sent directly.
+
+Keeping machine scopes local rather than registering them in WorkOS is not only
+a workaround. A slug in that registry is grantable to a human role as well, and
+`audiences:manage` has no business being assignable to a person.
+
+The vocabulary is validated at creation and stored on the row.
 `audiences:manage` and `slack_identities:manage` are separate on purpose: a
 system that governs access should not also be able to assert who someone is.
 

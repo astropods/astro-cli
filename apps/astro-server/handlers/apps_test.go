@@ -173,10 +173,13 @@ func TestAppCreateRejectsUnknownScope(t *testing.T) {
 	}
 }
 
-func TestAppCreateRequiresAScope(t *testing.T) {
+func TestAppCreateWithoutScopesIsAllowed(t *testing.T) {
 	f := newAppFixture(t)
-	if response := f.call(f.handler.Create, http.MethodPost, `{"name":"ci"}`); response.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d, want 400", response.Code)
+	f.mock.ExpectQuery("INSERT INTO account_apps").WillReturnRows(appRow("acct_123"))
+
+	response := f.call(f.handler.Create, http.MethodPost, `{"name":"ci"}`)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s: scopes are not selectable yet", response.Code, response.Body.String())
 	}
 }
 

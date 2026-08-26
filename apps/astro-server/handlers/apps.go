@@ -109,10 +109,6 @@ func (h *AppHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if len(req.Scopes) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one scope is required"})
-		return
-	}
 	for _, s := range req.Scopes {
 		if !slices.Contains(AppScopes, s) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown scope: " + s})

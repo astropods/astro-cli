@@ -5,7 +5,6 @@ import { SectionHeader } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { InlineBadge } from "@/components/InlineBadge";
 import { CopyButton } from "@/components/ui/copy-button";
 import {
   Dialog,
@@ -25,18 +24,10 @@ import {
 } from "@/components/ui/table";
 import { useApps, useCreateApp, useCreateAppSecret, useDeleteApp, useDeleteAppSecret } from "@/api/queries";
 import { getApiErrorMessage, type MachineApp, type NewAppSecret } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 export const meta: MetaFunction = () => [
   { title: "Apps - Organization Settings | Astro" },
 ];
-
-const SCOPE_HELP: Record<string, string> = {
-  "members:read": "Read the people in this organization",
-  "audiences:read": "Read audiences and who is on them",
-  "audiences:manage": "Add and remove audience members",
-  "slack_identities:manage": "Record which Slack user is which person",
-};
 
 export default function OrgAppsSettings() {
   const { orgSlug = "" } = useParams();
@@ -48,22 +39,19 @@ export default function OrgAppsSettings() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<{ appName: string; secret: NewAppSecret } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MachineApp | null>(null);
 
-  const available = apps.data?.available_scopes ?? [];
   const list = apps.data?.apps ?? [];
   const error = apps.error ?? createApp.error ?? createSecret.error ?? deleteSecret.error ?? removeApp.error;
 
   const submit = () => {
     createApp.mutate(
-      { name: name.trim(), scopes },
+      { name: name.trim() },
       {
         onSuccess: (data) => {
           setCreateOpen(false);
           setName("");
-          setScopes([]);
           setRevealed({ appName: data.app.name, secret: data.secret });
         },
       },
@@ -104,7 +92,7 @@ export default function OrgAppsSettings() {
         <Table>
           <TableHeader>
             <TableRow>
-              {["Name", "Client ID", "Scopes", "Secrets"].map((header) => (
+              {["Name", "Client ID", "Secrets"].map((header) => (
                 <TableHead key={header}>{header}</TableHead>
               ))}
               <TableHead className="w-10" />
@@ -127,15 +115,6 @@ export default function OrgAppsSettings() {
                       {app.client_id}
                     </span>
                     <CopyButton copyText={app.client_id} title="Copy client ID" iconClassName="size-3.5" />
-                  </span>
-                </TableCell>
-                <TableCell>
-                  <span className="flex flex-wrap gap-1">
-                    {app.scopes.map((scope) => (
-                      <InlineBadge key={scope} variant="soft" className="border-border">
-                        {scope}
-                      </InlineBadge>
-                    ))}
                   </span>
                 </TableCell>
                 <TableCell>
@@ -204,8 +183,7 @@ export default function OrgAppsSettings() {
           <DialogHeader>
             <DialogTitle>New app</DialogTitle>
             <DialogDescription>
-              Pick only the scopes the system needs. The secret is shown once, when the app is
-              created.
+              The secret is shown once, when the app is created.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -227,37 +205,14 @@ export default function OrgAppsSettings() {
                 maxLength={100}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
+            <div>
               <Label size="md">Scopes</Label>
-              {available.map((scope) => {
-                const checked = scopes.includes(scope);
-                return (
-                  <label
-                    key={scope}
-                    className={cn(
-                      "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2",
-                      checked ? "border-primary/40 bg-primary/5" : "border-border",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setScopes((prev) =>
-                          checked ? prev.filter((s) => s !== scope) : [...prev, scope],
-                        )
-                      }
-                      className="mt-0.5"
-                    />
-                    <span className="flex flex-col">
-                      <span className="font-mono text-mono-sm text-foreground">{scope}</span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {SCOPE_HELP[scope] ?? ""}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
+              <div className="rounded-md border border-dashed border-border px-3 py-2.5">
+                <p className="text-body-sm text-muted-foreground">
+                  Choosing what an app can reach is coming soon. Until then an app is created
+                  without scopes and is refused by every scoped endpoint.
+                </p>
+              </div>
             </div>
             {createApp.isError && (
               <p role="alert" className="text-body-sm text-destructive">
@@ -268,7 +223,7 @@ export default function OrgAppsSettings() {
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={!name.trim() || scopes.length === 0 || createApp.isPending}>
+              <Button type="submit" disabled={!name.trim() || createApp.isPending}>
                 {createApp.isPending ? "Creating…" : "Create app"}
               </Button>
             </DialogFooter>

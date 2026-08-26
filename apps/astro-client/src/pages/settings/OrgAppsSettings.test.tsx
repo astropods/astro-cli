@@ -26,7 +26,7 @@ function renderPage() {
 afterEach(cleanup);
 
 describe("OrgAppsSettings", () => {
-  it("lists apps with their client ID, scopes, and secret hints", async () => {
+  it("lists apps with their client ID and secret hints", async () => {
     server.use(
       http.get("/api/v1/accounts/test-org/apps", () =>
         HttpResponse.json({ apps: [app], available_scopes: SCOPES }),
@@ -36,7 +36,6 @@ describe("OrgAppsSettings", () => {
 
     expect(await screen.findByText("lumos-connector")).toBeInTheDocument();
     expect(screen.getByText("client_abc123")).toBeInTheDocument();
-    expect(screen.getByText("audiences:manage")).toBeInTheDocument();
     expect(screen.getByText("…wxyz")).toBeInTheDocument();
   });
 
@@ -59,17 +58,14 @@ describe("OrgAppsSettings", () => {
 
     await user.click(await screen.findByRole("button", { name: /Create your first app/ }));
     await user.type(screen.getByLabelText("Name"), "lumos-connector");
-    await user.click(screen.getByRole("checkbox", { name: /audiences:manage/ }));
     await user.click(screen.getByRole("button", { name: "Create app" }));
 
-    await waitFor(() =>
-      expect(created).toEqual({ name: "lumos-connector", scopes: ["audiences:manage"] }),
-    );
+    await waitFor(() => expect(created).toEqual({ name: "lumos-connector" }));
     expect(await screen.findByText("sk_live_plaintext")).toBeInTheDocument();
     expect(screen.getByText(/only time/)).toBeInTheDocument();
   });
 
-  it("cannot submit without a scope", async () => {
+  it("marks scope selection as coming soon rather than offering one", async () => {
     server.use(
       http.get("/api/v1/accounts/test-org/apps", () =>
         HttpResponse.json({ apps: [], available_scopes: SCOPES }),
@@ -79,9 +75,12 @@ describe("OrgAppsSettings", () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: /Create your first app/ }));
-    await user.type(screen.getByLabelText("Name"), "ci");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("audiences:manage")).not.toBeInTheDocument();
+    expect(screen.getByText(/coming soon/)).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Create app" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Name"), "ci");
+    expect(screen.getByRole("button", { name: "Create app" })).toBeEnabled();
   });
 
   it("hides revoke on a lone secret so an app is never left without one", async () => {
