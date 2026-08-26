@@ -7,19 +7,19 @@ Unblocks phase 2 of [Access audiences](access-audiences-spec.md). Related: [CLI 
 
 ## Summary
 
-Every credential Astro accepts today belongs to a person. `RequireAuth` takes a WorkOS user access token or a sealed session cookie, and the only non-human credential is the per-deployment deploy token, which is accepted on two routes and minted by the platform rather than by a customer. So an integration that needs to write on a schedule has one option: carry a human's refresh token and mint user access tokens forever.
+Every credential Astro accepts today belongs to a person. `RequireAuth` takes a WorkOS user access token or a sealed session cookie, and the only non-human credential is the per-deployment deploy token, which is accepted on two routes and minted by the platform rather than by a customer. So a customer system that needs to write on a schedule has one option: carry a human's refresh token and mint user access tokens forever.
 
-That is disqualifying rather than merely untidy. Every write is attributed to that person, the credential carries their full permissions on every account they belong to, nothing binds it to one account, and offboarding them breaks the integration silently.
+That is disqualifying rather than merely untidy. Every write is attributed to that person, the credential carries their full permissions on every account they belong to, nothing binds it to one account, and offboarding them breaks the sync silently.
 
 WorkOS Connect already issues machine-to-machine applications using the OAuth 2.0 client credentials grant. Astro validates WorkOS JWTs against JWKS today, so accepting an M2M token is a claims-discrimination problem rather than a new authentication system. This spec adds an account-scoped machine credential on top of what WorkOS provides, and changes no existing write path.
 
 ## Goals
 
 1. A credential that belongs to an Astro account, not to a person, and survives that person leaving.
-2. Scopes, so an integration that manages membership cannot also read billing.
+2. Scopes, so an app that manages membership cannot also read billing.
 3. One account per credential, enforced by the token rather than by the caller behaving.
 4. No secret storage, no token endpoint, and no rotation logic written here.
-5. Audit entries attributed to the integration.
+5. Audit entries attributed to the app.
 
 ## Non-goals
 
@@ -49,9 +49,9 @@ One gap: the fetched reference does not show the endpoint that creates a credent
 ```mermaid
 flowchart LR
     subgraph astro["Astro"]
-        UI["Integrations UI"] --> API["astro-server"]
+        UI["Apps UI"] --> API["astro-server"]
         API -->|"create m2m application"| WOS
-        API -->|"store client_id, org_id"| DB[("account_integrations")]
+        API -->|"store client_id, org_id"| DB[("account_apps")]
     end
     subgraph workos["WorkOS Connect"]
         WOS["M2M application<br/>bound to one organization"]
@@ -69,9 +69,9 @@ The secret never lands in Astro's database. Astro stores the `client_id`, the Wo
 
 ### Objects
 
-An **integration** is one row per credential: the Astro account it belongs to, the WorkOS application and client IDs, a human label, the scopes granted, who created it, and when it was last used. Deleting the row deletes the WorkOS application, which is what actually revokes access.
+An **app** is one row per WorkOS M2M application: the Astro account it belongs to, the WorkOS application and client IDs, a human label, the scopes granted, who created it, and when it was last used. Deleting the row deletes the WorkOS application, which is what actually revokes access.
 
-One integration maps to one WorkOS M2M application rather than to one credential, so the five-credential allowance is available for rotation within a single integration.
+One app maps to one WorkOS M2M application rather than to one credential, so the five-credential allowance is available for rotation within a single app.
 
 ### Creating one
 
@@ -81,7 +81,7 @@ sequenceDiagram
     participant Server as astro-server
     participant WorkOS
 
-    Admin->>Server: POST /accounts/:account/integrations {label, scopes}
+    Admin->>Server: POST /accounts/:account/apps {label, scopes}
     Server->>Server: account must be an organization
     Server->>WorkOS: create m2m application (organization_id, scopes)
     WorkOS-->>Server: application id, client_id
@@ -105,14 +105,14 @@ So the two token kinds must be told apart before either is trusted:
 
 | Check | User token | M2M token |
 | --- | --- | --- |
-| `sub` | A WorkOS user ID | The client ID, and must match a stored integration |
+| `sub` | A WorkOS user ID | The client ID, and must match a stored app |
 | `aud` | Absent | Present, and must equal the client ID |
 | `org_id` | Present when the session is org-scoped | Always present |
-| Astro identity | A user | An integration. No user is set on the context |
+| Astro identity | A user | An app. No user is set on the context |
 
-Discriminate on the presence of `aud` together with a `sub` that resolves to a stored `client_id`, and validate the audience for the M2M branch rather than skipping it. A token whose `sub` matches no integration is rejected, so deleting the row denies the token before its hour is up.
+Discriminate on the presence of `aud` together with a `sub` that resolves to a stored `client_id`, and validate the audience for the M2M branch rather than skipping it. A token whose `sub` matches no app is rejected, so deleting the row denies the token before its hour is up.
 
-The middleware sets an integration on the request context and deliberately sets no user. Any handler that reads a user therefore fails closed rather than reading a client ID as a person.
+The middleware sets an app on the request context and deliberately sets no user. Any handler that reads a user therefore fails closed rather than reading a client ID as a person.
 
 ### Resolving the account
 
@@ -136,7 +136,7 @@ WorkOS scopes are permission slugs on the application, and they arrive in the to
 | `members:read` | Read the account's members |
 | `slack_identities:manage` | Record which Slack user is which person |
 
-A route declares the scope it needs. An integration holding `audiences:read` gets 403 on a write rather than a 404, because the resource exists and the credential is the thing that falls short.
+A route declares the scope it needs. An app holding `audiences:read` gets 403 on a write rather than a 404, because the resource exists and the credential is the thing that falls short.
 
 Scopes are fixed at creation. Changing them means updating the WorkOS application, which changes what future tokens carry but not tokens already issued, so a scope reduction takes up to an hour to bite. Say so in the UI rather than pretending it is instant.
 
@@ -146,34 +146,34 @@ Five credentials per application makes rotation a two-step the customer can run 
 
 ### Audit and attribution
 
-Every write already writes an audit event. An integration-authored event records the integration as the actor instead of a user, so the trail reads "Lumos added Alice" rather than naming the admin who created the credential.
+Every write already writes an audit event. An app-authored event records the app as the actor instead of a user, so the trail reads "Lumos added Alice" rather than naming the admin who created the credential.
 
-Membership rows carry `source` and `granted_by`. An integration write sets `source` to `external:<label>` and `granted_by` to the integration ID, which is what makes a later removal scoped to that writer.
+Membership rows carry `source` and `granted_by`. An app write sets `source` to `external:<label>` and `granted_by` to the app ID, which is what makes a later removal scoped to that writer.
 
 ### Revocation
 
-Deleting an integration deletes the WorkOS application, and rejecting a token whose `sub` matches no row means the deletion is effective immediately rather than after the token expires. The Token Introspection API is therefore not needed for revocation, which keeps the hot path free of a synchronous call to WorkOS.
+Deleting an app deletes the WorkOS application, and rejecting a token whose `sub` matches no row means the deletion is effective immediately rather than after the token expires. The Token Introspection API is therefore not needed for revocation, which keeps the hot path free of a synchronous call to WorkOS.
 
 ## API surface
 
 | Operation | Endpoint |
 | --- | --- |
-| List integrations | `GET /api/v1/accounts/:account/integrations` |
-| Create one | `POST /api/v1/accounts/:account/integrations` |
-| Add a credential | `POST /api/v1/accounts/:account/integrations/:id/credentials` |
-| Revoke a credential | `DELETE /api/v1/accounts/:account/integrations/:id/credentials/:credential_id` |
-| Delete the integration | `DELETE /api/v1/accounts/:account/integrations/:id` |
+| List apps | `GET /api/v1/accounts/:account/apps` |
+| Create one | `POST /api/v1/accounts/:account/apps` |
+| Add a credential | `POST /api/v1/accounts/:account/apps/:id/credentials` |
+| Revoke a credential | `DELETE /api/v1/accounts/:account/apps/:id/credentials/:credential_id` |
+| Delete the app | `DELETE /api/v1/accounts/:account/apps/:id` |
 
-These sit behind `org:manage`, like every other account setting. They are human-only: an integration cannot create another integration, because a credential that can mint credentials defeats scoping.
+These sit behind `org:manage`, like every other account setting. They are human-only: an app cannot create another app, because a credential that can mint credentials defeats scoping.
 
-`GET /api/v1/me` gains a machine-credential shape. Today it resolves the calling user and returns every account they belong to, which a machine caller has no use for. For an integration it returns the bound account slug and the granted scopes, which is exactly what a connector reads once at startup to build every other URL.
+`GET /api/v1/me` gains a machine-credential shape. Today it resolves the calling user and returns every account they belong to, which a machine caller has no use for. For an app it returns the bound account slug and the granted scopes, which is exactly what a connector reads once at startup to build every other URL.
 
 ## Schema changes
 
 | Table | Change |
 | --- | --- |
-| `account_integrations` | New. `id`, `account_id`, `label`, `workos_application_id`, `scopes text[]`, `created_by`, `created_at`, `updated_at`. Unique on `(account_id, label)` and on `workos_application_id` |
-| `account_integration_credentials` | New. `id`, `integration_id`, `client_id`, `created_by`, `created_at`, `last_used_at`, `revoked_at`. Unique on `client_id`, which is the column token validation looks up |
+| `account_apps` | New. `id`, `account_id`, `label`, `workos_application_id`, `scopes text[]`, `created_by`, `created_at`, `updated_at`. Unique on `(account_id, label)` and on `workos_application_id` |
+| `account_app_credentials` | New. `id`, `app_id`, `client_id`, `created_by`, `created_at`, `last_used_at`, `revoked_at`. Unique on `client_id`, which is the column token validation looks up |
 | `audience_members` | No change. `source` and `granted_by` already exist and already carry an external writer |
 
 No secret material is stored in either table. The `client_id` is public by design, so a leak of these rows exposes no credential.
@@ -186,10 +186,10 @@ No secret material is stored in either table. The `client_id` is public by desig
 | --- | --- |
 | User access tokens | Unchanged. The M2M branch is additive and only engages when `aud` is present and `sub` resolves to a stored client |
 | Empty-audience validator | Now wrong to share. The user branch keeps skipping `aud`; the M2M branch must check it |
-| Session cookie | Unchanged, and never carries an integration |
+| Session cookie | Unchanged, and never carries an app |
 | Deploy token | Unchanged. Still the only credential on the two `/deployments/*` routes |
-| `RequireAccountPermission` | Reused for org scoping. It reads a user first, so it needs a branch that accepts an integration and checks a scope instead of a role permission |
-| Personal accounts | No WorkOS organization, so integrations are unavailable. The UI hides the section rather than failing at create time |
+| `RequireAccountPermission` | Reused for org scoping. It reads a user first, so it needs a branch that accepts an app and checks a scope instead of a role permission |
+| Personal accounts | No WorkOS organization, so apps are unavailable. The UI hides the section rather than failing at create time |
 | FGA platform roles | Untouched. A machine scope grants no deployment role |
 
 ## Test cases
@@ -198,8 +198,8 @@ No secret material is stored in either table. The `client_id` is public by desig
 
 | ID | Scenario | Expected |
 | --- | --- | --- |
-| A1 | M2M token with a `sub` matching a stored `client_id` | Accepted as that integration |
-| A2 | M2M token whose `sub` matches no row | 401, so deleting an integration revokes before expiry |
+| A1 | M2M token with a `sub` matching a stored `client_id` | Accepted as that app |
+| A2 | M2M token whose `sub` matches no row | 401, so deleting an app revokes before expiry |
 | A3 | M2M token whose `aud` does not match its `sub` | 401 |
 | A4 | User access token, no `aud` | Accepted as a user, exactly as today |
 | A5 | M2M token presented to a handler that reads a user | Fails closed, and never reads the client ID as a user |
@@ -214,8 +214,8 @@ No secret material is stored in either table. The `client_id` is public by desig
 | B1 | Credential for account X on a path for account X | Allowed |
 | B2 | Credential for account X on a path for account Y | 403 |
 | B3 | `org_id` that maps to no Astro account | 401 |
-| B4 | `GET /me` with an integration token | Returns the bound account slug and the granted scopes |
-| B5 | Integration on a personal account | Cannot be created |
+| B4 | `GET /me` with an app token | Returns the bound account slug and the granted scopes |
+| B5 | App on a personal account | Cannot be created |
 
 ### C. Scopes
 
@@ -225,26 +225,26 @@ No secret material is stored in either table. The `client_id` is public by desig
 | C2 | `audiences:manage` on a member write | Allowed |
 | C3 | `audiences:manage` on a Slack identity write | 403 |
 | C4 | Scope removed on the application, token already issued | Still carries the old scope until it expires |
-| C5 | Integration attempts to create another integration | 403 |
+| C5 | App attempts to create another app | 403 |
 
 ### D. Lifecycle
 
 | ID | Scenario | Expected |
 | --- | --- | --- |
-| D1 | Create an integration | Secret returned once, never readable again |
+| D1 | Create an app | Secret returned once, never readable again |
 | D2 | WorkOS application created but the row fails to commit | Orphan grants nothing, and reconciliation deletes it |
 | D3 | Add a second credential, move the tool, revoke the first | No failed request in between |
 | D4 | Sixth credential on one application | Rejected, with the five-credential limit named |
-| D5 | Delete the integration | WorkOS application deleted, every token denied |
-| D6 | Creator of the integration is offboarded | Integration keeps working |
-| D7 | Membership write by an integration | Audit names the integration, and `source` is `external:<label>` |
+| D5 | Delete the app | WorkOS application deleted, every token denied |
+| D6 | Creator of the app is offboarded | App keeps working |
+| D7 | Membership write by an app | Audit names the app, and `source` is `external:<label>` |
 
 ## Rollout
 
 | Phase | Content |
 | --- | --- |
 | 1 | Both tables, the WorkOS Applications API client, create and delete, and the middleware branch with account and scope checks. No UI. |
-| 2 | The integrations settings screen, credential rotation, last-used display, and the `/me` machine shape. |
+| 2 | The apps settings screen, credential rotation, last-used display, and the `/me` machine shape. |
 | 3 | Apply scopes to the audience member endpoints, add cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. |
 
 Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) phase 2, and it is small once the credential exists.
@@ -257,7 +257,7 @@ Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) p
 | Store no secret material | These rows leaking exposes nothing. Rotation has to go through WorkOS |
 | Discriminate on `aud` plus a `sub` that resolves to a stored client | The empty-audience exemption for user tokens stops being a hole an M2M token can walk through |
 | Deny a token whose client has no row | Revocation is immediate without the introspection call on the hot path |
-| An integration is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
-| An integration cannot create an integration | A credential cannot widen its own reach |
+| An app is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
+| An app cannot create another app | A credential cannot widen its own reach |
 | Machine scopes are a separate vocabulary from human permissions | A scope never accidentally satisfies a role check |
 | `last_used_at` is sampled | A read-heavy connector does not turn every read into a write, at the cost of an imprecise timestamp |
