@@ -8,6 +8,15 @@ import (
 	"text/template"
 )
 
+// The mastra template is a source tree rather than one entry point, so tests read
+// the file that owns the behaviour they assert on.
+const (
+	mastraAgentFile     = "templates/template-ts-mastra/src/mastra/agents/agent.ts"
+	mastraRuntimeFile   = "templates/template-ts-mastra/src/mastra/index.ts"
+	mastraEntryFile     = "templates/template-ts-mastra/src/astro.ts"
+	mastraMessagingFile = "templates/template-ts-mastra/src/messaging.ts"
+)
+
 // --- GetTemplatePaths tests ---
 
 func TestGetTemplatePaths_MastraUsesOverridePaths(t *testing.T) {
@@ -16,8 +25,8 @@ func TestGetTemplatePaths_MastraUsesOverridePaths(t *testing.T) {
 		t.Fatalf("GetTemplatePaths(ts, mastra): %v", err)
 	}
 
-	if !strings.Contains(paths.AgentIndex, "template-ts-mastra") {
-		t.Errorf("AgentIndex = %q, want path containing template-ts-mastra", paths.AgentIndex)
+	if !strings.Contains(paths.SrcTree, "template-ts-mastra") {
+		t.Errorf("SrcTree = %q, want path containing template-ts-mastra", paths.SrcTree)
 	}
 	if !strings.Contains(paths.PackageJson, "template-ts-mastra") {
 		t.Errorf("PackageJson = %q, want path containing template-ts-mastra", paths.PackageJson)
@@ -46,7 +55,8 @@ func TestGetTemplatePaths_AllEmbeddedFilesExist(t *testing.T) {
 		paths.AstroYml, paths.Dockerfile, paths.DockerfileIngestion,
 		paths.PackageJson, paths.Tsconfig,
 		paths.Gitignore, paths.Dockerignore,
-		paths.AgentIndex, paths.IngestionIndex, paths.LlmMd,
+		mastraAgentFile, mastraRuntimeFile, mastraEntryFile, mastraMessagingFile,
+		paths.IngestionIndex, paths.LlmMd,
 		paths.Readme, paths.PostmanCollection, paths.IngestionWebhookIndex,
 	}
 
@@ -92,60 +102,49 @@ var defaultConfig = ScaffoldConfig{
 	Ingestions:      []string{},
 }
 
-func TestMastraTemplate_AgentIndex_UsesMastraImports(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
-
-	if !strings.Contains(content, `@mastra/core/agent`) {
-		t.Error("mastra agent/index.ts should import from @mastra/core/agent")
-	}
-	if !strings.Contains(content, `@mastra/core/mastra`) {
-		t.Error("mastra agent/index.ts should import from @mastra/core/mastra")
-	}
-	if !strings.Contains(content, `@mastra/observability`) {
-		t.Error("mastra agent/index.ts should import from @mastra/observability")
-	}
-	if !strings.Contains(content, `@mastra/otel-exporter`) {
-		t.Error("mastra agent/index.ts should import from @mastra/otel-exporter")
-	}
-	if !strings.Contains(content, `@astropods/adapter-mastra`) {
-		t.Error("mastra agent/index.ts should import from @astropods/adapter-mastra")
-	}
-	if !strings.Contains(content, `new Mastra({`) {
-		t.Error("mastra agent/index.ts should instantiate Mastra runtime")
-	}
-	if !strings.Contains(content, `observability,`) {
-		t.Error("mastra agent/index.ts should wire an observability object")
-	}
-	if !strings.Contains(content, `serve(agent)`) {
-		t.Error("mastra agent/index.ts should call serve(agent)")
+func TestMastraTemplate_UsesMastraImports(t *testing.T) {
+	for _, tc := range []struct{ file, want, why string }{
+		{mastraAgentFile, "@mastra/core/agent", "the agent is a Mastra Agent"},
+		{mastraRuntimeFile, "@mastra/core/mastra", "the runtime instantiates Mastra"},
+		{mastraRuntimeFile, "@mastra/observability", "traces are exported"},
+		{mastraRuntimeFile, "@mastra/otel-exporter", "traces reach the platform collector"},
+		{mastraRuntimeFile, "new Mastra({", "the runtime registers agents and plugins"},
+		{mastraRuntimeFile, "observability:", "observability is wired into Mastra"},
+		{mastraMessagingFile, "@astropods/adapter-mastra", "the agent connects to the sidecar"},
+		// Not serve(): it discards the MessagingBridge, leaving no way to send
+		// outside an inbound turn, which is what a scheduled run needs.
+		{mastraEntryFile, "startMessaging(", "the entry point owns the messaging stream"},
+		{mastraEntryFile, "startWorkers()", "cron schedules only run once the workers start"},
+	} {
+		content := renderTemplate(t, tc.file, defaultConfig)
+		if !strings.Contains(content, tc.want) {
+			t.Errorf("%s should contain %q (%s)", tc.file, tc.want, tc.why)
+		}
 	}
 }
 
 func TestMastraTemplate_AgentIndex_IncludesTracingDefaults(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+	content := renderTemplate(t, mastraAgentFile, defaultConfig)
 
 	if !strings.Contains(content, "defaultOptions:") {
-		t.Error("mastra agent/index.ts should include defaultOptions")
+		t.Error("mastra src/mastra/agents/agent.ts should include defaultOptions")
 	}
 	if !strings.Contains(content, "tracingOptions:") {
-		t.Error("mastra agent/index.ts should include tracingOptions")
+		t.Error("mastra src/mastra/agents/agent.ts should include tracingOptions")
 	}
 	if !strings.Contains(content, "tags: ['astro', 'agent:test-agent']") {
-		t.Error("mastra agent/index.ts should include astro tracing tags")
+		t.Error("mastra src/mastra/agents/agent.ts should include astro tracing tags")
 	}
 }
 
 func TestMastraTemplate_AgentIndex_DoesNotUseAstroAgent(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+	content := renderTemplate(t, mastraAgentFile, defaultConfig)
 
 	if strings.Contains(content, "AstroAgent") {
-		t.Error("mastra agent/index.ts should not reference AstroAgent class")
+		t.Error("mastra src/mastra/agents/agent.ts should not reference AstroAgent class")
 	}
 	if strings.Contains(content, "MessagingClient") {
-		t.Error("mastra agent/index.ts should not reference MessagingClient")
+		t.Error("mastra src/mastra/agents/agent.ts should not reference MessagingClient")
 	}
 }
 
@@ -182,7 +181,6 @@ func TestMastraTemplate_PackageJson_DoesNotHaveAstroAgentDeps(t *testing.T) {
 // --- Template variable substitution tests ---
 
 func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	cases := []struct {
 		name     string
 		wantID   string
@@ -195,7 +193,7 @@ func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
 	for _, tc := range cases {
 		config := defaultConfig
 		config.Name = tc.name
-		content := renderTemplate(t, paths.AgentIndex, config)
+		content := renderTemplate(t, mastraAgentFile, config)
 		if want := "id: '" + tc.wantID + "'"; !strings.Contains(content, want) {
 			t.Errorf("name=%q: expected %q, got:\n%s", tc.name, want, content)
 		}
@@ -206,51 +204,49 @@ func TestMastraTemplate_AgentIndex_IdAndName(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesName(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+	content := renderTemplate(t, mastraAgentFile, defaultConfig)
 
 	if !strings.Contains(content, `id: 'test-agent'`) {
-		t.Errorf("mastra agent/index.ts should contain agent id, got:\n%s", content)
+		t.Errorf("mastra src/mastra/agents/agent.ts should contain agent id, got:\n%s", content)
 	}
 	if !strings.Contains(content, `name: 'Test Agent'`) {
-		t.Errorf("mastra agent/index.ts should contain human-readable agent name, got:\n%s", content)
+		t.Errorf("mastra src/mastra/agents/agent.ts should contain human-readable agent name, got:\n%s", content)
 	}
 }
 
 func TestMastraTemplate_AgentIndex_EscapesSingleQuotesInDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Description = "It's a helper that does O'Brien's work"
-	content := renderTemplate(t, paths.AgentIndex, config)
+	content := renderTemplate(t, mastraAgentFile, config)
 
 	for _, line := range strings.Split(content, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instructions:") {
+		// The description is embedded in one literal (purpose) that the instructions
+		// interpolate, so that line is where escaping has to hold.
+		if strings.HasPrefix(strings.TrimSpace(line), "const purpose =") {
 			if strings.Contains(line, "It's") || strings.Contains(line, "O'Brien") {
-				t.Errorf("unescaped single quote in instructions line would break JS string literal:\n%s", line)
+				t.Errorf("unescaped single quote would break the JS string literal:\n%s", line)
 			}
 			if !strings.Contains(line, `It\'s`) {
-				t.Errorf("expected escaped single quote in instructions line:\n%s", line)
+				t.Errorf("expected escaped single quote:\n%s", line)
 			}
 			return
 		}
 	}
-	t.Error("instructions: line not found in rendered template")
+	t.Error("const purpose line not found in rendered template")
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesDescription(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+	content := renderTemplate(t, mastraAgentFile, defaultConfig)
 
 	if !strings.Contains(content, "A test agent") {
-		t.Errorf("mastra agent/index.ts should contain description, got:\n%s", content)
+		t.Errorf("mastra src/mastra/agents/agent.ts should contain description, got:\n%s", content)
 	}
 }
 
 func TestMastraTemplate_AgentIndex_AnthropicModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Integrations = []string{"anthropic"}
-	content := renderTemplate(t, paths.AgentIndex, config)
+	content := renderTemplate(t, mastraAgentFile, config)
 
 	if !strings.Contains(content, "anthropic/claude") {
 		t.Errorf("mastra agent with anthropic integration should use anthropic model, got:\n%s", content)
@@ -258,10 +254,9 @@ func TestMastraTemplate_AgentIndex_AnthropicModel(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_OpenAIModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig
 	config.Integrations = []string{"openai"}
-	content := renderTemplate(t, paths.AgentIndex, config)
+	content := renderTemplate(t, mastraAgentFile, config)
 
 	if !strings.Contains(content, "openai/gpt") {
 		t.Errorf("mastra agent with openai integration should use openai model, got:\n%s", content)
@@ -288,16 +283,32 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 		t.Fatalf("GenerateFiles(mastra): %v", err)
 	}
 
-	// Verify agent/index.ts exists and has mastra content
-	agentContent, err := os.ReadFile(filepath.Join(target, "agent", "index.ts"))
+	// Verify the generated source tree exists and has mastra content
+	agentContent, err := os.ReadFile(filepath.Join(target, "src", "mastra", "agents", "agent.ts"))
 	if err != nil {
-		t.Fatalf("read agent/index.ts: %v", err)
+		t.Fatalf("read src/mastra/agents/agent.ts: %v", err)
 	}
 	if !strings.Contains(string(agentContent), "@mastra/core/agent") {
-		t.Error("generated agent/index.ts should contain @mastra/core/agent import")
+		t.Error("generated agent should import @mastra/core/agent")
 	}
-	if !strings.Contains(string(agentContent), "serve(agent)") {
-		t.Error("generated agent/index.ts should call serve(agent)")
+
+	// Every file in the template tree is generated, nested directories included.
+	for _, f := range []string{
+		filepath.Join("src", "astro.ts"),
+		filepath.Join("src", "messaging.ts"),
+		filepath.Join("src", "mastra", "index.ts"),
+		filepath.Join("src", "mastra", "ensure-database.ts"),
+		filepath.Join("src", "mastra", "deliver-scheduled-output.ts"),
+		filepath.Join("src", "mastra", "tools", "schedule-tools.ts"),
+	} {
+		if _, err := os.Stat(filepath.Join(target, f)); err != nil {
+			t.Errorf("generated project missing %s: %v", f, err)
+		}
+	}
+
+	// The single-entry-point layout is gone; an empty agent/ dir must not ship.
+	if _, err := os.Stat(filepath.Join(target, "agent")); !os.IsNotExist(err) {
+		t.Error("mastra scaffold should not create an agent/ directory")
 	}
 
 	// Verify package.json has mastra deps
@@ -370,9 +381,8 @@ func TestGenerateFiles_WebhookPostmanCollection(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_DefaultModel(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	config := defaultConfig // no integrations, no custom model
-	content := renderTemplate(t, paths.AgentIndex, config)
+	content := renderTemplate(t, mastraAgentFile, config)
 
 	if !strings.Contains(content, "anthropic/claude-sonnet-4-5") {
 		t.Errorf("mastra agent with no integration should default to anthropic/claude-sonnet-4-5, got:\n%s", content)
@@ -380,14 +390,13 @@ func TestMastraTemplate_AgentIndex_DefaultModel(t *testing.T) {
 }
 
 func TestMastraTemplate_AgentIndex_SubstitutesInstructions(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
-	content := renderTemplate(t, paths.AgentIndex, defaultConfig)
+	content := renderTemplate(t, mastraAgentFile, defaultConfig)
 
 	if !strings.Contains(content, "test-agent") {
-		t.Errorf("mastra agent/index.ts instructions should reference agent name, got:\n%s", content)
+		t.Errorf("mastra src/mastra/agents/agent.ts instructions should reference agent name, got:\n%s", content)
 	}
 	if !strings.Contains(content, "A test agent") {
-		t.Errorf("mastra agent/index.ts instructions should reference description, got:\n%s", content)
+		t.Errorf("mastra src/mastra/agents/agent.ts instructions should reference description, got:\n%s", content)
 	}
 }
 
@@ -640,7 +649,7 @@ func TestGenerateFiles_LangchainTemplate(t *testing.T) {
 	}
 
 	// TypeScript-specific files must not exist
-	for _, tsFile := range []string{"package.json", "tsconfig.json", "agent/index.ts"} {
+	for _, tsFile := range []string{"package.json", "tsconfig.json", "src/astro.ts"} {
 		if _, err := os.Stat(filepath.Join(target, tsFile)); !os.IsNotExist(err) {
 			t.Errorf("TypeScript file %q should not exist in Python scaffold", tsFile)
 		}

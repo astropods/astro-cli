@@ -30,6 +30,9 @@ type TemplatePaths struct {
 	PostmanCollection        string
 	PostmanWebhookCollection string
 	IngestionWebhookIndex    string
+	// SrcTree is an embedded directory rendered file-for-file into the project,
+	// for templates whose sources are a tree rather than a single entry point.
+	SrcTree string
 }
 
 // templateToLang maps each template name to its language.
@@ -52,9 +55,9 @@ func GetTemplatePaths(templateName string) (*TemplatePaths, error) {
 	case "mastra":
 		return &TemplatePaths{
 			AstroYml:                 "templates/template-ts/astropods.yml",
-			Dockerfile:               "templates/template-ts/Dockerfile",
+			Dockerfile:               "templates/template-ts-mastra/Dockerfile",
 			DockerfileIngestion:      "templates/template-ts/Dockerfile.ingestion",
-			Tsconfig:                 "templates/template-ts/tsconfig.json",
+			Tsconfig:                 "templates/template-ts-mastra/tsconfig.json",
 			Gitignore:                "templates/template-ts/gitignore.tmpl",
 			Dockerignore:             "templates/template-ts/dockerignore.tmpl",
 			IngestionIndex:           "templates/template-ts/ingestion/index.ts",
@@ -64,7 +67,7 @@ func GetTemplatePaths(templateName string) (*TemplatePaths, error) {
 			PostmanCollection:        "templates/template-ts/postman/collections/messaging.postman_collection.json",
 			PostmanWebhookCollection: "templates/template-ts/postman/collections/webhook.postman_collection.json",
 			IngestionWebhookIndex:    "templates/template-ts/ingestion/webhook.ts",
-			AgentIndex:               "templates/template-ts-mastra/agent/index.ts",
+			SrcTree:                  "templates/template-ts-mastra/src",
 			PackageJson:              "templates/template-ts-mastra/package.json",
 		}, nil
 

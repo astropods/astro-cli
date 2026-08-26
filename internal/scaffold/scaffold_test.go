@@ -425,7 +425,8 @@ func TestAllTemplatesRender(t *testing.T) {
 		{"tsconfig.json", paths.Tsconfig},
 		{"gitignore", paths.Gitignore},
 		{"dockerignore", paths.Dockerignore},
-		{"agent/index.ts", paths.AgentIndex},
+		{"src/mastra/agents/agent.ts", "templates/template-ts-mastra/src/mastra/agents/agent.ts"},
+		{"src/astro.ts", "templates/template-ts-mastra/src/astro.ts"},
 		{"ingestion/<type>/index.ts", paths.IngestionIndex},
 		{"ingestion/webhook/index.ts", paths.IngestionWebhookIndex},
 		{"agents.md", paths.LlmMd},
@@ -847,7 +848,6 @@ func TestAgentEnvVars_MatchesSpecEnvResolver(t *testing.T) {
 // TestMastraTemplate_AgentIndex_EnvVarsInComment checks that the rendered template
 // includes the computed env vars with their descriptions in the JSDoc comment.
 func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
-	paths, _ := GetTemplatePaths("mastra")
 	cfg := ScaffoldConfig{
 		Name:            "test-agent",
 		Description:     "A test agent",
@@ -855,7 +855,8 @@ func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
 		Knowledge:       []string{"qdrant"},
 		IntegrationKeys: map[string]string{},
 	}
-	content := renderTemplate(t, paths.AgentIndex, cfg)
+	// The entry point documents the injected environment.
+	content := renderTemplate(t, "templates/template-ts-mastra/src/astro.ts", cfg)
 
 	// Key and description pairs expected in the comment.
 	wantLines := []string{
