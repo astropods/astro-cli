@@ -2,6 +2,7 @@ package admingrpc
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -33,6 +34,8 @@ type fakeAuthorizationAdminStore struct {
 	operation *authorizationadmin.Operation
 	jobID     int64
 	createErr error
+	attachErr error
+	attached  bool
 }
 
 func (f *fakeAuthorizationAdminStore) CreateReset(_ context.Context, accountID string, dryRun bool, confirmedCount *int) (*authorizationadmin.Operation, error) {
@@ -43,8 +46,9 @@ func (f *fakeAuthorizationAdminStore) CreateReset(_ context.Context, accountID s
 	return f.operation, nil
 }
 func (f *fakeAuthorizationAdminStore) AttachJob(_ context.Context, _ string, jobID int64) error {
+	f.attached = true
 	f.jobID = jobID
-	return nil
+	return f.attachErr
 }
 func (f *fakeAuthorizationAdminStore) List(context.Context, int) ([]authorizationadmin.Operation, error) {
 	return nil, nil
@@ -121,5 +125,25 @@ func TestAuthorizationResetRejectsConcurrentOperation(t *testing.T) {
 	})
 	if status.Code(err) != codes.AlreadyExists {
 		t.Fatalf("status = %v, want AlreadyExists", status.Code(err))
+	}
+}
+
+func TestAuthorizationResetIgnoresJobAttachmentFailure(t *testing.T) {
+	store := &fakeAuthorizationAdminStore{attachErr: errors.New("database unavailable")}
+	server := &Server{
+		authorizationAdminResetEnabled: true,
+		authorizationAdmin:             &fakeAuthorizationAdminService{},
+		authorizationAdminStore:        store,
+		queue:                          &mockAdminJobQueue{},
+	}
+	response, err := server.StartAuthorizationResourceReset(context.Background(), &adminv1.StartAuthorizationResourceResetRequest{
+		AccountID: "acct_123",
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatalf("StartAuthorizationResourceReset() error = %v", err)
+	}
+	if response.Operation == nil || response.Operation.ID != "op_123" || !store.attached {
+		t.Fatalf("response = %+v, attached = %t", response, store.attached)
 	}
 }

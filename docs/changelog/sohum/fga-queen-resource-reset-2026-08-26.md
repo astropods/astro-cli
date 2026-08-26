@@ -18,6 +18,7 @@ The reset is a durable River operation enabled explicitly per environment:
 The operation ledger makes retries and partial failure visible without pausing FGA lifecycle work.
 Its rows cascade with account deletion so reset history never blocks normal account cleanup.
 Postgres permits only one queued or running reset per account, and retries revalidate the confirmed count until the first deletion succeeds.
+After River accepts a reset, failure to attach its job ID is logged but does not mask the running operation.
 
 ## Migration
 

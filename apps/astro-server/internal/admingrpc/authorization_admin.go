@@ -121,7 +121,13 @@ func (s *Server) StartAuthorizationResourceReset(ctx context.Context, req *admin
 		return nil, status.Errorf(codes.Internal, "enqueue authorization reset: %v", err)
 	}
 	if err := s.authorizationAdminStore.AttachJob(ctx, operation.ID, jobID); err != nil {
-		return nil, status.Errorf(codes.Internal, "attach authorization reset job: %v", err)
+		if s.log != nil {
+			s.log.Warn("authorization reset: attach River job id failed",
+				"operation_id", operation.ID,
+				"job_id", jobID,
+				"error", err,
+			)
+		}
 	}
 	return &adminv1.StartAuthorizationResourceResetResponse{Operation: authorizationOperationProto(operation)}, nil
 }
