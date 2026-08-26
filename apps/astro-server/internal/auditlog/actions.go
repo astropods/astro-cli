@@ -49,6 +49,7 @@ const (
 
 	AppCreate       = "app.create"
 	AppDelete       = "app.delete"
+	AppUpdateScopes = "app.update_scopes"
 	AppCreateSecret = "app.create_secret" //nolint:gosec // an audit action name, not a credential
 	AppDeleteSecret = "app.delete_secret" //nolint:gosec // an audit action name, not a credential
 

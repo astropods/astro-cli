@@ -2770,6 +2770,13 @@ class ApiClient {
     });
   }
 
+  async updateAppScopes(account: string, id: string, scopes: string[]): Promise<MachineApp> {
+    return this.request<MachineApp>(this.appPath(account, `/${encodeURIComponent(id)}`), {
+      method: "PATCH",
+      body: JSON.stringify({ scopes }),
+    });
+  }
+
   async deleteApp(account: string, id: string): Promise<void> {
     return this.request<void>(this.appPath(account, `/${encodeURIComponent(id)}`), {
       method: "DELETE",

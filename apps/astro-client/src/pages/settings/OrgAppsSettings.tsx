@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, type MetaFunction } from "react-router";
-import { ChevronDown, ChevronRight, KeyRound, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import { SectionHeader } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAppScopes, useApps, useCreateApp, useCreateAppSecret, useDeleteApp, useDeleteAppSecret } from "@/api/queries";
+import {
+  useAppScopes,
+  useApps,
+  useCreateApp,
+  useCreateAppSecret,
+  useDeleteApp,
+  useDeleteAppSecret,
+  useUpdateAppScopes,
+} from "@/api/queries";
+import { InlineBadge } from "@/components/InlineBadge";
 import { AppScopePicker } from "@/components/settings/AppScopePicker";
 import { getApiErrorMessage, type MachineApp, type NewAppSecret } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -267,6 +276,8 @@ function AppRow({
           >
             <TooltipProvider delayDuration={150}>
             <div className="flex flex-col gap-4 px-4 py-4">
+              <AppScopesSection app={app} account={account} />
+
               <div className="flex flex-col gap-2.5">
                 <p className="text-heading-4 text-foreground">
                   Secrets
@@ -436,6 +447,86 @@ function AppRow({
 
 const LONE_SECRET_REASON =
   "Add a second secret before revoking this one, so nothing loses access while you swap it over.";
+
+function AppScopesSection({ app, account }: { app: MachineApp; account: string }) {
+  const available = useAppScopes(account);
+  const update = useUpdateAppScopes(account);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string[]>(app.scopes);
+
+  const start = () => {
+    setDraft(app.scopes);
+    update.reset();
+    setEditing(true);
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-heading-4 text-foreground">Scopes</p>
+        {!editing && (
+          <Button type="button" variant="outline" size="sm" onClick={start}>
+            <Pencil className="size-3.5" />
+            Change scopes
+          </Button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <AppScopePicker
+            scopes={available.data?.scopes ?? []}
+            value={draft}
+            onChange={setDraft}
+            loading={available.isPending}
+            error={
+              available.isError
+                ? getApiErrorMessage(available.error, "Could not load the available scopes.")
+                : undefined
+            }
+          />
+          {update.isError && (
+            <p role="alert" className="text-body-sm text-destructive">
+              {getApiErrorMessage(update.error, "Could not update the scopes.")}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate(
+                  { id: app.id, scopes: draft },
+                  { onSuccess: () => setEditing(false) },
+                )
+              }
+            >
+              {update.isPending ? "Saving…" : "Save scopes"}
+            </Button>
+          </div>
+        </div>
+      ) : app.scopes.length === 0 ? (
+        <p className="text-body-sm text-muted-foreground">
+          No scopes, so every scoped endpoint refuses this app.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5">
+          {app.scopes.map((scope) => (
+            <li key={scope}>
+              <InlineBadge variant="soft" className="border-border font-mono">
+                {scope}
+              </InlineBadge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function RevokeSecretButton({
   hint,

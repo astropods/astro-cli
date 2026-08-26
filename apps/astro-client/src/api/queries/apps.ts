@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { appKeys } from "./keys";
-import type { AppListResponse, AppScopesResponse, CreateAppResponse, NewAppSecret } from "@/lib/api";
+import type {
+  AppListResponse,
+  AppScopesResponse,
+  CreateAppResponse,
+  MachineApp,
+  NewAppSecret,
+} from "@/lib/api";
 
 export function useApps(account: string, enabled = true) {
   const api = useApiClient();
@@ -27,6 +33,17 @@ export function useCreateApp(account: string) {
   const queryClient = useQueryClient();
   return useMutation<CreateAppResponse, Error, { name: string; description?: string; scopes?: string[] }>({
     mutationFn: (body) => api.createApp(account, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: appKeys.all(account) });
+    },
+  });
+}
+
+export function useUpdateAppScopes(account: string) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+  return useMutation<MachineApp, Error, { id: string; scopes: string[] }>({
+    mutationFn: ({ id, scopes }) => api.updateAppScopes(account, id, scopes),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: appKeys.all(account) });
     },

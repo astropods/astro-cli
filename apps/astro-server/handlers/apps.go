@@ -58,6 +58,10 @@ type CreateAppRequest struct {
 	Scopes      []string `json:"scopes"`
 }
 
+type UpdateAppScopesRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
 type CreateAppResponse struct {
 	App    AppResponse           `json:"app"`
 	Secret connectapps.NewSecret `json:"secret"`
@@ -120,22 +124,8 @@ func (h *AppHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if len(req.Scopes) > 0 {
-		permitted, err := h.workos.ListPermissions(ctx)
-		if err != nil {
-			h.fail(c, "apps: list permissions failed", err)
-			return
-		}
-		known := make([]string, 0, len(permitted))
-		for _, p := range permitted {
-			known = append(known, p.Slug)
-		}
-		for _, s := range req.Scopes {
-			if !slices.Contains(known, s) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown scope: " + s})
-				return
-			}
-		}
+	if !h.scopesAreGrantable(c, ctx, req.Scopes) {
+		return
 	}
 
 	application, err := h.workos.CreateApplication(ctx, acct.WorkOSOrganizationID, req.Name, req.Description, req.Scopes)
@@ -177,6 +167,70 @@ func (h *AppHandler) Create(c *gin.Context) {
 		"scopes": app.Scopes,
 	})
 	c.JSON(http.StatusCreated, CreateAppResponse{App: appResponse(app, nil), Secret: *secret})
+}
+
+func (h *AppHandler) UpdateScopes(c *gin.Context) {
+	acct, ctx, cancel, ok := h.scope(c)
+	if !ok {
+		return
+	}
+	defer cancel()
+
+	app, ok := h.resolve(c, ctx, acct)
+	if !ok {
+		return
+	}
+	var req UpdateAppScopesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if !h.scopesAreGrantable(c, ctx, req.Scopes) {
+		return
+	}
+
+	if err := h.workos.UpdateApplicationScopes(ctx, app.WorkOSApplicationID, req.Scopes); err != nil {
+		h.fail(c, "apps: update WorkOS application scopes failed", err)
+		return
+	}
+	updated, err := h.store.UpdateScopes(ctx, app.ID, req.Scopes)
+	if err != nil {
+		h.fail(c, "apps: update scopes failed", err)
+		return
+	}
+	if updated == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "app not found"})
+		return
+	}
+	h.logAudit(c, auditlog.AppUpdateScopes, acct.ID, app.ID, map[string]any{
+		"name":   app.Name,
+		"scopes": req.Scopes,
+	})
+	c.JSON(http.StatusOK, appResponse(updated, nil))
+}
+
+// scopesAreGrantable checks the requested scopes against the WorkOS registry so
+// creation and update cannot diverge on what is allowed.
+func (h *AppHandler) scopesAreGrantable(c *gin.Context, ctx context.Context, scopes []string) bool {
+	if len(scopes) == 0 {
+		return true
+	}
+	permitted, err := h.workos.ListPermissions(ctx)
+	if err != nil {
+		h.fail(c, "apps: list permissions failed", err)
+		return false
+	}
+	known := make([]string, 0, len(permitted))
+	for _, p := range permitted {
+		known = append(known, p.Slug)
+	}
+	for _, s := range scopes {
+		if !slices.Contains(known, s) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown scope: " + s})
+			return false
+		}
+	}
+	return true
 }
 
 func (h *AppHandler) Delete(c *gin.Context) {

@@ -140,7 +140,9 @@ The vocabulary is WorkOS's. A Connect application's scopes are permission slugs,
 
 System permissions are filtered out. WorkOS owns them and they describe its own surface, so granting one to an app would say nothing about access to Astro. Filtering in the client that reads them means the picker and the create-time check exclude them together.
 
-Scopes also live on the app row, and authorization reads them there rather than from the token, so a change takes effect at once instead of at the next expiry. They are handed to WorkOS on create as well, so the token carries them too.
+Scopes also live on the app row, and authorization reads them there rather than from the token, so a change takes effect at once instead of at the next expiry. They are handed to WorkOS on create and on change as well, so the token carries them too.
+
+Scopes are editable after creation, which is the point of reading them from the row: narrowing an app's reach applies to the next request rather than waiting an hour for its token to lapse. Clearing them all leaves an app that authenticates and is refused everywhere, which is a usable way to suspend an integration without destroying its credential.
 
 An environment with no permissions configured offers nothing to pick, and an app created without scopes is refused by every scoped endpoint.
 

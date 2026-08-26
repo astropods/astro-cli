@@ -137,6 +137,24 @@ func (s *Store) ListByAccount(ctx context.Context, accountID string) ([]*App, er
 	return apps, rows.Err()
 }
 
+func (s *Store) UpdateScopes(ctx context.Context, id string, scopes []string) (*App, error) {
+	if scopes == nil {
+		scopes = []string{}
+	}
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE account_apps SET scopes = $2, updated_at = now()
+		WHERE id = $1
+		RETURNING `+appColumns, id, pq.Array(scopes))
+	a, err := scanApp(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("update app scopes: %w", err)
+	}
+	return a, nil
+}
+
 func (s *Store) Delete(ctx context.Context, id string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM account_apps WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("delete app: %w", err)

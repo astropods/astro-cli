@@ -77,8 +77,13 @@ system that governs access should not also be able to assert who someone is.
 
 Authorization reads scopes from the row rather than from the token, so a scope
 change takes effect immediately instead of at the next expiry. They are also
-handed to WorkOS on create, so the token carries them too, which a connector
-inspecting its own grant can rely on.
+handed to WorkOS on create and on change, so the token carries them too, which a
+connector inspecting its own grant can rely on.
+
+Scopes are editable from the expanded row after creation, which is what reading
+them from the row buys: narrowing an app's reach applies to the next request.
+Clearing them all leaves an app that still authenticates and is refused
+everywhere, which suspends an integration without destroying its credential.
 
 ### Rotation
 

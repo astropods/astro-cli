@@ -16,7 +16,7 @@ const app = {
   id: "app-1",
   name: "lumos-connector",
   client_id: "client_abc123",
-  scopes: [],
+  scopes: ["audiences:read"],
   secrets: [
     {
       id: "sec_1",
@@ -163,6 +163,31 @@ describe("OrgAppsSettings", () => {
     expect(await screen.findByText(/No scopes are configured/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Select scopes" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create OAuth app" })).toBeInTheDocument();
+  });
+
+  it("changes an app's scopes from the expanded row", async () => {
+    let patched: unknown;
+    server.use(
+      ...listing([app]),
+      http.patch("/api/v1/accounts/test-org/apps/app-1", async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json({ ...app, scopes: ["audiences:manage"] });
+      }),
+    );
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByText("lumos-connector"));
+    expect(await screen.findByText("audiences:read")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Change scopes/ }));
+    await user.click(await screen.findByRole("button", { name: "Select scopes" }));
+    await user.click(await screen.findByText("audiences:manage"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Remove audiences:read" }));
+    await user.click(screen.getByRole("button", { name: "Save scopes" }));
+
+    await waitFor(() => expect(patched).toEqual({ scopes: ["audiences:manage"] }));
   });
 
   it("disables revoke on a lone secret and explains why", async () => {

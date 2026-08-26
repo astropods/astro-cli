@@ -1531,6 +1531,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.CreateAppRequest{}),
 					oapispec.Response(201, &handlers.CreateAppResponse{}),
 				)
+				api.PATCH(accountSettings, "/apps/:app_id", "Update an app's scopes", appHandler.UpdateScopes,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("app_id", "App ID"),
+					oapispec.Body(&handlers.UpdateAppScopesRequest{}),
+					oapispec.Response(200, &handlers.AppResponse{}),
+				)
 				api.DELETE(accountSettings, "/apps/:app_id", "Delete a machine app", appHandler.Delete,
 					oapispec.Tags("Apps"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("app_id", "App ID"),

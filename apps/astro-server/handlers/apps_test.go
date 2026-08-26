@@ -30,6 +30,9 @@ type fakeConnect struct {
 	secrets         []connectapps.Secret
 	createSecretErr error
 	deletedSecrets  []string
+	updatedScopes   [][]string
+	updatedApp      string
+	updateErr       error
 }
 
 func (f *fakeConnect) ListPermissions(_ context.Context) ([]connectapps.Permission, error) {
@@ -44,6 +47,12 @@ func (f *fakeConnect) CreateApplication(_ context.Context, orgID, name, _ string
 	_ = orgID
 	_ = name
 	return f.created, nil
+}
+
+func (f *fakeConnect) UpdateApplicationScopes(_ context.Context, id string, scopes []string) error {
+	f.updatedScopes = append(f.updatedScopes, scopes)
+	f.updatedApp = id
+	return f.updateErr
 }
 
 func (f *fakeConnect) DeleteApplication(_ context.Context, id string) error {
@@ -132,6 +141,10 @@ func appRow(accountID string) *sqlmock.Rows {
 		"client_id", "scopes", "created_by", "created_at", "updated_at",
 	}).AddRow("app-1", accountID, "ci", "", "app_workos_1", "client_1",
 		"{audiences:manage}", "user_admin", time.Now(), time.Now())
+}
+
+func (f *appFixture) expectApp(accountID string) {
+	f.mock.ExpectQuery("FROM account_apps").WithArgs("app-1").WillReturnRows(appRow(accountID))
 }
 
 func TestAppRejectsPersonalAccount(t *testing.T) {
@@ -336,5 +349,64 @@ func TestAppCreateRejectsAScopeWorkOSDoesNotKnow(t *testing.T) {
 	}
 	if f.connect.created != nil {
 		t.Fatal("an unregistered scope must not reach application creation")
+	}
+}
+
+func TestAppUpdateScopes(t *testing.T) {
+	f := newAppFixture(t)
+	f.expectApp("acct_123")
+	f.connect.permissions = []connectapps.Permission{
+		{Slug: "audiences:read"}, {Slug: "audiences:manage"},
+	}
+	f.mock.ExpectQuery("UPDATE account_apps").WillReturnRows(appRow("acct_123"))
+
+	response := f.call(f.handler.UpdateScopes, http.MethodPatch, `{"scopes":["audiences:read"]}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if f.connect.updatedApp != "app_workos_1" {
+		t.Fatalf("WorkOS application not updated: %+v", f.connect.updatedApp)
+	}
+	if len(f.audit.events) != 1 || f.audit.events[0].Action != auditlog.AppUpdateScopes {
+		t.Fatalf("audit events = %+v", f.audit.events)
+	}
+}
+
+func TestAppUpdateScopesRejectsUnknownScope(t *testing.T) {
+	f := newAppFixture(t)
+	f.expectApp("acct_123")
+	f.connect.permissions = []connectapps.Permission{{Slug: "audiences:read"}}
+
+	response := f.call(f.handler.UpdateScopes, http.MethodPatch, `{"scopes":["made:up"]}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", response.Code)
+	}
+	if len(f.connect.updatedScopes) != 0 {
+		t.Fatal("an unregistered scope must not reach WorkOS")
+	}
+}
+
+func TestAppUpdateScopesCanClearThemAll(t *testing.T) {
+	f := newAppFixture(t)
+	f.expectApp("acct_123")
+	f.mock.ExpectQuery("UPDATE account_apps").WillReturnRows(appRow("acct_123"))
+
+	if response := f.call(f.handler.UpdateScopes, http.MethodPatch, `{"scopes":[]}`); response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(f.connect.updatedScopes) != 1 || len(f.connect.updatedScopes[0]) != 0 {
+		t.Fatalf("expected an empty scope set to reach WorkOS: %+v", f.connect.updatedScopes)
+	}
+}
+
+func TestAppUpdateScopesRejectsAnotherAccountsApp(t *testing.T) {
+	f := newAppFixture(t)
+	f.expectApp("acct_other")
+
+	if response := f.call(f.handler.UpdateScopes, http.MethodPatch, `{"scopes":[]}`); response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", response.Code)
+	}
+	if len(f.connect.updatedScopes) != 0 {
+		t.Fatal("a foreign app must never reach WorkOS")
 	}
 }

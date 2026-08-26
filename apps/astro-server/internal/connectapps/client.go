@@ -40,6 +40,7 @@ type Permission struct {
 type Client interface {
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	CreateApplication(ctx context.Context, organizationID, name, description string, scopes []string) (*Application, error)
+	UpdateApplicationScopes(ctx context.Context, applicationID string, scopes []string) error
 	DeleteApplication(ctx context.Context, applicationID string) error
 	CreateSecret(ctx context.Context, applicationID string) (*NewSecret, error)
 	ListSecrets(ctx context.Context, applicationID string) ([]Secret, error)
@@ -103,6 +104,20 @@ func (c *workosClient) CreateApplication(ctx context.Context, organizationID, na
 		return nil, fmt.Errorf("create m2m application: %w", err)
 	}
 	return &Application{ID: app.ID, ClientID: app.ClientID, Scopes: app.Scopes}, nil
+}
+
+// UpdateApplicationScopes rewrites the granted scopes. Scopes is omitempty on
+// the WorkOS params, so clearing them all needs the explicit-null field rather
+// than an empty slice.
+func (c *workosClient) UpdateApplicationScopes(ctx context.Context, applicationID string, scopes []string) error {
+	params := &workos.ConnectUpdateApplicationParams{Scopes: scopes}
+	if len(scopes) == 0 {
+		params.NullFields = []string{"scopes"}
+	}
+	if _, err := c.connect.UpdateApplication(ctx, applicationID, params); err != nil {
+		return fmt.Errorf("update m2m application scopes: %w", err)
+	}
+	return nil
 }
 
 func (c *workosClient) DeleteApplication(ctx context.Context, applicationID string) error {
