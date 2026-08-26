@@ -72,6 +72,11 @@ type CreateParams struct {
 }
 
 func (s *Store) Create(ctx context.Context, p CreateParams) (*App, error) {
+	// pq encodes a nil slice as SQL NULL, which overrides the column default
+	// and trips the not-null constraint. Normalize here so no caller has to.
+	if p.Scopes == nil {
+		p.Scopes = []string{}
+	}
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO account_apps
 			(id, account_id, name, description, workos_application_id, client_id, scopes, created_by)
