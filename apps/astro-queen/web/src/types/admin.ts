@@ -135,7 +135,6 @@ export interface AuthorizationAssignment {
 
 export interface ListAuthorizationResourcesResponse {
   resources?: AuthorizationResource[];
-  maintenance_active: boolean;
   reset_enabled: boolean;
 }
 
@@ -148,8 +147,6 @@ export interface AuthorizationOperation {
   processed_count: number;
   succeeded_count: number;
   failed_count: number;
-  maintenance_hold: boolean;
-  maintenance_released_at?: string;
   last_error?: string;
   created_at: string;
 }
@@ -159,10 +156,6 @@ export interface ListAuthorizationOperationsResponse {
 }
 
 export interface StartAuthorizationResourceResetResponse {
-  operation: AuthorizationOperation;
-}
-
-export interface ReleaseAuthorizationMaintenanceResponse {
   operation: AuthorizationOperation;
 }
 

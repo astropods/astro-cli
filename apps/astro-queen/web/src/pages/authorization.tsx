@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
-  AlertTriangle,
   Boxes,
   ChevronDown,
   CircleAlert,
@@ -17,7 +16,6 @@ import {
 import {
   useAuthorizationOperations,
   useAuthorizationResources,
-  useReleaseAuthorizationMaintenance,
   useStartAuthorizationResourceReset,
 } from "@/api/admin";
 import {
@@ -42,7 +40,6 @@ export function ResourcesPage() {
   const resourcesQuery = useAuthorizationResources();
   const operationsQuery = useAuthorizationOperations();
   const startReset = useStartAuthorizationResourceReset();
-  const releaseMaintenance = useReleaseAuthorizationMaintenance();
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
   const [resourceType, setResourceType] = useState("all");
@@ -100,9 +97,6 @@ export function ResourcesPage() {
   }
 
   const activeOperation = operations.find((operation) => operation.status === "queued" || operation.status === "running");
-  const maintenanceOperation = operations.find(
-    (operation) => operation.maintenance_hold && !operation.maintenance_released_at,
-  );
   const directAdmins = resources.reduce((total, resource) => total + (resource.direct_admins?.length ?? 0), 0);
   const errorCount = resources.filter((resource) => resource.last_error).length;
 
@@ -134,22 +128,6 @@ export function ResourcesPage() {
           />
         </div>
       </div>
-
-      {resourcesQuery.data?.maintenance_active && maintenanceOperation && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
-          <span className="flex items-center gap-2">
-            <AlertTriangle className="size-3.5" /> FGA lifecycle writes are paused after resetting {accountName(accounts, maintenanceOperation.account_id)}.
-          </span>
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={releaseMaintenance.isPending || maintenanceOperation.status === "queued" || maintenanceOperation.status === "running"}
-            onClick={() => releaseMaintenance.mutate(maintenanceOperation.id)}
-          >
-            Release maintenance
-          </Button>
-        </div>
-      )}
 
       <div className="grid gap-2 sm:grid-cols-3">
         <Stat icon={Boxes} value={resources.length} label="WorkOS resources" />

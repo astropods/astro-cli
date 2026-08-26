@@ -19,7 +19,6 @@ import (
 
 const (
 	assignmentConcurrency   = 5
-	jobDrainTimeout         = 30 * time.Second
 	workOSInventoryCacheTTL = 30 * time.Second
 	workOSInventoryTimeout  = 10 * time.Second
 )
@@ -35,8 +34,6 @@ type operationStore interface {
 	Progress(context.Context, string, int, int, int, int, []ReportEntry) error
 	Complete(context.Context, string, int, int, int, []ReportEntry) error
 	Fail(context.Context, string, int, int, int, int, []ReportEntry, error) error
-	MaintenanceEnabled(context.Context) (bool, error)
-	RunningFGAJobs(context.Context) (int, error)
 }
 
 type Service struct {
@@ -152,11 +149,7 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 		}
 		return result[i].ExternalID < result[j].ExternalID
 	})
-	maintenance, err := s.store.MaintenanceEnabled(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &Inventory{Resources: result, MaintenanceActive: maintenance}, nil
+	return &Inventory{Resources: result}, nil
 }
 
 func (s *Service) RunReset(ctx context.Context, operationID string) error {
@@ -166,12 +159,6 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 	operation, err := s.store.Start(ctx, operationID)
 	if err != nil {
 		return err
-	}
-	if !operation.DryRun {
-		if err := s.waitForFGAJobs(ctx); err != nil {
-			_ = s.store.Fail(ctx, operationID, 0, 0, 0, 1, nil, err)
-			return err
-		}
 	}
 	resources, assignments, err := s.loadAccount(ctx, operation.AccountID)
 	if err != nil {
@@ -450,27 +437,6 @@ func (s *Service) deleteResource(ctx context.Context, resource authz.Authorizati
 		return err
 	}
 	return nil
-}
-
-func (s *Service) waitForFGAJobs(ctx context.Context) error {
-	drainCtx, cancel := context.WithTimeout(ctx, jobDrainTimeout)
-	defer cancel()
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		count, err := s.store.RunningFGAJobs(drainCtx)
-		if err != nil {
-			return err
-		}
-		if count == 0 {
-			return nil
-		}
-		select {
-		case <-drainCtx.Done():
-			return fmt.Errorf("wait for running FGA jobs to drain: %w", drainCtx.Err())
-		case <-ticker.C:
-		}
-	}
 }
 
 type deploymentMetadata struct {

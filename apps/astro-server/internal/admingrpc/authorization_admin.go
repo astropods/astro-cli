@@ -20,10 +20,8 @@ type authorizationAdminService interface {
 type authorizationAdminStore interface {
 	CreateReset(context.Context, string, bool, *int) (*authorizationadmin.Operation, error)
 	AttachJob(context.Context, string, int64) error
-	Get(context.Context, string) (*authorizationadmin.Operation, error)
 	List(context.Context, int) ([]authorizationadmin.Operation, error)
 	Fail(context.Context, string, int, int, int, int, []authorizationadmin.ReportEntry, error) error
-	ReleaseMaintenance(context.Context, string) error
 }
 
 // SetAuthorizationAdmin wires Queen's read-only WorkOS resource inventory and
@@ -71,9 +69,8 @@ func (s *Server) ListAuthorizationResources(ctx context.Context, _ *adminv1.List
 		})
 	}
 	return &adminv1.ListAuthorizationResourcesResponse{
-		Resources:         resources,
-		MaintenanceActive: inventory.MaintenanceActive,
-		ResetEnabled:      s.authorizationAdminResetEnabled,
+		Resources:    resources,
+		ResetEnabled: s.authorizationAdminResetEnabled,
 	}, nil
 }
 
@@ -121,35 +118,12 @@ func (s *Server) StartAuthorizationResourceReset(ctx context.Context, req *admin
 	jobID, err := s.queue.TriggerJob(ctx, (riverqueue.AuthorizationResourceResetArgs{}).Kind(), args)
 	if err != nil {
 		_ = s.authorizationAdminStore.Fail(ctx, operation.ID, 0, 0, 0, 1, nil, err)
-		if !operation.DryRun {
-			_ = s.authorizationAdminStore.ReleaseMaintenance(ctx, operation.ID)
-		}
 		return nil, status.Errorf(codes.Internal, "enqueue authorization reset: %v", err)
 	}
 	if err := s.authorizationAdminStore.AttachJob(ctx, operation.ID, jobID); err != nil {
 		return nil, status.Errorf(codes.Internal, "attach authorization reset job: %v", err)
 	}
 	return &adminv1.StartAuthorizationResourceResetResponse{Operation: authorizationOperationProto(operation)}, nil
-}
-
-func (s *Server) ReleaseAuthorizationMaintenance(ctx context.Context, req *adminv1.ReleaseAuthorizationMaintenanceRequest) (*adminv1.ReleaseAuthorizationMaintenanceResponse, error) {
-	if !s.authorizationAdminResetEnabled {
-		return nil, status.Error(codes.FailedPrecondition, "authorization resource reset is disabled")
-	}
-	if s.authorizationAdminStore == nil {
-		return nil, status.Error(codes.FailedPrecondition, "authorization operation store is not configured")
-	}
-	if req.OperationID == "" {
-		return nil, status.Error(codes.InvalidArgument, "operation_id is required")
-	}
-	if err := s.authorizationAdminStore.ReleaseMaintenance(ctx, req.OperationID); err != nil {
-		return nil, authorizationAdminError(err)
-	}
-	operation, err := s.authorizationAdminStore.Get(ctx, req.OperationID)
-	if err != nil {
-		return nil, authorizationAdminError(err)
-	}
-	return &adminv1.ReleaseAuthorizationMaintenanceResponse{Operation: authorizationOperationProto(operation)}, nil
 }
 
 func authorizationAdminError(err error) error {
@@ -159,10 +133,6 @@ func authorizationAdminError(err error) error {
 	case errors.Is(err, authorizationadmin.ErrAccountNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, authorizationadmin.ErrAccountNotLinked):
-		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, authorizationadmin.ErrMaintenanceActive):
-		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, authorizationadmin.ErrOperationNotComplete):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, authorizationadmin.ErrNotConfigured):
 		return status.Error(codes.FailedPrecondition, err.Error())
@@ -176,25 +146,16 @@ func authorizationOperationProto(operation *authorizationadmin.Operation) *admin
 		return nil
 	}
 	result := &adminv1.AuthorizationOperation{
-		ID:              operation.ID,
-		AccountID:       operation.AccountID,
-		DryRun:          operation.DryRun,
-		Status:          operation.Status,
-		TargetCount:     int32(operation.TargetCount),    //nolint:gosec // bounded by the WorkOS resource count
-		ProcessedCount:  int32(operation.ProcessedCount), //nolint:gosec // bounded by target count
-		SucceededCount:  int32(operation.SucceededCount), //nolint:gosec // bounded by target count
-		FailedCount:     int32(operation.FailedCount),    //nolint:gosec // bounded by target count
-		MaintenanceHold: operation.MaintenanceHold,
-		LastError:       operation.LastError,
-		CreatedAt:       operation.CreatedAt.Format(time.RFC3339),
+		ID:             operation.ID,
+		AccountID:      operation.AccountID,
+		DryRun:         operation.DryRun,
+		Status:         operation.Status,
+		TargetCount:    int32(operation.TargetCount),    //nolint:gosec // bounded by the WorkOS resource count
+		ProcessedCount: int32(operation.ProcessedCount), //nolint:gosec // bounded by target count
+		SucceededCount: int32(operation.SucceededCount), //nolint:gosec // bounded by target count
+		FailedCount:    int32(operation.FailedCount),    //nolint:gosec // bounded by target count
+		LastError:      operation.LastError,
+		CreatedAt:      operation.CreatedAt.Format(time.RFC3339),
 	}
-	result.MaintenanceReleasedAt = optionalTime(operation.MaintenanceReleasedAt)
 	return result
-}
-
-func optionalTime(value *time.Time) string {
-	if value == nil {
-		return ""
-	}
-	return value.Format(time.RFC3339)
 }

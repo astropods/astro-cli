@@ -36,7 +36,6 @@ func (f *fakeWorkOS) DeleteAuthorizationResource(_ context.Context, resourceID s
 
 type fakeOperationStore struct {
 	operation       *Operation
-	maintenance     bool
 	completedTarget int
 	progressed      int
 }
@@ -55,11 +54,6 @@ func (f *fakeOperationStore) Complete(_ context.Context, _ string, target, _ int
 func (*fakeOperationStore) Fail(context.Context, string, int, int, int, int, []ReportEntry, error) error {
 	return nil
 }
-func (f *fakeOperationStore) MaintenanceEnabled(context.Context) (bool, error) {
-	return f.maintenance, nil
-}
-func (*fakeOperationStore) RunningFGAJobs(context.Context) (int, error) { return 0, nil }
-
 func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

@@ -47,14 +47,3 @@ func (s *Server) handleStartAuthorizationResourceReset(w http.ResponseWriter, r 
 	}
 	writeJSON(w, http.StatusAccepted, response)
 }
-
-func (s *Server) handleReleaseAuthorizationMaintenance(w http.ResponseWriter, r *http.Request) {
-	response, err := s.admin.ReleaseAuthorizationMaintenance(r.Context(), &adminv1.ReleaseAuthorizationMaintenanceRequest{
-		OperationID: r.PathValue("id"),
-	})
-	if err != nil {
-		writeGRPCErr(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, response)
-}

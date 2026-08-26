@@ -42,16 +42,12 @@ func (f *fakeAuthorizationAdminStore) AttachJob(_ context.Context, _ string, job
 	f.jobID = jobID
 	return nil
 }
-func (f *fakeAuthorizationAdminStore) Get(context.Context, string) (*authorizationadmin.Operation, error) {
-	return f.operation, nil
-}
 func (f *fakeAuthorizationAdminStore) List(context.Context, int) ([]authorizationadmin.Operation, error) {
 	return nil, nil
 }
 func (*fakeAuthorizationAdminStore) Fail(context.Context, string, int, int, int, int, []authorizationadmin.ReportEntry, error) error {
 	return nil
 }
-func (*fakeAuthorizationAdminStore) ReleaseMaintenance(context.Context, string) error { return nil }
 
 func TestAuthorizationInventoryReusesDeploymentInspectorLinkData(t *testing.T) {
 	server := &Server{

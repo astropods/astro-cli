@@ -129,11 +129,7 @@ func main() {
 	// Initialize account store and agent index (needed by both API and worker)
 	accountStore := account.NewAccountStoreWithClusters(db, clusterid.New(cfg.Deployment.DefaultClusterID))
 	agentIndex := agentindex.NewIndexWithDB(db)
-	authorizationAdminResetEnabled := cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled
 	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
-	if authorizationAdminResetEnabled {
-		deploymentFGASync.WithAuthorizationMaintenance()
-	}
 	var deploymentFGA authz.FGA
 	var workosFGA *authz.WorkOSFGA
 	if deploymentFGASync.Enabled() {
@@ -145,9 +141,6 @@ func main() {
 	var accessReconciler *authz.AccessReconciler
 	if accessAssignments != nil {
 		resourceAccessSync = authz.NewResourceAccessSyncStore(db)
-		if authorizationAdminResetEnabled {
-			resourceAccessSync.WithAuthorizationMaintenance()
-		}
 		accessReconciler = authz.NewAccessReconciler(accessAssignments, resourceAccessSync)
 	}
 	authorizationAdminStore := authorizationadmin.NewStore(db)

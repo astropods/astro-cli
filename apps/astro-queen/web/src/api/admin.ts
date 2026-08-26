@@ -9,7 +9,6 @@ import type {
   ListAuthorizationResourcesResponse,
   ListAuthorizationOperationsResponse,
   StartAuthorizationResourceResetResponse,
-  ReleaseAuthorizationMaintenanceResponse,
   ListAccountsResponse,
   GetAccountResponse,
   MetronomeAliasStatus,
@@ -125,21 +124,6 @@ export function useStartAuthorizationResourceReset() {
   return useMutation({
     mutationFn: (body: { account_id: string; dry_run: boolean; confirmed_count?: number }) =>
       api.post<StartAuthorizationResourceResetResponse>("/api/admin/authorization/reset", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
-      qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });
-    },
-  });
-}
-
-export function useReleaseAuthorizationMaintenance() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (operationId: string) =>
-      api.post<ReleaseAuthorizationMaintenanceResponse>(
-        `/api/admin/authorization/operations/${encodeURIComponent(operationId)}/release-maintenance`,
-        {},
-      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
       qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });

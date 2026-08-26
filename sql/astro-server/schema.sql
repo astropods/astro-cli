@@ -508,7 +508,6 @@ CREATE INDEX idx_resource_access_fga_sync_pending
     WHERE synced_version IS DISTINCT FROM desired_version;
 
 -- Audited Queen operations that inspect or reset WorkOS authorization state.
--- An unreleased maintenance hold pauses only FGA lifecycle writes and workers.
 CREATE TABLE public.authorization_admin_operations (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,
@@ -521,8 +520,6 @@ CREATE TABLE public.authorization_admin_operations (
     succeeded_count int NOT NULL DEFAULT 0,
     failed_count int NOT NULL DEFAULT 0,
     attempt_count int NOT NULL DEFAULT 0,
-    maintenance_hold boolean NOT NULL DEFAULT false,
-    maintenance_released_at timestamptz,
     last_error text,
     report jsonb NOT NULL DEFAULT '[]'::jsonb,
     river_job_id bigint,
@@ -541,10 +538,6 @@ CREATE TABLE public.authorization_admin_operations (
 
 CREATE INDEX idx_authorization_admin_operations_created
     ON public.authorization_admin_operations(created_at DESC);
-
-CREATE UNIQUE INDEX idx_authorization_admin_operations_maintenance_hold
-    ON public.authorization_admin_operations(maintenance_hold)
-    WHERE maintenance_hold AND maintenance_released_at IS NULL;
 
 -- Who gets alerted about a deployment. A member becomes a watcher implicitly by
 -- acting on it (deploying, changing config, rolling back, …); registration is

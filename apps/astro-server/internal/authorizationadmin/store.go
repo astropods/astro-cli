@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/lib/pq"
 )
 
 type Store struct {
@@ -25,18 +23,14 @@ func (s *Store) CreateReset(ctx context.Context, accountID string, dryRun bool, 
 	if accountID == "" {
 		return nil, ErrAccountNotFound
 	}
-	maintenanceHold := !dryRun
 	var operation Operation
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO authorization_admin_operations (
-			account_id, kind, dry_run, confirmed_count, maintenance_hold
-		) VALUES ($1, 'resource_reset', $2, $3, $4)
+			account_id, kind, dry_run, confirmed_count
+		) VALUES ($1, 'resource_reset', $2, $3)
 		RETURNING `+operationColumns,
-		accountID, dryRun, confirmedCount, maintenanceHold,
+		accountID, dryRun, confirmedCount,
 	).Scan(operationScan(&operation)...)
-	if isUniqueViolation(err) && maintenanceHold {
-		return nil, ErrMaintenanceActive
-	}
 	if err != nil {
 		return nil, fmt.Errorf("create authorization reset operation: %w", err)
 	}
@@ -53,25 +47,6 @@ func (s *Store) AttachJob(ctx context.Context, operationID string, jobID int64) 
 		return fmt.Errorf("attach authorization reset job: %w", err)
 	}
 	return requireChanged(result, "attach authorization reset job")
-}
-
-func (s *Store) Get(ctx context.Context, operationID string) (*Operation, error) {
-	if s == nil || s.db == nil {
-		return nil, ErrNotConfigured
-	}
-	var operation Operation
-	err := s.db.QueryRowContext(ctx, `
-		SELECT `+operationColumns+`
-		FROM authorization_admin_operations
-		WHERE id = $1
-	`, operationID).Scan(operationScan(&operation)...)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrOperationNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get authorization operation: %w", err)
-	}
-	return &operation, nil
 }
 
 func (s *Store) List(ctx context.Context, limit int) ([]Operation, error) {
@@ -188,67 +163,9 @@ func (s *Store) Fail(ctx context.Context, operationID string, target, processed,
 	return nil
 }
 
-func (s *Store) MaintenanceEnabled(ctx context.Context) (bool, error) {
-	if s == nil || s.db == nil {
-		return false, ErrNotConfigured
-	}
-	var enabled bool
-	err := s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM authorization_admin_operations
-			WHERE maintenance_hold AND maintenance_released_at IS NULL
-		)
-	`).Scan(&enabled)
-	if err != nil {
-		return false, fmt.Errorf("read authorization maintenance state: %w", err)
-	}
-	return enabled, nil
-}
-
-func (s *Store) ReleaseMaintenance(ctx context.Context, operationID string) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE authorization_admin_operations
-		SET maintenance_released_at = NOW(), updated_at = NOW()
-		WHERE id = $1 AND maintenance_hold AND maintenance_released_at IS NULL
-		  AND status IN ('succeeded', 'failed')
-	`, operationID)
-	if err != nil {
-		return fmt.Errorf("release authorization maintenance: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("release authorization maintenance rows affected: %w", err)
-	}
-	if rows > 0 {
-		return nil
-	}
-	operation, err := s.Get(ctx, operationID)
-	if err != nil {
-		return err
-	}
-	if operation.Status == "queued" || operation.Status == "running" {
-		return ErrOperationNotComplete
-	}
-	return ErrOperationNotFound
-}
-
-func (s *Store) RunningFGAJobs(ctx context.Context) (int, error) {
-	var count int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM river.river_job
-		WHERE kind = ANY($1::text[]) AND state = 'running'
-	`, pq.Array([]string{"deployment.fga_reconcile", "resource_access.fga_reconcile"})).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("count running FGA jobs: %w", err)
-	}
-	return count, nil
-}
-
 const operationColumns = `
 	id, account_id, dry_run, status, confirmed_count, target_count, processed_count,
-	succeeded_count, failed_count, attempt_count, maintenance_hold,
-	maintenance_released_at, COALESCE(last_error, ''), created_at`
+	succeeded_count, failed_count, attempt_count, COALESCE(last_error, ''), created_at`
 
 func operationScan(operation *Operation) []any {
 	return []any{
@@ -262,8 +179,6 @@ func operationScan(operation *Operation) []any {
 		&operation.SucceededCount,
 		&operation.FailedCount,
 		&operation.AttemptCount,
-		&operation.MaintenanceHold,
-		&operation.MaintenanceReleasedAt,
 		&operation.LastError,
 		&operation.CreatedAt,
 	}
@@ -278,9 +193,4 @@ func requireChanged(result sql.Result, operation string) error {
 		return ErrOperationNotFound
 	}
 	return nil
-}
-
-func isUniqueViolation(err error) bool {
-	var pqErr *pq.Error
-	return errors.As(err, &pqErr) && pqErr.Code == "23505"
 }

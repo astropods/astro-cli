@@ -72,10 +72,6 @@ func (w *DeploymentFGAReconcileWorker) Work(ctx context.Context, job *river.Job[
 	if w.sync == nil {
 		return errors.New("deployment FGA sync store is not configured")
 	}
-	maintenance, err := w.sync.MaintenanceEnabled(ctx)
-	if err != nil || maintenance {
-		return err
-	}
 	if job.Args.DeploymentID != "" {
 		return w.reconcile(ctx, job.Args.DeploymentID)
 	}

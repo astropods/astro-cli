@@ -103,24 +103,21 @@ type AuthorizationAssignment struct {
 }
 
 type ListAuthorizationResourcesResponse struct {
-	Resources         []*AuthorizationResource `json:"resources,omitempty"`
-	MaintenanceActive bool                     `json:"maintenance_active,omitempty"`
-	ResetEnabled      bool                     `json:"reset_enabled,omitempty"`
+	Resources    []*AuthorizationResource `json:"resources,omitempty"`
+	ResetEnabled bool                     `json:"reset_enabled,omitempty"`
 }
 
 type AuthorizationOperation struct {
-	ID                    string `json:"id,omitempty"`
-	AccountID             string `json:"account_id,omitempty"`
-	DryRun                bool   `json:"dry_run,omitempty"`
-	Status                string `json:"status,omitempty"`
-	TargetCount           int32  `json:"target_count,omitempty"`
-	ProcessedCount        int32  `json:"processed_count,omitempty"`
-	SucceededCount        int32  `json:"succeeded_count,omitempty"`
-	FailedCount           int32  `json:"failed_count,omitempty"`
-	MaintenanceHold       bool   `json:"maintenance_hold,omitempty"`
-	MaintenanceReleasedAt string `json:"maintenance_released_at,omitempty"`
-	LastError             string `json:"last_error,omitempty"`
-	CreatedAt             string `json:"created_at,omitempty"`
+	ID             string `json:"id,omitempty"`
+	AccountID      string `json:"account_id,omitempty"`
+	DryRun         bool   `json:"dry_run,omitempty"`
+	Status         string `json:"status,omitempty"`
+	TargetCount    int32  `json:"target_count,omitempty"`
+	ProcessedCount int32  `json:"processed_count,omitempty"`
+	SucceededCount int32  `json:"succeeded_count,omitempty"`
+	FailedCount    int32  `json:"failed_count,omitempty"`
+	LastError      string `json:"last_error,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
 }
 
 type ListAuthorizationOperationsRequest struct {
@@ -138,14 +135,6 @@ type StartAuthorizationResourceResetRequest struct {
 }
 
 type StartAuthorizationResourceResetResponse struct {
-	Operation *AuthorizationOperation `json:"operation,omitempty"`
-}
-
-type ReleaseAuthorizationMaintenanceRequest struct {
-	OperationID string `json:"operation_id,omitempty"`
-}
-
-type ReleaseAuthorizationMaintenanceResponse struct {
 	Operation *AuthorizationOperation `json:"operation,omitempty"`
 }
 

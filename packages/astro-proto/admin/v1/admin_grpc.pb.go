@@ -22,7 +22,6 @@ type AdminServiceClient interface {
 	ListAuthorizationResources(ctx context.Context, in *ListAuthorizationResourcesRequest, opts ...grpc.CallOption) (*ListAuthorizationResourcesResponse, error)
 	ListAuthorizationOperations(ctx context.Context, in *ListAuthorizationOperationsRequest, opts ...grpc.CallOption) (*ListAuthorizationOperationsResponse, error)
 	StartAuthorizationResourceReset(ctx context.Context, in *StartAuthorizationResourceResetRequest, opts ...grpc.CallOption) (*StartAuthorizationResourceResetResponse, error)
-	ReleaseAuthorizationMaintenance(ctx context.Context, in *ReleaseAuthorizationMaintenanceRequest, opts ...grpc.CallOption) (*ReleaseAuthorizationMaintenanceResponse, error)
 	GetClusterStatus(ctx context.Context, in *GetClusterStatusRequest, opts ...grpc.CallOption) (*GetClusterStatusResponse, error)
 	DeleteDeployment(ctx context.Context, in *DeleteDeploymentRequest, opts ...grpc.CallOption) (*DeleteDeploymentResponse, error)
 	RestartDeployment(ctx context.Context, in *RestartDeploymentRequest, opts ...grpc.CallOption) (*RestartDeploymentResponse, error)
@@ -150,14 +149,6 @@ func (c *adminServiceClient) ListAuthorizationOperations(ctx context.Context, in
 func (c *adminServiceClient) StartAuthorizationResourceReset(ctx context.Context, in *StartAuthorizationResourceResetRequest, opts ...grpc.CallOption) (*StartAuthorizationResourceResetResponse, error) {
 	out := new(StartAuthorizationResourceResetResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/StartAuthorizationResourceReset", in, out, opts...); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *adminServiceClient) ReleaseAuthorizationMaintenance(ctx context.Context, in *ReleaseAuthorizationMaintenanceRequest, opts ...grpc.CallOption) (*ReleaseAuthorizationMaintenanceResponse, error) {
-	out := new(ReleaseAuthorizationMaintenanceResponse)
-	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ReleaseAuthorizationMaintenance", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -756,7 +747,6 @@ type AdminServiceServer interface {
 	ListAuthorizationResources(context.Context, *ListAuthorizationResourcesRequest) (*ListAuthorizationResourcesResponse, error)
 	ListAuthorizationOperations(context.Context, *ListAuthorizationOperationsRequest) (*ListAuthorizationOperationsResponse, error)
 	StartAuthorizationResourceReset(context.Context, *StartAuthorizationResourceResetRequest) (*StartAuthorizationResourceResetResponse, error)
-	ReleaseAuthorizationMaintenance(context.Context, *ReleaseAuthorizationMaintenanceRequest) (*ReleaseAuthorizationMaintenanceResponse, error)
 	GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error)
 	DeleteDeployment(context.Context, *DeleteDeploymentRequest) (*DeleteDeploymentResponse, error)
 	RestartDeployment(context.Context, *RestartDeploymentRequest) (*RestartDeploymentResponse, error)
@@ -859,10 +849,6 @@ func (UnimplementedAdminServiceServer) ListAuthorizationOperations(context.Conte
 
 func (UnimplementedAdminServiceServer) StartAuthorizationResourceReset(context.Context, *StartAuthorizationResourceResetRequest) (*StartAuthorizationResourceResetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartAuthorizationResourceReset not implemented")
-}
-
-func (UnimplementedAdminServiceServer) ReleaseAuthorizationMaintenance(context.Context, *ReleaseAuthorizationMaintenanceRequest) (*ReleaseAuthorizationMaintenanceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ReleaseAuthorizationMaintenance not implemented")
 }
 
 func (UnimplementedAdminServiceServer) GetClusterStatus(context.Context, *GetClusterStatusRequest) (*GetClusterStatusResponse, error) {
@@ -1237,21 +1223,6 @@ func _AdminService_StartAuthorizationResourceReset_Handler(srv interface{}, ctx 
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/StartAuthorizationResourceReset"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).StartAuthorizationResourceReset(ctx, req.(*StartAuthorizationResourceResetRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AdminService_ReleaseAuthorizationMaintenance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReleaseAuthorizationMaintenanceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AdminServiceServer).ReleaseAuthorizationMaintenance(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ReleaseAuthorizationMaintenance"}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AdminServiceServer).ReleaseAuthorizationMaintenance(ctx, req.(*ReleaseAuthorizationMaintenanceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2362,7 +2333,6 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "ListAuthorizationResources", Handler: _AdminService_ListAuthorizationResources_Handler},
 		{MethodName: "ListAuthorizationOperations", Handler: _AdminService_ListAuthorizationOperations_Handler},
 		{MethodName: "StartAuthorizationResourceReset", Handler: _AdminService_StartAuthorizationResourceReset_Handler},
-		{MethodName: "ReleaseAuthorizationMaintenance", Handler: _AdminService_ReleaseAuthorizationMaintenance_Handler},
 		{MethodName: "GetClusterStatus", Handler: _AdminService_GetClusterStatus_Handler},
 		{MethodName: "DeleteDeployment", Handler: _AdminService_DeleteDeployment_Handler},
 		{MethodName: "RestartDeployment", Handler: _AdminService_RestartDeployment_Handler},

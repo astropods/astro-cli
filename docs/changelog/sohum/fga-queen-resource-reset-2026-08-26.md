@@ -8,15 +8,14 @@ Queen labels this action **Reset FGA resources** so it cannot be confused with d
 
 ## Design
 
-The reset is a durable River operation:
+The reset is a durable, Preview-only River operation:
 
 1. Queen selects an Astro account. The server resolves its WorkOS organization and records a dry run containing only that account's product resources.
 2. Destructive reset requires that count and is enabled only when Preview sets `FGA_AUTHORIZATION_RESET_ENABLED=true`.
-3. A database maintenance hold pauses deployment and access FGA synchronization while active jobs drain.
-4. The worker removes direct assignments and deletes the selected account's product resources. It never targets the WorkOS organization root or another account's resources.
-5. Queen shows progress and errors. Maintenance remains active until an operator releases it.
+3. The worker removes direct assignments and deletes the selected account's product resources. It never targets the WorkOS organization root or another account's resources.
+4. Queen shows progress and errors; no reconstruction or follow-up action runs automatically.
 
-The operation ledger makes retries and partial failure visible without pausing unrelated River work.
+The operation ledger makes retries and partial failure visible without pausing FGA lifecycle work.
 
 ## Migration
 

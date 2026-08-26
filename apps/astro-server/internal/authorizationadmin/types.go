@@ -6,12 +6,10 @@ import (
 )
 
 var (
-	ErrNotConfigured        = errors.New("authorization administration is not configured")
-	ErrOperationNotFound    = errors.New("authorization administration operation not found")
-	ErrOperationNotComplete = errors.New("authorization administration operation is still running")
-	ErrMaintenanceActive    = errors.New("authorization maintenance is already active")
-	ErrAccountNotFound      = errors.New("authorization reset account not found")
-	ErrAccountNotLinked     = errors.New("authorization reset account has no WorkOS organization")
+	ErrNotConfigured     = errors.New("authorization administration is not configured")
+	ErrOperationNotFound = errors.New("authorization administration operation not found")
+	ErrAccountNotFound   = errors.New("authorization reset account not found")
+	ErrAccountNotLinked  = errors.New("authorization reset account has no WorkOS organization")
 )
 
 type Resource struct {
@@ -38,25 +36,22 @@ type Assignment struct {
 }
 
 type Inventory struct {
-	Resources         []Resource
-	MaintenanceActive bool
+	Resources []Resource
 }
 
 type Operation struct {
-	ID                    string
-	AccountID             string
-	DryRun                bool
-	Status                string
-	ConfirmedCount        *int
-	TargetCount           int
-	ProcessedCount        int
-	SucceededCount        int
-	FailedCount           int
-	AttemptCount          int
-	MaintenanceHold       bool
-	MaintenanceReleasedAt *time.Time
-	LastError             string
-	CreatedAt             time.Time
+	ID             string
+	AccountID      string
+	DryRun         bool
+	Status         string
+	ConfirmedCount *int
+	TargetCount    int
+	ProcessedCount int
+	SucceededCount int
+	FailedCount    int
+	AttemptCount   int
+	LastError      string
+	CreatedAt      time.Time
 }
 
 type ReportEntry struct {
