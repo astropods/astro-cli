@@ -816,6 +816,35 @@ CREATE TABLE public.account_langfuse (
     CONSTRAINT account_langfuse_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
 );
 
+-- Account-scoped machine credentials, one row per WorkOS Connect M2M
+-- application. WorkOS holds the client secrets and their metadata (hint, last
+-- used, created), so nothing secret is stored here and there is no credentials
+-- table: the WorkOS application is the record. client_id is what token
+-- validation looks up to resolve an inbound machine token to an account, so
+-- deleting a row denies its tokens before they expire.
+--
+-- Organization accounts only: an M2M application is bound to a WorkOS
+-- organization, and a personal account has none.
+CREATE TABLE public.account_apps (
+    id                    varchar(11) NOT NULL,
+    account_id            uuid        NOT NULL,
+    name                  varchar     NOT NULL,
+    description           text        NOT NULL DEFAULT '',
+    workos_application_id text        NOT NULL,
+    client_id             text        NOT NULL,
+    scopes                text[]      NOT NULL DEFAULT '{}',
+    created_by            text        NOT NULL DEFAULT '',
+    created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT account_apps_pkey PRIMARY KEY (id),
+    CONSTRAINT account_apps_workos_application_key UNIQUE (workos_application_id),
+    CONSTRAINT account_apps_client_id_key UNIQUE (client_id),
+    CONSTRAINT account_apps_account_name_key UNIQUE (account_id, name),
+    CONSTRAINT account_apps_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_account_apps_account ON public.account_apps(account_id, created_at DESC, id DESC);
+
 -- Account-scoped OTel ingest keys. Set as the forced telemetry credential on
 -- developer machines (e.g. Claude Code via Anthropic managed settings); the
 -- ingest endpoint hashes the presented bearer key and looks it up here to

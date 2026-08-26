@@ -20,6 +20,10 @@ export const accountKeys = {
     ['accounts', account, 'experiments', experiment] as const,
 };
 
+export const appKeys = {
+  all: (account: string) => ['accounts', account, 'apps'] as const,
+};
+
 const blueprintAccountPrefix = (account: string) => ['agents', 'account', account] as const;
 
 export const blueprintKeys = {

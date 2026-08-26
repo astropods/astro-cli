@@ -1,8 +1,9 @@
-export { accountKeys, auditLogKeys, billingKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys, slackKeys } from './keys';
+export { accountKeys, appKeys, auditLogKeys, billingKeys, blueprintKeys, deploymentKeys, knowledgeKeys, usageKeys, variableKeys, githubKeys, slackKeys } from './keys';
 export { useGitHubStatus, useGitHubLink, useGitHubDisconnect, useGitHubBuildLogs, useGitHubRebuild, useGitHubAccountConnect, useGitHubAccountStatus, useGitHubAccountRepos, useGitHubAccountScan, useGitHubAccountConnections } from './github';
 export { useBlueprints, useAccountBlueprints, useBlueprint, useDeployAgent, useUploadBlueprintAvatar, useCreateBlueprint } from './blueprints';
 export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, useUploadDeploymentAvatar, useDeleteDeploymentAvatar } from './deployments';
 export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile, useUploadAvatar, useSetAvatarPreset, useResetAvatar, useUpdateAccountDisplayName, useUpdateMemberRole, useRemoveAccountMember, useAccountMembers, useCreateInvitations, useAccountExperiment, useUpdateAccountExperiment, PROMPT_CLASSIFICATION_STATS, FINE_GRAINED_ACCESS } from './accounts';
+export { useApps, useCreateApp, useDeleteApp, useCreateAppSecret, useDeleteAppSecret } from './apps';
 export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
 export { useBillingUsage, useBillingDailySpend, useBillingInvoices, useBillingBalances, useDownloadInvoicePdf, usePaymentMethod, useConfirmPaymentMethod, useDeletePaymentMethod } from './billing';

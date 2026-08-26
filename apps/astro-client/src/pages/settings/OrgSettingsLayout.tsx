@@ -163,6 +163,14 @@ function OrgSettingsContent() {
               </SidebarNavItem>
             )}
             {isAdmin && (
+              <SidebarNavItem to={`/settings/org/${orgSlug}/apps`}>
+                <span className="flex items-center gap-2">
+                  <KeyRound className="size-3.5" />
+                  Apps
+                </span>
+              </SidebarNavItem>
+            )}
+            {isAdmin && (
               <SidebarNavItem to={`/settings/org/${orgSlug}/audit-log`}>
                 <span className="flex items-center gap-2">
                   <ScrollText className="size-3.5" />

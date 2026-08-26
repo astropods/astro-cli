@@ -226,6 +226,38 @@ export interface ExperimentResponse {
   enabled: boolean;
 }
 
+export interface AppSecret {
+  id: string;
+  hint: string;
+  last_used_at?: string;
+  created_at?: string;
+}
+
+export interface NewAppSecret extends AppSecret {
+  /** Plaintext, returned only at creation and never retrievable again. */
+  value: string;
+}
+
+export interface MachineApp {
+  id: string;
+  name: string;
+  description?: string;
+  client_id: string;
+  scopes: string[];
+  secrets: AppSecret[];
+  created_at: string;
+}
+
+export interface AppListResponse {
+  apps: MachineApp[];
+  available_scopes: string[];
+}
+
+export interface CreateAppResponse {
+  app: MachineApp;
+  secret: NewAppSecret;
+}
+
 export interface AccountSearchResult {
   id: string;
   name: string;
@@ -2702,6 +2734,44 @@ class ApiClient {
     );
   }
 
+
+  private appPath(account: string, subpath = ""): string {
+    return `/api/v1/accounts/${encodeURIComponent(account)}/apps${subpath}`;
+  }
+
+  async listApps(account: string): Promise<AppListResponse> {
+    return this.request<AppListResponse>(this.appPath(account));
+  }
+
+  async createApp(
+    account: string,
+    body: { name: string; description?: string; scopes: string[] },
+  ): Promise<CreateAppResponse> {
+    return this.request<CreateAppResponse>(this.appPath(account), {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async deleteApp(account: string, id: string): Promise<void> {
+    return this.request<void>(this.appPath(account, `/${encodeURIComponent(id)}`), {
+      method: "DELETE",
+    });
+  }
+
+  async createAppSecret(account: string, id: string): Promise<NewAppSecret> {
+    return this.request<NewAppSecret>(
+      this.appPath(account, `/${encodeURIComponent(id)}/secrets`),
+      { method: "POST" },
+    );
+  }
+
+  async deleteAppSecret(account: string, id: string, secretId: string): Promise<void> {
+    return this.request<void>(
+      this.appPath(account, `/${encodeURIComponent(id)}/secrets/${encodeURIComponent(secretId)}`),
+      { method: "DELETE" },
+    );
+  }
 
   async getAccountMembers(account: string, opts?: { includePending?: boolean }): Promise<AccountMembersResponse> {
     const params = opts?.includePending ? '?include_pending=true' : '';

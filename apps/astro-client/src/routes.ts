@@ -52,6 +52,7 @@ export default [
             route("billing", "pages/settings/OrgBillingSettings.tsx"),
             route("secrets", "pages/settings/OrgSecretsSettings.tsx"),
             route("api-keys", "pages/settings/OrgApiKeysSettings.tsx"),
+            route("apps", "pages/settings/OrgAppsSettings.tsx"),
             route("audit-log", "pages/settings/OrgAuditLogSettings.tsx"),
             route("experiments", "pages/settings/OrgExperimentsSettings.tsx"),
           ]),

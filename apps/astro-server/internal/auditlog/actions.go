@@ -47,6 +47,11 @@ const (
 	AccessGroupAddMember       = "access_group.add_member"
 	AccessGroupRemoveMember    = "access_group.remove_member"
 
+	AppCreate       = "app.create"
+	AppDelete       = "app.delete"
+	AppCreateSecret = "app.create_secret" //nolint:gosec // an audit action name, not a credential
+	AppDeleteSecret = "app.delete_secret" //nolint:gosec // an audit action name, not a credential
+
 	AvatarUpload = "avatar.upload"
 	AvatarPreset = "avatar.preset"
 	AvatarReset  = "avatar.reset"

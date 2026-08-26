@@ -30,6 +30,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/admingrpc"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/appstore"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
@@ -45,6 +46,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/connectapps"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
@@ -569,6 +571,8 @@ func runAPI(
 	webhookStore := githubwebhook.New(db)
 	pipesClient := pipes.New(cfg.Auth.WorkOSAPIKey)
 	slackIdentityStore := slackidentity.NewStore(db)
+	appStore := appstore.NewStore(db)
+	connectAppsClient := connectapps.New(cfg.Auth.WorkOSAPIKey)
 
 	// Initialize Prometheus query client (nil if PROMETHEUS_URL is empty)
 	promClient := promquery.NewClient(registryCfg.PrometheusURL, registryCfg.EKSBootstrapName)
@@ -590,6 +594,7 @@ func runAPI(
 		Probe: probeHandler,
 		Stores: Stores{
 			Account:            accountStore,
+			App:                appStore,
 			Deployment:         deploymentStore,
 			AccountVars:        accountVarsStore,
 			Heart:              heartStore,
@@ -609,20 +614,21 @@ func runAPI(
 			BillingStatus:      billingStatus,
 		},
 		Clients: Clients{
-			AgentIndex: agentIndex,
-			K8s:        k8sClient,
-			Registry:   registry,
-			Loki:       lokiClient,
-			Org:        orgClient,
-			OrgSync:    orgSync,
-			Billing:    billingProvider,
-			Payment:    paymentProvider,
-			Pipes:      pipesClient,
-			Prom:       promClient,
-			K8sCache:   k8sCache,
-			Preflight:  imagePreflighter,
-			Queue:      rq,
-			FGA:        deploymentFGA,
+			AgentIndex:  agentIndex,
+			K8s:         k8sClient,
+			Registry:    registry,
+			Loki:        lokiClient,
+			Org:         orgClient,
+			OrgSync:     orgSync,
+			Billing:     billingProvider,
+			Payment:     paymentProvider,
+			Pipes:       pipesClient,
+			Prom:        promClient,
+			K8sCache:    k8sCache,
+			Preflight:   imagePreflighter,
+			Queue:       rq,
+			FGA:         deploymentFGA,
+			ConnectApps: connectAppsClient,
 		},
 	}
 	setupRoutes(router, deps)
@@ -1067,6 +1073,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 		auditStore,
 		cfg.FGAEnforcementEnabled && accessGroups != nil,
 	)
+	appHandler := handlers.NewAppHandler(log, deps.Stores.App, deps.Clients.ConnectApps, auditStore)
 	watcherStore := deps.Stores.Watcher
 	avatarStore := deps.Stores.Avatar
 	readmeAssetStore := deps.Stores.ReadmeAssets
@@ -1505,6 +1512,33 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Tags("Authorization"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"), oapispec.PathParam("group_id", "WorkOS group ID"),
 					oapispec.PathParam("user_id", "Astro user ID"), oapispec.Response(204, nil),
+				)
+
+				api.GET(accountSettings, "/apps", "List machine apps", appHandler.List,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.AppListResponse{}),
+				)
+				api.POST(accountSettings, "/apps", "Create a machine app", appHandler.Create,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Body(&handlers.CreateAppRequest{}),
+					oapispec.Response(201, &handlers.CreateAppResponse{}),
+				)
+				api.DELETE(accountSettings, "/apps/:app_id", "Delete a machine app", appHandler.Delete,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("app_id", "App ID"),
+					oapispec.Response(204, nil),
+				)
+				api.POST(accountSettings, "/apps/:app_id/secrets", "Create an app secret", appHandler.CreateSecret,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("app_id", "App ID"),
+					oapispec.Response(201, &connectapps.NewSecret{}),
+				)
+				api.DELETE(accountSettings, "/apps/:app_id/secrets/:secret_id", "Revoke an app secret", appHandler.DeleteSecret,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"), oapispec.PathParam("app_id", "App ID"),
+					oapispec.PathParam("secret_id", "Secret ID"), oapispec.Response(204, nil),
 				)
 			}
 

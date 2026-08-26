@@ -9,12 +9,14 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/appstore"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
+	"github.com/astropods/astro/apps/astro-server/internal/connectapps"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
@@ -59,6 +61,7 @@ type Deps struct {
 
 type Stores struct {
 	Account            *account.AccountStore
+	App                *appstore.Store
 	Deployment         *deploymentstore.Store
 	AccountVars        *accountvars.Store
 	Heart              *heartstore.Store
@@ -95,6 +98,9 @@ type Clients struct {
 	Preflight  *k8s.ImagePreflighter
 	Queue      *riverqueue.Queue
 	FGA        authz.FGA
+	// ConnectApps is nil when no WorkOS API key is configured; handlers then
+	// report apps unavailable.
+	ConnectApps connectapps.Client
 
 	// Observability provisioners, wired onto the admin server for the account
 	// detail view's recover actions. Nil when their backends are unconfigured.

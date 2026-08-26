@@ -1,7 +1,8 @@
 # Machine credentials
 
-**Status**: Proposed
+**Status**: Apps and their credentials implemented; token validation not yet
 **Date**: 2026-08-25
+**Updated**: 2026-08-26
 
 Unblocks phase 2 of [Access audiences](access-audiences-spec.md). Related: [CLI authentication](cli-authentication.md) covers the human device flow this sits beside.
 
@@ -42,7 +43,9 @@ WorkOS Connect already issues machine-to-machine applications using the OAuth 2.
 
 Two facts shape everything below. The organization is fixed on the application rather than requested at the token endpoint, so a credential cannot ask for a different tenant. And credentials never expire, so rotation is add-then-revoke rather than waiting for a clock.
 
-One gap: the fetched reference does not show the endpoint that creates a credential and returns the `client_secret`, only that an application may hold five. Confirm that call before building, because the whole creation flow hangs off it.
+The credential call the published reference omits is in the Go SDK, which settles the one gap this design hung on: `CreateApplicationClientSecret` returns the plaintext once, and `ListApplicationClientSecrets` returns each credential's ID, hint, and last-used time. `DeleteClientSecret` revokes one.
+
+WorkOS therefore owns credential metadata, not just the secret. That removes a table: there is nothing about a credential worth storing locally, so Astro keeps one row per application and reads the credential list from WorkOS.
 
 ## Model
 
@@ -172,13 +175,12 @@ These sit behind `org:manage`, like every other account setting. They are human-
 
 | Table | Change |
 | --- | --- |
-| `account_apps` | New. `id`, `account_id`, `label`, `workos_application_id`, `scopes text[]`, `created_by`, `created_at`, `updated_at`. Unique on `(account_id, label)` and on `workos_application_id` |
-| `account_app_credentials` | New. `id`, `app_id`, `client_id`, `created_by`, `created_at`, `last_used_at`, `revoked_at`. Unique on `client_id`, which is the column token validation looks up |
+| `account_apps` | New. `id` from `deployid`, `account_id`, `name`, `description`, `workos_application_id`, `client_id`, `scopes text[]`, `created_by`, `created_at`, `updated_at`. Unique on `(account_id, name)`, on `workos_application_id`, and on `client_id`, which is the column token validation looks up |
 | `audience_members` | No change. `source` and `granted_by` already exist and already carry an external writer |
 
 No secret material is stored in either table. The `client_id` is public by design, so a leak of these rows exposes no credential.
 
-`last_used_at` is written on a sampled basis rather than on every request, because a chatty connector would otherwise turn every read into a write.
+There is no credentials table. WorkOS tracks each secret's hint, creation, and last use, and returns them on demand, so storing any of it locally would only create a second copy to keep correct.
 
 ## Interaction with existing behavior
 
@@ -241,11 +243,11 @@ No secret material is stored in either table. The `client_id` is public by desig
 
 ## Rollout
 
-| Phase | Content |
-| --- | --- |
-| 1 | Both tables, the WorkOS Applications API client, create and delete, and the middleware branch with account and scope checks. No UI. |
-| 2 | The apps settings screen, credential rotation, last-used display, and the `/me` machine shape. |
-| 3 | Apply scopes to the audience member endpoints, add cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. |
+| Phase | Content | State |
+| --- | --- | --- |
+| 1 | The `account_apps` table, the WorkOS Connect client, create and delete, credential add and revoke, and the org settings screen. | Done |
+| 2 | The middleware branch: discriminate an M2M token, resolve its account, and check its scope. Plus the `/me` machine shape. | Not started. Until this lands an app can be created but its token is not accepted anywhere |
+| 3 | Apply scopes to the audience member endpoints, add cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. | Not started |
 
 Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) phase 2, and it is small once the credential exists.
 
@@ -260,4 +262,5 @@ Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) p
 | An app is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
 | An app cannot create another app | A credential cannot widen its own reach |
 | Machine scopes are a separate vocabulary from human permissions | A scope never accidentally satisfies a role check |
-| `last_used_at` is sampled | A read-heavy connector does not turn every read into a write, at the cost of an imprecise timestamp |
+| No credentials table; WorkOS is the record | Nothing about a secret can drift, at the cost of a WorkOS call to render the list |
+| An app keeps at least one secret | Revoking the last one is refused, so rotation is add-then-revoke rather than a window with no way in |
