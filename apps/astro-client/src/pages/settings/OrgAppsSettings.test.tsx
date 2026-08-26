@@ -26,7 +26,7 @@ function renderPage() {
 afterEach(cleanup);
 
 describe("OrgAppsSettings", () => {
-  it("lists apps with their client ID and secret hints", async () => {
+  it("lists OAuth apps with their client ID and secret hints", async () => {
     server.use(
       http.get("/api/v1/accounts/test-org/apps", () =>
         HttpResponse.json({ apps: [app], available_scopes: SCOPES }),
@@ -39,7 +39,7 @@ describe("OrgAppsSettings", () => {
     expect(screen.getByText("…wxyz")).toBeInTheDocument();
   });
 
-  it("shows the plaintext secret once after creating an app", async () => {
+  it("shows the plaintext secret once after creating an OAuth app", async () => {
     let created: unknown;
     server.use(
       http.get("/api/v1/accounts/test-org/apps", () =>
@@ -56,9 +56,9 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /Create your first app/ }));
+    await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
     await user.type(screen.getByLabelText("Name"), "lumos-connector");
-    await user.click(screen.getByRole("button", { name: "Create app" }));
+    await user.click(screen.getByRole("button", { name: "Create OAuth app" }));
 
     await waitFor(() => expect(created).toEqual({ name: "lumos-connector" }));
     expect(await screen.findByText("sk_live_plaintext")).toBeInTheDocument();
@@ -74,13 +74,13 @@ describe("OrgAppsSettings", () => {
     renderPage();
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /Create your first app/ }));
+    await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByText("audiences:manage")).not.toBeInTheDocument();
     expect(screen.getByText(/coming soon/)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Name"), "ci");
-    expect(screen.getByRole("button", { name: "Create app" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create OAuth app" })).toBeEnabled();
   });
 
   it("hides revoke on a lone secret so an app is never left without one", async () => {

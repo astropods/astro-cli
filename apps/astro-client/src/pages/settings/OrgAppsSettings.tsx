@@ -26,7 +26,7 @@ import { useApps, useCreateApp, useCreateAppSecret, useDeleteApp, useDeleteAppSe
 import { getApiErrorMessage, type MachineApp, type NewAppSecret } from "@/lib/api";
 
 export const meta: MetaFunction = () => [
-  { title: "Apps - Organization Settings | Astro" },
+  { title: "OAuth apps - Organization Settings | Astro" },
 ];
 
 export default function OrgAppsSettings() {
@@ -61,31 +61,31 @@ export default function OrgAppsSettings() {
   return (
     <>
       <SectionHeader
-        title="Apps"
+        title="OAuth apps"
         subtitle="Credentials for systems that call Astro on their own, without a person signed in"
         action={
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" />
-            New app
+            New OAuth app
           </Button>
         }
       />
 
       {apps.isPending ? (
-        <p className="text-body-sm text-muted-foreground">Loading apps…</p>
+        <p className="text-body-sm text-muted-foreground">Loading OAuth apps…</p>
       ) : list.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
           <div className="mb-3 flex justify-center text-muted-foreground">
             <KeyRound className="size-6" />
           </div>
-          <p className="text-sm font-medium text-foreground">No apps yet</p>
+          <p className="text-sm font-medium text-foreground">No OAuth apps yet</p>
           <p className="mt-1 mb-4 text-xs text-muted-foreground">
-            An app holds a client ID and secret that a script, pipeline, or governance tool uses to
-            call Astro on its own.
+            An OAuth app holds a client ID and secret that a script, pipeline, or governance tool
+            uses to call Astro on its own.
           </p>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" />
-            Create your first app
+            Create your first OAuth app
           </Button>
         </div>
       ) : (
@@ -174,14 +174,14 @@ export default function OrgAppsSettings() {
 
       {error && (
         <p role="alert" className="mt-3 text-body-sm text-destructive">
-          {getApiErrorMessage(error, "Could not update apps.")}
+          {getApiErrorMessage(error, "Could not update OAuth apps.")}
         </p>
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New app</DialogTitle>
+            <DialogTitle>New OAuth app</DialogTitle>
             <DialogDescription>
               The secret is shown once, when the app is created.
             </DialogDescription>
@@ -216,7 +216,7 @@ export default function OrgAppsSettings() {
             </div>
             {createApp.isError && (
               <p role="alert" className="text-body-sm text-destructive">
-                {getApiErrorMessage(createApp.error, "Could not create the app.")}
+                {getApiErrorMessage(createApp.error, "Could not create the OAuth app.")}
               </p>
             )}
             <DialogFooter>
@@ -224,7 +224,7 @@ export default function OrgAppsSettings() {
                 Cancel
               </Button>
               <Button type="submit" disabled={!name.trim() || createApp.isPending}>
-                {createApp.isPending ? "Creating…" : "Create app"}
+                {createApp.isPending ? "Creating…" : "Create OAuth app"}
               </Button>
             </DialogFooter>
           </form>
@@ -277,7 +277,7 @@ export default function OrgAppsSettings() {
                   removeApp.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) })
                 }
               >
-                {removeApp.isPending ? "Deleting…" : "Delete app"}
+                {removeApp.isPending ? "Deleting…" : "Delete OAuth app"}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -166,7 +166,7 @@ function OrgSettingsContent() {
               <SidebarNavItem to={`/settings/org/${orgSlug}/apps`}>
                 <span className="flex items-center gap-2">
                   <KeyRound className="size-3.5" />
-                  Apps
+                  OAuth Apps
                 </span>
               </SidebarNavItem>
             )}
