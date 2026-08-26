@@ -176,6 +176,10 @@ const (
 // Dollars. Callers working in minor units scale it themselves.
 const MaxSelfServeSpendUSD = 1000.00
 
+// SupportEmail is where customer-facing copy points. The public docs already
+// send people here, so a second address would split the queue.
+const SupportEmail = "support@astropods.com"
+
 // SpendThresholdReader reads the customer's own spend controls. Kept off
 // BillingProvider (interface assertion) so noop implements nothing.
 type SpendThresholdReader interface {

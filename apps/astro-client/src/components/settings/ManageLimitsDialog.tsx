@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { linkifyEmail } from "@/lib/linkify-email";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -215,7 +216,7 @@ export function ManageLimitsDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Could not save limits."));
+      toast.error(linkifyEmail(getApiErrorMessage(err, "Could not save limits.")));
     }
   }
 

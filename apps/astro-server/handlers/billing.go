@@ -542,20 +542,20 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 				continue
 			}
 			if *v < 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "a spend threshold cannot be negative"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "A spend threshold cannot be negative."})
 				return
 			}
 			if *v > maxSpendThresholdCents {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("a spend threshold cannot exceed $%.0f per month; contact support about an enterprise plan to raise it",
-						billing.MaxSelfServeSpendUSD)})
+					"error": fmt.Sprintf("A spend threshold cannot exceed $%.0f per month. Contact %s about an enterprise plan to raise it.",
+						billing.MaxSelfServeSpendUSD, billing.SupportEmail)})
 				return
 			}
 		}
 		// A warning at or above the limit never fires on its own: the limit
 		// suspends the account first, so the warning is silently useless.
 		if req.Warning != nil && req.Limit != nil && *req.Warning >= *req.Limit {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "the warning must be below the limit"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "The warning must be below the limit."})
 			return
 		}
 
@@ -664,7 +664,7 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 				continue
 			}
 			if *v < 0 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "a usage threshold cannot be negative"})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "A usage threshold cannot be negative."})
 				return
 			}
 			if *v > maxThresholdAmount {
@@ -674,7 +674,7 @@ func SetBillingUsageThresholds(log *logger.Logger, accountStore *account.Account
 			}
 		}
 		if req.Warning != nil && req.Limit != nil && *req.Warning >= *req.Limit {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "the warning must be below the limit"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "The warning must be below the limit."})
 			return
 		}
 

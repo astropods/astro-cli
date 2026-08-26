@@ -17,7 +17,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: (m: string) => mockToastSuccess(m),
     warning: (m: string) => mockToastWarning(m),
-    error: (m: string) => mockToastError(m),
+    error: (m: unknown) => mockToastError(m),
   },
 }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ role: mockRole(), personalAccount: mockPersonalAccount() }) }));

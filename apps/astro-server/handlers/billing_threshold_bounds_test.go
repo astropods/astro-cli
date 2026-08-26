@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
@@ -120,6 +121,14 @@ func TestSetThresholds_SpendLimitStopsAtTheSelfServeCeiling(t *testing.T) {
 	}
 	if strings.Contains(got.Error, "quota increase") {
 		t.Errorf("error = %q, points at a route that cannot raise a spend limit", got.Error)
+	}
+	// The client renders this string straight into a toast, so it is product
+	// copy rather than a Go error string.
+	if !strings.Contains(got.Error, billing.SupportEmail) {
+		t.Errorf("error = %q, want the support address %s so the reader can act on it", got.Error, billing.SupportEmail)
+	}
+	if r := []rune(got.Error); len(r) == 0 || !unicode.IsUpper(r[0]) {
+		t.Errorf("error = %q, want a capitalised sentence: it is shown to a customer verbatim", got.Error)
 	}
 }
 
