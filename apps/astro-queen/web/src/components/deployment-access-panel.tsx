@@ -20,7 +20,6 @@ import type { AdminDeploymentAccessMember } from "@/types/admin";
 
 interface DeploymentAccessPanelProps {
   deploymentId: string;
-  active: boolean;
 }
 
 const sourceDetails = {
@@ -29,8 +28,8 @@ const sourceDetails = {
   group: { label: "Group", icon: UsersRound },
 } as const;
 
-export function DeploymentAccessPanel({ deploymentId, active }: DeploymentAccessPanelProps) {
-  const query = useDeploymentAccess(deploymentId, active);
+export function DeploymentAccessPanel({ deploymentId }: DeploymentAccessPanelProps) {
+  const query = useDeploymentAccess(deploymentId);
   const [search, setSearch] = useState("");
   const members = query.data?.members ?? [];
   const filteredMembers = useMemo(() => {

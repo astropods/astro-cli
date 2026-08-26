@@ -33,6 +33,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/appstore"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authorizationadmin"
 	"github.com/astropods/astro/apps/astro-server/internal/authorizationstore"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
@@ -130,8 +131,10 @@ func main() {
 	agentIndex := agentindex.NewIndexWithDB(db)
 	deploymentFGASync := authz.NewDeploymentFGASyncStore(db, cfg.Auth.WorkOSAPIKey != "")
 	var deploymentFGA authz.FGA
+	var workosFGA *authz.WorkOSFGA
 	if deploymentFGASync.Enabled() {
-		deploymentFGA = authz.NewWorkOSFGA(cfg.Auth.WorkOSAPIKey)
+		workosFGA = authz.NewWorkOSFGA(cfg.Auth.WorkOSAPIKey)
+		deploymentFGA = workosFGA
 	}
 	accessAssignments, _ := deploymentFGA.(authz.AccessAssignments)
 	var resourceAccessSync *authz.ResourceAccessSyncStore
@@ -139,6 +142,10 @@ func main() {
 	if accessAssignments != nil {
 		resourceAccessSync = authz.NewResourceAccessSyncStore(db)
 		accessReconciler = authz.NewAccessReconciler(accessAssignments, resourceAccessSync)
+	}
+	var authorizationAdminService *authorizationadmin.Service
+	if workosFGA != nil {
+		authorizationAdminService = authorizationadmin.NewService(db, workosFGA)
 	}
 
 	// Build a shared S3 client (respects S3_ENDPOINT for local MinIO / S3-compatible stores).
@@ -259,7 +266,7 @@ func main() {
 
 	// --- API mode: HTTP server + gRPC admin ---
 	if cfg.RunAPI() {
-		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, vault)
+		httpSrv, grpcServer, probeHandler, adminSrv, apiQueue = runAPI(log, cfg, db, accountStore, agentIndex, orgClient, orgSync, billingProvider, paymentProvider, ent, billingStatus, quotaChecker, avatarStore, readmeAssetStore, k8sCache, deploymentFGASync, resourceAccessSync, deploymentFGA, authorizationAdminService, vault)
 	}
 
 	// --- Worker mode: events consumer ---
@@ -427,6 +434,7 @@ func runAPI(
 	deploymentFGASync *authz.DeploymentFGASyncStore,
 	resourceAccessSync *authz.ResourceAccessSyncStore,
 	deploymentFGA authz.FGA,
+	authorizationAdminService *authorizationadmin.Service,
 	vault *envelope.Vault,
 ) (*http.Server, *grpc.Server, *handlers.ProbeHandler, *admingrpc.Server, *riverqueue.Queue) {
 	// Set Gin mode
@@ -636,6 +644,7 @@ func runAPI(
 	// Start admin gRPC server
 	adminSrv := admingrpc.New(log, deploymentStore, k8sClient, lokiClient, db, cfg.Database.URL, rq, auditStore, clusterStore, k8sReg, k8sCache)
 	adminSrv.SetDeploymentAccessInspector(deploymentFGA, orgClient)
+	adminSrv.SetAuthorizationAdmin(authorizationAdminService)
 	adminSrv.SetPrometheusClient(promClient)
 	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
 	evalDeployer := &deployer.Deployer{

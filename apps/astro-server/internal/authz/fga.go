@@ -81,3 +81,20 @@ type ResourceDiscovery interface {
 type ResourceMembershipDiscovery interface {
 	ListMemberships(ctx context.Context, organizationID string, resource ResourceRef, action Action) ([]string, error)
 }
+
+// AuthorizationResource is the vendor resource identity Queen needs for
+// inventory.
+type AuthorizationResource struct {
+	ID               string
+	OrganizationID   string
+	ParentResourceID string
+	Resource         ResourceRef
+	Name             string
+	CreatedAt        string
+}
+
+// AuthorizationResourceCatalog exposes resource inventory that is not
+// part of request-time authorization.
+type AuthorizationResourceCatalog interface {
+	ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error)
+}

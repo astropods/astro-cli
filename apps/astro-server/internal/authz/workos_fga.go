@@ -35,6 +35,7 @@ var _ AccessAssignments = (*WorkOSFGA)(nil)
 var _ ResourceDiscovery = (*WorkOSFGA)(nil)
 var _ Groups = (*WorkOSFGA)(nil)
 var _ ResourceMembershipDiscovery = (*WorkOSFGA)(nil)
+var _ AuthorizationResourceCatalog = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -112,6 +113,33 @@ func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, r
 		return fmt.Errorf("delete WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
 	}
 	return nil
+}
+
+func (f *WorkOSFGA) ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error) {
+	iterator := f.authorization.ListResources(ctx, &workos.AuthorizationListResourcesParams{})
+	resources := make([]AuthorizationResource, 0)
+	for iterator.Next() {
+		current := iterator.Current()
+		parentResourceID := ""
+		if current.ParentResourceID != nil {
+			parentResourceID = *current.ParentResourceID
+		}
+		resources = append(resources, AuthorizationResource{
+			ID:               current.ID,
+			OrganizationID:   current.OrganizationID,
+			ParentResourceID: parentResourceID,
+			Resource: ResourceRef{
+				Type:       ResourceType(current.ResourceTypeSlug),
+				ExternalID: current.ExternalID,
+			},
+			Name:      current.Name,
+			CreatedAt: current.CreatedAt,
+		})
+	}
+	if err := iterator.Err(); err != nil {
+		return nil, fmt.Errorf("list WorkOS authorization resources: %w", err)
+	}
+	return resources, nil
 }
 
 func (f *WorkOSFGA) AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error {

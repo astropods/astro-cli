@@ -15,6 +15,8 @@ import { ClustersPage } from "@/pages/clusters";
 import { MigrationsPage } from "@/pages/migrations";
 import { AlertsPage } from "@/pages/alerts";
 import { AuditPage } from "@/pages/audit";
+import { ResourcesPage } from "@/pages/authorization";
+import { ResourceDetailPage } from "@/pages/resource-detail";
 
 export const router = createBrowserRouter([
   {
@@ -25,6 +27,8 @@ export const router = createBrowserRouter([
       { path: "admin/accounts/:id", element: <AccountDetailPage /> },
       { path: "admin/deployments", element: <DeploymentsPage /> },
       { path: "admin/deployments/:id", element: <DeploymentDetailPage /> },
+      { path: "admin/resources", element: <ResourcesPage /> },
+      { path: "admin/resources/:type/:id", element: <ResourceDetailPage /> },
       { path: "admin/blueprints", element: <BlueprintsPage /> },
 
       { path: "admin/api-client", element: <ApiClientPage /> },

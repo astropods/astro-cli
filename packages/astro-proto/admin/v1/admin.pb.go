@@ -77,6 +77,26 @@ type ListDeploymentsResponse struct {
 	Count       int32              `json:"count,omitempty"`
 }
 
+type ListAuthorizationResourcesRequest struct{}
+
+type AuthorizationResource struct {
+	Type             string   `json:"type,omitempty"`
+	Name             string   `json:"name,omitempty"`
+	ExternalID       string   `json:"external_id,omitempty"`
+	WorkOSResourceID string   `json:"workos_resource_id,omitempty"`
+	AccountID        string   `json:"account_id,omitempty"`
+	AccountName      string   `json:"account_name,omitempty"`
+	DirectAdmins     []string `json:"direct_admins,omitempty"`
+	AssignmentCount  int32    `json:"assignment_count,omitempty"`
+	CreatedAt        string   `json:"created_at,omitempty"`
+	SyncState        string   `json:"sync_state,omitempty"`
+	LastError        string   `json:"last_error,omitempty"`
+}
+
+type ListAuthorizationResourcesResponse struct {
+	Resources []*AuthorizationResource `json:"resources,omitempty"`
+}
+
 type GetDeploymentAccessRequest struct {
 	DeploymentId string `json:"deployment_id,omitempty"`
 }

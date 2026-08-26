@@ -109,6 +109,24 @@ export interface GetDeploymentAccessResponse {
   members?: AdminDeploymentAccessMember[];
 }
 
+export interface AuthorizationResource {
+  type: string;
+  name: string;
+  external_id: string;
+  workos_resource_id: string;
+  account_id?: string;
+  account_name?: string;
+  direct_admins?: string[];
+  assignment_count: number;
+  created_at: string;
+  sync_state: string;
+  last_error?: string;
+}
+
+export interface ListAuthorizationResourcesResponse {
+  resources?: AuthorizationResource[];
+}
+
 export interface GetDeploymentEventsResponse {
   events: DeploymentEvent[];
 }

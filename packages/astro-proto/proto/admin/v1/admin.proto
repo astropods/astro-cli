@@ -7,6 +7,7 @@ option go_package = "github.com/astropods/astro/packages/astro-proto/admin/v1;ad
 service AdminService {
   rpc ListDeployments(ListDeploymentsRequest) returns (ListDeploymentsResponse);
   rpc GetDeploymentAccess(GetDeploymentAccessRequest) returns (GetDeploymentAccessResponse);
+  rpc ListAuthorizationResources(ListAuthorizationResourcesRequest) returns (ListAuthorizationResourcesResponse);
   rpc GetClusterStatus(GetClusterStatusRequest) returns (GetClusterStatusResponse);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
@@ -125,6 +126,26 @@ message AdminDeploymentRevision {
 message ListDeploymentsResponse {
   repeated AdminDeployment deployments = 1;
   int32 count = 2;
+}
+
+message ListAuthorizationResourcesRequest {}
+
+message AuthorizationResource {
+  string type = 1;
+  string name = 2;
+  string external_id = 3;
+  string workos_resource_id = 4;
+  string account_id = 5;
+  string account_name = 6;
+  repeated string direct_admins = 7;
+  int32 assignment_count = 8;
+  string created_at = 9;
+  string sync_state = 10;
+  string last_error = 11;
+}
+
+message ListAuthorizationResourcesResponse {
+  repeated AuthorizationResource resources = 1;
 }
 
 message GetDeploymentAccessRequest {

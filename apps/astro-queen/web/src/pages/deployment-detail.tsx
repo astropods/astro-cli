@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { DeploymentAccessPanel } from "@/components/deployment-access-panel";
 import { Trash2, RotateCw, FileText, Settings, Sun, Undo2, AlertTriangle, Play, Pause, Wrench, CheckCircle2, Clock, Cog, UploadCloud, XCircle, Ban, CircleSlash, Loader2, type LucideIcon } from "lucide-react";
 import { deriveDisplayDeploymentStatus, type DisplayDeploymentStatus } from "@/lib/display-deployment-status";
 import {
@@ -241,7 +240,6 @@ export function DeploymentDetailPage() {
           <TabsTrigger value="pods">Pods ({cs?.pods?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="revisions">Revisions ({revisions?.length ?? 0})</TabsTrigger>
           <TabsTrigger value="variables">Variables ({data.variables?.length ?? 0})</TabsTrigger>
-          <TabsTrigger value="access">Access</TabsTrigger>
           <TabsTrigger value="spec">Spec</TabsTrigger>
         </TabsList>
 
@@ -366,10 +364,6 @@ export function DeploymentDetailPage() {
               />
             )}
           </Dialog>
-        </TabsContent>
-
-        <TabsContent value="access" className="mt-2">
-          <DeploymentAccessPanel deploymentId={id!} active={activeTab === "access"} />
         </TabsContent>
 
         <TabsContent value="variables" className="mt-2">

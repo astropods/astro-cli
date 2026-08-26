@@ -5,6 +5,7 @@ type ResourceType string
 
 const (
 	ResourceOrganization ResourceType = "organization"
+	ResourceAccount      ResourceType = "account"
 	ResourceDeployment   ResourceType = "deployment"
 )
 

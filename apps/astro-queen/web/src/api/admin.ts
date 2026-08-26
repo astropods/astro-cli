@@ -6,6 +6,7 @@ import type {
   ListDeploymentsResponse,
   GetDeploymentResponse,
   GetDeploymentAccessResponse,
+  ListAuthorizationResourcesResponse,
   ListAccountsResponse,
   GetAccountResponse,
   MetronomeAliasStatus,
@@ -81,15 +82,25 @@ export function useDeployment(id: string) {
   });
 }
 
-export function useDeploymentAccess(id: string, enabled = true) {
+export function useDeploymentAccess(id: string) {
   return useQuery({
     queryKey: adminKeys.deploymentAccess(id),
     queryFn: () =>
       api.get<GetDeploymentAccessResponse>(
         `/api/admin/deployments/${encodeURIComponent(id)}/access`
       ),
-    enabled: !!id && enabled,
+    enabled: !!id,
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function useAuthorizationResources() {
+  return useQuery({
+    queryKey: adminKeys.authorizationResources(),
+    queryFn: () =>
+      api.get<ListAuthorizationResourcesResponse>("/api/admin/authorization/resources"),
+    staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 }
