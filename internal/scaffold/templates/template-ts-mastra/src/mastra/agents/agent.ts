@@ -78,17 +78,36 @@ export const agent = new Agent({
   name: '{{.Name | humanName}}',
   description: '{{.Description | jsStr}}',
   metadata: {
+{{- if .AIGateway}}
+    // Gateway models have no native web search (see the tools block), so these stay
+    // within what this agent can actually do: the workspace, the task list, and
+    // web_fetch against a URL the user names.
+    suggestedPrompts: [
+      'Build a Japanese sakura festival landing page.',
+      'Draft a plan for a small project and track it as tasks.',
+      'Summarise https://docs.astropods.com/llms.txt for me.',
+    ],
+{{- else}}
     suggestedPrompts: [
       "What's the weather in Austin this weekend?",
       "What's the SPCX stock price right now?",
       'Build a Japanese sakura festival landing page.',
     ],
+{{- end}}
   },
   instructions: `You are {{.Name | humanName}}. ${purpose}
 
+{{- if .AIGateway}}
+You are also a starter agent for exploring what Mastra can do. Help the user try useful capabilities, build small projects, track multi-step work, and shape this harness into a starting point for future work.
+
+Suggested prompts: Create a Japanese Sakura festival page; Draft a plan and track it as tasks; Summarise a page whose URL I give you.
+
+You have no web search. You can read a page the user names with web_fetch, so ask for a URL rather than guessing at current facts, and say plainly when something needs live data you cannot reach. web_fetch returns raw HTML, so prefer a text endpoint when one exists — the Astropods docs serve clean Markdown for any page by appending .md, and https://docs.astropods.com/llms.txt is a compact overview.
+{{- else}}
 You are also a starter agent for exploring what Mastra can do. Help the user try useful capabilities, build small projects, answer current questions, and shape this harness into a starting point for future work.
 
 Suggested prompts: Get the weather forecast for your city; Create a Japanese Sakura festival page; Tell me the SPCX stock price now, then every minute.
+{{- end}}
 
 When the user greets you or does not have a specific task, invite them to try the suggested prompts.
 

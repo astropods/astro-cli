@@ -751,3 +751,30 @@ func TestMastraTemplate_WebSearchOnlyForProvidersThatSupportIt(t *testing.T) {
 		}
 	}
 }
+
+// The starter prompts have to match what the agent can actually do, or a first run
+// invites the user to ask for live data the model cannot reach.
+func TestMastraTemplate_StarterPromptsMatchCapabilities(t *testing.T) {
+	gateway := defaultConfig
+	gateway.AIGateway = true
+	gateway.Integrations = nil
+	content := renderTemplate(t, mastraAgentFile, gateway)
+	for _, needsSearch := range []string{"weather in Austin", "stock price"} {
+		if strings.Contains(content, needsSearch) {
+			t.Errorf("gateway scaffold suggests %q, which needs the web search it does not have", needsSearch)
+		}
+	}
+	if !strings.Contains(content, "You have no web search.") {
+		t.Error("gateway instructions should tell the model it has no web search")
+	}
+
+	keyed := defaultConfig
+	keyed.Integrations = []string{"openai"}
+	content = renderTemplate(t, mastraAgentFile, keyed)
+	if !strings.Contains(content, "weather in Austin") {
+		t.Error("a keyed provider keeps the live-data starter prompts")
+	}
+	if strings.Contains(content, "You have no web search.") {
+		t.Error("a keyed provider has web search; instructions should not deny it")
+	}
+}
