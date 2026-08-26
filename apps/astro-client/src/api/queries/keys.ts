@@ -105,6 +105,7 @@ export const usageKeys = {
 };
 
 export const billingKeys = {
+  all: (account: string) => ['billing', account] as const,
   usage: (account: string, from?: string, to?: string) =>
     ['billing', account, 'usage', from ?? '', to ?? ''] as const,
   dailySpend: (account: string, from?: string, to?: string) =>

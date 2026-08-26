@@ -12,6 +12,10 @@ const mockBillingDailySpend = vi.fn();
 const mockInvoices = vi.fn();
 const mockQuotaRequests = vi.fn();
 const mockSpend = vi.fn();
+const mockIsRefreshing = vi.fn(() => false);
+const refetchSpend = vi.fn();
+const refetchUsage = vi.fn();
+const refetchDailySpend = vi.fn();
 
 vi.mock("@/api/queries", () => ({
   useAccountUsage: () => mockAccountUsage(),
@@ -20,12 +24,15 @@ vi.mock("@/api/queries", () => ({
   useBillingInvoices: () => mockInvoices(),
   useQuotaIncreaseRequests: () => mockQuotaRequests(),
 }));
+const mockRefresh = vi.fn();
 vi.mock("@/api/queries/billing", () => ({
   useBillingSpend: () => mockSpend(),
+  useRefreshBilling: () => ({ refresh: mockRefresh, isRefreshing: mockIsRefreshing() }),
 }));
 
 function spendResponse(partial: Partial<BillingSpend> = {}) {
   return {
+    refetch: refetchSpend,
     data: buildSpendResponse({
       currency: "USD",
       current_period_end: "2026-09-11T00:00:00Z",
@@ -52,11 +59,20 @@ beforeEach(() => {
     data: { meters: { agent_deployments: { usage: 3, quota: 10 }, blueprints: { usage: 8, quota: 5 } } },
     isLoading: false,
   });
-  mockBillingUsage.mockReturnValue({ data: { available: true, data: [] }, isLoading: false, refetch: vi.fn() });
-  mockBillingDailySpend.mockReturnValue({ data: { available: true, data: [] }, isLoading: false, refetch: vi.fn() });
+  mockBillingUsage.mockReturnValue({
+    data: { available: true, data: [] },
+    isLoading: false,
+    refetch: refetchUsage,
+  });
+  mockBillingDailySpend.mockReturnValue({
+    data: { available: true, data: [] },
+    isLoading: false,
+    refetch: refetchDailySpend,
+  });
   mockInvoices.mockReturnValue({ data: { available: true, data: [] }, isLoading: false });
   mockQuotaRequests.mockReturnValue({ data: undefined, isLoading: false });
   mockSpend.mockReturnValue(spendResponse());
+  mockIsRefreshing.mockReturnValue(false);
 });
 
 describe("UsageView header", () => {
@@ -182,14 +198,14 @@ describe("UsageView period window", () => {
     expect(mockBillingUsage).toHaveBeenCalledWith(
       "acme",
       { from: "2026-08-20T00:00:00.000Z", to: "2026-09-11T00:00:00.000Z" },
-      { enabled: true },
+      { enabled: true, isCurrentPeriod: true },
     );
     // The header's split and the daily chart describe the same period, so
     // both queries have to share the exact same window.
     expect(mockBillingDailySpend).toHaveBeenCalledWith(
       "acme",
       { from: "2026-08-20T00:00:00.000Z", to: "2026-09-11T00:00:00.000Z" },
-      { enabled: true },
+      { enabled: true, isCurrentPeriod: true },
     );
   });
 
@@ -202,7 +218,7 @@ describe("UsageView period window", () => {
     expect(mockBillingUsage).toHaveBeenCalledWith(
       "acme",
       { from: "2026-08-11T00:00:00.000Z", to: "2026-09-11T00:00:00.000Z" },
-      { enabled: true },
+      { enabled: true, isCurrentPeriod: true },
     );
   });
 });
@@ -367,5 +383,23 @@ describe("UsageView limits", () => {
   it("shows the request-increase button when allowed", () => {
     renderView({ canRequestIncrease: true });
     expect(screen.getByRole("button", { name: "Request increase" })).toBeInTheDocument();
+  });
+});
+
+
+describe("UsageView refresh", () => {
+  it("re-reads billing on one click", async () => {
+    renderView();
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh billing" }));
+
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it("disables itself while a read is in flight, so a click cannot stack them", () => {
+    mockIsRefreshing.mockReturnValue(true);
+    renderView();
+
+    expect(screen.getByRole("button", { name: "Refresh billing" })).toBeDisabled();
   });
 });

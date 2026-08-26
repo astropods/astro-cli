@@ -8,6 +8,8 @@ import { BillingView } from "./BillingView";
 const mockInvoices = vi.fn();
 const mockDownload = vi.fn();
 const mockSpend = vi.fn();
+const mockRefresh = vi.fn();
+const mockIsRefreshing = vi.fn(() => false);
 
 const mockRole = vi.fn(() => "owner");
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ role: mockRole() }) }));
@@ -18,6 +20,7 @@ vi.mock("@/api/queries", () => ({
 }));
 vi.mock("@/api/queries/billing", () => ({
   useBillingSpend: () => mockSpend(),
+  useRefreshBilling: () => ({ refresh: mockRefresh, isRefreshing: mockIsRefreshing() }),
   useWatchInvoicePayments: () => undefined,
   useBillingStatus: () => ({ data: { credits_exhausted: false, has_payment_method: true } }),
   useSetBillingSpendThresholds: () => ({ mutateAsync: vi.fn(), isPending: false }),
@@ -269,5 +272,23 @@ describe("BillingView invoice status", () => {
     renderView();
 
     expect(screen.getByText("Pending")).toBeInTheDocument();
+  });
+});
+
+describe("BillingView refresh", () => {
+  it("re-reads billing on one click", async () => {
+    renderView();
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh billing" }));
+
+    expect(mockRefresh).toHaveBeenCalled();
+  });
+
+  it("disables itself while a read is in flight", () => {
+    mockIsRefreshing.mockReturnValue(true);
+    renderView();
+
+    expect(screen.getByRole("button", { name: "Refresh billing" })).toBeDisabled();
+    mockIsRefreshing.mockReturnValue(false);
   });
 });

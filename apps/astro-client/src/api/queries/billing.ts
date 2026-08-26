@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import type {
   BillingDataResponse,
@@ -21,17 +21,26 @@ import {
 import { downloadBlob } from '../../lib/download';
 
 // `enabled` also waits on the period window (resolved by a second query);
+function openPeriodFreshness(isCurrentPeriod: boolean) {
+  if (!isCurrentPeriod) return { staleTime: 60_000 };
+  return {
+    staleTime: 60_000,
+    refetchOnWindowFocus: 'always' as const,
+    refetchOnMount: 'always' as const,
+  };
+}
+
 // firing early bills a provider call for a window nothing renders.
 export function useBillingUsage(
   account: string,
   params?: { from?: string; to?: string },
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; isCurrentPeriod?: boolean },
 ) {
   return useQuery({
     queryKey: billingKeys.usage(account, params?.from, params?.to),
     queryFn: () => api.getBillingUsage(account, params),
     enabled: !!account && (options?.enabled ?? true),
-    staleTime: 60_000,
+    ...openPeriodFreshness(options?.isCurrentPeriod ?? false),
   });
 }
 
@@ -41,13 +50,13 @@ export function useBillingUsage(
 export function useBillingDailySpend(
   account: string,
   params?: { from?: string; to?: string },
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; isCurrentPeriod?: boolean },
 ) {
   return useQuery({
     queryKey: billingKeys.dailySpend(account, params?.from, params?.to),
     queryFn: () => api.getBillingDailySpend(account, params),
     enabled: !!account && (options?.enabled ?? true),
-    staleTime: 60_000,
+    ...openPeriodFreshness(options?.isCurrentPeriod ?? false),
   });
 }
 
@@ -155,7 +164,7 @@ export function useBillingSpend(account: string) {
     queryKey: billingKeys.spend(account),
     queryFn: () => api.getBillingSpend(account),
     enabled: !!account,
-    staleTime: 60_000,
+    ...openPeriodFreshness(true),
   });
 }
 
@@ -256,4 +265,15 @@ export function useDeletePaymentMethod(account: string) {
       qc.invalidateQueries({ queryKey: billingKeys.status(account) });
     },
   });
+}
+
+export function useRefreshBilling(account: string) {
+  const queryClient = useQueryClient();
+  const inFlight = useIsFetching({ queryKey: billingKeys.all(account) });
+  return {
+    refresh: () => {
+      queryClient.invalidateQueries({ queryKey: billingKeys.all(account) });
+    },
+    isRefreshing: inFlight > 0,
+  };
 }

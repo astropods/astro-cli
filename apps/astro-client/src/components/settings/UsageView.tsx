@@ -14,8 +14,8 @@ import type { XAxisTickContentProps } from "recharts/types/util/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { useBillingUsage, useBillingDailySpend, useBillingInvoices } from "@/api/queries";
-import { useBillingSpend } from "@/api/queries/billing";
-import { EmptyState, LoadError, SectionHeader, Unavailable } from "@/components/settings/SettingsShared";
+import { useBillingSpend, useRefreshBilling } from "@/api/queries/billing";
+import { EmptyState, LoadError, RefreshButton, SectionHeader, Unavailable } from "@/components/settings/SettingsShared";
 import { formatNumber } from "@/lib/format-utils";
 import { ResourceLimitsSection } from "@/components/settings/ResourceLimitsSection";
 import { formatMoney, thresholdDollars } from "@/lib/billing-balances";
@@ -208,6 +208,7 @@ function usePeriodUsage(account: string, selected?: Period) {
     spendResp?.available ? spendResp.data?.current_period_end : undefined,
   );
   const period = selected ?? currentPeriod;
+  const isCurrentPeriod = !selected || samePeriod(selected, currentPeriod);
   const {
     data: usageResp,
     isLoading: usageLoading,
@@ -215,6 +216,7 @@ function usePeriodUsage(account: string, selected?: Period) {
     refetch: refetchUsage,
   } = useBillingUsage(account, period, {
     enabled: !!period,
+    isCurrentPeriod,
   });
   const {
     data: dailySpendResp,
@@ -223,6 +225,7 @@ function usePeriodUsage(account: string, selected?: Period) {
     refetch: refetchDailySpend,
   } = useBillingDailySpend(account, period, {
     enabled: !!period,
+    isCurrentPeriod,
   });
   return {
     spendResp,
@@ -230,6 +233,7 @@ function usePeriodUsage(account: string, selected?: Period) {
     dailySpendResp,
     period,
     currentPeriod,
+    isCurrentPeriod,
     isLoading: spendLoading || (!!period && (usageLoading || dailySpendLoading)),
     spendError,
     usageError,
@@ -239,6 +243,7 @@ function usePeriodUsage(account: string, selected?: Period) {
     refetchDailySpend,
   };
 }
+
 
 // The spend query only ever answers for the open period, so a closed one totals
 // its own breakdown rather than borrowing a number about today.
@@ -622,13 +627,13 @@ export function UsageView({
 }) {
   const [selected, setSelected] = useState<Period | undefined>(undefined);
   const usage = usePeriodUsage(account, selected);
+  const { refresh, isRefreshing } = useRefreshBilling(account);
   const { data: invoicesResp } = useBillingInvoices(account);
 
-  const { currentPeriod } = usage;
+  const { currentPeriod, isCurrentPeriod } = usage;
   const periods = currentPeriod
     ? [currentPeriod, ...pastPeriods(invoicesResp?.data ?? [], currentPeriod)]
     : [];
-  const isCurrentPeriod = !selected || samePeriod(selected, currentPeriod);
 
   return (
     <>
@@ -636,11 +641,14 @@ export function UsageView({
         title="Usage"
         subtitle="View your spend distribution."
         action={
-          <PeriodPicker
-            periods={periods}
-            selected={selected ?? currentPeriod}
-            onSelect={setSelected}
-          />
+          <div className="flex items-center gap-2">
+            <PeriodPicker
+              periods={periods}
+              selected={selected ?? currentPeriod}
+              onSelect={setSelected}
+            />
+            <RefreshButton onRefresh={refresh} busy={isRefreshing} />
+          </div>
         }
       />
       <div className="flex flex-col">

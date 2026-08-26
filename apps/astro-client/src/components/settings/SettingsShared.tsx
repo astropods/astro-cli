@@ -1,3 +1,4 @@
+import { RefreshCw } from "lucide-react";
 import React from "react";
 import { CheckIcon } from "@heroicons/react/24/outline";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -82,4 +83,19 @@ export function LoadError({
   onRetry: () => void;
 }) {
   return <ActionPanel tone="error" title={message} primaryLabel="Retry" onPrimary={onRetry} />;
+}
+
+export function RefreshButton({ onRefresh, busy }: { onRefresh: () => void; busy: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={busy}
+      aria-label="Refresh billing"
+      className="inline-flex items-center gap-1.5 rounded-sm border border-border px-3 py-1.5 text-body-sm text-foreground hover:bg-muted disabled:cursor-default disabled:hover:bg-transparent"
+    >
+      <RefreshCw className={cn("size-3.5 text-muted-foreground", busy && "animate-spin")} aria-hidden />
+      Refresh
+    </button>
+  );
 }

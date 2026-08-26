@@ -1,8 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
+import { focusManager } from '@tanstack/react-query';
 import { server } from '@/test/msw/server';
 import {
+  useBillingDailySpend,
+  useRefreshBilling,
   useBillingInvoices,
   useConfirmPaymentMethod,
   useSetBillingSpendThresholds,
@@ -309,5 +312,192 @@ describe('provider states that never move', () => {
     expect(polls).toBeGreaterThan(0);
     expect(polls).toBeLessThanOrEqual(10);
     vi.useRealTimers();
+  });
+});
+
+
+describe('keeping the open period fresh without polling', () => {
+  const period = { from: '2026-08-01T00:00:00Z', to: '2026-09-01T00:00:00Z' };
+
+  function countDailySpendHits() {
+    const state = { hits: 0 };
+    server.use(
+      http.get('/api/v1/accounts/acme/billing/usage/daily-spend', () => {
+        state.hits += 1;
+        return HttpResponse.json({ available: true, data: [] });
+      }),
+    );
+    return state;
+  }
+
+  it('re-reads the open period on mount even inside the stale window', async () => {
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+
+    const first = renderHook(() => useBillingDailySpend('acme', period, { isCurrentPeriod: true }), {
+      wrapper,
+    });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    expect(state.hits).toBe(1);
+    first.unmount();
+
+    const second = renderHook(() => useBillingDailySpend('acme', period, { isCurrentPeriod: true }), {
+      wrapper,
+    });
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(state.hits).toBe(2));
+  });
+
+  it('does not re-read a closed period on mount', async () => {
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+
+    const first = renderHook(() => useBillingDailySpend('acme', period, { isCurrentPeriod: false }), {
+      wrapper,
+    });
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    const once = state.hits;
+    first.unmount();
+
+    const second = renderHook(() => useBillingDailySpend('acme', period, { isCurrentPeriod: false }), {
+      wrapper,
+    });
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+    expect(state.hits).toBe(once);
+  });
+
+  it('does not poll the open period on a timer', async () => {
+    vi.useFakeTimers();
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useBillingDailySpend('acme', period, { isCurrentPeriod: true }),
+      { wrapper },
+    );
+
+    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const mounted = state.hits;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300_000);
+    });
+
+    expect(state.hits).toBe(mounted);
+    vi.useRealTimers();
+  });
+
+  it('re-reads on tab focus inside the stale window', async () => {
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useBillingDailySpend('acme', period, { isCurrentPeriod: true }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(state.hits).toBe(1);
+
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+
+    await waitFor(() => expect(state.hits).toBe(2));
+  });
+
+  it('leaves a closed period alone on tab focus', async () => {
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useBillingDailySpend('acme', period, { isCurrentPeriod: false }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const once = state.hits;
+
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+
+    expect(state.hits).toBe(once);
+  });
+
+  it('refetch reaches the provider inside the stale window', async () => {
+    const state = countDailySpendHits();
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => useBillingDailySpend('acme', period, { isCurrentPeriod: true }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const mounted = state.hits;
+
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    expect(state.hits).toBe(mounted + 1);
+  });
+});
+
+describe('the header refresh button', () => {
+  const period = { from: '2026-08-01T00:00:00Z', to: '2026-09-01T00:00:00Z' };
+
+  it('re-reads every mounted billing query, not just the one it was wired to', async () => {
+    let dailyHits = 0;
+    let invoiceHits = 0;
+    server.use(
+      http.get('/api/v1/accounts/acme/billing/usage/daily-spend', () => {
+        dailyHits += 1;
+        return HttpResponse.json({ available: true, data: [] });
+      }),
+      http.get('/api/v1/accounts/acme/billing/invoices', () => {
+        invoiceHits += 1;
+        return HttpResponse.json({ available: true, data: [] });
+      }),
+    );
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => ({
+        daily: useBillingDailySpend('acme', period, { isCurrentPeriod: true }),
+        invoices: useBillingInvoices('acme'),
+        refresher: useRefreshBilling('acme'),
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.daily.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.invoices.isSuccess).toBe(true));
+    expect(dailyHits).toBe(1);
+    expect(invoiceHits).toBe(1);
+
+    await act(async () => {
+      result.current.refresher.refresh();
+    });
+
+    await waitFor(() => expect(dailyHits).toBe(2));
+    await waitFor(() => expect(invoiceHits).toBe(2));
+  });
+
+  it('reports nothing in flight once the reads settle', async () => {
+    server.use(
+      http.get('/api/v1/accounts/acme/billing/usage/daily-spend', () =>
+        HttpResponse.json({ available: true, data: [] }),
+      ),
+    );
+    const { wrapper } = createHookWrapper();
+    const { result } = renderHook(
+      () => ({
+        daily: useBillingDailySpend('acme', period, { isCurrentPeriod: true }),
+        refresher: useRefreshBilling('acme'),
+      }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.daily.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.refresher.isRefreshing).toBe(false));
   });
 });

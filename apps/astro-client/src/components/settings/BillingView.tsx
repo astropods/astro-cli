@@ -2,8 +2,9 @@ import { useState } from "react";
 import { ArrowUpRight, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useBillingInvoices, useDownloadInvoicePdf } from "@/api/queries";
+import { useRefreshBilling } from "@/api/queries/billing";
 import { useWatchInvoicePayments } from "@/api/queries/billing";
-import { EmptyState, LoadError, LoadingRows, SectionHeader, Unavailable } from "@/components/settings/SettingsShared";
+import { EmptyState, LoadError, LoadingRows, RefreshButton, SectionHeader, Unavailable } from "@/components/settings/SettingsShared";
 import { Card } from "@/components/ui/card";
 import { PayAsYouGoCard } from "@/components/settings/PayAsYouGoCard";
 import { PaymentMethod } from "@/components/settings/PaymentMethod";
@@ -274,21 +275,25 @@ function Invoices({ account }: { account: string }) {
 }
 
 export function BillingView({ account }: { account: string }) {
+  const { refresh, isRefreshing } = useRefreshBilling(account);
   return (
     <>
       <SectionHeader
         title="Billing"
         subtitle="Manage your payment and plan information."
         action={
-          <a
-            href="https://docs.astropods.com/usage-limits"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-body-sm text-foreground-accent hover:opacity-80"
-          >
-            Open docs
-            <ArrowUpRight className="size-3.5" aria-hidden />
-          </a>
+          <div className="flex items-center gap-3">
+            <a
+              href="https://docs.astropods.com/usage-limits"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-body-sm text-foreground-accent hover:opacity-80"
+            >
+              Open docs
+              <ArrowUpRight className="size-3.5" aria-hidden />
+            </a>
+            <RefreshButton onRefresh={refresh} busy={isRefreshing} />
+          </div>
         }
       />
       <div className="flex flex-col gap-6">
