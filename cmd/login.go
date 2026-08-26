@@ -18,6 +18,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
@@ -40,6 +41,10 @@ Credentials are stored in your system's keychain when available,
 otherwise in the CLI config directory with restricted permissions.`,
 	Args: cobra.NoArgs,
 	RunE: runLogin,
+}
+
+var stdoutIsTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec
 }
 
 func init() {
@@ -117,30 +122,37 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	cyan.Print("→ ") //nolint:errcheck,gosec
-	fmt.Print("Waiting for authentication")
+	waitLine := cyan.Sprint("→ ") + "Waiting for authentication"
 
-	// Poll for tokens with a simple spinner
+	// Piped output repeats the line once per \r frame instead of redrawing.
+	animate := stdoutIsTerminal()
 	done := make(chan struct{})
-	go func() {
-		dots := []string{"", ".", "..", "..."}
-		i := 0
-		for {
-			select {
-			case <-done:
-				return
-			case <-time.After(500 * time.Millisecond):
-				fmt.Printf("\r")
-				cyan.Print("→ ") //nolint:errcheck,gosec
-				fmt.Printf("Waiting for authentication%-4s", dots[i%len(dots)])
-				i++
+	stopped := make(chan struct{})
+	if animate {
+		fmt.Print(waitLine)
+		go func() {
+			defer close(stopped)
+			dots := []string{"", ".", "..", "..."}
+			for i := 0; ; i++ {
+				select {
+				case <-done:
+					return
+				case <-time.After(500 * time.Millisecond):
+					fmt.Printf("\r%s%-4s", waitLine, dots[i%len(dots)])
+				}
 			}
-		}
-	}()
+		}()
+	} else {
+		fmt.Println(waitLine + "...")
+		close(stopped)
+	}
 
 	tokenResp, err := client.PollForTokens(ctx, authResp.DeviceCode, authResp.Interval, authResp.ExpiresIn)
 	close(done)
-	fmt.Println()
+	<-stopped
+	if animate {
+		fmt.Println()
+	}
 
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)

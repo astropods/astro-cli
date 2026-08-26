@@ -1,10 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -160,4 +165,94 @@ func TestLoginAccountFlagOverridesPriorSelection(t *testing.T) {
 	account, err := storage.GetCurrentAccount()
 	require.NoError(t, err)
 	require.Equal(t, "other-org", account)
+}
+
+func loginWaitTestServers(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+
+	pending := 2
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/authorize/device") {
+			_ = json.NewEncoder(w).Encode(auth.DeviceAuthorizationResponse{
+				DeviceCode:      "device-code",
+				UserCode:        "DVLD-XQFB",
+				VerificationURI: "https://example.test/device",
+				ExpiresIn:       30,
+				Interval:        1,
+			})
+			return
+		}
+		if pending > 0 {
+			pending--
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(auth.TokenError{Error: auth.ErrorAuthorizationPending})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			ExpiresIn:    3600,
+			TokenType:    "Bearer",
+			User:         &auth.User{ID: "user-1", Email: "test@example.com"},
+		})
+	}))
+	t.Cleanup(workos.Close)
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"accounts": []map[string]string{{"id": "acct-1", "name": "alice", "type": "personal"}},
+		})
+	}))
+	t.Cleanup(api.Close)
+	priorServerURL := buildinfo.DefaultServerURL
+	buildinfo.DefaultServerURL = api.URL
+	t.Cleanup(func() { buildinfo.DefaultServerURL = priorServerURL })
+
+	require.NoError(t, loginCmd.Flags().Set("no-browser", "true"))
+	t.Cleanup(func() { _ = loginCmd.Flags().Set("no-browser", "false") })
+}
+
+func TestLoginWaitLine(t *testing.T) {
+	tests := []struct {
+		name   string
+		isTTY  bool
+		assert func(t *testing.T, out string)
+	}{
+		{
+			name:  "piped output prints the line once",
+			isTTY: false,
+			assert: func(t *testing.T, out string) {
+				assert.Equal(t, 1, strings.Count(out, "Waiting for authentication"))
+				assert.Contains(t, out, "Waiting for authentication...\n")
+				assert.NotContains(t, out, "\r")
+			},
+		},
+		{
+			name:  "terminal redraws the line in place",
+			isTTY: true,
+			assert: func(t *testing.T, out string) {
+				assert.Greater(t, strings.Count(out, "Waiting for authentication"), 1)
+				assert.Contains(t, out, "\r")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loginWaitTestServers(t)
+			prior := stdoutIsTerminal
+			stdoutIsTerminal = func() bool { return tt.isTTY }
+			t.Cleanup(func() { stdoutIsTerminal = prior })
+
+			var loginErr error
+			out := captureStdout(t, func() { loginErr = runLogin(loginCmd, nil) })
+			require.NoError(t, loginErr)
+			tt.assert(t, out)
+		})
+	}
 }
