@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -109,7 +110,7 @@ func CreateSetupIntent(log *logger.Logger, accountStore *account.AccountStore, p
 // The frontend calls it after Stripe.js confirms the SetupIntent; the server
 // re-reads the intent from Stripe (authoritative), saves the card as default,
 // and links the Stripe customer to the hosted billing provider so it can charge.
-func ConfirmPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+func ConfirmPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var body struct {
 			SetupIntentID string `json:"setup_intent_id"`
@@ -142,6 +143,7 @@ func ConfirmPaymentMethod(log *logger.Logger, accountStore *account.AccountStore
 		linkStripeToBilling(c, log, accountStore, billingProvider, billingBackend, acct, customerID)
 
 		applyCardSignal(c, log, billingStatus, queue, acct.ID, customerID, billing.SignalCardAdded)
+		auditCard(c, log, auditStore, acct, auditlog.PaymentMethodAdd, "Added payment method", card)
 
 		c.JSON(http.StatusOK, PaymentMethodResponse{Available: true, Card: card})
 	}
@@ -181,7 +183,7 @@ func GetPaymentMethod(log *logger.Logger, accountStore *account.AccountStore, pa
 }
 
 // DeletePaymentMethod handles DELETE /api/v1/accounts/:account/billing/payment-method.
-func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, paymentProvider payment.Provider, billingProvider billing.BillingProvider, billingBackend string, billingStatus *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -238,6 +240,14 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 			}
 		}
 
+		// Read before the detach or there is nothing left to name in the audit
+		// entry. Best effort: an unreadable card is not a reason to refuse.
+		card, err := paymentProvider.DefaultCard(c.Request.Context(), customerID)
+		if err != nil {
+			log.Warn("payment methods: read card before removal failed", "error", err, "account_id", acct.ID)
+			card = nil
+		}
+
 		if err := paymentProvider.RemoveCard(c.Request.Context(), customerID); err != nil {
 			log.Error("payment methods: remove payment method failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to remove payment method"})
@@ -245,6 +255,7 @@ func DeletePaymentMethod(log *logger.Logger, accountStore *account.AccountStore,
 		}
 
 		applyCardSignal(c, log, billingStatus, queue, acct.ID, customerID, billing.SignalCardRemoved)
+		auditCard(c, log, auditStore, acct, auditlog.PaymentMethodRemove, "Removed payment method", card)
 
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	}
@@ -331,4 +342,34 @@ func linkStripeToBilling(c *gin.Context, log *logger.Logger, accountStore *accou
 	if err := linker.LinkStripeCustomer(c.Request.Context(), metronomeCustomerID, stripeCustomerID); err != nil {
 		log.Error("payment methods: link Stripe customer to billing provider failed", "error", err, "account_id", acct.ID)
 	}
+}
+
+// auditCard records a card change. Brand and last four only: they identify the
+// card to a reader without the audit trail holding anything chargeable.
+func auditCard(c *gin.Context, log *logger.Logger, auditStore *auditlog.Store, acct *account.Account, action, verb string, card *payment.Card) {
+	auditStore.LogAsync(log, cardAuditEvent(c, acct.ID, action, verb, card))
+}
+
+func cardAuditEvent(c *gin.Context, accountID, action, verb string, card *payment.Card) auditlog.Event {
+	evt := auditlog.FromGinContext(c, accountID)
+	evt.Action = action
+	evt.ResourceType = "payment_method"
+	evt.Description = verb
+	if card == nil {
+		return evt
+	}
+	evt.ResourceID = card.ID
+	if label := cardLabel(card); label != "" {
+		evt.ResourceName = label
+		evt.Description = verb + " " + label
+	}
+	evt.Metadata = map[string]any{"brand": card.Brand, "last4": card.Last4}
+	return evt
+}
+
+func cardLabel(card *payment.Card) string {
+	if card.Brand == "" || card.Last4 == "" {
+		return ""
+	}
+	return card.Brand + " ending " + card.Last4
 }

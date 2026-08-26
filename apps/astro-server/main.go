@@ -1717,7 +1717,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.POST(accountManage, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
+				api.POST(accountManage, "/billing/payment-method", "Confirm and save a payment method", handlers.ConfirmPaymentMethod(log, accountStore, auditStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1733,7 +1733,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, deploymentStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
+				api.DELETE(accountManage, "/billing/payment-method", "Remove the saved payment method", handlers.DeletePaymentMethod(log, accountStore, deploymentStore, auditStore, paymentProvider, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

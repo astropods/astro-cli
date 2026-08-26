@@ -9,6 +9,9 @@ const (
 	AccountPurge            = "account.purge"
 	AccountUpdateExperiment = "account.update_experiment"
 
+	PaymentMethodAdd    = "payment_method.add"
+	PaymentMethodRemove = "payment_method.remove"
+
 	BillingRecoverAliases        = "billing.recover_aliases"
 	BillingRegisterMetronome     = "billing.register_metronome"
 	BillingRetryProvision        = "billing.retry_provision"

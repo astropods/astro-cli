@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -24,6 +25,10 @@ type recordingPayments struct {
 	removed bool
 }
 
+func (p *recordingPayments) card() *payment.Card {
+	return &payment.Card{ID: "pm_1", Brand: "Visa", Last4: "4242"}
+}
+
 func (p *recordingPayments) CreateCustomer(context.Context, string, string, string) (string, error) {
 	return "cus_1", nil
 }
@@ -31,10 +36,10 @@ func (p *recordingPayments) CreateSetupIntent(context.Context, string) (string, 
 	return "seti_secret", nil
 }
 func (p *recordingPayments) ConfirmSetup(context.Context, string, string) (*payment.Card, error) {
-	return &payment.Card{}, nil
+	return p.card(), nil
 }
 func (p *recordingPayments) DefaultCard(context.Context, string) (*payment.Card, error) {
-	return &payment.Card{}, nil
+	return p.card(), nil
 }
 func (p *recordingPayments) RemoveCard(context.Context, string) error {
 	p.removed = true
@@ -77,6 +82,10 @@ func expectCustomerIDs(mock sqlmock.Sqlmock, billingID string) {
 }
 
 func newRemovalTest(t *testing.T, provider billing.BillingProvider) (*gin.Engine, *recordingPayments, sqlmock.Sqlmock, func()) {
+	return newRemovalTestWithAudit(t, provider, nil)
+}
+
+func newRemovalTestWithAudit(t *testing.T, provider billing.BillingProvider, auditStore *auditlog.Store) (*gin.Engine, *recordingPayments, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -85,7 +94,7 @@ func newRemovalTest(t *testing.T, provider billing.BillingProvider) (*gin.Engine
 	pay := &recordingPayments{}
 	r := removalRouter(t)
 	r.DELETE("/billing/payment-method", DeletePaymentMethod(
-		logger.New("error", "json"), account.NewAccountStore(db), deploymentstore.NewStore(db), pay, provider, "metronome", nil, nil))
+		logger.New("error", "json"), account.NewAccountStore(db), deploymentstore.NewStore(db), auditStore, pay, provider, "metronome", nil, nil))
 	return r, pay, mock, func() { db.Close() }
 }
 
