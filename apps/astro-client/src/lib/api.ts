@@ -250,7 +250,16 @@ export interface MachineApp {
 
 export interface AppListResponse {
   apps: MachineApp[];
-  available_scopes: string[];
+}
+
+export interface AppScope {
+  slug: string;
+  name: string;
+  description?: string;
+}
+
+export interface AppScopesResponse {
+  scopes: AppScope[];
 }
 
 export interface CreateAppResponse {
@@ -2741,6 +2750,12 @@ class ApiClient {
 
   async listApps(account: string): Promise<AppListResponse> {
     return this.request<AppListResponse>(this.appPath(account));
+  }
+
+  async listAppScopes(account: string): Promise<AppScopesResponse> {
+    return this.request<AppScopesResponse>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/app-scopes`,
+    );
   }
 
   async createApp(

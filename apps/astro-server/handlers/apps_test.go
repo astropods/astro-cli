@@ -21,6 +21,8 @@ import (
 )
 
 type fakeConnect struct {
+	permissions     []connectapps.Permission
+	permissionsErr  error
 	created         *connectapps.Application
 	createErr       error
 	deletedApps     []string
@@ -28,6 +30,10 @@ type fakeConnect struct {
 	secrets         []connectapps.Secret
 	createSecretErr error
 	deletedSecrets  []string
+}
+
+func (f *fakeConnect) ListPermissions(_ context.Context) ([]connectapps.Permission, error) {
+	return f.permissions, f.permissionsErr
 }
 
 func (f *fakeConnect) CreateApplication(_ context.Context, orgID, name, _ string, scopes []string) (*connectapps.Application, error) {
@@ -145,6 +151,7 @@ func TestAppCreateReturnsSecretOnce(t *testing.T) {
 	f := newAppFixture(t)
 	f.mock.ExpectQuery("INSERT INTO account_apps").WillReturnRows(appRow("acct_123"))
 
+	f.connect.permissions = []connectapps.Permission{{Slug: "audiences:manage", Name: "Manage audiences"}}
 	response := f.call(f.handler.Create, http.MethodPost,
 		`{"name":"ci","scopes":["audiences:manage"]}`)
 	if response.Code != http.StatusCreated {
@@ -164,6 +171,7 @@ func TestAppCreateReturnsSecretOnce(t *testing.T) {
 func TestAppCreateRejectsUnknownScope(t *testing.T) {
 	f := newAppFixture(t)
 
+	f.connect.permissions = []connectapps.Permission{{Slug: "audiences:read"}}
 	response := f.call(f.handler.Create, http.MethodPost, `{"name":"ci","scopes":["billing:write"]}`)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400", response.Code)
@@ -186,6 +194,7 @@ func TestAppCreateWithoutScopesIsAllowed(t *testing.T) {
 func TestAppCreateRollsBackWorkOSOnRowFailure(t *testing.T) {
 	f := newAppFixture(t)
 	f.mock.ExpectQuery("INSERT INTO account_apps").WillReturnError(errors.New("boom"))
+	f.connect.permissions = []connectapps.Permission{{Slug: "audiences:read"}}
 
 	response := f.call(f.handler.Create, http.MethodPost, `{"name":"ci","scopes":["audiences:read"]}`)
 	if response.Code != http.StatusInternalServerError {
@@ -286,7 +295,46 @@ func TestAppListSurvivesWorkOSSecretFailure(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "available_scopes") {
-		t.Fatalf("the list should advertise the scope vocabulary: %s", response.Body.String())
+	if !strings.Contains(response.Body.String(), "\"apps\"") {
+		t.Fatalf("the list should carry apps: %s", response.Body.String())
+	}
+}
+
+func TestAppScopesComeFromWorkOS(t *testing.T) {
+	f := newAppFixture(t)
+	f.connect.permissions = []connectapps.Permission{
+		{Slug: "audiences:manage", Name: "Manage audiences", Description: "Add and remove members"},
+	}
+
+	response := f.call(f.handler.ListScopes, http.MethodGet, "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, want := range []string{"audiences:manage", "Manage audiences", "Add and remove members"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Fatalf("scope response missing %q: %s", want, response.Body.String())
+		}
+	}
+}
+
+func TestAppScopesSurfacesWorkOSFailure(t *testing.T) {
+	f := newAppFixture(t)
+	f.connect.permissionsErr = errors.New("workos down")
+
+	if response := f.call(f.handler.ListScopes, http.MethodGet, ""); response.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500", response.Code)
+	}
+}
+
+func TestAppCreateRejectsAScopeWorkOSDoesNotKnow(t *testing.T) {
+	f := newAppFixture(t)
+	f.connect.permissions = []connectapps.Permission{{Slug: "audiences:read"}}
+
+	response := f.call(f.handler.Create, http.MethodPost, `{"name":"ci","scopes":["made:up"]}`)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", response.Code)
+	}
+	if f.connect.created != nil {
+		t.Fatal("an unregistered scope must not reach application creation")
 	}
 }

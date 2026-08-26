@@ -19,13 +19,6 @@ import (
 
 const appTimeout = 10 * time.Second
 
-var AppScopes = []string{
-	"members:read",
-	"audiences:read",
-	"audiences:manage",
-	"slack_identities:manage",
-}
-
 type appAuditStore interface {
 	LogAsync(*logger.Logger, auditlog.Event)
 }
@@ -52,8 +45,11 @@ type AppResponse struct {
 }
 
 type AppListResponse struct {
-	Apps   []AppResponse `json:"apps"`
-	Scopes []string      `json:"available_scopes"`
+	Apps []AppResponse `json:"apps"`
+}
+
+type AppScopesResponse struct {
+	Scopes []connectapps.Permission `json:"scopes"`
 }
 
 type CreateAppRequest struct {
@@ -88,7 +84,22 @@ func (h *AppHandler) List(c *gin.Context) {
 		}
 		out = append(out, appResponse(app, secrets))
 	}
-	c.JSON(http.StatusOK, AppListResponse{Apps: out, Scopes: AppScopes})
+	c.JSON(http.StatusOK, AppListResponse{Apps: out})
+}
+
+func (h *AppHandler) ListScopes(c *gin.Context) {
+	_, ctx, cancel, ok := h.scope(c)
+	if !ok {
+		return
+	}
+	defer cancel()
+
+	scopes, err := h.workos.ListPermissions(ctx)
+	if err != nil {
+		h.fail(c, "apps: list permissions failed", err)
+		return
+	}
+	c.JSON(http.StatusOK, AppScopesResponse{Scopes: scopes})
 }
 
 func (h *AppHandler) Create(c *gin.Context) {
@@ -109,10 +120,21 @@ func (h *AppHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	for _, s := range req.Scopes {
-		if !slices.Contains(AppScopes, s) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown scope: " + s})
+	if len(req.Scopes) > 0 {
+		permitted, err := h.workos.ListPermissions(ctx)
+		if err != nil {
+			h.fail(c, "apps: list permissions failed", err)
 			return
+		}
+		known := make([]string, 0, len(permitted))
+		for _, p := range permitted {
+			known = append(known, p.Slug)
+		}
+		for _, s := range req.Scopes {
+			if !slices.Contains(known, s) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown scope: " + s})
+				return
+			}
 		}
 	}
 

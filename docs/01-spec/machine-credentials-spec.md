@@ -132,16 +132,15 @@ The second is what makes a credential for account X useless on a path for accoun
 
 WorkOS scopes are permission slugs on the application, and they arrive in the token. Astro's own permission strings (`org:manage`) belong to human roles, so machine scopes stay a separate vocabulary:
 
-| Scope | Allows |
-| --- | --- |
-| `audiences:read` | Read audiences and their membership |
-| `audiences:manage` | Add and remove audience members |
-| `members:read` | Read the account's members |
-| `slack_identities:manage` | Record which Slack user is which person |
+The slugs this spec assumes are `members:read`, `audiences:read`, `audiences:manage`, and `slack_identities:manage`, held separately so an app that manages access cannot also assert who someone is. They have to exist as WorkOS permissions before they can be granted.
 
 A route declares the scope it needs. An app holding `audiences:read` gets 403 on a write rather than a 404, because the resource exists and the credential is the thing that falls short.
 
-Scopes live on the app row, and authorization reads them there rather than from the token. That makes a scope change take effect at once instead of at the next expiry, and it keeps the check independent of WorkOS's permission slugs, which have to be registered on their side before an application can carry them. Scopes are therefore not handed to WorkOS yet; pass them once the slugs exist and the token can carry them too.
+The vocabulary is WorkOS's. A Connect application's scopes are permission slugs, so the picker reads the environment's permissions from `GET /authorization/permissions` and creation validates against the same call. A slug WorkOS does not know never reaches application creation, and the picker cannot drift from what is grantable.
+
+Scopes also live on the app row, and authorization reads them there rather than from the token, so a change takes effect at once instead of at the next expiry. They are handed to WorkOS on create as well, so the token carries them too.
+
+An environment with no permissions configured offers nothing to pick, and an app created without scopes is refused by every scoped endpoint.
 
 ### Rotation
 
@@ -248,7 +247,7 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 | 1 | The `account_apps` table, the WorkOS Connect client, create and delete, credential add and revoke, and the org settings screen. | Done |
 | 2 | The middleware branch: discriminate an M2M token, resolve its account through the app row, and satisfy a permission check from the app's scopes. | Done |
 | 3 | The `/me` machine shape, and applying scopes to the audience member endpoints with cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. | Not started |
-| 4 | Register the scope slugs in WorkOS and pass them on application create, so the token carries them as well as the row. | Not started |
+| 4 | Register the scope slugs as WorkOS permissions, which is what makes them selectable. The picker and validation already read whatever exists. | Not started |
 
 Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) phase 2, and it is small once the credential exists.
 
@@ -263,7 +262,8 @@ Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) p
 | An app is org-only | Personal accounts cannot hold one, because WorkOS binds an M2M application to an organization |
 | An app cannot create another app | A credential cannot widen its own reach |
 | Machine scopes are a separate vocabulary from human permissions | A scope never accidentally satisfies a role check |
-| Scopes are read from the app row, not the token | A scope change takes effect at once, and the check does not wait on WorkOS permission slugs being registered. The token does not yet carry scopes |
+| The scope vocabulary comes from WorkOS, not a list in Astro | The picker and validation cannot drift from what is grantable. Nothing is selectable until the slugs are registered there |
+| Scopes are read from the app row, not the token | A scope change takes effect at once rather than at the next expiry |
 | A machine caller is refused by membership checks | Membership never stands in for a scope, so a route an app should reach has to say which scope it needs |
 | No credentials table; WorkOS is the record | Nothing about a secret can drift, at the cost of a WorkOS call to render the list |
 | An app keeps at least one secret | Revoking the last one is refused, so rotation is add-then-revoke rather than a window with no way in |

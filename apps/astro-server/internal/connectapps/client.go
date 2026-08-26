@@ -30,7 +30,14 @@ type NewSecret struct {
 	Value string `json:"value"`
 }
 
+type Permission struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 type Client interface {
+	ListPermissions(ctx context.Context) ([]Permission, error)
 	CreateApplication(ctx context.Context, organizationID, name, description string, scopes []string) (*Application, error)
 	DeleteApplication(ctx context.Context, applicationID string) error
 	CreateSecret(ctx context.Context, applicationID string) (*NewSecret, error)
@@ -39,26 +46,48 @@ type Client interface {
 }
 
 type workosClient struct {
-	connect *workos.ConnectService
+	connect       *workos.ConnectService
+	authorization *workos.AuthorizationService
 }
 
 func New(apiKey string) Client {
 	if apiKey == "" {
 		return nil
 	}
-	return &workosClient{connect: workos.NewClient(apiKey).Connect()}
+	client := workos.NewClient(apiKey)
+	return &workosClient{connect: client.Connect(), authorization: client.Authorization()}
+}
+
+// ListPermissions returns the environment's permission slugs, which are what a
+// Connect application's scopes are drawn from. The cap bounds an unbounded
+// iterator; a WorkOS environment with more permissions than this has outgrown a
+// single picker anyway.
+func (c *workosClient) ListPermissions(ctx context.Context) ([]Permission, error) {
+	const maxPermissions = 500
+	it := c.authorization.ListPermissions(ctx, &workos.AuthorizationListPermissionsParams{})
+	out := make([]Permission, 0)
+	for it.Next() {
+		p := it.Current()
+		entry := Permission{Slug: p.Slug, Name: p.Name}
+		if p.Description != nil {
+			entry.Description = *p.Description
+		}
+		out = append(out, entry)
+		if len(out) >= maxPermissions {
+			break
+		}
+	}
+	if err := it.Err(); err != nil {
+		return nil, fmt.Errorf("list permissions: %w", err)
+	}
+	return out, nil
 }
 
 func (c *workosClient) CreateApplication(ctx context.Context, organizationID, name, description string, scopes []string) (*Application, error) {
-	// Scopes are deliberately not handed to WorkOS. They are permission slugs
-	// that must already exist on the WorkOS side, and Astro authorizes from the
-	// stored app row instead, which also makes a scope change take effect at
-	// once rather than at the next token expiry. Pass them here once the slugs
-	// are registered and the token can carry them too.
-	_ = scopes
 	params := &workos.ConnectCreateM2MApplicationParams{
 		Name:           name,
 		OrganizationID: organizationID,
+		Scopes:         scopes,
 	}
 	if description != "" {
 		params.Description = &description

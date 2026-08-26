@@ -57,26 +57,23 @@ scope can never satisfy a role check:
 | `audiences:manage` | Add and remove audience members |
 | `slack_identities:manage` | Record which Slack user is which person |
 
-Nothing selects them yet. WorkOS models a Connect application's scopes as
-permission slugs, drawn from the same registry as the RBAC permissions Astro
-already relies on for human roles, and those slugs are not registered. So the
-create dialog marks scope selection as coming soon and an app is created without
-any, which every scoped endpoint refuses. Unknown scopes are still rejected if
-sent directly.
+The vocabulary is WorkOS's, not a list maintained here. A Connect application's
+scopes are permission slugs, so the create form reads the environment's
+permissions from `GET /authorization/permissions` and offers those. Creation
+validates the requested scopes against that same call, so a slug WorkOS does not
+know never reaches application creation, and the picker cannot drift from what
+is grantable.
 
-Keeping machine scopes local rather than registering them in WorkOS is not only
-a workaround. A slug in that registry is grantable to a human role as well, and
-`audiences:manage` has no business being assignable to a person.
-
-The vocabulary is validated at creation and stored on the row.
+An environment with no permissions configured therefore offers nothing to pick,
+and an app created without scopes is refused by every scoped endpoint. That is
+the honest state rather than a hardcoded list implying more than exists.
 `audiences:manage` and `slack_identities:manage` are separate on purpose: a
 system that governs access should not also be able to assert who someone is.
 
-Authorization reads scopes from the row rather than from the token. That makes a
-scope change take effect immediately instead of at the next expiry, and it keeps
-the check independent of WorkOS permission slugs, which have to be registered on
-their side before an application can carry them. Scopes are therefore not handed
-to WorkOS yet.
+Authorization reads scopes from the row rather than from the token, so a scope
+change takes effect immediately instead of at the next expiry. They are also
+handed to WorkOS on create, so the token carries them too, which a connector
+inspecting its own grant can rely on.
 
 ### Rotation
 

@@ -1515,6 +1515,11 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.PathParam("user_id", "Astro user ID"), oapispec.Response(204, nil),
 				)
 
+				api.GET(accountSettings, "/app-scopes", "List scopes an app may hold", appHandler.ListScopes,
+					oapispec.Tags("Apps"), oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.AppScopesResponse{}),
+				)
 				api.GET(accountSettings, "/apps", "List machine apps", appHandler.List,
 					oapispec.Tags("Apps"), oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

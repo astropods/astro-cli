@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { appKeys } from "./keys";
-import type { AppListResponse, CreateAppResponse, NewAppSecret } from "@/lib/api";
+import type { AppListResponse, AppScopesResponse, CreateAppResponse, NewAppSecret } from "@/lib/api";
 
 export function useApps(account: string, enabled = true) {
   const api = useApiClient();
@@ -9,6 +9,16 @@ export function useApps(account: string, enabled = true) {
     queryKey: appKeys.all(account),
     queryFn: () => api.listApps(account),
     enabled: enabled && !!account,
+  });
+}
+
+export function useAppScopes(account: string, enabled = true) {
+  const api = useApiClient();
+  return useQuery<AppScopesResponse>({
+    queryKey: appKeys.scopes(account),
+    queryFn: () => api.listAppScopes(account),
+    enabled: enabled && !!account,
+    staleTime: 5 * 60_000,
   });
 }
 

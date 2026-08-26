@@ -6,7 +6,10 @@ import { server } from "@/test/msw/server";
 import { renderRoute } from "@/test/test-utils";
 import OrgAppsSettings from "./OrgAppsSettings";
 
-const SCOPES = ["members:read", "audiences:read", "audiences:manage", "slack_identities:manage"];
+const SCOPES = [
+  { slug: "members:read", name: "Read members", description: "Read the people in this organization" },
+  { slug: "audiences:manage", name: "Manage audiences", description: "Add and remove members" },
+];
 
 const app = {
   id: "app-1",
@@ -25,9 +28,10 @@ const app = {
 };
 
 function listing(apps: unknown[]) {
-  return http.get("/api/v1/accounts/test-org/apps", () =>
-    HttpResponse.json({ apps, available_scopes: SCOPES }),
-  );
+  return [
+    http.get("/api/v1/accounts/test-org/apps", () => HttpResponse.json({ apps })),
+    http.get("/api/v1/accounts/test-org/app-scopes", () => HttpResponse.json({ scopes: SCOPES })),
+  ];
 }
 
 function renderPage() {
@@ -40,7 +44,7 @@ afterEach(cleanup);
 
 describe("OrgAppsSettings", () => {
   it("keeps secrets out of the collapsed row and never opens a dialog", async () => {
-    server.use(listing([app]));
+    server.use(...listing([app]));
     renderPage();
 
     expect(await screen.findByText("lumos-connector")).toBeInTheDocument();
@@ -51,7 +55,7 @@ describe("OrgAppsSettings", () => {
   });
 
   it("manages secrets only in the expanded row", async () => {
-    server.use(listing([app]));
+    server.use(...listing([app]));
     renderPage();
     const user = userEvent.setup();
 
@@ -72,9 +76,8 @@ describe("OrgAppsSettings", () => {
     let created: unknown;
     const stored: unknown[] = [];
     server.use(
-      http.get("/api/v1/accounts/test-org/apps", () =>
-        HttpResponse.json({ apps: stored, available_scopes: SCOPES }),
-      ),
+      http.get("/api/v1/accounts/test-org/apps", () => HttpResponse.json({ apps: stored })),
+      http.get("/api/v1/accounts/test-org/app-scopes", () => HttpResponse.json({ scopes: SCOPES })),
       http.post("/api/v1/accounts/test-org/apps", async ({ request }) => {
         created = await request.json();
         stored.push(app);
@@ -89,12 +92,20 @@ describe("OrgAppsSettings", () => {
 
     await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByText(/coming soon/)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Name"), "lumos-connector");
+
+    await user.click(await screen.findByRole("button", { name: "Select scopes" }));
+    await user.type(await screen.findByPlaceholderText("Search scopes…"), "audien");
+    await waitFor(() => expect(screen.queryByText("members:read")).not.toBeInTheDocument());
+    await user.click(screen.getByText("audiences:manage"));
+    await user.keyboard("{Escape}");
+
     await user.click(screen.getByRole("button", { name: "Create OAuth app" }));
 
-    await waitFor(() => expect(created).toEqual({ name: "lumos-connector" }));
+    await waitFor(() =>
+      expect(created).toEqual({ name: "lumos-connector", scopes: ["audiences:manage"] }),
+    );
     expect(await screen.findByText("sk_live_plaintext")).toBeInTheDocument();
     expect(screen.getByText("New secret")).toBeInTheDocument();
     expect(screen.getByText(/not shown again/)).toBeInTheDocument();
@@ -103,10 +114,44 @@ describe("OrgAppsSettings", () => {
     await waitFor(() => expect(screen.queryByText("sk_live_plaintext")).not.toBeInTheDocument());
   });
 
+  it("shows selected scopes as removable chips", async () => {
+    server.use(...listing([]));
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
+    await user.click(await screen.findByRole("button", { name: "Select scopes" }));
+    await user.click(await screen.findByText("audiences:manage"));
+    await user.click(await screen.findByText("members:read"));
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "Select scopes" })).toHaveTextContent("2 scopes selected");
+    await user.click(screen.getByRole("button", { name: "Remove audiences:manage" }));
+
+    expect(screen.getByRole("button", { name: "Select scopes" })).toHaveTextContent("1 scope selected");
+    expect(screen.queryByRole("button", { name: "Remove audiences:manage" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove members:read" })).toBeInTheDocument();
+  });
+
+  it("explains an environment with no scopes configured", async () => {
+    server.use(
+      http.get("/api/v1/accounts/test-org/apps", () => HttpResponse.json({ apps: [] })),
+      http.get("/api/v1/accounts/test-org/app-scopes", () => HttpResponse.json({ scopes: [] })),
+    );
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /Create your first OAuth app/ }));
+
+    expect(await screen.findByText(/No scopes are configured/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select scopes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create OAuth app" })).toBeInTheDocument();
+  });
+
   it("disables revoke on a lone secret and explains why", async () => {
     let revoked = false;
     server.use(
-      listing([app]),
+      ...listing([app]),
       http.delete("/api/v1/accounts/test-org/apps/app-1/secrets/sec_1", () => {
         revoked = true;
         return new HttpResponse(null, { status: 204 });
@@ -126,7 +171,7 @@ describe("OrgAppsSettings", () => {
   });
 
   it("offers revoke once a replacement exists", async () => {
-    server.use(listing([{ ...app, secrets: [...app.secrets, { id: "sec_2", hint: "abcd" }] }]));
+    server.use(...listing([{ ...app, secrets: [...app.secrets, { id: "sec_2", hint: "abcd" }] }]));
     renderPage();
 
     await userEvent.setup().click(await screen.findByText("lumos-connector"));
@@ -138,7 +183,7 @@ describe("OrgAppsSettings", () => {
   it("confirms deletion inline rather than in a dialog", async () => {
     let deleted = false;
     server.use(
-      listing([app]),
+      ...listing([app]),
       http.delete("/api/v1/accounts/test-org/apps/app-1", () => {
         deleted = true;
         return new HttpResponse(null, { status: 204 });

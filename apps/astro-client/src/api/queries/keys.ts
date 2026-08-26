@@ -22,6 +22,7 @@ export const accountKeys = {
 
 export const appKeys = {
   all: (account: string) => ['accounts', account, 'apps'] as const,
+  scopes: (account: string) => ['accounts', account, 'app-scopes'] as const,
 };
 
 const blueprintAccountPrefix = (account: string) => ['agents', 'account', account] as const;

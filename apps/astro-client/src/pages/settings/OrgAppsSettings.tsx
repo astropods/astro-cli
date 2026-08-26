@@ -20,7 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useApps, useCreateApp, useCreateAppSecret, useDeleteApp, useDeleteAppSecret } from "@/api/queries";
+import { useAppScopes, useApps, useCreateApp, useCreateAppSecret, useDeleteApp, useDeleteAppSecret } from "@/api/queries";
+import { AppScopePicker } from "@/components/settings/AppScopePicker";
 import { getApiErrorMessage, type MachineApp, type NewAppSecret } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -32,23 +33,26 @@ const COLUMN_COUNT = 4;
 
 export default function OrgAppsSettings() {
   const { orgSlug = "" } = useParams();
-  const apps = useApps(orgSlug);
-  const createApp = useCreateApp(orgSlug);
-
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newSecrets, setNewSecrets] = useState<Record<string, NewAppSecret>>({});
+
+  const apps = useApps(orgSlug);
+  const appScopes = useAppScopes(orgSlug, creating);
+  const createApp = useCreateApp(orgSlug);
 
   const list = apps.data?.apps ?? [];
 
   const submit = () => {
     createApp.mutate(
-      { name: name.trim() },
+      { name: name.trim(), scopes },
       {
         onSuccess: (data) => {
           setCreating(false);
           setName("");
+          setScopes([]);
           setExpanded(data.app.id);
           setNewSecrets((prev) => ({ ...prev, [data.app.id]: data.secret }));
         },
@@ -91,10 +95,20 @@ export default function OrgAppsSettings() {
               maxLength={100}
             />
           </div>
-          <p className="text-body-sm text-muted-foreground">
-            Choosing what an app can reach is coming soon. Until then an app is created without
-            scopes and is refused by every scoped endpoint.
-          </p>
+          <div>
+            <Label size="md">Scopes</Label>
+            <AppScopePicker
+              scopes={appScopes.data?.scopes ?? []}
+              value={scopes}
+              onChange={setScopes}
+              loading={appScopes.isPending}
+              error={
+                appScopes.isError
+                  ? getApiErrorMessage(appScopes.error, "Could not load the available scopes.")
+                  : undefined
+              }
+            />
+          </div>
           {createApp.isError && (
             <p role="alert" className="text-body-sm text-destructive">
               {getApiErrorMessage(createApp.error, "Could not create the OAuth app.")}
@@ -108,6 +122,7 @@ export default function OrgAppsSettings() {
               onClick={() => {
                 setCreating(false);
                 setName("");
+                setScopes([]);
                 createApp.reset();
               }}
             >
