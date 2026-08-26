@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 
@@ -38,6 +39,7 @@ type Service struct {
 type workOSInventorySnapshot struct {
 	resources   []authz.AuthorizationResource
 	assignments map[string][]authz.RoleAssignment
+	groupNames  map[string]string
 	expiresAt   time.Time
 }
 
@@ -49,7 +51,11 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 	if s == nil || s.db == nil || s.workos == nil {
 		return nil, ErrNotConfigured
 	}
-	resources, assignments, err := s.load(ctx)
+	resources, assignments, groupNames, err := s.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	membershipLabels, err := s.membershipLabels(ctx, assignments)
 	if err != nil {
 		return nil, err
 	}
@@ -95,11 +101,29 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 			row.SyncState = "workos_only"
 		}
 		for _, assignment := range assignments[resourceKey(resource.Resource)] {
-			row.AssignmentCount++
+			label := assignment.Subject.ID
+			if assignment.Subject.Type == authz.AssignmentSubjectGroup {
+				if name := groupNames[assignment.Subject.ID]; name != "" {
+					label = name
+				}
+			} else if resolved := membershipLabels[assignment.Subject.ID]; resolved != "" {
+				label = resolved
+			}
+			row.Assignments = append(row.Assignments, Assignment{
+				SubjectType: string(assignment.Subject.Type), SubjectID: assignment.Subject.ID,
+				SubjectLabel: label, Role: string(assignment.Role), Source: string(assignment.Source),
+			})
 			if strings.HasSuffix(string(assignment.Role), "-admin") {
-				row.DirectAdmins = append(row.DirectAdmins, directAdminLabel(assignment.Subject))
+				row.DirectAdmins = append(row.DirectAdmins, directAdminLabel(assignment.Subject, label))
 			}
 		}
+		row.AssignmentCount = len(row.Assignments)
+		sort.Slice(row.Assignments, func(i, j int) bool {
+			if row.Assignments[i].SubjectLabel != row.Assignments[j].SubjectLabel {
+				return row.Assignments[i].SubjectLabel < row.Assignments[j].SubjectLabel
+			}
+			return row.Assignments[i].Role < row.Assignments[j].Role
+		})
 		sort.Strings(row.DirectAdmins)
 		result = append(result, row)
 	}
@@ -115,15 +139,15 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 	return &Inventory{Resources: result}, nil
 }
 
-func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, error) {
+func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, map[string]string, error) {
 	if s == nil || s.workos == nil {
-		return nil, nil, ErrNotConfigured
+		return nil, nil, nil, ErrNotConfigured
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if snapshot := s.cachedWorkOSInventory(); snapshot != nil {
-		return snapshot.resources, snapshot.assignments, nil
+		return snapshot.resources, snapshot.assignments, snapshot.groupNames, nil
 	}
 	loaded, err, _ := s.workOSCacheLoad.Do("inventory", func() (any, error) {
 		if snapshot := s.cachedWorkOSInventory(); snapshot != nil {
@@ -135,12 +159,13 @@ func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[
 		if err != nil {
 			return nil, err
 		}
-		assignments, err := s.directAssignments(loadCtx, productResources(resources))
+		assignments, groupNames, err := s.directAssignments(loadCtx, productResources(resources))
 		if err != nil {
 			return nil, err
 		}
 		snapshot := &workOSInventorySnapshot{
-			resources: resources, assignments: assignments, expiresAt: time.Now().Add(workOSInventoryCacheTTL),
+			resources: resources, assignments: assignments, groupNames: groupNames,
+			expiresAt: time.Now().Add(workOSInventoryCacheTTL),
 		}
 		s.workOSCacheMu.Lock()
 		s.workOSCache = snapshot
@@ -148,10 +173,10 @@ func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[
 		return snapshot, nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	snapshot := loaded.(*workOSInventorySnapshot)
-	return snapshot.resources, snapshot.assignments, nil
+	return snapshot.resources, snapshot.assignments, snapshot.groupNames, nil
 }
 
 func (s *Service) cachedWorkOSInventory() *workOSInventorySnapshot {
@@ -164,8 +189,9 @@ func (s *Service) cachedWorkOSInventory() *workOSInventorySnapshot {
 	return s.workOSCache
 }
 
-func (s *Service) directAssignments(ctx context.Context, resources []authz.AuthorizationResource) (map[string][]authz.RoleAssignment, error) {
+func (s *Service) directAssignments(ctx context.Context, resources []authz.AuthorizationResource) (map[string][]authz.RoleAssignment, map[string]string, error) {
 	result := make(map[string][]authz.RoleAssignment)
+	groupNames := make(map[string]string)
 	var mu sync.Mutex
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(assignmentConcurrency)
@@ -186,7 +212,7 @@ func (s *Service) directAssignments(ctx context.Context, resources []authz.Autho
 		})
 	}
 	if err := group.Wait(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	organizationIDs := make(map[string]struct{})
@@ -198,9 +224,10 @@ func (s *Service) directAssignments(ctx context.Context, resources []authz.Autho
 	for organizationID := range organizationIDs {
 		groups, err := s.allGroups(ctx, organizationID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, currentGroup := range groups {
+			groupNames[currentGroup.ID] = currentGroup.Name
 			groupAssignments.Go(func() error {
 				listed, err := s.workos.ListGroupRoleAssignments(groupAssignmentsCtx, currentGroup.ID)
 				if err != nil {
@@ -216,9 +243,57 @@ func (s *Service) directAssignments(ctx context.Context, resources []authz.Autho
 		}
 	}
 	if err := groupAssignments.Wait(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return result, nil
+	return result, groupNames, nil
+}
+
+func (s *Service) membershipLabels(ctx context.Context, assignments map[string][]authz.RoleAssignment) (map[string]string, error) {
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, resourceAssignments := range assignments {
+		for _, assignment := range resourceAssignments {
+			if assignment.Subject.Type != authz.AssignmentSubjectMembership {
+				continue
+			}
+			if _, ok := seen[assignment.Subject.ID]; !ok {
+				seen[assignment.Subject.ID] = struct{}{}
+				ids = append(ids, assignment.Subject.ID)
+			}
+		}
+	}
+	labels := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return labels, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT mw.workos_membership_id,
+		       COALESCE(NULLIF(me.email, ''), mw.user_id)
+		FROM account_member_workos mw
+		LEFT JOIN LATERAL (
+			SELECT email
+			FROM account_member_emails
+			WHERE user_id = mw.user_id
+			ORDER BY (source = 'workos') DESC, updated_at DESC
+			LIMIT 1
+		) me ON TRUE
+		WHERE mw.workos_membership_id = ANY($1)
+	`, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("resolve authorization assignment labels: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return nil, fmt.Errorf("scan authorization assignment label: %w", err)
+		}
+		labels[id] = label
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate authorization assignment labels: %w", err)
+	}
+	return labels, nil
 }
 
 func (s *Service) allGroups(ctx context.Context, organizationID string) ([]authz.Group, error) {
@@ -293,9 +368,9 @@ func resourceKey(resource authz.ResourceRef) string {
 	return string(resource.Type) + "\x00" + resource.ExternalID
 }
 
-func directAdminLabel(subject authz.AssignmentSubject) string {
+func directAdminLabel(subject authz.AssignmentSubject, label string) string {
 	if subject.Type == authz.AssignmentSubjectGroup {
-		return "group:" + subject.ID
+		return "group:" + label
 	}
-	return subject.ID
+	return label
 }

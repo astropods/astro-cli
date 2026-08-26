@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Boxes, CircleAlert, ExternalLink, RefreshCw, Search, UsersRound } from "lucide-react";
+import { Boxes, ChevronDown, CircleAlert, ExternalLink, RefreshCw, Search, UserRound, UsersRound } from "lucide-react";
 
 import { useAuthorizationResources } from "@/api/admin";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export function ResourcesPage() {
       if (syncState !== "all" && resource.sync_state !== syncState) return false;
       if (errorsOnly && !resource.last_error) return false;
       if (!needle) return true;
-      return [
+      const resourceMatch = [
         resource.name,
         resource.type,
         resource.external_id,
@@ -49,6 +49,10 @@ export function ResourcesPage() {
         accountLabel,
         resource.last_error,
       ].some((value) => value?.toLowerCase().includes(needle));
+      const assignmentMatch = resource.assignments?.some((assignment) =>
+        [assignment.subject_label, assignment.subject_id, assignment.role].some((value) => value.toLowerCase().includes(needle)),
+      );
+      return resourceMatch || assignmentMatch;
     });
   }, [account, errorsOnly, resourceType, resources, search, syncState]);
 
@@ -127,47 +131,86 @@ export function ResourcesPage() {
 }
 
 function ResourceRow({ resource }: { resource: AuthorizationResource }) {
+  const [assignmentsOpen, setAssignmentsOpen] = useState(false);
   const resourceHref = `/admin/resources/${encodeURIComponent(resource.type)}/${encodeURIComponent(resource.external_id)}`;
   return (
-    <tr className="border-b border-comb-light align-top last:border-0 hover:bg-glass-light">
-      <td className="px-3 py-2.5">
-        <div className="font-medium">{resource.name || "Unnamed resource"}</div>
-        <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{resource.type}</div>
-      </td>
-      <td className="px-3 py-2.5 font-mono">
-        <Link className="inline-flex items-center gap-1 text-honey-dark hover:underline" to={resourceHref}>
-          {resource.external_id}<ExternalLink className="size-2.5" />
-        </Link>
-      </td>
-      <td className="px-3 py-2.5 font-mono" title={resource.workos_resource_id}>{truncateUUID(resource.workos_resource_id)}</td>
-      <td className="px-3 py-2.5">
-        <div>{resource.account_name || "Unresolved"}</div>
-        {resource.account_id && <div className="font-mono text-[10px] text-muted-foreground">{truncateUUID(resource.account_id)}</div>}
-      </td>
-      <td className="px-3 py-2.5">
-        {(resource.direct_admins?.length ?? 0) > 0
-          ? resource.direct_admins?.map((admin) => <div key={admin} className="font-mono text-[10px]" title={admin}>{formatDirectAdmin(admin)}</div>)
-          : <span className="text-muted-foreground">None</span>}
-      </td>
-      <td className="px-3 py-2.5 text-right tabular-nums">{resource.assignment_count}</td>
-      <td className="px-3 py-2.5 text-muted-foreground">{formatDateTime(resource.created_at)}</td>
-      <td className="px-3 py-2.5">
-        <span className={cn(
-          "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-          resource.last_error ? "bg-destructive/10 text-destructive" : "bg-green-500/10 text-green-700 dark:text-green-400",
-        )}>{resource.last_error ? "error" : resource.sync_state}</span>
-        {resource.last_error && <div className="mt-1 max-w-52 text-[10px] text-destructive" title={resource.last_error}>{resource.last_error}</div>}
-      </td>
-    </tr>
+    <>
+      <tr className="border-b border-comb-light align-top hover:bg-glass-light">
+        <td className="px-3 py-2.5">
+          <div className="font-medium">{resource.name || "Unnamed resource"}</div>
+          <div className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{resource.type}</div>
+        </td>
+        <td className="px-3 py-2.5 font-mono">
+          <Link className="inline-flex items-center gap-1 text-honey-dark hover:underline" to={resourceHref}>
+            {resource.external_id}<ExternalLink className="size-2.5" />
+          </Link>
+        </td>
+        <td className="px-3 py-2.5 font-mono" title={resource.workos_resource_id}>{truncateUUID(resource.workos_resource_id)}</td>
+        <td className="px-3 py-2.5">
+          <div>{resource.account_name || "Unresolved"}</div>
+          {resource.account_id && <div className="font-mono text-[10px] text-muted-foreground">{truncateUUID(resource.account_id)}</div>}
+        </td>
+        <td className="px-3 py-2.5">
+          {(resource.direct_admins?.length ?? 0) > 0
+            ? resource.direct_admins?.map((admin) => <div key={admin} className="text-[10px]" title={admin}>{admin}</div>)
+            : <span className="text-muted-foreground">None</span>}
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums">
+          {resource.assignment_count > 0 ? (
+            <button
+              type="button"
+              className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium hover:bg-honey/10 hover:text-honey-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-expanded={assignmentsOpen}
+              aria-label={`${assignmentsOpen ? "Hide" : "Show"} assignments for ${resource.name}`}
+              onClick={() => setAssignmentsOpen((open) => !open)}
+            >
+              {resource.assignment_count}
+              <ChevronDown className={cn("size-3 transition-transform", assignmentsOpen && "rotate-180")} />
+            </button>
+          ) : "0"}
+        </td>
+        <td className="px-3 py-2.5 text-muted-foreground">{formatDateTime(resource.created_at)}</td>
+        <td className="px-3 py-2.5">
+          <span className={cn(
+            "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+            resource.last_error ? "bg-destructive/10 text-destructive" : "bg-green-500/10 text-green-700 dark:text-green-400",
+          )}>{resource.last_error ? "error" : resource.sync_state}</span>
+          {resource.last_error && <div className="mt-1 max-w-52 text-[10px] text-destructive" title={resource.last_error}>{resource.last_error}</div>}
+        </td>
+      </tr>
+      {assignmentsOpen && (
+        <tr className="border-b border-comb-light bg-glass-light/50">
+          <td colSpan={8} className="px-3 py-3">
+            <div className="ml-auto max-w-3xl rounded-md border border-glass-border-honey bg-background/70 p-2">
+              <div className="px-2 pb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Direct resource assignments</div>
+              <div className="divide-y divide-comb-light">
+                {resource.assignments?.map((assignment) => {
+                  const SubjectIcon = assignment.subject_type === "group" ? UsersRound : UserRound;
+                  return (
+                    <div key={`${assignment.subject_type}:${assignment.subject_id}:${assignment.role}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-2 py-2">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-honey/10 text-honey-dark"><SubjectIcon className="size-3.5" /></span>
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium">{assignment.subject_label}</div>
+                          <div className="truncate font-mono text-[9px] text-muted-foreground" title={assignment.subject_id}>{assignment.subject_id}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-mono text-[10px] font-medium">{assignment.role}</div>
+                        <div className="mt-0.5 text-[9px] capitalize text-muted-foreground">
+                          {assignment.subject_type === "group" ? "Group assignment" : `${assignment.source} assignment`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
-}
-
-function formatDirectAdmin(subject: string) {
-  const groupPrefix = "group:";
-  if (subject.startsWith(groupPrefix)) {
-    return `${groupPrefix}${truncateUUID(subject.slice(groupPrefix.length))}`;
-  }
-  return truncateUUID(subject);
 }
 
 function Filter({ value, onChange, label, values }: { value: string; onChange: (value: string) => void; label: string; values: string[] }) {

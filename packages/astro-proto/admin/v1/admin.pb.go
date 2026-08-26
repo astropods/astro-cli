@@ -80,17 +80,26 @@ type ListDeploymentsResponse struct {
 type ListAuthorizationResourcesRequest struct{}
 
 type AuthorizationResource struct {
-	Type             string   `json:"type,omitempty"`
-	Name             string   `json:"name,omitempty"`
-	ExternalID       string   `json:"external_id,omitempty"`
-	WorkOSResourceID string   `json:"workos_resource_id,omitempty"`
-	AccountID        string   `json:"account_id,omitempty"`
-	AccountName      string   `json:"account_name,omitempty"`
-	DirectAdmins     []string `json:"direct_admins,omitempty"`
-	AssignmentCount  int32    `json:"assignment_count,omitempty"`
-	CreatedAt        string   `json:"created_at,omitempty"`
-	SyncState        string   `json:"sync_state,omitempty"`
-	LastError        string   `json:"last_error,omitempty"`
+	Type             string                     `json:"type,omitempty"`
+	Name             string                     `json:"name,omitempty"`
+	ExternalID       string                     `json:"external_id,omitempty"`
+	WorkOSResourceID string                     `json:"workos_resource_id,omitempty"`
+	AccountID        string                     `json:"account_id,omitempty"`
+	AccountName      string                     `json:"account_name,omitempty"`
+	DirectAdmins     []string                   `json:"direct_admins,omitempty"`
+	AssignmentCount  int32                      `json:"assignment_count,omitempty"`
+	CreatedAt        string                     `json:"created_at,omitempty"`
+	SyncState        string                     `json:"sync_state,omitempty"`
+	LastError        string                     `json:"last_error,omitempty"`
+	Assignments      []*AuthorizationAssignment `json:"assignments,omitempty"`
+}
+
+type AuthorizationAssignment struct {
+	SubjectType  string `json:"subject_type,omitempty"`
+	SubjectID    string `json:"subject_id,omitempty"`
+	SubjectLabel string `json:"subject_label,omitempty"`
+	Role         string `json:"role,omitempty"`
+	Source       string `json:"source,omitempty"`
 }
 
 type ListAuthorizationResourcesResponse struct {

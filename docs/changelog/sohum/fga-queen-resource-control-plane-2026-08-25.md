@@ -10,7 +10,7 @@ Access inspection now lives with the authorization resource instead of the opera
 
 The server reads WorkOS, omits the organization root, and enriches deployments with live Astro account and synchronization data. WorkOS resources and assignments use a shared 30-second cache so concurrent Queen requests do not repeat the same fan-out; database enrichment remains uncached. Per-resource and per-group assignment calls share a bounded concurrency limit. Queen uses manual refresh instead of background polling.
 
-The Resources table shows resource type and name, Astro and WorkOS IDs, account, direct admins, assignment count, creation time, sync state, and the latest error. A WorkOS deployment without a matching Astro deployment is reported as `workos_only`, even when its parent account resolves.
+The Resources table shows resource type and name, Astro and WorkOS IDs, account, direct admins, assignment count, creation time, sync state, and the latest error. Assignment counts expand into the direct people and groups attached to that resource, including each subject's resolved label, WorkOS role, and assignment source. A WorkOS deployment without a matching Astro deployment is reported as `workos_only`, even when its parent account resolves.
 
 The inventory is read-only. Destructive reset, maintenance, and River reconciliation belong in the stacked follow-up PR.
 

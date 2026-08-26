@@ -31,11 +31,18 @@ func (f *fakeAuthorizationAdminService) Inventory(context.Context) (*authorizati
 func TestAuthorizationInventoryReusesDeploymentInspectorLinkData(t *testing.T) {
 	server := &Server{
 		authorizationAdmin: &fakeAuthorizationAdminService{inventory: &authorizationadmin.Inventory{
-			Resources: []authorizationadmin.Resource{{Type: "deployment", ExternalID: "dep_123", WorkOSResourceID: "resource_123"}},
+			Resources: []authorizationadmin.Resource{{
+				Type: "deployment", ExternalID: "dep_123", WorkOSResourceID: "resource_123",
+				Assignments: []authorizationadmin.Assignment{{
+					SubjectType: "group", SubjectID: "group_123", SubjectLabel: "Platform Engineering",
+					Role: "deployment-viewer", Source: "direct",
+				}},
+			}},
 		}},
 	}
 	response, err := server.ListAuthorizationResources(context.Background(), &adminv1.ListAuthorizationResourcesRequest{})
-	if err != nil || len(response.Resources) != 1 || response.Resources[0].ExternalID != "dep_123" {
+	if err != nil || len(response.Resources) != 1 || response.Resources[0].ExternalID != "dep_123" ||
+		len(response.Resources[0].Assignments) != 1 || response.Resources[0].Assignments[0].SubjectLabel != "Platform Engineering" {
 		t.Fatalf("ListAuthorizationResources() = (%+v, %v)", response, err)
 	}
 }

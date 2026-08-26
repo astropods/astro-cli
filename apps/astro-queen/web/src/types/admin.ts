@@ -90,7 +90,8 @@ export interface GetDeploymentResponse {
   placement_hint?: string;
 }
 
-export type DeploymentAccessStatus = "available" | "personal" | "not_configured" | "not_registered";
+export type DeploymentAccessStatus =
+  "available" | "personal" | "not_configured" | "not_registered";
 
 export interface AdminDeploymentAccessMember {
   user_id: string;
@@ -121,6 +122,15 @@ export interface AuthorizationResource {
   created_at: string;
   sync_state: string;
   last_error?: string;
+  assignments?: AuthorizationAssignment[];
+}
+
+export interface AuthorizationAssignment {
+  subject_type: "organization_membership" | "group";
+  subject_id: string;
+  subject_label: string;
+  role: string;
+  source: "direct" | "group";
 }
 
 export interface ListAuthorizationResourcesResponse {

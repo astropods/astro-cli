@@ -32,6 +32,13 @@ func (s *Server) ListAuthorizationResources(ctx context.Context, _ *adminv1.List
 	}
 	resources := make([]*adminv1.AuthorizationResource, 0, len(inventory.Resources))
 	for _, resource := range inventory.Resources {
+		assignments := make([]*adminv1.AuthorizationAssignment, 0, len(resource.Assignments))
+		for _, assignment := range resource.Assignments {
+			assignments = append(assignments, &adminv1.AuthorizationAssignment{
+				SubjectType: assignment.SubjectType, SubjectID: assignment.SubjectID,
+				SubjectLabel: assignment.SubjectLabel, Role: assignment.Role, Source: assignment.Source,
+			})
+		}
 		resources = append(resources, &adminv1.AuthorizationResource{
 			Type:             resource.Type,
 			Name:             resource.Name,
@@ -44,6 +51,7 @@ func (s *Server) ListAuthorizationResources(ctx context.Context, _ *adminv1.List
 			CreatedAt:        resource.CreatedAt,
 			SyncState:        resource.SyncState,
 			LastError:        resource.LastError,
+			Assignments:      assignments,
 		})
 	}
 	return &adminv1.ListAuthorizationResourcesResponse{Resources: resources}, nil

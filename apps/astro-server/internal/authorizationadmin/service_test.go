@@ -38,11 +38,16 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 					Source: authz.AssignmentSourceDirect, Resource: resource,
 				}}, nil
 			},
-			ListGroupRoleAssignmentsFunc: func(context.Context, string) ([]authz.RoleAssignment, error) { return nil, nil },
+			ListGroupRoleAssignmentsFunc: func(_ context.Context, groupID string) ([]authz.RoleAssignment, error) {
+				return []authz.RoleAssignment{{
+					Subject: authz.GroupAssignmentSubject(groupID), Role: authz.RoleDeploymentBuilder,
+					Source: authz.AssignmentSourceDirect, Resource: resource,
+				}}, nil
+			},
 		},
 		FakeGroups: &authz.FakeGroups{
 			ListGroupsFunc: func(context.Context, string, authz.PageRequest) (authz.GroupPage, error) {
-				return authz.GroupPage{}, nil
+				return authz.GroupPage{Groups: []authz.Group{{ID: "group_platform", Name: "Platform Engineering"}}}, nil
 			},
 		},
 		resources: []authz.AuthorizationResource{
@@ -50,6 +55,8 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 			{ID: "workos_dep", OrganizationID: "org_123", Resource: resource, Name: "Support agent", CreatedAt: "2026-08-25T12:00:00Z"},
 		},
 	}
+	mock.ExpectQuery(`SELECT mw.workos_membership_id`).WillReturnRows(sqlmock.NewRows([]string{"workos_membership_id", "label"}).
+		AddRow("om_admin", "jessye@example.com"))
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}).
 		AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
 	service := NewService(db, workos)
@@ -59,8 +66,12 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 		t.Fatalf("Inventory() = (%+v, %v)", inventory, err)
 	}
 	got := inventory.Resources[0]
-	if got.Type != "deployment" || got.AccountID != "acct_123" || got.AssignmentCount != 1 || !reflect.DeepEqual(got.DirectAdmins, []string{"om_admin"}) {
+	if got.Type != "deployment" || got.AccountID != "acct_123" || got.AssignmentCount != 2 || !reflect.DeepEqual(got.DirectAdmins, []string{"jessye@example.com"}) {
 		t.Fatalf("resource = %+v", got)
+	}
+	if got.Assignments[0].SubjectLabel != "Platform Engineering" || got.Assignments[0].Role != string(authz.RoleDeploymentBuilder) ||
+		got.Assignments[1].SubjectLabel != "jessye@example.com" || got.Assignments[1].Role != string(authz.RoleDeploymentAdmin) {
+		t.Fatalf("assignments = %+v", got.Assignments)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
