@@ -114,10 +114,9 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 - Implement the resource table and filters above.
 - Add **Nuke all resources** as a server-side job with dry run, typed count confirmation, progress, audit, and retry.
 - Add `authorization_admin_operations` for operation state and counts.
-- Add maintenance mode that pauses lifecycle writes, pauses the River sweep, and drains running FGA jobs before deletion.
-- Keep the destructive action disabled by default and Preview-only first.
+- Keep the destructive action behind `FGA_AUTHORIZATION_RESET_ENABLED`; validate it in Preview before a manual production release.
 
-**Queen proof:** the inventory matches WorkOS, the dry run shows exact targets, and deletion cannot start while reconciliation is active.
+**Queen proof:** the inventory matches WorkOS, the dry run shows exact targets, and the operation reports every deletion or failure.
 
 ### Phase 2: Preview deployment reset
 

@@ -52,7 +52,7 @@ type Config struct {
 	ResourceAccessSync *authz.ResourceAccessSyncStore
 	AccessReconciler   *authz.AccessReconciler
 	AuthorizationAdmin *authorizationadmin.Service
-	// AuthorizationAdminResetEnabled is true only for explicitly enabled Preview workers.
+	// AuthorizationAdminResetEnabled registers the reset worker only when explicitly configured.
 	AuthorizationAdminResetEnabled bool
 	FGA                            authz.FGA
 	OrgClient                      *org.Client

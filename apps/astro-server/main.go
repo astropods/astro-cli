@@ -649,7 +649,7 @@ func runAPI(
 	adminSrv.SetAuthorizationAdmin(
 		authorizationAdminService,
 		authorizationAdminStore,
-		cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled,
+		cfg.AuthorizationAdminResetEnabled,
 	)
 	adminSrv.SetPrometheusClient(promClient)
 	adminSrv.SetProxyRegistryHost(cfg.Deployment.ProxyRegistryHost)
@@ -923,7 +923,7 @@ func runWorker(
 		ResourceAccessSync:             resourceAccessSync,
 		AccessReconciler:               accessReconciler,
 		AuthorizationAdmin:             authorizationAdminService,
-		AuthorizationAdminResetEnabled: cfg.Deployment.Environment == "preview" && cfg.AuthorizationAdminResetEnabled,
+		AuthorizationAdminResetEnabled: cfg.AuthorizationAdminResetEnabled,
 		FGA:                            deploymentFGA,
 		WorkOSClient:                   workosClient,
 		OrgClient:                      orgClient,

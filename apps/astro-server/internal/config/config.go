@@ -28,7 +28,7 @@ type Config struct {
 	QuotaEnforce          bool   // QUOTA_ENFORCE — enable DB-quota enforcement (default false)
 	FGAShadowEnabled      bool   // FGA_SHADOW_ENABLED — compare deployment authorization with WorkOS without enforcing
 	FGAEnforcementEnabled bool   // FGA_ENFORCEMENT_ENABLED — enforce opted-in FGA-ready deployment authorization
-	// AuthorizationAdminResetEnabled permits Queen's Preview-only destructive
+	// AuthorizationAdminResetEnabled permits Queen's destructive
 	// WorkOS resource reset. Inventory remains available when this is false.
 	AuthorizationAdminResetEnabled bool // FGA_AUTHORIZATION_RESET_ENABLED
 	// Metronome hosted billing (BILLING_PROVIDER=metronome).
