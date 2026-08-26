@@ -64,6 +64,11 @@ validates the requested scopes against that same call, so a slug WorkOS does not
 know never reaches application creation, and the picker cannot drift from what
 is grantable.
 
+System permissions are excluded: WorkOS owns those and they describe its own
+surface, so granting one to an app would say nothing about access to Astro.
+Filtering where they are read means the picker and the create-time check drop
+them together.
+
 An environment with no permissions configured therefore offers nothing to pick,
 and an app created without scopes is refused by every scoped endpoint. That is
 the honest state rather than a hardcoded list implying more than exists.

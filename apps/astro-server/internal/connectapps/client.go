@@ -50,11 +50,11 @@ type workosClient struct {
 	authorization *workos.AuthorizationService
 }
 
-func New(apiKey string) Client {
+func New(apiKey string, opts ...workos.ClientOption) Client {
 	if apiKey == "" {
 		return nil
 	}
-	client := workos.NewClient(apiKey)
+	client := workos.NewClient(apiKey, opts...)
 	return &workosClient{connect: client.Connect(), authorization: client.Authorization()}
 }
 
@@ -68,6 +68,11 @@ func (c *workosClient) ListPermissions(ctx context.Context) ([]Permission, error
 	out := make([]Permission, 0)
 	for it.Next() {
 		p := it.Current()
+		// System permissions belong to WorkOS and describe its own surface, so
+		// granting one to an app would say nothing about access to Astro.
+		if p.System {
+			continue
+		}
 		entry := Permission{Slug: p.Slug, Name: p.Name}
 		if p.Description != nil {
 			entry.Description = *p.Description

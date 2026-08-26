@@ -138,6 +138,8 @@ A route declares the scope it needs. An app holding `audiences:read` gets 403 on
 
 The vocabulary is WorkOS's. A Connect application's scopes are permission slugs, so the picker reads the environment's permissions from `GET /authorization/permissions` and creation validates against the same call. A slug WorkOS does not know never reaches application creation, and the picker cannot drift from what is grantable.
 
+System permissions are filtered out. WorkOS owns them and they describe its own surface, so granting one to an app would say nothing about access to Astro. Filtering in the client that reads them means the picker and the create-time check exclude them together.
+
 Scopes also live on the app row, and authorization reads them there rather than from the token, so a change takes effect at once instead of at the next expiry. They are handed to WorkOS on create as well, so the token carries them too.
 
 An environment with no permissions configured offers nothing to pick, and an app created without scopes is refused by every scoped endpoint.
