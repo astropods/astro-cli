@@ -1,7 +1,11 @@
 import { pathToFileURL } from 'node:url';
 import { Agent } from '@mastra/core/agent';
 import { TaskSignalProvider } from '@mastra/core/signals';
+{{- if .AIGateway}}
+import { askUserTool, webFetchTool } from '@mastra/core/tools';
+{{- else}}
 import { askUserTool, webFetchTool, webSearchTool } from '@mastra/core/tools';
+{{- end}}
 import { LocalFilesystem, LocalSandbox, WORKSPACE_TOOLS, Workspace } from '@mastra/core/workspace';
 import { Memory } from '@mastra/memory';
 {{- if .AIGateway}}
@@ -143,7 +147,18 @@ ${fileDeliveryInstructions}
     list_schedules: listSchedulesTool,
     stop_schedule: stopScheduleTool,
     web_fetch: webFetchTool,
+{{- if not .AIGateway}}
+    // Resolved at run time to the active provider's native search
+    // (openai.web_search, anthropic.web_search_20250305, …), so it costs nothing
+    // here and executes on the provider's side.
     web_search: webSearchTool,
+{{- else}}
+    // No web_search: it is a provider-defined tool, and Mastra infers the provider
+    // from the model. A gateway model is an OpenAI-compatible client reporting
+    // "openai.responses", which does not normalize to a supported provider, so
+    // including it throws WEB_SEARCH_UNSUPPORTED_PROVIDER as soon as tools resolve.
+    // web_fetch still works — it runs in this process, not the provider's.
+{{- end}}
   },
   signals: [new TaskSignalProvider()],
 });

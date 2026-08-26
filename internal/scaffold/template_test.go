@@ -723,3 +723,31 @@ func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
 	}
 }
+
+// webSearchTool is provider-defined: Mastra resolves it from the active model and
+// throws WEB_SEARCH_UNSUPPORTED_PROVIDER for anything it cannot map. A gateway model
+// is an OpenAI-compatible client reporting "openai.responses", which does not
+// normalize (getRouterProvider only splits on "/"), so offering the tool crashes the
+// agent as soon as tools resolve. The gateway scaffold must therefore omit it, while
+// the keyed providers keep it.
+func TestMastraTemplate_WebSearchOnlyForProvidersThatSupportIt(t *testing.T) {
+	gateway := defaultConfig
+	gateway.AIGateway = true
+	gateway.Integrations = nil
+	content := renderTemplate(t, mastraAgentFile, gateway)
+	if strings.Contains(content, "webSearchTool") {
+		t.Error("gateway scaffold must not reference webSearchTool: the provider cannot back it")
+	}
+	if !strings.Contains(content, "web_fetch: webFetchTool") {
+		t.Error("gateway scaffold should keep web_fetch, which runs in-process")
+	}
+
+	for _, provider := range []string{"openai", "anthropic"} {
+		config := defaultConfig
+		config.Integrations = []string{provider}
+		content := renderTemplate(t, mastraAgentFile, config)
+		if !strings.Contains(content, "web_search: webSearchTool") {
+			t.Errorf("%s scaffold should offer web_search (native provider search)", provider)
+		}
+	}
+}
