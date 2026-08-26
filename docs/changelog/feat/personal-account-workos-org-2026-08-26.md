@@ -56,7 +56,7 @@ Two write paths already scoped the session on demand and excluded personal accou
 The diagram is the rule, not the whole code path. Two fallbacks sit under it while other clients still send unscoped sessions:
 
 - **Personal account, unscoped session.** Membership decides, as before. The CLI still sends an unscoped token, a browser session sealed before this change stays unscoped until the next login, and a session scoped to another organization is unscoped as far as this account is concerned.
-- **Personal account, scoped session, permission absent from the JWT.** Membership decides. This one is temporary. If the WorkOS `owner` role turns out to be missing a permission that a personal-account route checks, the owner keeps working instead of losing access to their own account.
+- **Personal account, scoped session, permission absent from the JWT.** Membership decides. This one is temporary. WorkOS has no owner role, so the membership carries `admin`. If that role turns out to be missing a permission that a personal-account route checks, the owner keeps working instead of losing access to their own account.
 
 An organization account never falls back to membership. That direction would let any member pass every permission check by being a member, so a `member` would hold `org:manage`.
 
@@ -67,7 +67,7 @@ An organization account never falls back to membership. That direction would let
 | Server: authorize from the JWT whenever the session is scoped | Done |
 | Web: scope the session to the personal organization at login | Done |
 | CLI: mint the org-scoped token for personal accounts too | Not started. `cmd/account.go` already does this for organization accounts, so dropping the account-type condition is the change, plus a release |
-| Verify the WorkOS `owner` role's permission set, then remove both fallbacks | Not started. Do this before the CLI change, so a scoped token cannot grant less than membership does |
+| Verify the WorkOS `admin` role's permission set, then remove both fallbacks | Not started. Do this before the CLI change, so a scoped token cannot grant less than membership does |
 
 The payoff is larger than one branch. Personal accounts are excluded from FGA resource management, access groups, deployment visibility, the access service, and the Insights role fallback, in each case only because they had no organization. The cost is that personal-account authorization starts depending on WorkOS claims, where today membership lives in our own database.
 
@@ -77,7 +77,7 @@ The payoff is larger than one branch. Personal accounts are excluded from FGA re
 
 1. Find or create the WorkOS organization.
 2. Save the link in `account_organizations`.
-3. Give the owner an `owner` membership.
+3. Give the owner an `admin` membership. Ownership itself is `accounts.owner_user_id`; WorkOS has no owner role.
 
 ```mermaid
 flowchart TD
@@ -91,7 +91,7 @@ flowchart TD
     Create --> Link
     Link --> Own
     Own --> Has{"owner has a membership?"}
-    Has -->|no| Mint["CreateMembership(role=owner)"]
+    Has -->|no| Mint["CreateMembership(role=admin)"]
     Mint --> Record["UpsertMemberByWorkosMembershipID"]
     Has -->|yes| Record
     Record --> Done["return organization ID"]

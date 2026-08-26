@@ -73,7 +73,7 @@ func HasAccountPermission(c *gin.Context, accountStore *account.AccountStore, ac
 	}
 	// Remove this fallback once the web app scopes its session at login and the
 	// CLI mints an org-scoped token for personal accounts too (cmd/account.go).
-	// Check first that the WorkOS owner role carries every permission a
+	// Check first that the WorkOS admin role carries every permission a
 	// personal-account route asks for, or an owner loses their own account.
 	if acct.Type != "personal" {
 		return false

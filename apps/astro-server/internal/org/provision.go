@@ -9,7 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
-const ownerRoleSlug = "owner"
+const workosAdminRole = "admin"
 
 type directory interface {
 	GetOrganizationByExternalID(ctx context.Context, externalID string) (Organization, error)
@@ -106,7 +106,7 @@ func (p *Provisioner) ensureOwnerMembership(ctx context.Context, acct *account.A
 		}
 	}
 	if membershipID == "" {
-		m, err := p.directory.CreateMembership(ctx, orgID, owner, ownerRoleSlug)
+		m, err := p.directory.CreateMembership(ctx, orgID, owner, workosAdminRole)
 		if err != nil {
 			return fmt.Errorf("create owner membership: %w", err)
 		}

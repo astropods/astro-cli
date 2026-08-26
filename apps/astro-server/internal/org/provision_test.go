@@ -117,8 +117,8 @@ func TestEnsureOrganizationProvisionsPersonalAccount(t *testing.T) {
 	if len(dir.created) != 1 || dir.created[0].ExternalID != "acct-1" || dir.created[0].Name != "saswat" {
 		t.Errorf("organization should carry the account id and handle: %+v", dir.created)
 	}
-	if dir.createdRoles["user-1"] != ownerRoleSlug {
-		t.Errorf("owner role = %q, want %q", dir.createdRoles["user-1"], ownerRoleSlug)
+	if dir.createdRoles["user-1"] != workosAdminRole {
+		t.Errorf("owner membership role = %q, want %q", dir.createdRoles["user-1"], workosAdminRole)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)

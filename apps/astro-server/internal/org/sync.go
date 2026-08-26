@@ -179,8 +179,8 @@ func (s *Sync) transferOwnership(ctx context.Context, accountID, userID, previou
 		return err
 	}
 
-	if _, err := s.client.UpdateMembershipRole(ctx, membershipID, "owner"); err != nil {
-		s.warn("org sync: project owner role to WorkOS failed", accountID, err)
+	if _, err := s.client.UpdateMembershipRole(ctx, membershipID, workosAdminRole); err != nil {
+		s.warn("org sync: promote new owner in WorkOS failed", accountID, err)
 		return nil
 	}
 	if previousOwner == "" {
