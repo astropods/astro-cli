@@ -1,8 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { ExternalLink, ChevronDown, RotateCw, Loader2, Copy, Check, TriangleAlert, CircleAlert, Info } from "lucide-react";
-import { ErrorPanel } from "@/components/ui/status-panel";
 import { SidePanel } from "@/components/ui/side-panel";
-import { ContainerLogErrorProbe, firstContainerError, useContainerErrors } from "./use-container-log-errors";
 import { isSensitiveEnvVar, roleFor } from "@/lib/env-utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -58,14 +56,6 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, sus
   const { status, label: statusLabel } = resolvePodStatus(workload, { paused, suspended, probing });
   const name = workload.component || workload.name;
 
-  // Detect error-level logs for this pod (reuses the same cached queries the
-  // tile indicator uses) and surface them without navigating away from the
-  // container diagnostics on General.
-  const { byContainer, report } = useContainerErrors();
-  const isLongRunning = workload.kind === "Deployment" || workload.kind === "StatefulSet";
-  const probeContainers = isLongRunning && !paused && !suspended && !probing ? workload.containers ?? [] : [];
-  const logErrorMessage = firstContainerError(byContainer, probeContainers.map((c) => c.name));
-
   return (
     <SidePanel
       background="card"
@@ -106,22 +96,6 @@ function PodDetailPanelInner({ workload, deploymentId, externalUrls, paused, sus
           </button>
         ))}
       </div>
-
-      {probeContainers.map((c) => (
-        <ContainerLogErrorProbe
-          key={c.name}
-          deploymentId={deploymentId}
-          workloadName={workload.name}
-          container={c.name}
-          onResult={report}
-        />
-      ))}
-
-      {logErrorMessage && (
-        <div className="px-5 pt-4">
-          <ErrorPanel title="Errors in logs">{logErrorMessage}</ErrorPanel>
-        </div>
-      )}
 
       {/* Tab content */}
       {activeTab === "General" && (

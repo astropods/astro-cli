@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { screen, fireEvent } from "@testing-library/react";
+import { act, screen, fireEvent } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { server } from "@/test/msw/server";
 import { renderWithProviders } from "@/test/test-utils";
@@ -149,14 +149,11 @@ describe("PodDetailPanel — Events tab", () => {
 });
 
 describe("PodDetailPanel — tab precedence", () => {
-  it("stays on General when an error log is detected", async () => {
-    let releaseErrorLog!: () => void;
-    const errorLogGate = new Promise<void>((resolve) => {
-      releaseErrorLog = resolve;
-    });
+  it("stays on General and fetches no logs until the Logs tab is opened", async () => {
+    let logRequests = 0;
     server.use(
-      http.get("/api/v1/deployments/:id/logs", async () => {
-        await errorLogGate;
+      http.get("/api/v1/deployments/:id/logs", () => {
+        logRequests += 1;
         return HttpResponse.json([
           {
             timestamp: "2026-06-29T00:00:00Z",
@@ -186,11 +183,18 @@ describe("PodDetailPanel — tab precedence", () => {
       />,
     );
 
-    releaseErrorLog();
-    expect(await screen.findByText("Errors in logs")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Logs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "General" })).toHaveClass(
       "text-foreground",
     );
+
+    // Counted at handler entry, so a probe registers even if its response
+    // never arrives.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(logRequests).toBe(0);
+    expect(screen.queryByText("Errors in logs")).not.toBeInTheDocument();
   });
 
   it("uses General when a manual pod change mounts a new workload", () => {

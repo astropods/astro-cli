@@ -38,7 +38,7 @@ test("shows an error indicator when a container has error logs", async ({ page }
   await expect(page.getByLabel("Errors found in logs")).toBeVisible({ timeout: 10_000 });
 });
 
-test("clicking a pod with errors opens the detail panel with an error banner", async ({ page }) => {
+test("clicking a pod with errors opens the detail panel and reports the error only in Logs", async ({ page }) => {
   test.setTimeout(60_000);
   await page.route(LOGS_ROUTE, (route) =>
     route.fulfill({
@@ -53,8 +53,10 @@ test("clicking a pod with errors opens the detail panel with an error banner", a
 
   await page.getByText("agent", { exact: true }).click();
 
-  // The panel surfaces the error as a banner instead of an empty General tab.
-  // (The message also appears in the auto-opened Logs tab, hence .first().)
-  await expect(page.getByText("Errors in logs")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("boom: request failed").first()).toBeVisible();
+  const panel = page.getByLabel("agent pod details");
+  await expect(panel).toBeVisible({ timeout: 20_000 });
+  await expect(panel.getByText("Errors in logs")).toHaveCount(0);
+
+  await panel.getByRole("button", { name: "Logs" }).click();
+  await expect(panel.getByText("boom: request failed").first()).toBeVisible({ timeout: 20_000 });
 });

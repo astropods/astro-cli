@@ -558,10 +558,12 @@ describe("startup failure diagnostics", () => {
       }),
     );
 
-    expect(await screen.findByText("Errors in logs")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Logs" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "General" })).toHaveClass(
       "text-foreground",
     );
+    // The Logs tab already carries the error.
+    expect(screen.queryByText("Errors in logs")).not.toBeInTheDocument();
     expect(screen.getByText("Domains")).toBeInTheDocument();
   });
 
