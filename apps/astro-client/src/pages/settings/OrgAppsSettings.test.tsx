@@ -39,7 +39,7 @@ describe("OrgAppsSettings", () => {
     expect(screen.getByText("…wxyz")).toBeInTheDocument();
   });
 
-  it("shows the plaintext secret once after creating an OAuth app", async () => {
+  it("reveals the plaintext secret inline once after creating an OAuth app", async () => {
     let created: unknown;
     server.use(
       http.get("/api/v1/accounts/test-org/apps", () =>
@@ -62,7 +62,11 @@ describe("OrgAppsSettings", () => {
 
     await waitFor(() => expect(created).toEqual({ name: "lumos-connector" }));
     expect(await screen.findByText("sk_live_plaintext")).toBeInTheDocument();
-    expect(screen.getByText(/only time/)).toBeInTheDocument();
+    expect(screen.getByText(/only time it is shown/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /Copy/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "I saved it" }));
+    await waitFor(() => expect(screen.queryByText("sk_live_plaintext")).not.toBeInTheDocument());
   });
 
   it("marks scope selection as coming soon rather than offering one", async () => {

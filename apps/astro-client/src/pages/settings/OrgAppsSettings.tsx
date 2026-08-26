@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useParams, type MetaFunction } from "react-router";
-import { Plus, Trash2, KeyRound, Check } from "lucide-react";
+import { Plus, Trash2, KeyRound } from "lucide-react";
 import { SectionHeader } from "@/components/settings/SettingsShared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CopyButton } from "@/components/ui/copy-button";
+import { ActionPanel } from "@/components/ui/status-panel";
 import {
   Dialog,
   DialogContent,
@@ -70,6 +71,33 @@ export default function OrgAppsSettings() {
           </Button>
         }
       />
+
+      {revealed && (
+        <div className="mb-4">
+          <ActionPanel
+            tone="warning"
+            title={`Copy ${revealed.appName}'s secret now`}
+            primaryLabel="I saved it"
+            onPrimary={() => setRevealed(null)}
+          >
+            <p className="mb-2">
+              This is the only time it is shown. Store it in your secret manager before dismissing
+              this.
+            </p>
+            <div className="flex min-w-0 items-start gap-2 rounded-md border border-border bg-card px-3 py-2">
+              <code className="min-w-0 flex-1 break-all font-mono text-mono-sm text-foreground">
+                {revealed.secret.value}
+              </code>
+              <CopyButton
+                copyText={revealed.secret.value}
+                title="Copy secret"
+                iconClassName="size-4"
+                className="shrink-0"
+              />
+            </div>
+          </ActionPanel>
+        </div>
+      )}
 
       {apps.isPending ? (
         <p className="text-body-sm text-muted-foreground">Loading OAuth apps…</p>
@@ -228,32 +256,6 @@ export default function OrgAppsSettings() {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!revealed} onOpenChange={(open) => !open && setRevealed(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Copy the secret now</DialogTitle>
-            <DialogDescription>
-              This is the only time {revealed?.appName}&rsquo;s secret is shown. Store it in your
-              secret manager before closing this dialog.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-            <span className="min-w-0 flex-1 truncate font-mono text-mono-sm text-foreground">
-              {revealed?.secret.value}
-            </span>
-            {revealed && (
-              <CopyButton copyText={revealed.secret.value} title="Copy secret" iconClassName="size-4" />
-            )}
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setRevealed(null)}>
-              <Check className="size-4" />
-              I saved it
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
