@@ -3,6 +3,7 @@ import { AppHeader } from "./AppHeader";
 import { BillingStatusBanner } from "./BillingStatusBanner";
 import { NavigationProgressBar } from "./NavigationProgressBar";
 import { ActiveAccountProvider } from "@/hooks/use-active-account";
+import { FreeTrialModalHost } from "./FreeTrialModalHost";
 
 export default function Layout() {
   return (
@@ -15,6 +16,7 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+      <FreeTrialModalHost />
     </ActiveAccountProvider>
   );
 }

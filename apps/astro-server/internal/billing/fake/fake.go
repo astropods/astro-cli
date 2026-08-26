@@ -29,6 +29,10 @@ type Provider struct {
 	usageSpend float64
 }
 
+// Metronome's built-in fiat unit, in hundredths. The client keys on this id
+// before falling back to the label (see billing-balances.ts).
+const usdCentsCreditTypeID = "2714e483-4ff1-48e4-9e25-ac732e8f24f2" //nolint:gosec // G101: a public credit-type identifier, not a credential
+
 var (
 	_ billing.BillingProvider      = (*Provider)(nil)
 	_ billing.SpendReporter        = (*Provider)(nil)
@@ -178,7 +182,7 @@ func (p *Provider) Invoices(ctx context.Context, customerID string) (any, error)
 		ExternalInvoice external   `json:"external_invoice"`
 	}
 
-	usd := creditType{ID: "2714e483-4ff1-48e4-9e25-ac732e8aa252", Name: "USD (cents)"}
+	usd := creditType{ID: usdCentsCreditTypeID, Name: "USD (cents)"}
 	now := time.Now().UTC()
 	start := periodStart(now)
 	p.mu.Lock()
@@ -236,6 +240,58 @@ func (p *Provider) Invoices(ctx context.Context, customerID string) (any, error)
 		invoices = append(invoices, inv)
 	}
 	return invoices, nil
+}
+
+// Cents, partly drawn down so granted and remaining are distinguishable.
+const (
+	signupGrantCents     = 1000
+	signupRemainingCents = 640
+)
+
+// Canned rather than empty: the signup credit is what the free-trial modal
+// announces, so reporting none would make that modal untestable here.
+func (p *Provider) Balances(ctx context.Context, customerID string) (any, error) {
+	type creditType struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	type scheduleItem struct {
+		Amount       float64   `json:"amount"`
+		StartingAt   time.Time `json:"starting_at"`
+		EndingBefore time.Time `json:"ending_before"`
+	}
+	type accessSchedule struct {
+		CreditType    creditType     `json:"credit_type"`
+		ScheduleItems []scheduleItem `json:"schedule_items"`
+	}
+	type record struct {
+		ID             string         `json:"id"`
+		Name           string         `json:"name"`
+		Type           string         `json:"type"`
+		Balance        float64        `json:"balance"`
+		AccessSchedule accessSchedule `json:"access_schedule"`
+	}
+
+	now := time.Now().UTC()
+	usd := creditType{ID: usdCentsCreditTypeID, Name: "USD (cents)"}
+	credits := []record{{
+		ID:      "fake-credit-signup",
+		Name:    "Signup credit",
+		Type:    "CREDIT",
+		Balance: signupRemainingCents,
+		AccessSchedule: accessSchedule{
+			CreditType: usd,
+			ScheduleItems: []scheduleItem{{
+				Amount:       signupGrantCents,
+				StartingAt:   periodStart(now),
+				EndingBefore: periodStart(now).AddDate(1, 0, 0),
+			}},
+		},
+	}}
+
+	// No commits: a prepaid commitment is sales-negotiated, so no self-serve
+	// account has one.
+	return map[string]any{"credits": credits, "commits": []record{}}, nil
 }
 
 // InvoicePDF returns a one-page PDF so the download path is exercised end to

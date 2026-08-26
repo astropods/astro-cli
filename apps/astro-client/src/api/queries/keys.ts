@@ -110,6 +110,7 @@ export const billingKeys = {
   dailySpend: (account: string, from?: string, to?: string) =>
     ['billing', account, 'daily-spend', from ?? '', to ?? ''] as const,
   invoices: (account: string) => ['billing', account, 'invoices'] as const,
+  balances: (account: string) => ['billing', account, 'balances'] as const,
   paymentMethod: (account: string) => ['billing', account, 'payment-method'] as const,
   status: (account: string) => ['billing', account, 'status'] as const,
   spend: (account: string) => ['billing', account, 'spend'] as const,

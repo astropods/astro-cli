@@ -1623,6 +1623,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				// helper) since it returns application/pdf, not JSON.
 				accountManage.GET("/billing/invoices/:invoiceId/pdf", handlers.GetBillingInvoicePDF(log, accountStore, billingProvider, cfg.BillingBackend()))
 
+				api.GET(accountManage, "/billing/balances", "Get billing credits and commits", handlers.GetBillingBalances(log, accountStore, billingProvider, cfg.BillingBackend()),
+					oapispec.Tags("Billing"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.Response(200, &handlers.BillingDataResponse{}),
+					oapispec.Response(502, &handlers.ErrorResponse{}),
+				)
+
 				api.GET(accountManage, "/billing/spend", "Get current spend and the account's own thresholds", handlers.GetBillingSpend(log, accountStore, billingProvider, cfg.BillingBackend()),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),

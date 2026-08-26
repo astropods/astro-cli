@@ -5,7 +5,7 @@ export { useDeployments, useDeployment, useDeploymentLogs, useUndeployAgent, use
 export { useProfile, useAccount, useCheckAccountName, useSearchAccounts, useCreateAccount, useDeleteAccount, useRenameAccount, useUpdateProfile, useUploadAvatar, useSetAvatarPreset, useResetAvatar, useUpdateAccountDisplayName, useUpdateMemberRole, useRemoveAccountMember, useAccountMembers, useCreateInvitations, useAccountExperiment, useUpdateAccountExperiment, PROMPT_CLASSIFICATION_STATS, FINE_GRAINED_ACCESS } from './accounts';
 export { useToggleHeart } from './hearts';
 export { useAccountUsage, useQuotaIncreaseRequests, useRequestQuotaIncrease } from './usage';
-export { useBillingUsage, useBillingDailySpend, useBillingInvoices, useDownloadInvoicePdf, usePaymentMethod, useConfirmPaymentMethod, useDeletePaymentMethod } from './billing';
+export { useBillingUsage, useBillingDailySpend, useBillingInvoices, useBillingBalances, useDownloadInvoicePdf, usePaymentMethod, useConfirmPaymentMethod, useDeletePaymentMethod } from './billing';
 export { useSubmitFeedback } from './feedback';
 export { useAccountVariables, useCreateAccountVariables, useUpdateAccountVariable, useDeleteAccountVariable } from './variables';
 export { useOtelIngestKeys, useCreateOtelIngestKey, useRevokeOtelIngestKey, useRenameOtelIngestKey, useUpdateOtelIngestKeyExclusions } from './otel-ingest-keys';

@@ -96,6 +96,15 @@ export function useBillingInvoices(account: string) {
   });
 }
 
+export function useBillingBalances(account: string) {
+  return useQuery({
+    queryKey: billingKeys.balances(account),
+    queryFn: () => api.getBillingBalances(account),
+    enabled: !!account,
+    staleTime: 60_000,
+  });
+}
+
 /** Not a query: a one-shot action on click, like useDownloadDeploymentFile. */
 export function useDownloadInvoicePdf(account: string) {
   return useMutation({

@@ -9,7 +9,10 @@ import { useAuth } from '@/lib/auth';
 import type { AuthContextType } from '@/lib/auth-context';
 import Onboarding from './Onboarding';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.removeItem(`astro:free-trial-modal:pending:${mockAuthContext.user!.id}`);
+});
 
 const OnboardingGuard = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, isLoading, needsOnboarding } = useAuth();
@@ -85,6 +88,36 @@ describe('Onboarding', () => {
     await waitFor(() => expect(screen.getByText('Available')).toBeInTheDocument());
     await user.click(screen.getByRole('button', { name: /get started/i }));
     await waitFor(() => expect(capturedBody).toEqual({ name: 'mynewname', type: 'personal', display_name: 'Test User' }));
+  });
+
+  // The free trial modal has no server-side trigger, so account creation is
+  // the one client-side moment that flags it. See FreeTrialModalHost and
+  // usePendingFreeTrialModal.
+  it('flags the free trial modal as pending once the account is created', async () => {
+    server.use(
+      http.get('/api/v1/accounts/check/:name', () => HttpResponse.json({ available: true })),
+      http.post('/api/v1/accounts', async () =>
+        HttpResponse.json(
+          { id: 'new-acct', name: 'mynewname', type: 'personal', created_at: '', updated_at: '' },
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderGuarded({ ...mockAuthContext, accounts: [], needsOnboarding: true }, ['/onboarding']);
+
+    await user.type(screen.getByPlaceholderText('username'), 'mynewname');
+    await user.type(screen.getByPlaceholderText('Your name'), 'Test User');
+    await user.click(screen.getByRole('checkbox'));
+    await waitFor(() => expect(screen.getByText('Available')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /get started/i }));
+
+    await waitFor(() =>
+      expect(localStorage.getItem(`astro:free-trial-modal:pending:${mockAuthContext.user!.id}`)).toBe(
+        'true',
+      ),
+    );
   });
 
   it('disables submit when terms are not accepted', async () => {

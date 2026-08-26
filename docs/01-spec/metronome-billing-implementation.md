@@ -220,6 +220,7 @@ Saving a card lets Metronome auto-charge (`charge_automatically`); whether an ac
 | GET | `/billing/usage/daily-spend` | rated spend per day over `[from,to)`, from the invoice breakdown |
 | GET | `/billing/invoices` | invoices + line items |
 | GET | `/billing/invoices/:invoiceId/pdf` | invoice PDF stream |
+| GET | `/billing/balances` | credits + commits |
 | POST | `/billing/setup-intent` | start card setup |
 | POST | `/billing/payment-method` | confirm + save card |
 | GET | `/billing/payment-method` | saved card summary |

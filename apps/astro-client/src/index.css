@@ -577,3 +577,25 @@ html.dark .sbdocs-preview {
 /* Animations remain paused until their card is first hovered. The card's JS
    hover effect activates only that card and pauses it again after coast-down. */
 .card-v2-star-anim { animation-play-state: paused; }
+
+/* FreeTrialModal: overlay scrim, balance "pop", shooting star. Values
+   match the source design mock exactly. */
+@keyframes ftv4-scrim {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes ftv4-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.12); }
+  70%  { transform: scale(.98); }
+  100% { transform: scale(1); }
+}
+/* Rotated 28deg for its entire flight, and grows from a short dash to full
+   length as it travels. */
+@keyframes ftv4-shoot {
+  0%   { opacity: 0; transform: translate(0, 0) rotate(28deg) scaleX(.2); }
+  8%   { opacity: 1; }
+  40%  { opacity: 1; }
+  60%  { opacity: 0; transform: translate(180px, 96px) rotate(28deg) scaleX(1); }
+  100% { opacity: 0; }
+}

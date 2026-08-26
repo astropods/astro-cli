@@ -3,10 +3,11 @@
 // on the interface.
 //
 // This provider is introduced "dark" (compiled and selectable via
-// BILLING_PROVIDER=metronome, but not enabled in production). The seam is
-// metering-only: customer lifecycle plus usage ingest. Balances, spend gating,
-// credit grants, and usage/cost queries are handled out-of-band (Metronome
-// dashboard), not through this provider.
+// BILLING_PROVIDER=metronome, but not enabled in production). The seam covers
+// customer lifecycle, usage ingest, and read-back for the native Billing UI
+// (spend, usage, balances, invoices). Credit and commit grants, contracts,
+// and rate cards are provisioned out-of-band (Metronome dashboard); this
+// provider only reads them back.
 package metronome
 
 import (
@@ -571,4 +572,37 @@ func (p *Provider) InvoicePDF(ctx context.Context, customerID, invoiceID string)
 		return nil, fmt.Errorf("metronome get invoice pdf: %w", err)
 	}
 	return resp.Body, nil
+}
+
+// Balances returns the customer's credits and commits, passed through as-is.
+// Unlike CustomerSpend's own credit read, this omits CoveringDate so the
+// client sees the full record, past and future grants included.
+func (p *Provider) Balances(ctx context.Context, customerID string) (any, error) {
+	credits := []shared.Credit{}
+	creditIter := p.mc.V1.Customers.Credits.ListAutoPaging(ctx, metronome.V1CustomerCreditListParams{
+		CustomerID: customerID,
+		// Without this, every credit's Balance reads as zero (see the same
+		// flag in CustomerSpend), which the client would show as fully spent.
+		IncludeBalance: param.NewOpt(true),
+	})
+	for creditIter.Next() {
+		credits = append(credits, creditIter.Current())
+	}
+	if err := creditIter.Err(); err != nil {
+		return nil, fmt.Errorf("metronome list credits: %w", err)
+	}
+
+	commits := []shared.Commit{}
+	commitIter := p.mc.V1.Customers.Commits.ListAutoPaging(ctx, metronome.V1CustomerCommitListParams{
+		CustomerID:     customerID,
+		IncludeBalance: param.NewOpt(true),
+	})
+	for commitIter.Next() {
+		commits = append(commits, commitIter.Current())
+	}
+	if err := commitIter.Err(); err != nil {
+		return nil, fmt.Errorf("metronome list commits: %w", err)
+	}
+
+	return map[string]any{"credits": credits, "commits": commits}, nil
 }

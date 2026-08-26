@@ -2355,6 +2355,25 @@ export interface DailySpendPoint {
   by_product?: Record<string, number>;
 }
 
+/** A credit or commit as the provider returns it, narrowed to the fields the
+ *  UI reads. The provider sends a dozen more, hence the index signature. */
+export interface BillingRecord {
+  name?: string;
+  balance?: number;
+  product?: { name?: string; [key: string]: unknown };
+  access_schedule?: {
+    credit_type?: { id?: string; name?: string; [key: string]: unknown };
+    schedule_items?: { amount?: number; ending_before?: string; [key: string]: unknown }[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface BillingBalances {
+  credits: BillingRecord[];
+  commits: BillingRecord[];
+}
+
 export interface SavedCard {
   id: string;
   brand: string;
@@ -4027,6 +4046,14 @@ class ApiClient {
   ): Promise<BillingDataResponse<BillingInvoice[]>> {
     return this.request<BillingDataResponse<BillingInvoice[]>>(
       `/api/v1/accounts/${encodeURIComponent(account)}/billing/invoices`
+    );
+  }
+
+  async getBillingBalances(
+    account: string,
+  ): Promise<BillingDataResponse<BillingBalances>> {
+    return this.request<BillingDataResponse<BillingBalances>>(
+      `/api/v1/accounts/${encodeURIComponent(account)}/billing/balances`
     );
   }
 

@@ -292,4 +292,6 @@ type BillingProvider interface {
 	// InvoicePDF returns a single invoice rendered as a PDF byte stream. The
 	// caller must close the returned reader.
 	InvoicePDF(ctx context.Context, customerID, invoiceID string) (io.ReadCloser, error)
+	// Balances returns the customer's credits and commits.
+	Balances(ctx context.Context, customerID string) (any, error)
 }

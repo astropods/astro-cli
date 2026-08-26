@@ -193,7 +193,7 @@ func billingData(
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "no billing contract covers this account"})
 				return
 			}
-			log.Error("billing: load billing  failed"+label, "error", err, "account_id", acct.ID)
+			log.Error("billing: load billing data failed", "kind", label, "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to load billing " + label})
 			return
 		}
@@ -602,6 +602,16 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// GetBillingBalances handles GET /api/v1/accounts/:account/billing/balances.
+// It returns the customer's credits and commits, passed through by the
+// provider as-is.
+func GetBillingBalances(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+	return billingData(log, accountStore, billingProvider, billingBackend, "balances",
+		func(ctx context.Context, _ *account.Account, customerID string) (any, error) {
+			return billingProvider.Balances(ctx, customerID)
+		})
 }
 
 func usageThresholdsResponse(in map[billing.UsageMetric]billing.UsageThresholds) map[string]UsageThresholdsResponse {

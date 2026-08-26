@@ -4,6 +4,7 @@ import { useCreateAccount } from '../api/queries/accounts';
 import { useAuth } from '../lib/auth';
 import { AccountNameInput } from '@/components/AccountNameInput';
 import { useAccountNameValidation } from '@/hooks/use-account-name';
+import { usePendingFreeTrialModal } from '@/hooks/use-pending-free-trial-modal';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,8 @@ export default function Onboarding() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { checkAuth, isAuthenticated, isLoading, login } = useAuth();
+  const { checkAuth, isAuthenticated, isLoading, login, user } = useAuth();
+  const { markPending } = usePendingFreeTrialModal(user?.id);
 
   // Onboarding requires authentication but lives outside the ProtectedLayout
   // (OnboardingGuard would create a redirect loop back to /onboarding).
@@ -62,8 +64,10 @@ export default function Onboarding() {
         return;
       }
 
-      // Account created — refresh auth state then navigate regardless.
-      // If checkAuth fails the next page load will reconcile auth state.
+      // Account created: flag the free trial modal for this first session,
+      // then refresh auth state and navigate regardless. If checkAuth fails
+      // the next page load will reconcile auth state.
+      markPending();
       try {
         await checkAuth();
       } catch {
@@ -71,7 +75,7 @@ export default function Onboarding() {
       }
       navigate('/');
     },
-    [name, displayNameTrimmed, canSubmit, createAccount, checkAuth, navigate]
+    [name, displayNameTrimmed, canSubmit, createAccount, checkAuth, navigate, markPending]
   );
 
   const handleChange = useCallback(

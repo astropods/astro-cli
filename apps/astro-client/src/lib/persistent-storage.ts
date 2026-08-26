@@ -49,6 +49,16 @@ export function setPersistentStorageSnapshot(
   notify(storageKey);
 }
 
+export function removePersistentStorageSnapshot(storageKey: string) {
+  fallbackSnapshots.delete(storageKey);
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {
+    // Nothing to fall back to for a removal; absence is the desired state.
+  }
+  notify(storageKey);
+}
+
 export function clearPageFilterStorage() {
   const keys = new Set(
     [...fallbackSnapshots.keys(), ...listeners.keys()].filter((key) =>

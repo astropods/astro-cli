@@ -108,3 +108,6 @@ func (p *fakeProvider) Invoices(context.Context, string) (any, error) {
 func (p *fakeProvider) InvoicePDF(context.Context, string, string) (io.ReadCloser, error) {
 	return nil, billing.ErrBillingUnavailable
 }
+func (p *fakeProvider) Balances(context.Context, string) (any, error) {
+	return nil, billing.ErrBillingUnavailable
+}

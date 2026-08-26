@@ -179,3 +179,55 @@ func TestSpendReportsCreditPartlyApplied(t *testing.T) {
 		t.Error("period start is not before its end, so the Usage page has no window")
 	}
 }
+
+// The free-trial modal reads the granted amount off access_schedule and checks
+// the credit type is USD before announcing a dollar figure. A shape it cannot
+// read leaves the modal silently closed, which looks the same as no grant.
+func TestBalancesCarryAUsdGrantTheClientCanRead(t *testing.T) {
+	raw, err := New().Balances(context.Background(), "fake-cus-1")
+	if err != nil {
+		t.Fatalf("balances: %v", err)
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out struct {
+		Credits []struct {
+			Balance        float64 `json:"balance"`
+			AccessSchedule struct {
+				CreditType struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"credit_type"`
+				ScheduleItems []struct {
+					Amount float64 `json:"amount"`
+				} `json:"schedule_items"`
+			} `json:"access_schedule"`
+		} `json:"credits"`
+		Commits []json.RawMessage `json:"commits"`
+	}
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		t.Fatalf("unmarshal %s: %v", encoded, err)
+	}
+
+	if len(out.Credits) != 1 {
+		t.Fatalf("credits = %d, want 1", len(out.Credits))
+	}
+	credit := out.Credits[0]
+	// The id the client keys on. The label alone happens to parse as USD, so a
+	// wrong id passes by accident; assert the id itself.
+	if credit.AccessSchedule.CreditType.ID != usdCentsCreditTypeID {
+		t.Errorf("credit type id = %q, want %q", credit.AccessSchedule.CreditType.ID, usdCentsCreditTypeID)
+	}
+	granted := 0.0
+	for _, item := range credit.AccessSchedule.ScheduleItems {
+		granted += item.Amount
+	}
+	if granted <= 0 {
+		t.Error("no granted amount on the schedule, so the modal has nothing to announce")
+	}
+	if credit.Balance >= granted {
+		t.Errorf("balance %v is not below granted %v, so the two are indistinguishable", credit.Balance, granted)
+	}
+}
