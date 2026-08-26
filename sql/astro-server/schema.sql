@@ -528,7 +528,7 @@ CREATE TABLE public.authorization_admin_operations (
     completed_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT authorization_admin_operations_pkey PRIMARY KEY (id),
-    CONSTRAINT authorization_admin_operations_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE RESTRICT,
+    CONSTRAINT authorization_admin_operations_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
     CONSTRAINT authorization_admin_operations_kind_check CHECK (kind IN ('resource_reset')),
     CONSTRAINT authorization_admin_operations_status_check CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
     CONSTRAINT authorization_admin_operations_counts_check CHECK (

@@ -16,6 +16,7 @@ The reset is a durable River operation enabled explicitly per environment:
 4. Queen shows progress and errors; no reconstruction or follow-up action runs automatically.
 
 The operation ledger makes retries and partial failure visible without pausing FGA lifecycle work.
+Its rows cascade with account deletion so reset history never blocks normal account cleanup.
 
 ## Migration
 
