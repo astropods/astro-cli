@@ -21,10 +21,10 @@ func newStore(t *testing.T) (*Store, sqlmock.Sqlmock) {
 
 func item() Item {
 	return Item{
-		EvalDatasetID: "dataset-1",
-		TraceID:       "trace-1",
-		EvaluationRef: "preset/default-evaluation",
-		AddedByUserID: "user-1",
+		EvalDatasetID:    "dataset-1",
+		TraceID:          "trace-1",
+		EvaluationRef:    "preset/default-evaluation",
+		VerifiedByUserID: "user-1",
 	}
 }
 
@@ -99,12 +99,130 @@ func TestAddRollsBackWhenOutputsFail(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestDelete(t *testing.T) {
+func TestGet(t *testing.T) {
 	store, mock := newStore(t)
-	mock.ExpectExec("DELETE FROM eval_dataset_items").
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(itemRows().AddRow("preset/default-evaluation", "run-1", "user-1"))
+
+	got, err := store.Get(context.Background(), "dataset-1", "trace-1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "preset/default-evaluation", got.EvaluationRef)
+	require.NotNil(t, got.SourceEvaluationRunID)
+	assert.Equal(t, "run-1", *got.SourceEvaluationRunID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetReturnsNilForATraceNotInTheDataset(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(itemRows())
+
+	got, err := store.Get(context.Background(), "dataset-1", "trace-1")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func expectReplaceOutputsStamp(mock sqlmock.Sqlmock, affected int64) {
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE eval_dataset_items").
+		WithArgs("dataset-1", "trace-1", "user-2").
+		WillReturnResult(sqlmock.NewResult(0, affected))
+}
+
+func TestReplaceOutputsSwapsTheValuesAndRecordsTheReviewer(t *testing.T) {
+	store, mock := newStore(t)
+	expectReplaceOutputsStamp(mock, 1)
+	mock.ExpectExec("DELETE FROM eval_dataset_item_evaluator_outputs").
 		WithArgs("dataset-1", "trace-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO eval_dataset_item_evaluator_outputs").
+		WithArgs("dataset-1", "trace-1", `[{"key":"exposed_pii","value":true}]`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	require.NoError(t, store.Delete(context.Background(), "dataset-1", "trace-1"))
+	err := store.ReplaceOutputs(context.Background(), "dataset-1", "trace-1", "user-2", []Output{
+		{EvaluatorKey: "exposed_pii", Value: json.RawMessage(`true`)},
+	})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestReplaceOutputsRejectsATraceNotInTheDataset(t *testing.T) {
+	store, mock := newStore(t)
+	expectReplaceOutputsStamp(mock, 0)
+	mock.ExpectRollback()
+
+	err := store.ReplaceOutputs(context.Background(), "dataset-1", "trace-1", "user-2", []Output{
+		{EvaluatorKey: "exposed_pii", Value: json.RawMessage(`true`)},
+	})
+	assert.ErrorIs(t, err, ErrItemNotFound)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func expectRemove(mock sqlmock.Sqlmock, outputs *sqlmock.Rows, deleted *sqlmock.Rows) {
+	mock.ExpectBegin()
+	mock.ExpectQuery("FROM eval_dataset_item_evaluator_outputs").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(outputs)
+	mock.ExpectQuery("DELETE FROM eval_dataset_items").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnRows(deleted)
+}
+
+func outputRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"evaluator_key", "value_json"})
+}
+
+func itemRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"evaluation_ref", "source_evaluation_run_id", "verified_by_user_id"})
+}
+
+func TestRemoveReturnsTheDeletedItemAndOutputs(t *testing.T) {
+	store, mock := newStore(t)
+	expectRemove(mock,
+		outputRows().
+			AddRow("exposed_pii", []byte(`false`)).
+			AddRow("user_sentiment", []byte(`"negative"`)),
+		itemRows().AddRow("preset/default-evaluation", "run-1", "user-1"))
+	mock.ExpectCommit()
+
+	removed, outputs, err := store.Remove(context.Background(), "dataset-1", "trace-1")
+	require.NoError(t, err)
+	assert.Equal(t, "preset/default-evaluation", removed.EvaluationRef)
+	assert.Equal(t, "user-1", removed.VerifiedByUserID)
+	require.NotNil(t, removed.SourceEvaluationRunID)
+	assert.Equal(t, "run-1", *removed.SourceEvaluationRunID)
+	assert.Equal(t, []Output{
+		{EvaluatorKey: "exposed_pii", Value: json.RawMessage(`false`)},
+		{EvaluatorKey: "user_sentiment", Value: json.RawMessage(`"negative"`)},
+	}, outputs)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRemoveWithoutASourceRun(t *testing.T) {
+	store, mock := newStore(t)
+	expectRemove(mock, outputRows(),
+		itemRows().AddRow("preset/default-evaluation", nil, "user-1"))
+	mock.ExpectCommit()
+
+	removed, outputs, err := store.Remove(context.Background(), "dataset-1", "trace-1")
+	require.NoError(t, err)
+	assert.Nil(t, removed.SourceEvaluationRunID)
+	assert.Empty(t, outputs)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRemoveRejectsATraceNotInTheDataset(t *testing.T) {
+	store, mock := newStore(t)
+	expectRemove(mock, outputRows(), itemRows())
+	mock.ExpectRollback()
+
+	removed, _, err := store.Remove(context.Background(), "dataset-1", "trace-1")
+	assert.ErrorIs(t, err, ErrItemNotFound)
+	assert.Nil(t, removed)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

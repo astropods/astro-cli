@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
@@ -265,7 +267,7 @@ func PostDatasetItem(
 			TraceID:               body.TraceID,
 			EvaluationRef:         evalpreset.RefDefaultSet,
 			SourceEvaluationRunID: sourceRunID,
-			AddedByUserID:         lctx.UserID,
+			VerifiedByUserID:      lctx.UserID,
 		}
 		// Insert before the Langfuse write as the duplicate gate, so a retry or a
 		// double-click loses here rather than upserting the item a second time.
@@ -285,7 +287,11 @@ func PostDatasetItem(
 			Input:          trace.Input,
 			ExpectedOutput: trace.Output,
 		}); err != nil {
-			if deleteErr := itemStore.Delete(c.Request.Context(), ds.ID, body.TraceID); deleteErr != nil {
+			// Detached from the request so the rollback still runs when the client
+			// disconnected, with a timeout so a hung DB doesn't leak forever.
+			rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, _, deleteErr := itemStore.Remove(rollbackCtx, ds.ID, body.TraceID); deleteErr != nil {
 				log.Warn("dataset items: roll back dataset item failed", "error", deleteErr, "trace_id", body.TraceID)
 			}
 			log.Error("dataset items: upsert Langfuse dataset item failed", "error", err, "trace_id", body.TraceID)
@@ -298,6 +304,173 @@ func PostDatasetItem(
 			TraceID:       body.TraceID,
 			EvaluationRef: evalpreset.RefDefaultSet,
 		})
+	}
+}
+
+type DatasetItemOutputsRequest struct {
+	Values []datasetItemEvaluatorOutput `json:"values"`
+}
+
+type DatasetItemOutputsResponse struct {
+	EvalDatasetID    string                 `json:"eval_dataset_id"`
+	TraceID          string                 `json:"trace_id"`
+	EvaluationRef    string                 `json:"evaluation_ref"`
+	VerifiedByUserID string                 `json:"verified_by_user_id"`
+	EvaluatorOutputs []evalitemstore.Output `json:"evaluator_outputs"`
+}
+
+// PutDatasetItemEvaluatorOutputs replaces a dataset item's final value for every
+// evaluator in its evaluation set. Evaluation runs and their results are left in
+// place, so the automated values stay available for comparison.
+// PUT /api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs
+func PutDatasetItemEvaluatorOutputs(
+	log *logger.Logger,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	itemStore *evalitemstore.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
+		if !ok {
+			return
+		}
+
+		traceID := strings.TrimSpace(c.Param("trace_id"))
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+			return
+		}
+
+		var body DatasetItemOutputsRequest
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		ds, ok := loadDataset(c, log, datasetStore, dctx.DeploymentID)
+		if !ok {
+			return
+		}
+
+		item, err := itemStore.Get(c.Request.Context(), ds.ID, traceID)
+		if err != nil {
+			log.Error("dataset items: load dataset item failed", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load the dataset item"})
+			return
+		}
+		if item == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "dataset item not found"})
+			return
+		}
+		// A retired set has no resolvable output contract to validate against, so
+		// its outputs stay as admitted until the item is removed and re-added.
+		if item.EvaluationRef != evalpreset.RefDefaultSet {
+			c.JSON(http.StatusConflict, gin.H{"error": "dataset item does not use the active evaluation set"})
+			return
+		}
+
+		set, err := evalpreset.ResolveSet(item.EvaluationRef)
+		if err != nil {
+			log.Error("dataset items: resolve evaluation set failed", "error", err,
+				"deployment_id", dctx.DeploymentID, "evaluation_ref", item.EvaluationRef)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return
+		}
+		outputs, invalid := resolveItemOutputs(set, body.Values)
+		if invalid != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": invalid})
+			return
+		}
+
+		if err := itemStore.ReplaceOutputs(c.Request.Context(), ds.ID, traceID, dctx.UserID, outputs); err != nil {
+			if errors.Is(err, evalitemstore.ErrItemNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "dataset item not found"})
+				return
+			}
+			log.Error("dataset items: replace evaluator outputs failed", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update the evaluator outputs"})
+			return
+		}
+
+		c.JSON(http.StatusOK, DatasetItemOutputsResponse{
+			EvalDatasetID:    ds.ID,
+			TraceID:          traceID,
+			EvaluationRef:    item.EvaluationRef,
+			VerifiedByUserID: dctx.UserID,
+			EvaluatorOutputs: outputs,
+		})
+	}
+}
+
+// DeleteDatasetItem removes a trace from the dataset along with its final
+// evaluator outputs, returning the trace to the review queue. Evaluation runs
+// and their results are left in place.
+// DELETE /api/v1/deployments/:id/dataset/items/:trace_id
+func DeleteDatasetItem(
+	log *logger.Logger,
+	cfg *config.Config,
+	accountStore *account.AccountStore,
+	deploymentStore *deploymentstore.Store,
+	datasetStore *evaldatasetstore.Store,
+	langfuseStore *langfuse.Store,
+	itemStore *evalitemstore.Store,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
+		if !ok {
+			return
+		}
+
+		traceID := strings.TrimSpace(c.Param("trace_id"))
+		if traceID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+			return
+		}
+
+		ds, ok := loadDataset(c, log, datasetStore, lctx.DeploymentID)
+		if !ok {
+			return
+		}
+
+		// Delete before the Langfuse write, mirroring the add, so a concurrent
+		// retry loses here rather than racing the upstream delete.
+		item, outputs, err := itemStore.Remove(c.Request.Context(), ds.ID, traceID)
+		if err != nil && !errors.Is(err, evalitemstore.ErrItemNotFound) {
+			log.Error("dataset items: remove dataset item failed", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove the dataset item"})
+			return
+		}
+
+		// The Langfuse ID derives from the trace rather than the local row, so the
+		// delete still reaches an item the legacy judgment path or an interrupted
+		// add left upstream without one.
+		datasetItemID := evaldataset.ItemID(ds.LangfuseDatasetName, traceID)
+		deleted, err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID)
+		if err != nil {
+			if item != nil {
+				restoreCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if restoreErr := itemStore.Add(restoreCtx, *item, outputs); restoreErr != nil {
+					log.Warn("dataset items: restore dataset item failed", "error", restoreErr, "trace_id", traceID)
+				}
+			}
+			log.Error("dataset items: delete Langfuse dataset item failed", "error", err,
+				"trace_id", traceID, "dataset_item_id", datasetItemID)
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
+			return
+		}
+
+		if item == nil && !deleted {
+			c.JSON(http.StatusNotFound, gin.H{"error": "trace is not in the dataset"})
+			return
+		}
+
+		response := DatasetItemResponse{EvalDatasetID: ds.ID, TraceID: traceID}
+		if item != nil {
+			response.EvaluationRef = item.EvaluationRef
+		}
+		c.JSON(http.StatusOK, response)
 	}
 }
 

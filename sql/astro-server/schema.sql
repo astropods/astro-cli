@@ -1259,7 +1259,7 @@ CREATE TABLE public.eval_dataset_items (
     trace_id                 text        NOT NULL,
     evaluation_ref           text        NOT NULL,
     source_evaluation_run_id uuid,
-    added_by_user_id         text        NOT NULL,
+    verified_by_user_id      text,
     created_at               timestamptz NOT NULL DEFAULT now(),
     updated_at               timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_dataset_items_pkey PRIMARY KEY (eval_dataset_id, trace_id),

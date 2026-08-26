@@ -172,7 +172,7 @@ func PostDatasetJudgment(
 					// Keep the local judgment row in place until after Langfuse
 					// compensation so a retry cannot recreate the item before this
 					// request deletes it.
-					if deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
+					if _, deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
 						log.Warn("dataset judgments: roll back Langfuse dataset item failed", "error", deleteErr, "trace_id", body.TraceID, "dataset_item_id", datasetItemID)
 					}
 				}
@@ -286,7 +286,7 @@ func PatchDatasetJudgment(
 				return
 			}
 		} else if previousEffect.writeDatasetItem {
-			if err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
+			if _, err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
 				restoreJudgment("dataset item delete failed")
 				log.Error("dataset judgments: delete changed dataset item failed", "error", err, "trace_id", traceID, "dataset_item_id", datasetItemID)
 				c.JSON(http.StatusBadGateway, gin.H{"error": "failed to delete dataset item"})
@@ -303,7 +303,7 @@ func PatchDatasetJudgment(
 						log.Warn("dataset judgments: restore dataset item after verdict count failure failed", "error", rollbackErr, "trace_id", traceID)
 					}
 				} else if nextEffect.writeDatasetItem {
-					if deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
+					if _, deleteErr := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); deleteErr != nil {
 						log.Warn("dataset judgments: delete dataset item after verdict count failure failed", "error", deleteErr, "trace_id", traceID)
 					}
 				}
@@ -521,7 +521,7 @@ func DeleteDatasetJudgment(
 
 		if effect.writeDatasetItem {
 			datasetItemID := evaldataset.ItemID(ds.LangfuseDatasetName, traceID)
-			if err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
+			if _, err := evaldataset.DeleteItem(c.Request.Context(), lctx.Client, datasetItemID); err != nil {
 				if effect.goodDelta != 0 || effect.badDelta != 0 {
 					if bumpErr := datasetStore.BumpCountsByID(ds.ID, -effect.goodDelta, -effect.badDelta); bumpErr != nil {
 						log.Warn("dataset judgments: restore dataset counts after undo failure failed", "error", bumpErr, "trace_id", traceID)

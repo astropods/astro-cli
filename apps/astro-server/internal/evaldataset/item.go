@@ -47,11 +47,14 @@ func UpsertItem(ctx context.Context, client *langfuse.Client, item ItemInput) (s
 	return id, nil
 }
 
-// DeleteItem removes a Langfuse dataset item, treating an already-absent item as
-// success so compensation paths stay idempotent.
-func DeleteItem(ctx context.Context, client *langfuse.Client, id string) error {
-	if err := client.DeleteDatasetItem(ctx, id); err != nil && !errors.Is(err, langfuse.ErrNotFound) {
-		return err
+// DeleteItem removes a Langfuse dataset item, reporting an already-absent item
+// as a successful no-op so compensation paths stay idempotent.
+func DeleteItem(ctx context.Context, client *langfuse.Client, id string) (bool, error) {
+	if err := client.DeleteDatasetItem(ctx, id); err != nil {
+		if errors.Is(err, langfuse.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
 	}
-	return nil
+	return true, nil
 }

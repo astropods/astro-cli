@@ -2536,6 +2536,21 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Body(&handlers.DatasetItemRequest{}),
 				oapispec.Response(201, &handlers.DatasetItemResponse{}),
 			)
+			deploymentRoutes.ModelDeferredPUT("/deployments/:id/dataset/items/:trace_id/evaluator-outputs", "Replace a dataset item's evaluator outputs", handlers.PutDatasetItemEvaluatorOutputs(log, accountStore, deploymentStore, datasetStore, evalItemStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Body(&handlers.DatasetItemOutputsRequest{}),
+				oapispec.Response(200, &handlers.DatasetItemOutputsResponse{}),
+			)
+			deploymentRoutes.ModelDeferredDELETE("/deployments/:id/dataset/items/:trace_id", "Remove a trace from the dataset", handlers.DeleteDatasetItem(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Response(200, &handlers.DatasetItemResponse{}),
+			)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/download", "Download deployment dataset as zip", handlers.DownloadEvalDataset(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),

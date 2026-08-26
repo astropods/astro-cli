@@ -50,6 +50,10 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.POST("/api/v1/deployments/:id/dataset/items",
 		PostDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore))
+	f.router.PUT("/api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs",
+		PutDatasetItemEvaluatorOutputs(log, accountStore, deployStore, dsStore, itemStore))
+	f.router.DELETE("/api/v1/deployments/:id/dataset/items/:trace_id",
+		DeleteDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
 		DownloadEvalDataset(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
