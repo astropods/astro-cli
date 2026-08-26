@@ -132,7 +132,7 @@ The second is what makes a credential for account X useless on a path for accoun
 
 WorkOS scopes are permission slugs on the application, and they arrive in the token. Astro's own permission strings (`org:manage`) belong to human roles, so machine scopes stay a separate vocabulary:
 
-The slugs this spec assumes are `members:read`, `audiences:read`, `audiences:manage`, and `slack_identities:manage`, held separately so an app that manages access cannot also assert who someone is. They have to exist as WorkOS permissions before they can be granted.
+Which scopes exist is not settled, and this spec deliberately names none. The mechanism does not depend on the answer: whatever is registered as a WorkOS permission becomes selectable, and a route asks for one by string. Two constraints the design should respect when it happens. A slug in that registry is also assignable to a human role, so a machine-only scope wants a resource type rather than a blanket environment permission. And read and write want separating, so an app that governs access cannot also assert who someone is.
 
 A route declares the scope it needs. An app holding `audiences:read` gets 403 on a write rather than a 404, because the resource exists and the credential is the thing that falls short.
 
@@ -226,9 +226,9 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 
 | ID | Scenario | Expected |
 | --- | --- | --- |
-| C1 | `audiences:read` on a member write | 403, not 404 |
-| C2 | `audiences:manage` on a member write | Allowed |
-| C3 | `audiences:manage` on a Slack identity write | 403 |
+| C1 | A scope the route does not declare | 403, not 404 |
+| C2 | The scope a route declares | Allowed |
+| C3 | A different scope than the route declares | 403 |
 | C4 | Scope removed on the application, token already issued | Still carries the old scope until it expires |
 | C5 | App attempts to create another app | 403 |
 
@@ -251,7 +251,7 @@ There is no credentials table. WorkOS tracks each secret's hint, creation, and l
 | 1 | The `account_apps` table, the WorkOS Connect client, create and delete, credential add and revoke, and the org settings screen. | Done |
 | 2 | The middleware branch: discriminate an M2M token, resolve its account through the app row, and satisfy a permission check from the app's scopes. | Done |
 | 3 | The `/me` machine shape, and applying scopes to the audience member endpoints with cursor pagination and the flat `audience-members` collection, so a connector can complete a sync. | Not started |
-| 4 | Register the scope slugs as WorkOS permissions, which is what makes them selectable. The picker and validation already read whatever exists. | Not started |
+| 4 | Design the scope vocabulary and register it as WorkOS permissions, which is what makes anything selectable. The picker, validation, and enforcement already read whatever exists. | Not designed |
 
 Phase 3 is what actually unblocks [Access audiences](access-audiences-spec.md) phase 2, and it is small once the credential exists.
 

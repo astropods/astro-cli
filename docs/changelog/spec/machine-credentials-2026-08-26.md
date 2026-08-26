@@ -48,16 +48,10 @@ deliberately.
 ### Scopes
 
 Machine scopes are a separate vocabulary from the human role permissions, so a
-scope can never satisfy a role check:
+scope can never satisfy a role check.
 
-| Scope | Allows |
-| --- | --- |
-| `members:read` | Read the account's members |
-| `audiences:read` | Read audiences and their membership |
-| `audiences:manage` | Add and remove audience members |
-| `slack_identities:manage` | Record which Slack user is which person |
-
-The vocabulary is WorkOS's, not a list maintained here. A Connect application's
+Which scopes exist is undesigned and deliberately not fixed here. The vocabulary
+is WorkOS's, not a list maintained in this repo. A Connect application's
 scopes are permission slugs, so the create form reads the environment's
 permissions from `GET /authorization/permissions` and offers those. Creation
 validates the requested scopes against that same call, so a slug WorkOS does not
@@ -71,9 +65,8 @@ them together.
 
 An environment with no permissions configured therefore offers nothing to pick,
 and an app created without scopes is refused by every scoped endpoint. That is
-the honest state rather than a hardcoded list implying more than exists.
-`audiences:manage` and `slack_identities:manage` are separate on purpose: a
-system that governs access should not also be able to assert who someone is.
+the honest state until the vocabulary is designed, and it is why nothing here
+names a slug: the enforcement path is ready for whatever gets registered.
 
 Authorization reads scopes from the row rather than from the token, so a scope
 change takes effect immediately instead of at the next expiry. They are also
