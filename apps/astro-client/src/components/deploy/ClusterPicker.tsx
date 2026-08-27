@@ -17,22 +17,26 @@ export interface ClusterPickerProps {
   deployed?: boolean;
 }
 
-function getRegionLabel(cluster: AllowedCluster) {
-  return cluster.region_label || cluster.region || cluster.cluster_id;
+function getRegionLabels(cluster: AllowedCluster) {
+  const label = cluster.region_label || cluster.region || cluster.cluster_id;
+  const labelParts = label.match(/^(.*?)\s*(\([^()]+\))$/);
+
+  return {
+    label,
+    primaryLabel: labelParts?.[1] || label,
+    locationLabel: labelParts?.[2],
+  };
 }
 
 function getRegionAccessibleName(cluster: AllowedCluster) {
-  const label = getRegionLabel(cluster);
+  const { label } = getRegionLabels(cluster);
   return [label, cluster.is_default ? "Default" : undefined, cluster.region !== label ? cluster.region : undefined]
     .filter(Boolean)
     .join(" ");
 }
 
 function RegionDetails({ cluster }: { cluster: AllowedCluster }) {
-  const label = getRegionLabel(cluster);
-  const labelParts = label.match(/^(.*?)\s*(\([^()]+\))$/);
-  const primaryLabel = labelParts?.[1] || label;
-  const locationLabel = labelParts?.[2];
+  const { label, primaryLabel, locationLabel } = getRegionLabels(cluster);
 
   return (
     <div className="min-w-0 flex-1">
