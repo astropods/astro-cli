@@ -1,4 +1,3 @@
-import { AccountFilter } from "@/components/AccountFilter";
 import { DebouncedFilterInput } from "@/components/DebouncedFilterInput";
 import {
   Select,
@@ -33,8 +32,6 @@ interface DashboardToolbarProps {
   statusFilter?: DeploymentStatusFilter | null;
   onStatusChange?: (v: DeploymentStatusFilter | null) => void;
   disabled?: boolean;
-  accountFilters: string[];
-  onAccountFiltersChange: (accounts: string[]) => void;
   filterResetKey?: number;
 }
 
@@ -46,8 +43,6 @@ export function DashboardToolbar({
   statusFilter = null,
   onStatusChange,
   disabled,
-  accountFilters,
-  onAccountFiltersChange,
   filterResetKey,
 }: DashboardToolbarProps) {
   return (
@@ -112,11 +107,6 @@ export function DashboardToolbar({
             ))}
           </SelectContent>
         </Select>
-        <AccountFilter
-          className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
-          value={accountFilters}
-          onChange={onAccountFiltersChange}
-        />
       </div>
     </div>
   );

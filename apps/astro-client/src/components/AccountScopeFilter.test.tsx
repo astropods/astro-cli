@@ -32,7 +32,7 @@ function Harness() {
 }
 
 describe("AccountScopeFilter", () => {
-  it("changes the page selection without changing global session scope", async () => {
+  it("reports the selection and leaves the active account to its caller", async () => {
     const user = userEvent.setup();
     renderRoute([{ path: "/", Component: Harness }], { auth });
 

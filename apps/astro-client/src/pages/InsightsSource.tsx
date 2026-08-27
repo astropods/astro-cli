@@ -33,7 +33,8 @@ import { PillToggle } from "@/components/activity/PillToggle";
 import { SettledContentReveal } from "@/components/ui/content-reveal";
 import { categoryColor } from "@/components/activity/model-colors";
 import type { InsightsSourceAxis, InsightsSourceLabel, InsightsSourceResponse } from "@/lib/api";
-import { useInsightsScopeAccount } from "./insights-account-param";
+import { insightsPath } from "@/lib/routes";
+import { useOrgScope } from "@/hooks/use-org-scope";
 import { PeopleTable, type SourceFilter } from "./InsightsSourcePeople";
 import { topSegmentKey } from "@/components/activity/stacked-bars";
 import {
@@ -86,7 +87,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   }
 }
 
-// Only an account change is different data; the rest slice a loaded payload.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -97,9 +97,7 @@ export function shouldRevalidate({
   defaultShouldRevalidate: boolean;
 }) {
   if (currentUrl.toString() === nextUrl.toString()) return true;
-  if (currentUrl.pathname === nextUrl.pathname) {
-    return currentUrl.searchParams.get("account") !== nextUrl.searchParams.get("account");
-  }
+  if (currentUrl.pathname === nextUrl.pathname) return false;
   return defaultShouldRevalidate;
 }
 
@@ -114,12 +112,12 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
     usePersistentSearchParams("insights-source", SOURCE_FILTER_PARAMS);
   const resolvedTheme = useResolvedTheme();
 
-  const { account, paramAccount } = useInsightsScopeAccount(searchParams, setSearchParams);
+  const { account, setAccount } = useOrgScope();
   const navigate = useNavigate();
-  // Back to the index rather than staying here: this page 404s for an account
-  // without the experiment, and that lands outside the app shell.
-  const switchAccount = (next: string) =>
-    navigate(`/insights?account=${encodeURIComponent(next)}`);
+  const switchAccount = (next: string) => {
+    setAccount(next);
+    navigate(insightsPath);
+  };
 
   // Separate key: the day narrows only the table, and drilling back out is cached.
   const [day, setDay] = useState<string | null>(null);
@@ -176,7 +174,7 @@ export default function InsightsSource({ loaderData }: Route.ComponentProps) {
   return (
     <PageContainer outerClassName="bg-background">
       <Link
-        to={paramAccount ? `/insights?account=${encodeURIComponent(paramAccount)}` : "/insights"}
+        to={insightsPath}
         className="mb-4 inline-flex items-center gap-1.5 text-body-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <ArrowLeft className="size-3.5" aria-hidden />

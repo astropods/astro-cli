@@ -64,38 +64,11 @@ describe("AppHeader navigation", () => {
     expect(screen.getByRole("button", { name: "Feedback" })).toBeInTheDocument();
   });
 
-  it("links directly to each primitive's persisted account filter", () => {
-    localStorage.setItem("astro:page-filters:blueprints", "scope=all");
-    localStorage.setItem("astro:page-filters:agents", "account=test-org");
-    localStorage.setItem(
-      "astro:page-filters:knowledge",
-      "account=old-org&account=other-org",
-    );
-
+  it("links to each primitive without carrying a page-local account scope", () => {
     renderHeader(multiAccountAuth);
 
-    expect(screen.getByRole("link", { name: "Blueprints" })).toHaveAttribute(
-      "href",
-      "/blueprints?scope=all",
-    );
-    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
-      "href",
-      "/agents?account=test-org",
-    );
-    expect(screen.getByRole("link", { name: "Knowledge" })).toHaveAttribute(
-      "href",
-      "/knowledge?account=other-org",
-    );
-  });
-
-  it("drops an all-stale persisted account filter from primitive links", () => {
-    localStorage.setItem("astro:page-filters:agents", "account=old-org");
-
-    renderHeader(multiAccountAuth);
-
-    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
-      "href",
-      "/agents",
-    );
+    expect(screen.getByRole("link", { name: "Blueprints" })).toHaveAttribute("href", "/blueprints");
+    expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute("href", "/agents");
+    expect(screen.getByRole("link", { name: "Knowledge" })).toHaveAttribute("href", "/knowledge");
   });
 });

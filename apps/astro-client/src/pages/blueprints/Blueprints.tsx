@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { PlusIcon } from "@heroicons/react/24/outline";
 import { USER_BLUEPRINTS_PAGE_SIZE, useUserBlueprints } from "@/api/queries/blueprints";
 import { blueprintKeys } from "@/api/queries/keys";
-import { AccountFilter } from "@/components/AccountFilter";
+import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { BlueprintListView } from "@/components/browse/BlueprintListView";
 import { BlueprintsEmptyState } from "@/components/blueprint/BlueprintsEmptyState";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
@@ -13,13 +13,12 @@ import { ListPagination } from "@/components/ListPagination";
 import { ListResultsTransition } from "@/components/ListResultsTransition";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { Button } from "@/components/ui/button";
-import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { useOrgScope } from "@/hooks/use-org-scope";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { firstInfinitePage, usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { loadUserResourceScoped } from "@/lib/api.server";
+import { loadOrgScoped } from "@/lib/api.server";
 import { useAuth } from "@/lib/auth";
 import type { BlueprintListParams } from "@/lib/blueprint-list-params";
-import { resolveUserResourceScope } from "@/lib/user-resource-scope";
 import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 import { useBlueprintSearch } from "./use-blueprint-search";
 import type { Route } from "./+types/Blueprints";
@@ -32,7 +31,7 @@ const FIRST_PAGE_PARAMS: BlueprintListParams = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const scoped = await loadUserResourceScoped(request, (api, scope) =>
+  const scoped = await loadOrgScoped(request, (api, scope) =>
     api.listUserBlueprints(scope, FIRST_PAGE_PARAMS),
   );
   return { ...scoped, firstPageParams: FIRST_PAGE_PARAMS };
@@ -40,16 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function Blueprints({ loaderData }: Route.ComponentProps) {
   const { accounts, isAuthenticated } = useAuth();
-  const [
-    accountFilters,
-    setAccountFilters,
-    hasExplicitAccountFilter,
-    resetAccountFilters,
-  ] = usePersistentAccountFilterParam("blueprints");
-  const scope = useMemo(
-    () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
-    [accountFilters, accounts],
-  );
+  const { account, setAccount, scope } = useOrgScope();
   const { search, setSearch, params, hasActiveFilters } = useBlueprintSearch();
 
   usePrimeQueryCache(loaderData, (queryClient, data) => {
@@ -71,27 +61,26 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
   });
   const blueprints = pagination.page?.blueprints ?? [];
   const ownerAccounts = useMemo(() => new Set(accounts.map((account) => account.name)), [accounts]);
-  const hasAnyFilter = hasActiveFilters || hasExplicitAccountFilter;
   const loadingFirstPage = query.isPending && blueprints.length === 0;
   const settled = isAuthenticated && !query.isPending && !query.isFetching;
-  const showToolbar = loadingFirstPage || blueprints.length > 0 || hasAnyFilter;
-  const showFilteredEmpty = settled && blueprints.length === 0 && hasAnyFilter;
-  const showRegistryEmpty = settled && blueprints.length === 0 && !hasAnyFilter && !query.isError;
+  const showToolbar = loadingFirstPage || blueprints.length > 0 || hasActiveFilters;
+  const showFilteredEmpty = settled && blueprints.length === 0 && hasActiveFilters;
+  const showRegistryEmpty = settled && blueprints.length === 0 && !hasActiveFilters && !query.isError;
   const listError = query.isError && blueprints.length === 0;
 
   const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = useCallback(() => {
     setSearch("");
-    resetAccountFilters();
     setFilterResetKey((key) => key + 1);
-  }, [resetAccountFilters, setSearch]);
+  }, [setSearch]);
 
   return (
     <PageContainer outerClassName="bg-background">
       <IndeterminateProgressBar active={query.isFetching && blueprints.length > 0} />
       <PageHeader
-        title="Blueprints"
-        description="Agent configurations available to deploy across your accounts."
+        title="Blueprints for"
+        adornment={<AccountScopeFilter value={account} onChange={setAccount} className="-ml-1" />}
+        description="Agent configurations available to deploy in this account."
         action={isAuthenticated ? (
           <Button asChild size="sm">
             <Link to="/new/custom">
@@ -110,16 +99,6 @@ export default function Blueprints({ loaderData }: Route.ComponentProps) {
             resetKey={filterResetKey}
             onDebouncedChange={setSearch}
             containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
-          />
-          <AccountFilter value={accountFilters} onChange={setAccountFilters} />
-        </div>
-      )}
-      {showRegistryEmpty && (
-        <div className="mb-4 flex justify-end">
-          <AccountFilter
-            className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
-            value={accountFilters}
-            onChange={setAccountFilters}
           />
         </div>
       )}

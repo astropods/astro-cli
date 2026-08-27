@@ -38,7 +38,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { usePersistentSearchParams } from "@/hooks/use-persistent-search-params";
 import { observabilityKeys, slackKeys } from "@/api/queries/keys";
 import type { InsightsDevtoolSource, InsightsQueryParams, InsightsResponse } from "@/lib/api";
-import { useInsightsScopeAccount } from "./insights-account-param";
+import { useOrgScope } from "@/hooks/use-org-scope";
 import type { Route } from "./+types/Insights";
 
 const RANGE_DAYS: Record<string, number> = { "7d": 7, "14d": 14, "30d": 30, "90d": 90 };
@@ -220,9 +220,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   return { account: ctx.accountName, insights, insightsParams };
 }
 
-// Range, view, and search changes stay client-side. A page-local account
-// change re-runs the loader so that account's first Insights response is
-// server-rendered and primes the exact TanStack key used below.
 export function shouldRevalidate({
   currentUrl,
   nextUrl,
@@ -233,9 +230,7 @@ export function shouldRevalidate({
   defaultShouldRevalidate: boolean;
 }) {
   if (currentUrl.toString() === nextUrl.toString()) return true;
-  if (currentUrl.pathname === nextUrl.pathname) {
-    return currentUrl.searchParams.get("account") !== nextUrl.searchParams.get("account");
-  }
+  if (currentUrl.pathname === nextUrl.pathname) return false;
   return defaultShouldRevalidate;
 }
 
@@ -276,7 +271,7 @@ export default function Insights({ loaderData }: Route.ComponentProps) {
     ],
     [devtoolSources, resolvedTheme],
   );
-  const { account: scopeAccount, setScopeAccount } = useInsightsScopeAccount(searchParams, setSearchParams);
+  const { account: scopeAccount, setAccount: setScopeAccount } = useOrgScope();
   // "Add a source" links to this account's Data Sources settings and hotlinks
   // the create modal open (see ApiKeysSettings' ?new= handling).
   const dataSourcesHref = useMemo(

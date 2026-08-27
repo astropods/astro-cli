@@ -106,37 +106,37 @@ describe('DeployedAgentsSection: typing stays off the card render path', () => {
   });
 });
 
-// Because the text is local to the box, clearing filters has to reach it. An
-// account filter matching nothing puts "Clear filters" on screen while the
-// search term is still empty, so dropping the term is a no-op the box cannot
-// observe on its own.
 describe('DeployedAgentsSection: clearing filters drops in-flight search text', () => {
   beforeEach(cleanup);
 
-  it('empties the box when no term has settled yet', async () => {
-    const onSearchChange = vi.fn();
-    const onClearAccountFilters = vi.fn();
-
-    renderWithProviders(
+  function ClearHarness({ onSearchChange }: { onSearchChange: (value: string) => void }) {
+    const [search, setSearch] = useState('settled');
+    return (
       <DeployedAgentsSection
-        deployments={[]}
+        deployments={search ? [] : DEPLOYMENTS}
         account="team"
         isLoading={false}
-        hasExplicitAccountFilter
-        onClearAccountFilters={onClearAccountFilters}
-        search=""
-        onSearchChange={onSearchChange}
-      />,
+        search={search}
+        onSearchChange={(next) => {
+          setSearch(next);
+          onSearchChange(next);
+        }}
+      />
     );
+  }
+
+  it('empties the box when the newly typed term has not settled yet', async () => {
+    const onSearchChange = vi.fn();
+
+    renderWithProviders(<ClearHarness onSearchChange={onSearchChange} />);
 
     const input = screen.getByPlaceholderText('Search agents...');
     fireEvent.change(input, { target: { value: 'z' } });
     fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
 
-    // Past the default debounce: the discarded text must not surface late.
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(input).toHaveValue('');
     expect(onSearchChange).not.toHaveBeenCalledWith('z');
-    expect(onClearAccountFilters).toHaveBeenCalled();
+    expect(onSearchChange).toHaveBeenCalledWith('');
   });
 });

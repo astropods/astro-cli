@@ -1,8 +1,8 @@
 import { ApiClient, type AuthResponse } from "./api";
 import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./active-account";
 import {
+  orgScope,
   resolvePageAccount,
-  resolveUserResourceScope,
   type UserResourceScopeSelection,
 } from "./user-resource-scope";
 
@@ -74,38 +74,15 @@ export async function getPageAccount(request: Request, param = "account") {
   }
 }
 
-/**
- * Loads the first page for a URL-backed multi-account read. Bare list URLs
- * start on the personal account; `scope=all` opts into every membership. The
- * same canonical scope is returned so the route can prime the matching query.
- */
-export async function loadUserResourceScoped<T>(
+export async function loadOrgScoped<T>(
   request: Request,
   fetch: (api: ApiClient, scope: UserResourceScopeSelection) => Promise<T>,
 ): Promise<{ scope: UserResourceScopeSelection | null; data: T | null }> {
-  try {
-    const api = createServerApi(request);
-    const auth = await getCurrentUserForRequest(request);
-    const accounts = auth.accounts ?? [];
-    const memberships = accounts.map((account) => account.name);
-    if (memberships.length === 0) return { scope: null, data: null };
-    const searchParams = new URL(request.url).searchParams;
-    const requested = searchParams.getAll("account");
-    const personal = accounts.find((account) => account.type === "personal")?.name ?? memberships[0];
-    const knownRequested = requested.filter((account) => memberships.includes(account));
-    const selection = requested.length > 0
-      ? knownRequested.length > 0
-        ? knownRequested
-        : [personal]
-      : searchParams.get("scope") === "all"
-        ? []
-        : [personal];
-    const scope = resolveUserResourceScope(selection, memberships);
-    const data = await fetch(api, scope).catch(() => null);
-    return { scope, data };
-  } catch {
-    return { scope: null, data: null };
-  }
+  const ctx = await getPageAccount(request);
+  if (!ctx) return { scope: null, data: null };
+  const scope = orgScope(ctx.accountName);
+  const data = await fetch(ctx.api, scope).catch(() => null);
+  return { scope, data };
 }
 
 /**

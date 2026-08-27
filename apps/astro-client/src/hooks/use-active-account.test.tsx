@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, afterEach, beforeAll, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRoutesStub, Outlet } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -139,6 +139,67 @@ describe("useActiveAccount — cookie + localStorage side-effects", () => {
 
     await userEvent.click(screen.getByText("switch-personal"));
     expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBeNull();
+  });
+});
+
+describe("useActiveAccount — org-scoped session", () => {
+  const authWithScopedAcme = (switchOrg: AuthContextType["switchOrg"]): AuthContextType => ({
+    ...mockAuthContext,
+    organizationId: "wos-personal",
+    switchOrg,
+    accounts: [
+      { ...mockAuthContext.accounts[0]!, organization_id: "wos-personal" },
+      { id: "acct-2", name: "acme", type: "organization", organization_id: "wos-acme" },
+    ],
+  });
+
+  it("re-mints the session for the target organization before the scope moves", async () => {
+    let release = () => {};
+    const switchOrg = vi.fn(
+      () => new Promise<void>((resolve) => { release = () => resolve(); }),
+    );
+    renderWithProviders({ rootAccount: "testuser", auth: authWithScopedAcme(switchOrg) });
+    await screen.findByTestId("active");
+
+    await userEvent.click(screen.getByText("switch-acme"));
+
+    expect(switchOrg).toHaveBeenCalledWith("wos-acme");
+    expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBeNull();
+    expect(screen.getByTestId("active")).toHaveTextContent("testuser");
+
+    await act(async () => { release(); });
+
+    await waitFor(() => {
+      expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBe("acme");
+      expect(screen.getByTestId("active")).toHaveTextContent("acme");
+    });
+  });
+
+  it("stays on the current account when the session cannot be re-scoped", async () => {
+    const switchOrg = vi.fn(() => Promise.reject(new Error("switch_failed")));
+    renderWithProviders({ rootAccount: "testuser", auth: authWithScopedAcme(switchOrg) });
+    await screen.findByTestId("active");
+
+    await userEvent.click(screen.getByText("switch-acme"));
+
+    await waitFor(() => expect(switchOrg).toHaveBeenCalledWith("wos-acme"));
+    expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBeNull();
+    expect(screen.getByTestId("active")).toHaveTextContent("testuser");
+  });
+
+  it("skips the token switch when the account shares the session organization", async () => {
+    const switchOrg = vi.fn(() => Promise.resolve());
+    const auth = authWithScopedAcme(switchOrg);
+    renderWithProviders({
+      rootAccount: "testuser",
+      auth: { ...auth, organizationId: "wos-acme" },
+    });
+    await screen.findByTestId("active");
+
+    await userEvent.click(screen.getByText("switch-acme"));
+
+    await waitFor(() => expect(screen.getByTestId("active")).toHaveTextContent("acme"));
+    expect(switchOrg).not.toHaveBeenCalled();
   });
 });
 

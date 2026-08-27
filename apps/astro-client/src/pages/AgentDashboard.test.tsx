@@ -75,7 +75,7 @@ describe('AgentDashboard page', () => {
   it('renders the Agents heading', async () => {
     renderDashboard();
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Agents for' })).toBeInTheDocument();
     });
   });
 
@@ -129,7 +129,7 @@ describe('AgentDashboard page', () => {
   });
 
 
-  it('keeps every account in the switcher when the implicit personal account has no agents', async () => {
+  it('offers every membership in the org switcher when the account has no agents', async () => {
     const user = userEvent.setup();
     const multiAccountAuth = {
       ...mockAuthContext,
@@ -152,37 +152,43 @@ describe('AgentDashboard page', () => {
     expect(screen.queryByText('No agents match your filters.')).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('Search agents...')).not.toBeInTheDocument();
 
-    const accountSwitcher = screen.getByRole('button', { name: 'Filter by account' });
-    expect(accountSwitcher).toHaveTextContent('Test User');
-    await user.click(accountSwitcher);
-    expect(screen.getByRole('button', { name: /Test User/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Acme/ })).toBeInTheDocument();
+    const orgSwitcher = screen.getByRole('combobox', { name: 'Scope by account' });
+    expect(orgSwitcher).toHaveTextContent('Test User');
+    await user.click(orgSwitcher);
+    expect(screen.getByRole('option', { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Acme/ })).toBeInTheDocument();
   });
 
-  it('keeps filtering controls when an explicit all-account scope has no deployments', async () => {
+  it('keeps the toolbar and clears back to the account when a search yields no agents', async () => {
     const user = userEvent.setup();
     server.use(
-      http.get('/api/v1/me/deployments', () =>
-        userDeployments({ deployments: [], count: 0 }),
-      ),
+      http.get('/api/v1/me/deployments', ({ request }) => {
+        const q = new URL(request.url).searchParams.get('q');
+        return userDeployments({
+          deployments: q ? [] : [
+            { id: 'dep-1', name: 'code-reviewer', display_name: 'Code Reviewer', build_id: 'b1', namespace: 'ns-1', status: 'Running', replicas: 1, ready: 1, created_at: '2025-04-01T00:00:00Z', components: [] },
+          ],
+          count: q ? 0 : 1,
+        });
+      }),
     );
 
-    renderDashboard('/agents?scope=all');
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Code Reviewer')).toBeInTheDocument());
 
+    fireEvent.change(screen.getByPlaceholderText('Search agents...'), { target: { value: 'zzz-no-match' } });
     await waitFor(() => {
       expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
     });
     expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('All accounts');
-    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Clear filters' }));
     await waitFor(() => {
-      expect(screen.getByText('No agents deployed yet')).toBeInTheDocument();
+      expect(screen.getByText('Code Reviewer')).toBeInTheDocument();
     });
   });
 
-  it('keeps the toolbar when an account filter yields no agents', async () => {
+  it('adopts an account deep link as the org scope', async () => {
     server.use(
       http.get('/api/v1/me/deployments', () =>
         userDeployments({ deployments: [], count: 0 }),
@@ -199,11 +205,8 @@ describe('AgentDashboard page', () => {
     renderDashboard('/agents?account=acme', multiAccountAuth);
 
     await waitFor(() => {
-      expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Scope by account' })).toHaveTextContent('Acme');
     });
-    expect(screen.getByPlaceholderText('Search agents...')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('Acme');
-    expect(screen.queryByText('No agents deployed yet')).not.toBeInTheDocument();
   });
 
 
@@ -254,7 +257,6 @@ describe('AgentDashboard page', () => {
       expect(screen.getByText('No agents match your filters.')).toBeInTheDocument();
     });
     expect(screen.getByPlaceholderText('Search agents...')).toHaveValue('zzz-no-match');
-    expect(screen.getByRole('button', { name: 'Filter by account' })).toBeInTheDocument();
   });
 
   it('searches all deployment pages on the server and resets numbered pagination', async () => {
@@ -339,7 +341,7 @@ describe('reveal overlay after deploy', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Agents for' })).toBeInTheDocument();
     });
     expect(screen.queryByTestId('live-reveal-overlay')).not.toBeInTheDocument();
   });
@@ -442,7 +444,9 @@ describe('reveal overlay after deploy', () => {
     );
 
     await screen.findByTestId('live-reveal-overlay');
-    expect(document.querySelector('[data-deployment-id="dep-new"]')).toBeNull();
+    await waitFor(() => {
+      expect(document.querySelector('[data-deployment-id="dep-new"]')).toBeNull();
+    });
   });
 
   it('stops automatic access setup after two minutes and offers a retry', async () => {

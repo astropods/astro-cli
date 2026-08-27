@@ -3,7 +3,7 @@ import {
   createServerApi,
   getActiveAccount,
   loadAccountScoped,
-  loadUserResourceScoped,
+  loadOrgScoped,
 } from "./api.server";
 import { ApiClient, type AuthResponse } from "./api";
 
@@ -130,7 +130,7 @@ describe("loadAccountScoped", () => {
   });
 });
 
-describe("loadUserResourceScoped", () => {
+describe("loadOrgScoped", () => {
   const accounts = [
     { id: "p", name: "personal-user", type: "personal" as const },
     { id: "a", name: "acme", type: "organization" as const },
@@ -142,40 +142,41 @@ describe("loadUserResourceScoped", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("defaults a bare resource URL to the personal account", async () => {
+  it("scopes a bare list URL to the active account", async () => {
     const fetcher = vi.fn().mockResolvedValue({ items: [] });
 
-    const result = await loadUserResourceScoped(req(undefined, "/agents"), fetcher);
+    const result = await loadOrgScoped(req("astro:active-account=acme", "/agents"), fetcher);
 
     expect(fetcher).toHaveBeenCalledWith(expect.any(ApiClient), {
-      accounts: ["personal-user"],
+      accounts: ["acme"],
       all: false,
     });
+    expect(result.scope).toEqual({ accounts: ["acme"], all: false });
+  });
+
+  it("lets an account deep link win over the cookie", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+
+    const result = await loadOrgScoped(req(undefined, "/knowledge?account=acme"), fetcher);
+
+    expect(result.scope).toEqual({ accounts: ["acme"], all: false });
+  });
+
+  it("ignores a deep link naming an account the user left", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+
+    const result = await loadOrgScoped(req(undefined, "/agents?account=old-org"), fetcher);
+
     expect(result.scope).toEqual({ accounts: ["personal-user"], all: false });
   });
 
-  it("keeps explicit all-account and selected-account URLs distinct", async () => {
-    const fetcher = vi.fn().mockResolvedValue({ items: [] });
+  it("returns nothing when the active account cannot be resolved", async () => {
+    vi.spyOn(ApiClient.prototype, "getCurrentUser").mockRejectedValue(new Error("auth"));
+    const fetcher = vi.fn();
 
-    const all = await loadUserResourceScoped(req(undefined, "/blueprints?scope=all"), fetcher);
-    const selected = await loadUserResourceScoped(req(undefined, "/knowledge?account=acme"), fetcher);
+    const result = await loadOrgScoped(req(), fetcher);
 
-    expect(all.scope).toEqual({ accounts: ["acme", "personal-user"], all: true });
-    expect(selected.scope).toEqual({ accounts: ["acme"], all: false });
-  });
-
-  it("falls back to personal when every requested account is stale", async () => {
-    const fetcher = vi.fn().mockResolvedValue({ items: [] });
-
-    const result = await loadUserResourceScoped(
-      req(undefined, "/agents?account=old-org"),
-      fetcher,
-    );
-
-    expect(fetcher).toHaveBeenCalledWith(expect.any(ApiClient), {
-      accounts: ["personal-user"],
-      all: false,
-    });
-    expect(result.scope).toEqual({ accounts: ["personal-user"], all: false });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result).toEqual({ scope: null, data: null });
   });
 });

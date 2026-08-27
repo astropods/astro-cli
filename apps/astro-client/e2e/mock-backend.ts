@@ -58,6 +58,7 @@ const REJECT_BOT_TOKEN = "xoxb-server-reject";
 const ORG_ACCOUNT = "test-org";
 const ORG_ACCOUNT_ID = "org-acct-1";
 const WOS_ORG_ID = "wos-org-1";
+const WOS_PERSONAL_ORG_ID = "wos-personal-1";
 
 const nowIso = new Date().toISOString();
 const latestBuildByAgent: Record<string, string> = {
@@ -78,6 +79,8 @@ const latestBuildByAgent: Record<string, string> = {
 let currentOrgRole = "admin";
 // Mutable unauth flag - changed via /test/set-unauth
 let forceUnauth = false;
+// WorkOS organization the session JWT is scoped to - changed via /auth/switch-org
+let sessionOrgID = WOS_PERSONAL_ORG_ID;
 
 const makeAuthResponse = () => ({
   user: {
@@ -90,12 +93,12 @@ const makeAuthResponse = () => ({
     updated_at: nowIso,
   },
   session_id: "session-1",
-  organization_id: WOS_ORG_ID,
+  organization_id: sessionOrgID,
   role: currentOrgRole,
   permissions: currentOrgRole === "member" ? [] : ["org:manage"],
   expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   accounts: [
-    { id: "acct-1", name: ACCOUNT, type: "personal" },
+    { id: "acct-1", name: ACCOUNT, type: "personal", organization_id: WOS_PERSONAL_ORG_ID },
     { id: ORG_ACCOUNT_ID, name: ORG_ACCOUNT, type: "organization", display_name: "Test Org", organization_id: WOS_ORG_ID, role: currentOrgRole },
   ],
 });
@@ -885,6 +888,7 @@ Bun.serve({
       chatMessageSeq = 0;
       currentOrgRole = "admin";
       forceUnauth = false;
+      sessionOrgID = WOS_PERSONAL_ORG_ID;
       createdBlueprints = new Set();
       githubAccountConnected = false;
       savedCard = { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 };
@@ -923,7 +927,14 @@ Bun.serve({
       if (forceUnauth) return json({ error: "unauthorized" }, 401);
       return json(makeAuthResponse());
     }
-    if (pathname === "/auth/switch-org") return json(makeAuthResponse());
+    if (pathname === "/auth/switch-org") {
+      const body = (await request.json()) as { organization_id?: string };
+      if (body.organization_id !== WOS_ORG_ID && body.organization_id !== WOS_PERSONAL_ORG_ID) {
+        return json({ error: "switch_failed", description: "Failed to switch organization" }, 400);
+      }
+      sessionOrgID = body.organization_id;
+      return json(makeAuthResponse());
+    }
     if (pathname === "/auth/login") return new Response("ok");
     if (pathname.startsWith("/auth/logout")) return new Response("ok");
 

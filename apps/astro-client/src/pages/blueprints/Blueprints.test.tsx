@@ -42,13 +42,13 @@ function renderBlueprintsPage({
   );
 }
 
-describe('Blueprints – ?account= param handling', () => {
-  it('keeps ?account page-local instead of changing the active account', async () => {
+describe('Blueprints – ?account= deep links', () => {
+  it('adopts ?account as the active org scope', async () => {
     const auth = {
       ...mockAuthContext,
       accounts: [
         { id: 'acct-1', name: 'testuser', type: 'personal' },
-        { id: 'acct-2', name: 'orgaccount', type: 'org' },
+        { id: 'acct-2', name: 'orgaccount', type: 'organization' },
       ],
     };
 
@@ -57,14 +57,41 @@ describe('Blueprints – ?account= param handling', () => {
       auth,
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Filter by account' })).toHaveTextContent('orgaccount'));
-    expect(localStorage.getItem('astro:default-account')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Scope by account' })).toHaveTextContent('orgaccount'));
+    await waitFor(() => expect(localStorage.getItem('astro:default-account')).toBe('orgaccount'));
   });
 
-  it('does not consume ?account param before accounts have loaded (no-flicker)', async () => {
-    // Simulate the initial render before auth resolves — accounts is empty.
-    // The old code would call setSearchParams({}) here, stripping the param so
-    // it could never be processed once accounts populated. The guard fixes this.
+  it('re-scopes the session and reloads the list when the org switcher changes', async () => {
+    const user = userEvent.setup();
+    const switchOrg = vi.fn(async () => {});
+    const auth = {
+      ...mockAuthContext,
+      organizationId: 'wos-personal',
+      switchOrg,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal', organization_id: 'wos-personal' },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization', organization_id: 'wos-acme' },
+      ],
+    };
+    const requested: string[] = [];
+    server.use(
+      http.get('/api/v1/me/blueprints', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('account') ?? '');
+        return userBlueprints([]);
+      }),
+    );
+
+    renderBlueprintsPage({ auth });
+    await waitFor(() => expect(requested).toContain('testuser'));
+
+    await user.click(screen.getByRole('combobox', { name: 'Scope by account' }));
+    await user.click(screen.getByRole('option', { name: /Acme/ }));
+
+    await waitFor(() => expect(switchOrg).toHaveBeenCalledWith('wos-acme'));
+    await waitFor(() => expect(requested).toContain('acme'));
+  });
+
+  it('does not consume ?account param before accounts have loaded', async () => {
     const auth = { ...mockAuthContext, accounts: [] };
 
     renderBlueprintsPage({
@@ -72,10 +99,8 @@ describe('Blueprints – ?account= param handling', () => {
       auth,
     });
 
-    // Allow any queued effects to flush.
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // setActiveAccount must not have been called — param is preserved for when accounts load.
     expect(localStorage.getItem('astro:default-account')).toBeNull();
   });
 });
@@ -222,7 +247,7 @@ describe('Blueprints – empty states', () => {
     );
   });
 
-  it('keeps every account in the switcher when the implicit personal account has no blueprints', async () => {
+  it('offers every membership in the org switcher when the account has no blueprints', async () => {
     const user = userEvent.setup();
     const auth = {
       ...mockAuthContext,
@@ -237,20 +262,13 @@ describe('Blueprints – empty states', () => {
     expect(screen.queryByText('No blueprints match your filters.')).not.toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'Blueprint list pagination' })).not.toBeInTheDocument();
 
-    const accountSwitcher = screen.getByRole('button', { name: 'Filter by account' });
-    expect(accountSwitcher).toHaveTextContent('Test User');
-    await user.click(accountSwitcher);
-    expect(screen.getByRole('button', { name: /Test User/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Acme/ })).toBeInTheDocument();
+    const orgSwitcher = screen.getByRole('combobox', { name: 'Scope by account' });
+    expect(orgSwitcher).toHaveTextContent('Test User');
+    await user.click(orgSwitcher);
+    expect(screen.getByRole('option', { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Acme/ })).toBeInTheDocument();
   });
 
-  it('shows the filtered empty state for an explicit scope', async () => {
-    renderBlueprintsPage({ initialEntries: ['/blueprints?scope=all'] });
-
-    expect(await screen.findByText('No blueprints match your filters.')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/search blueprints/i)).toBeInTheDocument();
-    expect(screen.queryByText('No blueprints yet')).not.toBeInTheDocument();
-  });
 });
 
 describe('Blueprints – pagination', () => {

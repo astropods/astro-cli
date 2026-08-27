@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { AccountFilter } from "@/components/AccountFilter";
 import { DeploymentAgentCard } from "@/components/DeploymentAgentCard";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { ListPagination } from "@/components/ListPagination";
@@ -17,10 +16,6 @@ interface DeployedAgentsSectionProps {
   isLoading: boolean;
   isError?: boolean;
   onRetry?: () => void;
-  accountFilters?: string[];
-  hasExplicitAccountFilter?: boolean;
-  onAccountFiltersChange?: (accounts: string[]) => void;
-  onClearAccountFilters?: () => void;
   search?: string;
   onSearchChange?: (value: string) => void;
   currentPage?: number;
@@ -40,10 +35,6 @@ export function DeployedAgentsSection({
   isLoading,
   isError = false,
   onRetry = () => {},
-  accountFilters = [],
-  hasExplicitAccountFilter = accountFilters.length > 0,
-  onAccountFiltersChange = () => {},
-  onClearAccountFilters = () => onAccountFiltersChange([]),
   search = "",
   onSearchChange = () => {},
   currentPage = 1,
@@ -63,12 +54,10 @@ export function DeployedAgentsSection({
     requestCounts,
     { filter: search, onFilterChange: onSearchChange },
   );
-  const hasTextFilter = toolbarProps.filter.trim().length > 0;
-  const hasActiveFilters = hasTextFilter || hasExplicitAccountFilter;
+  const hasActiveFilters = toolbarProps.filter.trim().length > 0;
   const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = () => {
     toolbarProps.onFilterChange("");
-    onClearAccountFilters();
     setFilterResetKey((key) => key + 1);
   };
 
@@ -87,30 +76,14 @@ export function DeployedAgentsSection({
   const showDashboardEmpty = !isLoading && deployments.length === 0 && !hasActiveFilters;
 
   if (showDashboardEmpty) {
-    return (
-      <>
-        <div className="mb-4 flex justify-end">
-          <AccountFilter
-            className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
-            value={accountFilters}
-            onChange={onAccountFiltersChange}
-          />
-        </div>
-        <DashboardAgentsEmptyState account={account} />
-      </>
-    );
+    return <DashboardAgentsEmptyState account={account} />;
   }
 
   return (
     <>
       {showToolbar && (
         <div className="mb-4">
-          <DashboardToolbar
-            {...toolbarProps}
-            accountFilters={accountFilters}
-            onAccountFiltersChange={onAccountFiltersChange}
-            filterResetKey={filterResetKey}
-          />
+          <DashboardToolbar {...toolbarProps} filterResetKey={filterResetKey} />
         </div>
       )}
 

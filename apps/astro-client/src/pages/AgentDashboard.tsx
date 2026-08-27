@@ -1,19 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/AgentDashboard";
-import { loadUserResourceScoped } from "@/lib/api.server";
+import { loadOrgScoped } from "@/lib/api.server";
 import { DeployedAgentsSection } from "@/components/dashboard/DeployedAgentsSection";
+import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { PageContainer, PageHeader } from "@/components/PageLayout";
 import { USER_DEPLOYMENTS_PAGE_SIZE, useUserDeployments } from "@/api/queries/deployments";
 import { deploymentKeys } from "@/api/queries/keys";
 import { useAuth } from "@/lib/auth";
-import { useActiveAccount } from "@/hooks/use-active-account";
+import { useOrgScope } from "@/hooks/use-org-scope";
 import { usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
 import { firstInfinitePage } from "@/hooks/use-prime-query-cache";
-import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useUserResourceSearch } from "@/hooks/use-user-resource-search";
-import { resolveUserResourceScope } from "@/lib/user-resource-scope";
 import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 import { deploymentPath } from "@/lib/routes";
 import { LiveRevealOverlay } from "@/components/ui/LiveRevealOverlay";
@@ -25,17 +24,16 @@ export const shouldRevalidate = shouldRevalidateUserResourceList;
 const ACCESS_PROVISIONING_DELAYED_MS = 10_000;
 const ACCESS_PROVISIONING_STALLED_MS = 120_000;
 
-// Inline (not loadAccountScoped) to prime the deployments cache before render.
 export async function loader({ request }: Route.LoaderArgs) {
-  return loadUserResourceScoped(request, (api, scope) =>
+  return loadOrgScoped(request, (api, scope) =>
     api.listUserDeployments(scope, { limit: USER_DEPLOYMENTS_PAGE_SIZE }),
   );
 }
 
 
 function AgentDashboardInner() {
-  const { accounts, isAuthenticated } = useAuth();
-  const { activeAccount: userAccount } = useActiveAccount();
+  const { isAuthenticated } = useAuth();
+  const { account: userAccount, setAccount, scope } = useOrgScope();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -53,16 +51,6 @@ function AgentDashboardInner() {
     } satisfies AgentDeploymentSummary;
   });
   const [showReveal, setShowReveal] = useState(!!revealDeployment);
-  const [
-    accountFilters,
-    setAccountFilters,
-    hasExplicitAccountFilter,
-    resetAccountFilters,
-  ] = usePersistentAccountFilterParam("agents");
-  const scope = useMemo(
-    () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
-    [accountFilters, accounts],
-  );
   const { search, setSearch, params } = useUserResourceSearch();
   const [accessProvisioningDelayed, setAccessProvisioningDelayed] = useState(false);
   const [accessProvisioningStalled, setAccessProvisioningStalled] = useState(false);
@@ -146,8 +134,9 @@ function AgentDashboardInner() {
         outerClassName="bg-background"
       >
         <PageHeader
-          title="Agents"
-          description="Deployed agents running across your accounts."
+          title="Agents for"
+          adornment={<AccountScopeFilter value={userAccount} onChange={setAccount} className="-ml-1" />}
+          description="Deployed agents running in this account."
         />
 
         <DeployedAgentsSection
@@ -156,10 +145,6 @@ function AgentDashboardInner() {
           isLoading={deploymentsQuery.isPending}
           isError={deploymentsQuery.isError}
           onRetry={() => void deploymentsQuery.refetch()}
-          accountFilters={accountFilters}
-          hasExplicitAccountFilter={hasExplicitAccountFilter}
-          onAccountFiltersChange={setAccountFilters}
-          onClearAccountFilters={resetAccountFilters}
           search={search}
           onSearchChange={setSearch}
           currentPage={pagination.currentPage}

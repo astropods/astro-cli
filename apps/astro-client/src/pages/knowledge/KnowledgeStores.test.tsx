@@ -113,7 +113,7 @@ describe("KnowledgeStores search", () => {
 });
 
 describe("KnowledgeStores empty states", () => {
-  it("keeps every account in the switcher when the implicit personal account has no knowledge stores", async () => {
+  it("offers every membership in the org switcher when the account has no knowledge stores", async () => {
     const user = userEvent.setup();
     const auth = {
       ...mockAuthContext,
@@ -127,18 +127,25 @@ describe("KnowledgeStores empty states", () => {
     expect(await screen.findByText("No knowledge stores yet")).toBeInTheDocument();
     expect(screen.queryByText("No knowledge stores match your filters.")).not.toBeInTheDocument();
 
-    const accountSwitcher = screen.getByRole("button", { name: "Filter by account" });
-    expect(accountSwitcher).toHaveTextContent("Test User");
-    await user.click(accountSwitcher);
-    expect(screen.getByRole("button", { name: /Test User/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Acme/ })).toBeInTheDocument();
+    const orgSwitcher = screen.getByRole("combobox", { name: "Scope by account" });
+    expect(orgSwitcher).toHaveTextContent("Test User");
+    await user.click(orgSwitcher);
+    expect(screen.getByRole("option", { name: /Test User/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Acme/ })).toBeInTheDocument();
   });
 
-  it("shows the filtered empty state for an explicit scope", async () => {
-    renderKnowledgeStores([], "/knowledge?scope=all");
+  it("adopts an account deep link as the org scope", async () => {
+    const auth = {
+      ...mockAuthContext,
+      accounts: [
+        { id: "acct-1", name: "testuser", display_name: "Test User", type: "personal" },
+        { id: "acct-2", name: "acme", display_name: "Acme", type: "organization" },
+      ],
+    };
+    renderKnowledgeStores([], "/knowledge?account=acme", auth);
 
-    expect(await screen.findByText("No knowledge stores match your filters.")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search knowledge stores…")).toBeInTheDocument();
-    expect(screen.queryByText("No knowledge stores yet")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Scope by account" })).toHaveTextContent("Acme");
+    });
   });
 });

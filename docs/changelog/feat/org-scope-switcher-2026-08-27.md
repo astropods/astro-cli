@@ -1,0 +1,49 @@
+# One org switcher, one org-scoped session
+
+## Summary
+
+Agents, Blueprints, and Knowledge each carried a multi-select account filter, so
+a list could span several accounts at once. A session JWT carries exactly one
+WorkOS organization, and the server now refuses account reads the session is not
+scoped to, so a cross-account list is no longer a scope the session can express.
+
+Every primitive now shows the same single org switcher Insights already had, and
+selecting an account re-mints the session token for that organization.
+
+## Design
+
+**One scope, owned by the active account.** `ActiveAccountProvider` is the only
+writer of the org scope. `setActiveAccount` now:
+
+1. Calls `switchOrg(account.organization_id)` when the target account belongs to
+   a different organization than the session claims.
+2. Writes the active-account cookie only after that resolves.
+3. Revalidates loaders, which then run under both the new cookie and the new
+   token.
+
+A failed re-scope leaves the scope where it was, so the UI never shows a list the
+session cannot read. The switch keeps using the existing progress bar, which now
+covers the token round trip as well.
+
+**Same switcher everywhere.** `AccountScopeFilter` sits next to the page title
+("Agents for ▾ acme"), matching Insights. `useOrgScope` gives each page the
+active account, the setter, and the single-account scope its list query needs.
+
+**`?account=` is a deep link, not page state.** A URL naming a membership adopts
+that organization as the active scope and drops the param. Links that already
+point at an account, such as the post-deploy redirect to `/agents?account=x`,
+land on the right organization instead of a page-local filter. SSR resolves the
+same account through `loadOrgScoped`, so the primed query matches what the client
+adopts.
+
+**Removed.** The multi-account filter (`AccountFilter`), its URL and
+localStorage plumbing (`use-account-filter-param`,
+`use-persistent-page-filter-path`), the page-local Insights scope hook, and the
+orphaned `OrgSwitcher`. Header nav links no longer carry a persisted account
+filter. The `/me/*` list endpoints keep their multi-account contract; the client
+only ever asks for one account.
+
+## Migration
+
+None. A persisted multi-account filter is ignored, and the first list a user
+opens shows their active organization.

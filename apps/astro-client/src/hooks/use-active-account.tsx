@@ -38,7 +38,7 @@ function readActiveAccountCookie(): string | null {
 }
 
 export function ActiveAccountProvider({ children }: { children: ReactNode }) {
-  const { accounts, personalAccount } = useAuth();
+  const { accounts, personalAccount, organizationId, switchOrg } = useAuth();
   const revalidator = useRevalidator();
   const queryClient = useQueryClient();
   // Source initial value from the root loader (cookie-derived) rather than
@@ -55,37 +55,52 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   const activeAccount = validOverride || ssrAccount || personalAccount?.name || "";
   const accountSwitchTargetRef = useRef<string | null>(null);
 
-  const setActiveAccount = useCallback((accountName: string) => {
-    const fromAccount = activeAccount;
-    const switching =
-      accounts.some((a) => a.name === accountName) && accountName !== fromAccount;
-
+  const persistActiveAccount = useCallback((accountName: string) => {
     if (accountName === personalAccount?.name) {
       clearActiveAccountCookie();
       try { localStorage.removeItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
-    } else {
-      writeActiveAccountCookie(accountName);
-      try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
-    }
-
-    if (switching) {
-      accountSwitchTargetRef.current = accountName;
-      setOrgSwitchProgress(true);
-      // Defer revalidate + override so the progress bar can paint before the
-      // heavy outlet re-render on cached pages.
-      requestAnimationFrame(() => {
-        revalidator.revalidate();
-        requestAnimationFrame(() => {
-          startAccountTransition(() => setOverride(accountName));
-        });
-      });
       return;
     }
-    setOverride(accountName);
-    // Re-runs page loaders (and the root loader thanks to shouldRevalidate)
-    // under the new cookie so SSR-backed data refreshes for the new org.
-    revalidator.revalidate();
-  }, [accounts, activeAccount, personalAccount?.name, revalidator]);
+    writeActiveAccountCookie(accountName);
+    try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
+  }, [personalAccount?.name]);
+
+  const setActiveAccount = useCallback((accountName: string) => {
+    const target = accounts.find((a) => a.name === accountName);
+    const switching = !!target && accountName !== activeAccount;
+
+    if (!switching) {
+      persistActiveAccount(accountName);
+      setOverride(accountName);
+      revalidator.revalidate();
+      return;
+    }
+
+    accountSwitchTargetRef.current = accountName;
+    setOrgSwitchProgress(true);
+
+    const rescope = target.organization_id && target.organization_id !== organizationId
+      ? switchOrg(target.organization_id)
+      : Promise.resolve();
+
+    void rescope.then(
+      () => {
+        if (accountSwitchTargetRef.current !== accountName) return;
+        persistActiveAccount(accountName);
+        requestAnimationFrame(() => {
+          revalidator.revalidate();
+          requestAnimationFrame(() => {
+            startAccountTransition(() => setOverride(accountName));
+          });
+        });
+      },
+      () => {
+        if (accountSwitchTargetRef.current !== accountName) return;
+        accountSwitchTargetRef.current = null;
+        setOrgSwitchProgress(false);
+      },
+    );
+  }, [accounts, activeAccount, organizationId, persistActiveAccount, revalidator, switchOrg]);
 
   // Keep org-switch progress active until revalidation, the account override
   // transition, and any account-scoped fetches have settled.

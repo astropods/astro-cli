@@ -10,7 +10,7 @@ test("dashboard shows deployed agents", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("heading", { level: 1, name: "Agents for" })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Slack Full Bot")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("Cross Account Agent")).toBeVisible({ timeout: 10_000 });
 });
@@ -33,33 +33,28 @@ test("dashboard search filter narrows visible agents", async ({ page }) => {
   await expect(page.getByText("Slack Overlap Bot")).not.toBeVisible();
 });
 
-test("dashboard account filter persists while search remains page-local", async ({ page }) => {
+test("the org switcher holds across route changes while search stays page-local", async ({ page }) => {
   test.setTimeout(30_000);
   await page.goto("/agents", { waitUntil: "domcontentloaded" });
 
-  const accountFilter = page.getByRole("button", { name: "Filter by account" });
-  await expect(accountFilter).toBeVisible({ timeout: 10_000 });
-  await accountFilter.click();
-  const accountMenu = page.locator('[data-slot="multi-select-content"]');
-  await accountMenu.getByRole("button", { name: /testuser/ }).click();
-  await accountMenu.getByRole("button", { name: /Test Org/ }).click();
+  const orgSwitcher = page.getByRole("combobox", { name: "Scope by account" });
+  await expect(orgSwitcher).toBeVisible({ timeout: 10_000 });
+  await orgSwitcher.click();
+  await page.getByRole("option", { name: /Test Org/ }).click();
 
-  await expect(page).toHaveURL(/\/agents\?account=test-org$/);
-  await expect(accountFilter).toContainText("Test Org");
+  await expect(page).toHaveURL(/\/agents$/);
+  await expect(orgSwitcher).toContainText("Test Org");
   await expect(page.getByText("Org Support Bot")).toBeVisible({ timeout: 10_000 });
 
-  const search = page.getByPlaceholder("Search agents...");
-  await search.fill("support");
+  await page.getByPlaceholder("Search agents...").fill("support");
   await expect(page.getByText("Org Support Bot")).toBeVisible();
 
   await page.getByRole("link", { name: "Blueprints", exact: true }).click();
-  await expect(page).toHaveURL(/\/blueprints/);
-  const agentsLink = page.getByRole("link", { name: "Agents", exact: true });
-  await expect(agentsLink).toHaveAttribute("href", "/agents?account=test-org");
-  await agentsLink.click();
-  await expect(page).toHaveURL(/\/agents\?account=test-org$/);
+  await expect(page).toHaveURL(/\/blueprints$/);
+  await page.getByRole("link", { name: "Agents", exact: true }).click();
+  await expect(page).toHaveURL(/\/agents$/);
 
-  await expect(page.getByRole("button", { name: "Filter by account" })).toContainText("Test Org");
+  await expect(page.getByRole("combobox", { name: "Scope by account" })).toContainText("Test Org");
   await expect(page.getByPlaceholder("Search agents...")).toHaveValue("");
   await expect(page.getByText("Org Support Bot")).toBeVisible({ timeout: 10_000 });
 });

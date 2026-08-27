@@ -1,30 +1,13 @@
 import { describe, expect, it } from "vitest";
-import {
-  canonicalizeUserResourceAccounts,
-  resolvePageAccount,
-  resolveUserResourceScope,
-} from "./user-resource-scope";
+import { orgScope, resolvePageAccount } from "./user-resource-scope";
 
-describe("canonicalizeUserResourceAccounts", () => {
-  it("collapses a complete selection to the canonical all-accounts value", () => {
-    expect(canonicalizeUserResourceAccounts(
-      ["beta", "alpha", "beta", "foreign"],
-      ["alpha", "beta"],
-    )).toEqual([]);
-  });
-});
-
-describe("resolveUserResourceScope", () => {
-  it("uses an explicit, canonical selected-account scope", () => {
-    expect(resolveUserResourceScope(["beta", "alpha", "beta", "foreign"], ["alpha", "beta", "gamma"]))
-      .toEqual({ accounts: ["alpha", "beta"], all: false });
+describe("orgScope", () => {
+  it("selects the one account the session is scoped to", () => {
+    expect(orgScope("acme")).toEqual({ accounts: ["acme"], all: false });
   });
 
-  it("treats an empty, stale, or complete selection as all memberships", () => {
-    expect(resolveUserResourceScope(["foreign"], ["beta", "alpha"]))
-      .toEqual({ accounts: ["alpha", "beta"], all: true });
-    expect(resolveUserResourceScope(["beta", "alpha"], ["alpha", "beta"]))
-      .toEqual({ accounts: ["alpha", "beta"], all: true });
+  it("selects nothing before the account resolves, which disables the query", () => {
+    expect(orgScope("")).toEqual({ accounts: [], all: false });
   });
 });
 

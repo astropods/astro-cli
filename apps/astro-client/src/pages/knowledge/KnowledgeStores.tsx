@@ -4,7 +4,7 @@ import { CircleStackIcon, EllipsisVerticalIcon, PlusIcon, TrashIcon } from "@her
 import type { Route } from "./+types/KnowledgeStores";
 import { USER_KNOWLEDGE_PAGE_SIZE, useUserKnowledgeStores } from "@/api/queries/knowledge";
 import { knowledgeKeys } from "@/api/queries/keys";
-import { AccountFilter } from "@/components/AccountFilter";
+import { AccountScopeFilter } from "@/components/AccountScopeFilter";
 import { FilteredEmptyState } from "@/components/FilteredEmptyState";
 import { DebouncedFilterInput } from "@/components/DebouncedFilterInput";
 import { ListPagination } from "@/components/ListPagination";
@@ -30,22 +30,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ActionPanel } from "@/components/ui/status-panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePersistentAccountFilterParam } from "@/hooks/use-account-filter-param";
+import { useOrgScope } from "@/hooks/use-org-scope";
 import { useCursorPagination } from "@/hooks/use-cursor-pagination";
 import { useUserResourceSearch } from "@/hooks/use-user-resource-search";
 import { firstInfinitePage, usePrimeQueryCache } from "@/hooks/use-prime-query-cache";
-import { loadUserResourceScoped } from "@/lib/api.server";
+import { loadOrgScoped } from "@/lib/api.server";
 import type { KnowledgeStore } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { knowledgeDetailPath, newKnowledgePath } from "@/lib/routes";
-import { resolveUserResourceScope } from "@/lib/user-resource-scope";
 import { shouldRevalidateUserResourceList } from "@/lib/user-resource-revalidation";
 
 export const meta: Route.MetaFunction = () => [{ title: "Knowledge Stores | Astro" }];
 export const shouldRevalidate = shouldRevalidateUserResourceList;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  return loadUserResourceScoped(request, (api, scope) =>
+  return loadOrgScoped(request, (api, scope) =>
     api.listUserKnowledgeStores(scope, { limit: USER_KNOWLEDGE_PAGE_SIZE }),
   );
 }
@@ -62,16 +61,7 @@ function formatRelativeTime(dateStr: string): string {
 export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
   const { accounts, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const [
-    accountFilters,
-    setAccountFilters,
-    hasExplicitAccountFilter,
-    resetAccountFilters,
-  ] = usePersistentAccountFilterParam("knowledge");
-  const scope = useMemo(
-    () => resolveUserResourceScope(accountFilters, accounts.map((account) => account.name)),
-    [accountFilters, accounts],
-  );
+  const { account, setAccount, scope } = useOrgScope();
   const { search, setSearch, params, hasActiveSearch } = useUserResourceSearch();
 
   usePrimeQueryCache(loaderData, (queryClient, data) => {
@@ -97,25 +87,24 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
     [accounts],
   );
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeStore | null>(null);
-  const hasAnyFilter = hasExplicitAccountFilter || hasActiveSearch;
-  const showEmptyState = !query.isPending && !hasAnyFilter && stores.length === 0 && !query.isError;
-  const showFilteredEmpty = !query.isPending && hasAnyFilter && stores.length === 0 && !query.isError;
+  const showEmptyState = !query.isPending && !hasActiveSearch && stores.length === 0 && !query.isError;
+  const showFilteredEmpty = !query.isPending && hasActiveSearch && stores.length === 0 && !query.isError;
   const showTotalLoadError = query.isError && stores.length === 0;
   const showToolbar = isAuthenticated && (
-    stores.length > 0 || hasAnyFilter || query.isPending
+    stores.length > 0 || hasActiveSearch || query.isPending
   );
 
   const [filterResetKey, setFilterResetKey] = useState(0);
   const clearFilters = () => {
     setSearch("");
-    resetAccountFilters();
     setFilterResetKey((key) => key + 1);
   };
 
   return (
     <PageContainer outerClassName="bg-background">
       <PageHeader
-        title="Knowledge Stores"
+        title="Knowledge Stores for"
+        adornment={<AccountScopeFilter value={account} onChange={setAccount} className="-ml-1" />}
         description="Account-level databases shared across agent deployments."
         action={isAuthenticated && (
           <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
@@ -140,16 +129,6 @@ export default function KnowledgeStores({ loaderData }: Route.ComponentProps) {
             resetKey={filterResetKey}
             onDebouncedChange={setSearch}
             containerClassName="h-8 w-full min-w-[12rem] max-w-sm flex-1 bg-card dark:bg-background sm:max-w-xs"
-          />
-          <AccountFilter value={accountFilters} onChange={setAccountFilters} />
-        </div>
-      )}
-      {showEmptyState && (
-        <div className="mb-4 flex justify-end">
-          <AccountFilter
-            className="w-full @[480px]:w-auto @[480px]:min-w-[13rem]"
-            value={accountFilters}
-            onChange={setAccountFilters}
           />
         </div>
       )}
