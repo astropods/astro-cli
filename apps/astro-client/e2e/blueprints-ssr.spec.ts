@@ -89,3 +89,19 @@ test("an account deep link adopts that organization", async ({ page }) => {
   await expect(page).toHaveURL(/\/blueprints$/);
   await expect(page.getByText("org-support-bot", { exact: true }).first()).toBeVisible();
 });
+
+test("a stale account cookie loses to the organization the session is scoped to", async ({
+  context,
+  page,
+}) => {
+  await page.goto("/blueprints", { waitUntil: "networkidle" });
+  await context.addCookies([
+    { name: "astro:active-account", value: "test-org", url: page.url() },
+  ]);
+
+  await page.reload({ waitUntil: "networkidle" });
+
+  await expect(page.getByRole("combobox", { name: "Scope by account" })).toContainText("testuser");
+  await expect(page.getByText("code-reviewer", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("org-support-bot", { exact: true })).toHaveCount(0);
+});

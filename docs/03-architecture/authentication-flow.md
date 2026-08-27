@@ -243,6 +243,28 @@ codebase's permission checks read one field for both caller kinds.
 | `/auth/refresh` | POST | Explicitly refreshes the session |
 | `/auth/switch-org` | POST | Re-scopes the current session to a different WorkOS org the user belongs to |
 
+## Active Account and Session Scope
+
+The session JWT carries one WorkOS organization, so the dashboard works in one
+account at a time. Two cookies track that:
+
+| Cookie | Written by | Read by |
+|--------|------------|---------|
+| `astro_session` (org claim) | `/auth/callback`, `/auth/refresh`, `/auth/switch-org` | `RequireAccountPermission`, which refuses any account the claim does not cover |
+| `astro:active-account` | the dashboard's account switcher | SSR loaders, to pick the account a page reads |
+
+The two disagree routinely. Four client callers re-scope the session (the
+account switcher, the deploy vault, blueprint creation, and org settings), and
+only the switcher moves `astro:active-account`. That cookie also outlives the
+session it was written for, and a fresh login scopes to the personal
+organization.
+
+`resolveActiveAccount` in `apps/astro-client/src/lib/active-account.ts` settles
+the disagreement wherever the scope is derived: `getActiveAccount` and the root
+loader drop an active-account cookie naming an account outside the session's
+organization. The session claim wins, because the server refuses reads on any
+other account.
+
 ## Client-Side Integration
 
 The React frontend uses the `AuthProvider` component (`apps/astro-client/src/lib/AuthProvider.tsx`) to manage authentication state:

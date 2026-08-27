@@ -1,5 +1,5 @@
 import { ApiClient, type AuthResponse } from "./api";
-import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./active-account";
+import { ACTIVE_ACCOUNT_COOKIE, readCookieValue, resolveActiveAccount } from "./active-account";
 import {
   orgScope,
   resolvePageAccount,
@@ -39,18 +39,16 @@ export async function getPersonalAccount(request: Request) {
   }
 }
 
-// Resolves the active account from the `astro:active-account` cookie, falling
-// back to the user's personal account when no cookie is set or the cookie
-// names an account the user no longer belongs to. Loaders that scope data to
-// the active org should use this instead of getPersonalAccount.
+// Resolves the account this request is scoped to, reconciling the
+// `astro:active-account` cookie against the session's own organization claim.
+// Loaders that scope data to the active org should use this instead of
+// getPersonalAccount.
 export async function getActiveAccount(request: Request) {
   try {
     const api = createServerApi(request);
     const auth = await getCurrentUserForRequest(request);
-    if (!auth.accounts?.length) return null;
     const cookieName = readCookieValue(request.headers.get("cookie"), ACTIVE_ACCOUNT_COOKIE);
-    const match = cookieName ? auth.accounts.find((a) => a.name === cookieName) : null;
-    const account = match ?? auth.accounts.find((a) => a.type === "personal") ?? auth.accounts[0];
+    const account = resolveActiveAccount(auth, cookieName);
     return account ? { api, accountName: account.name } : null;
   } catch {
     return null;

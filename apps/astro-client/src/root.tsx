@@ -14,7 +14,7 @@ import type { Route } from "./+types/root";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getCurrentUserForRequest } from "./lib/api.server";
 import { Toaster } from "./components/ui/toaster";
-import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./lib/active-account";
+import { ACTIVE_ACCOUNT_COOKIE, readCookieValue, resolveActiveAccount } from "./lib/active-account";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AmplitudeProvider } from "./lib/AmplitudeProvider";
 import { queryClientConfig } from "./lib/queryClient";
@@ -94,12 +94,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     // keep it inside the try so the existing fallback catches it.
     const rawCookieAccount = readCookieValue(cookieHeader, ACTIVE_ACCOUNT_COOKIE);
     const serverAuth = await getCurrentUserForRequest(request);
-    // Validate the cookie against the user's accounts list so a stale cookie
-    // (e.g. account they no longer belong to) doesn't poison the initial UI.
-    const matched =
-      (rawCookieAccount && serverAuth.accounts?.find((a) => a.name === rawCookieAccount)) ||
-      serverAuth.accounts?.find((a) => a.type === "personal") ||
-      serverAuth.accounts?.[0];
+    const matched = resolveActiveAccount(serverAuth, rawCookieAccount);
     return { serverAuth, serverTheme, activeAccount: matched?.name ?? "" };
   } catch {
     return { serverAuth: null, serverTheme, activeAccount: "" };

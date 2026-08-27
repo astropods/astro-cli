@@ -35,6 +35,20 @@ describe("getActiveAccount", () => {
     vi.spyOn(ApiClient.prototype, "getCurrentUser").mockResolvedValue(asAuth({ accounts }));
   });
 
+  it("follows the session when the cookie names an organization it is not scoped to", async () => {
+    vi.spyOn(ApiClient.prototype, "getCurrentUser").mockResolvedValue({
+      organization_id: "wos-personal",
+      accounts: [
+        { id: "p", name: "personal-user", type: "personal", organization_id: "wos-personal" },
+        { id: "a", name: "acme", type: "organization", organization_id: "wos-acme" },
+      ],
+    } as AuthResponse);
+
+    const ctx = await getActiveAccount(req("astro:active-account=acme"));
+
+    expect(ctx?.accountName).toBe("personal-user");
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   it("returns the cookie-named account when it matches a member account", async () => {

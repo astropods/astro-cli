@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from "./active-account";
+import { ACTIVE_ACCOUNT_COOKIE, readCookieValue, resolveActiveAccount } from "./active-account";
+import type { Account, AuthResponse } from "./api";
 
 // readCookieValue is the single cookie parser shared between server loaders
 // (api.server.ts, root.tsx) and the client hook (use-active-account.tsx).
@@ -48,5 +49,45 @@ describe("readCookieValue", () => {
     expect(() =>
       readCookieValue(`${ACTIVE_ACCOUNT_COOKIE}=bad%ZZ`, ACTIVE_ACCOUNT_COOKIE),
     ).toThrow(URIError);
+  });
+});
+
+const account = (name: string, type: string, organizationID?: string): Account =>
+  ({ id: name, name, type, organization_id: organizationID }) as Account;
+
+const auth = (accounts: Account[], organizationID?: string) =>
+  ({ accounts, organization_id: organizationID }) as AuthResponse;
+
+const PERSONAL = account("testuser", "personal", "wos-personal");
+const ACME = account("acme", "organization", "wos-acme");
+
+describe("resolveActiveAccount", () => {
+  it("keeps the cookie's account when the session is scoped to it", () => {
+    expect(resolveActiveAccount(auth([PERSONAL, ACME], "wos-acme"), "acme")).toBe(ACME);
+  });
+
+  it("follows the session when the cookie names an organization it is not scoped to", () => {
+    expect(resolveActiveAccount(auth([PERSONAL, ACME], "wos-personal"), "acme")).toBe(PERSONAL);
+  });
+
+  it("keeps the cookie's account when the session claims no organization", () => {
+    expect(resolveActiveAccount(auth([PERSONAL, ACME]), "acme")).toBe(ACME);
+  });
+
+  it("keeps an account that has no organization of its own", () => {
+    const unlinked = account("legacy-org", "organization");
+    expect(resolveActiveAccount(auth([PERSONAL, unlinked], "wos-personal"), "legacy-org")).toBe(unlinked);
+  });
+
+  it("falls back to the personal account when the session's organization has no account", () => {
+    expect(resolveActiveAccount(auth([PERSONAL, ACME], "wos-ghost"), "acme")).toBe(PERSONAL);
+  });
+
+  it("ignores a cookie naming an account the user left", () => {
+    expect(resolveActiveAccount(auth([PERSONAL, ACME], "wos-acme"), "ghost-org")).toBe(ACME);
+  });
+
+  it("returns undefined when the user has no accounts", () => {
+    expect(resolveActiveAccount(auth([]), "acme")).toBeUndefined();
   });
 });
