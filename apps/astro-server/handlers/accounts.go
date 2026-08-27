@@ -228,7 +228,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			switch {
 			case err == nil:
 				acct.WorkOSOrganizationID = workosOrgID
-				if authorizationDeps.Sync != nil {
+				if req.Type == "organization" && authorizationDeps.Sync != nil {
 					key, recorded, recordErr := authorizationDeps.Sync.RecordAccountRegistration(ctx, acct.ID)
 					if recordErr != nil {
 						log.Error("accounts: record Account authorization registration failed", "error", recordErr, "account_id", acct.ID)
