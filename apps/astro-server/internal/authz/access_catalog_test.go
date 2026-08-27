@@ -13,8 +13,11 @@ func TestDeploymentAccessCatalog(t *testing.T) {
 	roles := authz.ResourceRoles(authz.ResourceDeployment)
 	want := []authz.ResourceRole{
 		{Level: authz.AccessLevelViewer, Slug: authz.RoleDeploymentViewer, Actions: []authz.Action{authz.ActionDeploymentRead}},
-		{Level: authz.AccessLevelBuilder, Slug: authz.RoleDeploymentBuilder, Actions: []authz.Action{
-			authz.ActionDeploymentRead, authz.ActionDeploymentEdit, authz.ActionDeploymentOperate, authz.ActionDeploymentDelete,
+		{Level: authz.AccessLevelWriter, Slug: authz.RoleDeploymentWriter, Actions: []authz.Action{
+			authz.ActionDeploymentRead, authz.ActionDeploymentEdit,
+		}},
+		{Level: authz.AccessLevelMaintainer, Slug: authz.RoleDeploymentMaintainer, Actions: []authz.Action{
+			authz.ActionDeploymentRead, authz.ActionDeploymentEdit, authz.ActionDeploymentOperate,
 		}},
 		{Level: authz.AccessLevelAdmin, Slug: authz.RoleDeploymentAdmin, Actions: authz.DeploymentActions()},
 	}
@@ -24,6 +27,15 @@ func TestDeploymentAccessCatalog(t *testing.T) {
 	roles[0].Actions[0] = authz.ActionDeploymentDelete
 	if got := authz.ResourceRoles(authz.ResourceDeployment)[0].Actions[0]; got != authz.ActionDeploymentRead {
 		t.Fatalf("catalog mutated through result: %q", got)
+	}
+}
+
+func TestLegacyDeploymentBuilderReadsAsMaintainer(t *testing.T) {
+	t.Parallel()
+
+	level, ok := authz.AccessLevelForRole(authz.ResourceDeployment, authz.RoleSlug("deployment-builder"))
+	if !ok || level != authz.AccessLevelMaintainer {
+		t.Fatalf("AccessLevelForRole() = %q, %t", level, ok)
 	}
 }
 

@@ -69,8 +69,8 @@ func TestListDeploymentAccessReturnsRolesAndAssignmentSources(t *testing.T) {
 				t.Fatalf("context deadline/resource = %v/%+v", ok, resource)
 			}
 			return []authz.AccessAssignment{{
-				ID: "ra_123", UserID: "user_123", Level: authz.AccessLevelBuilder,
-				Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_123",
+				ID: "ra_123", UserID: "user_123", Level: authz.AccessLevelMaintainer,
+				Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_123",
 			}}, []authz.AccessIntent{pendingDeploymentAccessIntent(authz.RoleDeploymentViewer)}, nil
 		},
 	}
@@ -80,7 +80,7 @@ func TestListDeploymentAccessReturnsRolesAndAssignmentSources(t *testing.T) {
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep_123/access", nil))
 	if response.Code != http.StatusOK || !containsAll(response.Body.String(),
-		`"deployment_id":"dep_123"`, `"role":"viewer"`, `"role":"admin"`,
+		`"deployment_id":"dep_123"`, `"role":"viewer"`, `"role":"writer"`, `"role":"maintainer"`, `"role":"admin"`,
 		`"subject_id":"user_123"`, `"source":"group"`, `"group_role_assignment_id":"gra_123"`,
 		`"desired_role":"viewer"`, `"sync_status":"pending"`, `"desired_version":2`,
 	) {
@@ -92,20 +92,20 @@ func TestSetDeploymentAccessUsesProductRoleAndSubject(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	service := fakeDeploymentAccessService{assign: func(_ context.Context, resource authz.ResourceRef, subjectType authz.AssignmentSubjectType, subjectID string, level authz.AccessLevel) (authz.AccessIntent, bool, error) {
-		if resource != authz.DeploymentResource("dep_123") || subjectType != authz.AssignmentSubjectMembership || subjectID != "user_123" || level != authz.AccessLevelBuilder {
+		if resource != authz.DeploymentResource("dep_123") || subjectType != authz.AssignmentSubjectMembership || subjectID != "user_123" || level != authz.AccessLevelMaintainer {
 			t.Fatalf("Assign(%+v, %q, %q, %q)", resource, subjectType, subjectID, level)
 		}
-		return pendingDeploymentAccessIntent(authz.RoleDeploymentBuilder), true, nil
+		return pendingDeploymentAccessIntent(authz.RoleDeploymentMaintainer), true, nil
 	}}
 	queue := &recordingDeploymentAccessQueue{}
 	router := gin.New()
 	router.PUT("/api/v1/deployments/:id/access", SetDeploymentAccess(logger.New("error", "json"), service, queue, nil))
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"builder"}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"maintainer"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(response, request)
-	if response.Code != http.StatusAccepted || !containsAll(response.Body.String(), `"status":"pending"`, `"desired_role":"builder"`) || len(queue.keys) != 1 {
+	if response.Code != http.StatusAccepted || !containsAll(response.Body.String(), `"status":"pending"`, `"desired_role":"maintainer"`) || len(queue.keys) != 1 {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
@@ -121,7 +121,7 @@ func TestSetDeploymentAccessRejectsUnknownRoleBeforeService(t *testing.T) {
 	router.PUT("/api/v1/deployments/:id/access", SetDeploymentAccess(logger.New("error", "json"), service, nil, nil))
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"operator"}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"builder"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
@@ -148,7 +148,7 @@ func TestSetDeploymentAccessReportsUnprovisionedMember(t *testing.T) {
 	router.PUT("/api/v1/deployments/:id/access", SetDeploymentAccess(logger.New("error", "json"), service, nil, nil))
 
 	response := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"builder"}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/deployments/dep_123/access", strings.NewReader(`{"subject_type":"member","subject_id":"user_123","role":"maintainer"}`))
 	request.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "selected member is not yet provisioned") {
@@ -224,7 +224,7 @@ func TestDeploymentAccessMutationAuditsChangesOnly(t *testing.T) {
 	operations := []struct {
 		name, method, path, body, action string
 	}{
-		{name: "grant", method: http.MethodPut, path: "/api/v1/deployments/dep_123/access", body: `{"subject_type":"member","subject_id":"user_123","role":"builder"}`, action: auditlog.DeploymentGrantAccess},
+		{name: "grant", method: http.MethodPut, path: "/api/v1/deployments/dep_123/access", body: `{"subject_type":"member","subject_id":"user_123","role":"maintainer"}`, action: auditlog.DeploymentGrantAccess},
 		{name: "revoke", method: http.MethodDelete, path: "/api/v1/deployments/dep_123/access/member/user_123", action: auditlog.DeploymentRevokeAccess},
 	}
 	for _, operation := range operations {
@@ -233,7 +233,7 @@ func TestDeploymentAccessMutationAuditsChangesOnly(t *testing.T) {
 				auditStore := &recordingDeploymentAccessAuditStore{}
 				service := fakeDeploymentAccessService{
 					assign: func(context.Context, authz.ResourceRef, authz.AssignmentSubjectType, string, authz.AccessLevel) (authz.AccessIntent, bool, error) {
-						return pendingDeploymentAccessIntent(authz.RoleDeploymentBuilder), changed, nil
+						return pendingDeploymentAccessIntent(authz.RoleDeploymentMaintainer), changed, nil
 					},
 					remove: func(context.Context, authz.ResourceRef, authz.AssignmentSubjectType, string) (authz.AccessIntent, bool, error) {
 						return pendingDeploymentAccessIntent(""), changed, nil
@@ -263,7 +263,7 @@ func TestDeploymentAccessMutationAuditsChangesOnly(t *testing.T) {
 					if event.AccountID != "acct_123" || event.Action != operation.action || event.ResourceType != "deployment" || event.ResourceID != "dep_123" || !ok || metadata["subject_type"] != "member" || metadata["subject_id"] != "user_123" || metadata["sync_status"] != authz.AccessSyncPending {
 						t.Fatalf("audit event = %+v", event)
 					}
-					if operation.method == http.MethodPut && metadata["role"] != "builder" {
+					if operation.method == http.MethodPut && metadata["role"] != "maintainer" {
 						t.Fatalf("audit metadata = %#v", metadata)
 					}
 				} else if len(auditStore.events) != 0 {

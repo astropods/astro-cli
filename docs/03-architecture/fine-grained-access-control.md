@@ -30,7 +30,8 @@ Permissions do not imply one another. The initial WorkOS roles bundle them as fo
 | Role | Permissions |
 | --- | --- |
 | `deployment-viewer` | `read` |
-| `deployment-builder` | `read`, `edit`, `operate`, `delete` |
+| `deployment-writer` | `read`, `edit` |
+| `deployment-maintainer` | `read`, `edit`, `operate` |
 | `deployment-admin` | `read`, `edit`, `operate`, `delete`, `manage_access` |
 
 Organization owner and admin roles inherit all deployment permissions from the organization resource. The generic organization member role has no deployment permissions. New deployment creators receive `deployment-admin` directly on the deployment.
@@ -46,7 +47,7 @@ flowchart LR
     Inherited --> Effective
 ```
 
-One membership may have direct and group-derived access simultaneously. WorkOS evaluates their union. Astro's built-in access API manages at most one direct Viewer, Builder, or Admin role per subject and resource; it does not remove custom roles or group-derived access.
+One membership may have direct and group-derived access simultaneously. WorkOS evaluates their union. Astro's built-in access API manages at most one direct Viewer, Writer, Maintainer, or Admin role per subject and resource; it does not remove custom roles or group-derived access.
 
 ## Resource hierarchy
 

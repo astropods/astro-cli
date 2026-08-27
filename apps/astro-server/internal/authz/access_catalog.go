@@ -6,9 +6,10 @@ import "fmt"
 type AccessLevel string
 
 const (
-	AccessLevelViewer  AccessLevel = "viewer"
-	AccessLevelBuilder AccessLevel = "builder"
-	AccessLevelAdmin   AccessLevel = "admin"
+	AccessLevelViewer     AccessLevel = "viewer"
+	AccessLevelWriter     AccessLevel = "writer"
+	AccessLevelMaintainer AccessLevel = "maintainer"
+	AccessLevelAdmin      AccessLevel = "admin"
 )
 
 // ResourceRole describes one built-in role. Permission checks continue to use
@@ -23,11 +24,14 @@ type ResourceRole struct {
 var resourceRoleCatalog = map[ResourceType][]ResourceRole{
 	ResourceDeployment: {
 		{Level: AccessLevelViewer, Slug: RoleDeploymentViewer, Actions: []Action{ActionDeploymentRead}},
-		{Level: AccessLevelBuilder, Slug: RoleDeploymentBuilder, Actions: []Action{
+		{Level: AccessLevelWriter, Slug: RoleDeploymentWriter, Actions: []Action{
+			ActionDeploymentRead,
+			ActionDeploymentEdit,
+		}},
+		{Level: AccessLevelMaintainer, Slug: RoleDeploymentMaintainer, Actions: []Action{
 			ActionDeploymentRead,
 			ActionDeploymentEdit,
 			ActionDeploymentOperate,
-			ActionDeploymentDelete,
 		}},
 		{Level: AccessLevelAdmin, Slug: RoleDeploymentAdmin, Actions: DeploymentActions()},
 	},
@@ -56,6 +60,9 @@ func RoleForAccessLevel(resourceType ResourceType, level AccessLevel) (RoleSlug,
 }
 
 func AccessLevelForRole(resourceType ResourceType, slug RoleSlug) (AccessLevel, bool) {
+	if resourceType == ResourceDeployment && slug == roleDeploymentBuilderLegacy {
+		return AccessLevelMaintainer, true
+	}
 	for _, role := range resourceRoleCatalog[resourceType] {
 		if role.Slug == slug {
 			return role.Level, true

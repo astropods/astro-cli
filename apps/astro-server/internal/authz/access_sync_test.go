@@ -16,6 +16,25 @@ var accessIntentColumns = []string{
 	"last_error", "next_attempt_at", "synced_at", "updated_at",
 }
 
+func TestResourceAccessSyncStoreMigratesLegacyBuilderIntent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE resource_access_fga_sync`).
+		WithArgs(RoleDeploymentMaintainer, ResourceDeployment, roleDeploymentBuilderLegacy).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	migrated, err := NewResourceAccessSyncStore(db).MigrateLegacyDeploymentBuilder(context.Background())
+	if err != nil || migrated != 2 {
+		t.Fatalf("MigrateLegacyDeploymentBuilder() = %d, %v", migrated, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResourceAccessSyncStoreRecordsDesiredRole(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -25,16 +44,16 @@ func TestResourceAccessSyncStoreRecordsDesiredRole(t *testing.T) {
 	now := time.Now()
 	columns := append(append([]string(nil), accessIntentColumns...), "changed")
 	mock.ExpectQuery(`(?s)INSERT INTO resource_access_fga_sync.*ON CONFLICT.*desired_role IS DISTINCT`).
-		WithArgs("acct_123", "org_123", ResourceDeployment, "dep_123", AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentBuilder).
+		WithArgs("acct_123", "org_123", ResourceDeployment, "dep_123", AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentMaintainer).
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
 			"acct_123", "org_123", ResourceDeployment, "dep_123",
-			AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentBuilder,
+			AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentMaintainer,
 			int64(2), RoleDeploymentViewer, int64(1), 0, nil, now, nil, now, true,
 		))
 
 	intent, changed, err := NewResourceAccessSyncStore(db).Record(context.Background(), AccessIntent{
 		AccountID: "acct_123", OrganizationID: "org_123", Resource: DeploymentResource("dep_123"),
-		Subject: MembershipAssignmentSubject("om_123"), SubjectID: "user_123", DesiredRole: RoleDeploymentBuilder,
+		Subject: MembershipAssignmentSubject("om_123"), SubjectID: "user_123", DesiredRole: RoleDeploymentMaintainer,
 	})
 	if err != nil || !changed || intent.Status() != AccessSyncPending || intent.DesiredVersion != 2 {
 		t.Fatalf("Record() intent=%+v changed=%t error=%v", intent, changed, err)
@@ -86,7 +105,7 @@ func TestResourceAccessSyncStoreLoadsPendingAndRecordsOutcome(t *testing.T) {
 		WithArgs("org_123", ResourceDeployment, "dep_123").
 		WillReturnRows(sqlmock.NewRows(accessIntentColumns).AddRow(
 			"acct_123", "org_123", ResourceDeployment, "dep_123",
-			AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentBuilder,
+			AssignmentSubjectMembership, "user_123", "om_123", RoleDeploymentMaintainer,
 			int64(3), RoleDeploymentViewer, int64(2), 1, "temporary failure", now, nil, now,
 		))
 	store := NewResourceAccessSyncStore(db)
@@ -105,7 +124,7 @@ func TestResourceAccessSyncStoreLoadsPendingAndRecordsOutcome(t *testing.T) {
 	}
 
 	mock.ExpectExec(`(?s)UPDATE resource_access_fga_sync.*synced_version = \$7`).
-		WithArgs("org_123", ResourceDeployment, "dep_123", AssignmentSubjectMembership, "om_123", RoleDeploymentBuilder, int64(3)).
+		WithArgs("org_123", ResourceDeployment, "dep_123", AssignmentSubjectMembership, "om_123", RoleDeploymentMaintainer, int64(3)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	synced, err := store.MarkSynced(context.Background(), intent)
 	if err != nil || !synced {

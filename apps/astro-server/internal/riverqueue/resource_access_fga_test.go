@@ -32,7 +32,7 @@ func TestResourceAccessFGAReconcileBatchesResourceIntents(t *testing.T) {
 		WithArgs("org_123", authz.ResourceDeployment, "dep_123").
 		WillReturnRows(sqlmock.NewRows(accessIntentColumnsForWorker()).AddRow(
 			"acct_123", "org_123", authz.ResourceDeployment, "dep_123",
-			authz.AssignmentSubjectMembership, "user_123", "om_123", authz.RoleDeploymentBuilder,
+			authz.AssignmentSubjectMembership, "user_123", "om_123", authz.RoleDeploymentMaintainer,
 			int64(1), nil, nil, 0, nil, now, nil, now,
 		).AddRow(
 			"acct_123", "org_123", authz.ResourceDeployment, "dep_123",
@@ -40,7 +40,7 @@ func TestResourceAccessFGAReconcileBatchesResourceIntents(t *testing.T) {
 			int64(1), nil, nil, 0, nil, now, nil, now,
 		))
 	mock.ExpectExec(`(?s)UPDATE resource_access_fga_sync.*synced_version = \$7`).
-		WithArgs("org_123", authz.ResourceDeployment, "dep_123", authz.AssignmentSubjectMembership, "om_123", authz.RoleDeploymentBuilder, int64(1)).
+		WithArgs("org_123", authz.ResourceDeployment, "dep_123", authz.AssignmentSubjectMembership, "om_123", authz.RoleDeploymentMaintainer, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)UPDATE resource_access_fga_sync.*synced_version = \$7`).
 		WithArgs("org_123", authz.ResourceDeployment, "dep_123", authz.AssignmentSubjectMembership, "om_456", authz.RoleDeploymentViewer, int64(1)).
@@ -69,7 +69,7 @@ func TestResourceAccessFGAReconcileBatchesResourceIntents(t *testing.T) {
 	if err := worker.Work(context.Background(), job); err != nil {
 		t.Fatalf("Work() error = %v", err)
 	}
-	if listCalls != 1 || assigned["om_123"] != authz.RoleDeploymentBuilder || assigned["om_456"] != authz.RoleDeploymentViewer {
+	if listCalls != 1 || assigned["om_123"] != authz.RoleDeploymentMaintainer || assigned["om_456"] != authz.RoleDeploymentViewer {
 		t.Fatalf("ListRoleAssignments() calls=%d assigned=%v", listCalls, assigned)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

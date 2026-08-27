@@ -103,7 +103,7 @@ func SetDeploymentAccess(log *logger.Logger, service deploymentAccessService, qu
 		}
 		level := authz.AccessLevel(request.Role)
 		if _, err := authz.RoleForAccessLevel(authz.ResourceDeployment, level); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "role must be viewer, builder, or admin"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "role must be viewer, writer, maintainer, or admin"})
 			return
 		}
 

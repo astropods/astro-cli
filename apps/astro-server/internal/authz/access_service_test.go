@@ -48,7 +48,7 @@ func TestAccessServiceListsBuiltInDirectAndGroupDerivedAccessOnly(t *testing.T) 
 			t.Fatalf("list organization=%q resource=%+v", organizationID, got)
 		}
 		return []authz.RoleAssignment{
-			{ID: "ra_2", Subject: authz.MembershipAssignmentSubject("om_2"), Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_1", Resource: resource},
+			{ID: "ra_2", Subject: authz.MembershipAssignmentSubject("om_2"), Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_1", Resource: resource},
 			{ID: "ra_1", Subject: authz.MembershipAssignmentSubject("om_1"), Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect, Resource: resource},
 			{ID: "ra_custom", Subject: authz.MembershipAssignmentSubject("om_1"), Role: authz.RoleSlug("custom-support"), Source: authz.AssignmentSourceDirect, Resource: resource},
 		}, nil
@@ -58,7 +58,7 @@ func TestAccessServiceListsBuiltInDirectAndGroupDerivedAccessOnly(t *testing.T) 
 	got, _, err := service.ListAccess(context.Background(), resource)
 	want := []authz.AccessAssignment{
 		{ID: "ra_1", UserID: "user_om_1", Level: authz.AccessLevelViewer, Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect},
-		{ID: "ra_2", UserID: "user_om_2", Level: authz.AccessLevelBuilder, Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_1"},
+		{ID: "ra_2", UserID: "user_om_2", Level: authz.AccessLevelMaintainer, Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceGroup, GroupRoleAssignmentID: "gra_1"},
 	}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("List() = (%#v, %v), want %#v", got, err, want)
@@ -74,7 +74,7 @@ func TestAccessServiceListSkipsUnresolvableSubjects(t *testing.T) {
 			{ID: "ra_group", Subject: authz.GroupAssignmentSubject("group_123"), Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect, Resource: resource},
 			{ID: "ra_missing", Subject: authz.MembershipAssignmentSubject("om_missing"), Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect, Resource: resource},
 			{ID: "ra_foreign", Subject: authz.MembershipAssignmentSubject("om_foreign"), Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect, Resource: resource},
-			{ID: "ra_visible", Subject: authz.MembershipAssignmentSubject("om_visible"), Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceDirect, Resource: resource},
+			{ID: "ra_visible", Subject: authz.MembershipAssignmentSubject("om_visible"), Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceDirect, Resource: resource},
 		}, nil
 	}}
 	service := newAccessService(t, fga, fakeAccessMembers{byMemberships: func([]string) (map[string]*account.AccountMember, error) {
@@ -97,7 +97,7 @@ func TestAccessServiceListBatchesMembershipResolution(t *testing.T) {
 	fga := &authz.FakeFGA{ListRoleAssignmentsFunc: func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) {
 		return []authz.RoleAssignment{
 			{ID: "ra_1", Subject: authz.MembershipAssignmentSubject("om_123"), Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceDirect, Resource: resource},
-			{ID: "ra_2", Subject: authz.MembershipAssignmentSubject("om_456"), Role: authz.RoleDeploymentBuilder, Source: authz.AssignmentSourceGroup, Resource: resource},
+			{ID: "ra_2", Subject: authz.MembershipAssignmentSubject("om_456"), Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceGroup, Resource: resource},
 		}, nil
 	}}
 	lookups := 0
@@ -185,8 +185,8 @@ func TestAccessServiceRecordsDesiredStateWithoutCallingWorkOS(t *testing.T) {
 		role authz.RoleSlug
 		call func(*authz.AccessService) (authz.AccessIntent, bool, error)
 	}{
-		{name: "assign", role: authz.RoleDeploymentBuilder, call: func(service *authz.AccessService) (authz.AccessIntent, bool, error) {
-			return service.Assign(context.Background(), resource, authz.AssignmentSubjectMembership, "user_123", authz.AccessLevelBuilder)
+		{name: "assign", role: authz.RoleDeploymentMaintainer, call: func(service *authz.AccessService) (authz.AccessIntent, bool, error) {
+			return service.Assign(context.Background(), resource, authz.AssignmentSubjectMembership, "user_123", authz.AccessLevelMaintainer)
 		}},
 		{name: "remove", call: func(service *authz.AccessService) (authz.AccessIntent, bool, error) {
 			return service.Remove(context.Background(), resource, authz.AssignmentSubjectMembership, "user_123")

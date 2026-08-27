@@ -92,7 +92,7 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 			},
 			ListGroupRoleAssignmentsFunc: func(_ context.Context, groupID string) ([]authz.RoleAssignment, error) {
 				return []authz.RoleAssignment{{
-					Subject: authz.GroupAssignmentSubject(groupID), Role: authz.RoleDeploymentBuilder,
+					Subject: authz.GroupAssignmentSubject(groupID), Role: authz.RoleDeploymentMaintainer,
 					Source: authz.AssignmentSourceDirect, Resource: resource,
 				}}, nil
 			},
@@ -123,7 +123,7 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 	if got.Type != "deployment" || got.AccountID != "acct_123" || got.AssignmentCount != 2 || !reflect.DeepEqual(got.DirectAdmins, []string{"jessye@example.com"}) {
 		t.Fatalf("resource = %+v", got)
 	}
-	if got.Assignments[0].SubjectLabel != "Platform Engineering" || got.Assignments[0].Role != string(authz.RoleDeploymentBuilder) ||
+	if got.Assignments[0].SubjectLabel != "Platform Engineering" || got.Assignments[0].Role != string(authz.RoleDeploymentMaintainer) ||
 		got.Assignments[1].SubjectLabel != "jessye@example.com" || got.Assignments[1].Role != string(authz.RoleDeploymentAdmin) {
 		t.Fatalf("assignments = %+v", got.Assignments)
 	}

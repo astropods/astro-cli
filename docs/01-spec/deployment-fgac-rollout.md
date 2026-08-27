@@ -22,7 +22,7 @@ The first policy uses a small set of practical, actor-neutral capabilities. Perm
 | `deployment:delete` | Delete the deployment. |
 | `deployment:manage_access` | Invite people and grant or revoke deployment access. |
 
-Permissions do not imply one another. Roles bundle them into product personas: Viewer is read-only, Builder can build and operate without resharing, and Admin controls the deployment and its access. A custom role can use any combination without changing Astro's route policy. Owner remains reserved for the single organization/account owner; it is not a deployment role.
+Permissions do not imply one another. Roles bundle them into product personas: Viewer is read-only, Writer can change content and metadata, Maintainer can also operate the deployment, and Admin controls deletion and access. A custom role can use any combination without changing Astro's route policy. Owner remains reserved for the single organization/account owner; it is not a deployment role.
 
 This catalog intentionally avoids one permission per UI control. There is no useful product persona who may restart but not resume, or read monitoring but not logs, in the initial milestone. We add another permission only when a concrete security or product boundary requires independent grants.
 
@@ -42,7 +42,8 @@ Each organization deployment is registered as a WorkOS `deployment` resource ben
 | --- | --- | --- | --- |
 | Organization owner/admin | All organization deployments | All deployment permissions | Yes |
 | Deployment creator / `deployment-admin` | The deployment they created | Read, edit, operate, and delete | Yes |
-| `deployment-builder` assignee | Assigned deployment | Read, edit, operate, and delete | No |
+| `deployment-writer` assignee | Assigned deployment | Read and edit | No |
+| `deployment-maintainer` assignee | Assigned deployment | Read, edit, and operate | No |
 | `deployment-viewer` assignee | Assigned deployment | None | No |
 | Unassigned organization member | No after view enforcement | No | No |
 | Personal-account owner | Yes | Yes | Not applicable |
@@ -51,10 +52,10 @@ A WorkOS group contains organization memberships; it does not contain permission
 
 ```mermaid
 flowchart LR
-    Matt["Matt membership"] --> Group["Deployment Builders group"]
+    Matt["Matt membership"] --> Group["Deployment Maintainers group"]
     Saswat["Saswat membership"] --> Group
     Sohum["Sohum membership"] --> Group
-    Group --> Assignment["deployment-builder on dep_123"]
+    Group --> Assignment["deployment-maintainer on dep_123"]
     Assignment --> Read["flat read capabilities"]
     Assignment --> Edit["flat mutation capabilities"]
 ```
@@ -95,7 +96,8 @@ Configure preview before PR4 makes live writes; repeat in production before prod
 - Resource type `deployment`, parent organization.
 - The five permissions in the deployment catalog above, scoped to `deployment`.
 - Role `deployment-viewer` containing `deployment:read`.
-- Role `deployment-builder` containing `deployment:read`, `deployment:edit`, `deployment:operate`, and `deployment:delete`.
+- Role `deployment-writer` containing `deployment:read` and `deployment:edit`.
+- Role `deployment-maintainer` containing `deployment:read`, `deployment:edit`, and `deployment:operate`.
 - Role `deployment-admin` containing all five deployment permissions.
 - Organization owner/admin roles include every deployment permission through child-resource inheritance.
 - Organization member role includes no deployment permissions for private-by-default behavior.
@@ -338,7 +340,7 @@ The milestone is complete when this flow succeeds against Astro APIs in preview:
 
 1. Sohum creates an organization deployment and receives deployment-admin access.
 2. An organization admin creates a group and adds Sohum, Matt, and Saswat by Astro account-member ID.
-3. The deployment admin assigns `deployment-builder` to the group on that deployment.
+3. The deployment admin assigns `deployment-maintainer` to the group on that deployment.
 4. Each member can view and edit that deployment using their own authenticated session.
 5. The same members cannot access an unassigned deployment unless an inherited organization role allows it.
 6. Removing Matt from the group revokes his group-derived access on the next check while Sohum and Saswat remain allowed.

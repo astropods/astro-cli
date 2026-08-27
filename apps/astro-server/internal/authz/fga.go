@@ -6,9 +6,12 @@ import "context"
 type RoleSlug string
 
 const (
-	RoleDeploymentViewer  RoleSlug = "deployment-viewer"
-	RoleDeploymentBuilder RoleSlug = "deployment-builder"
-	RoleDeploymentAdmin   RoleSlug = "deployment-admin"
+	RoleDeploymentViewer     RoleSlug = "deployment-viewer"
+	RoleDeploymentWriter     RoleSlug = "deployment-writer"
+	RoleDeploymentMaintainer RoleSlug = "deployment-maintainer"
+	RoleDeploymentAdmin      RoleSlug = "deployment-admin"
+
+	roleDeploymentBuilderLegacy RoleSlug = "deployment-builder"
 )
 
 // AssignmentSubjectType identifies who receives a resource-scoped role.

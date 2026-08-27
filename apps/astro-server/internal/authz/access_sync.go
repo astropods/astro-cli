@@ -71,6 +71,28 @@ func NewResourceAccessSyncStore(db *sql.DB) *ResourceAccessSyncStore {
 	return &ResourceAccessSyncStore{db: db}
 }
 
+// MigrateLegacyDeploymentBuilder moves durable intent to the closest
+// least-privileged role in the Viewer/Writer/Maintainer/Admin ladder.
+func (s *ResourceAccessSyncStore) MigrateLegacyDeploymentBuilder(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, errors.New("resource access sync store is not configured")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE resource_access_fga_sync
+		SET desired_role = $1,
+		    desired_version = desired_version + 1,
+		    attempt_count = 0,
+		    last_error = NULL,
+		    next_attempt_at = NOW(),
+		    updated_at = NOW()
+		WHERE resource_type = $2 AND desired_role = $3
+	`, RoleDeploymentMaintainer, ResourceDeployment, roleDeploymentBuilderLegacy)
+	if err != nil {
+		return 0, fmt.Errorf("migrate deployment builder access intents: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 func (s *ResourceAccessSyncStore) Record(ctx context.Context, intent AccessIntent) (AccessIntent, bool, error) {
 	if s == nil || s.db == nil {
 		return AccessIntent{}, false, errors.New("resource access sync store is not configured")

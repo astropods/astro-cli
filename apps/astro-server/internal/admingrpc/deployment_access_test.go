@@ -41,7 +41,7 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 		WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "email"}).
 			AddRow("user-owner", "owner@example.com").
-			AddRow("user-builder", "builder@example.com").
+			AddRow("user-maintainer", "maintainer@example.com").
 			AddRow("user-viewer", "viewer@example.com").
 			AddRow("user-none", "none@example.com"))
 
@@ -49,11 +49,11 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 		"": {
 			Memberships: []org.Membership{
 				{ID: "om-owner", UserID: "user-owner", RoleSlugs: []string{"member", "owner"}, Status: "active"},
-				{ID: "om-builder", UserID: "user-builder", RoleSlugs: []string{"member"}, Status: "active"},
+				{ID: "om-maintainer", UserID: "user-maintainer", RoleSlugs: []string{"member"}, Status: "active"},
 			},
-			NextCursor: "om-builder",
+			NextCursor: "om-maintainer",
 		},
-		"om-builder": {
+		"om-maintainer": {
 			Memberships: []org.Membership{
 				{ID: "om-viewer", UserID: "user-viewer", RoleSlugs: []string{"member"}, Status: "active"},
 				{ID: "om-none", UserID: "user-none", RoleSlugs: []string{"member"}, Status: "active"},
@@ -67,7 +67,7 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 				t.Fatalf("ListRoleAssignments(%q, %+v)", organizationID, got)
 			}
 			return []authz.RoleAssignment{
-				{Subject: authz.MembershipAssignmentSubject("om-builder"), Role: authz.RoleDeploymentBuilder, Source: "group", Resource: resource},
+				{Subject: authz.MembershipAssignmentSubject("om-maintainer"), Role: authz.RoleDeploymentMaintainer, Source: "group", Resource: resource},
 				{Subject: authz.MembershipAssignmentSubject("om-viewer"), Role: authz.RoleDeploymentViewer, Source: "direct", Resource: resource},
 			}, nil
 		},
@@ -77,10 +77,10 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 			}
 			switch action {
 			case authz.ActionDeploymentRead:
-				return []string{"om-owner", "om-builder", "om-viewer"}, nil
-			case authz.ActionDeploymentEdit, authz.ActionDeploymentOperate, authz.ActionDeploymentDelete:
-				return []string{"om-owner", "om-builder"}, nil
-			case authz.ActionDeploymentManageAccess:
+				return []string{"om-owner", "om-maintainer", "om-viewer"}, nil
+			case authz.ActionDeploymentEdit, authz.ActionDeploymentOperate:
+				return []string{"om-owner", "om-maintainer"}, nil
+			case authz.ActionDeploymentDelete, authz.ActionDeploymentManageAccess:
 				return []string{"om-owner"}, nil
 			default:
 				t.Fatalf("unexpected action %q", action)
@@ -98,14 +98,14 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 	if response.Status != "available" || len(response.Members) != 4 {
 		t.Fatalf("GetDeploymentAccess() = %+v", response)
 	}
-	if got := []string{response.Members[0].UserID, response.Members[1].UserID, response.Members[2].UserID, response.Members[3].UserID}; !reflect.DeepEqual(got, []string{"user-owner", "user-builder", "user-viewer", "user-none"}) {
+	if got := []string{response.Members[0].UserID, response.Members[1].UserID, response.Members[2].UserID, response.Members[3].UserID}; !reflect.DeepEqual(got, []string{"user-owner", "user-maintainer", "user-viewer", "user-none"}) {
 		t.Fatalf("member order = %v", got)
 	}
 	if got := response.Members[0].Sources; !reflect.DeepEqual(got, []string{"organization"}) {
 		t.Fatalf("owner sources = %v", got)
 	}
 	if got := response.Members[1].Sources; !reflect.DeepEqual(got, []string{"group"}) {
-		t.Fatalf("builder sources = %v", got)
+		t.Fatalf("maintainer sources = %v", got)
 	}
 	if got := response.Members[2].Sources; !reflect.DeepEqual(got, []string{"direct"}) {
 		t.Fatalf("viewer sources = %v", got)
@@ -113,7 +113,7 @@ func TestGetDeploymentAccessExplainsEffectiveAccess(t *testing.T) {
 	if got := response.Members[3].Permissions; len(got) != 0 {
 		t.Fatalf("unassigned permissions = %v", got)
 	}
-	if got := memberships.after; !reflect.DeepEqual(got, []string{"", "om-builder"}) {
+	if got := memberships.after; !reflect.DeepEqual(got, []string{"", "om-maintainer"}) {
 		t.Fatalf("membership cursors = %v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

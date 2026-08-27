@@ -303,19 +303,14 @@ func accessMemberRank(member *adminv1.AdminDeploymentAccessMember) int {
 		}
 	}
 	for _, role := range member.DeploymentRoles {
-		switch role {
-		case string(authz.RoleDeploymentAdmin):
-			return 2
-		case string(authz.RoleDeploymentBuilder):
-			return 3
-		case string(authz.RoleDeploymentViewer):
-			return 4
+		if rank := deploymentRoleRank(role); rank < 4 {
+			return rank + 2
 		}
 	}
 	if len(member.Permissions) > 0 {
-		return 5
+		return 6
 	}
-	return 6
+	return 7
 }
 
 func memberLabel(member *adminv1.AdminDeploymentAccessMember) string {
@@ -326,15 +321,21 @@ func memberLabel(member *adminv1.AdminDeploymentAccessMember) string {
 }
 
 func deploymentRoleRank(role string) int {
-	switch role {
-	case string(authz.RoleDeploymentAdmin):
+	level, ok := authz.AccessLevelForRole(authz.ResourceDeployment, authz.RoleSlug(role))
+	if !ok {
+		return 4
+	}
+	switch level {
+	case authz.AccessLevelAdmin:
 		return 0
-	case string(authz.RoleDeploymentBuilder):
+	case authz.AccessLevelMaintainer:
 		return 1
-	case string(authz.RoleDeploymentViewer):
+	case authz.AccessLevelWriter:
 		return 2
-	default:
+	case authz.AccessLevelViewer:
 		return 3
+	default:
+		return 4
 	}
 }
 

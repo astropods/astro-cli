@@ -59,7 +59,7 @@ func TestFGACContractAssignmentDiscoveryEnforcementAndRevocation(t *testing.T) {
 	assertContractDecision(t, checker, matt, authz.ActionDeploymentRead, resource, false)
 	assertContractVisibility(t, workos, members, matt, nil)
 
-	group, err := groups.CreateGroup(ctx, contractOrganizationID, "Platform Engineering", "Deployment builders")
+	group, err := groups.CreateGroup(ctx, contractOrganizationID, "Platform Engineering", "Deployment maintainers")
 	if err != nil {
 		t.Fatalf("create group: %v", err)
 	}
@@ -68,12 +68,12 @@ func TestFGACContractAssignmentDiscoveryEnforcementAndRevocation(t *testing.T) {
 			t.Fatalf("add %s to group: %v", membershipID, err)
 		}
 	}
-	groupIntent, changed, err := service.Assign(ctx, resource, authz.AssignmentSubjectGroup, group.ID, authz.AccessLevelBuilder)
+	groupIntent, changed, err := service.Assign(ctx, resource, authz.AssignmentSubjectGroup, group.ID, authz.AccessLevelMaintainer)
 	if err != nil || !changed {
-		t.Fatalf("record group builder intent: changed=%t error=%v", changed, err)
+		t.Fatalf("record group maintainer intent: changed=%t error=%v", changed, err)
 	}
 	if synced, err := reconciler.ReconcileResource(ctx, contractOrganizationID, resource); err != nil || !synced {
-		t.Fatalf("reconcile group builder: synced=%t error=%v", synced, err)
+		t.Fatalf("reconcile group maintainer: synced=%t error=%v", synced, err)
 	}
 	if current, ok := intents.get(groupIntent.Key()); !ok || current.Status() != authz.AccessSyncSynced {
 		t.Fatalf("group intent did not converge: %+v, found=%t", current, ok)
@@ -84,17 +84,17 @@ func TestFGACContractAssignmentDiscoveryEnforcementAndRevocation(t *testing.T) {
 		authz.ActionDeploymentRead,
 		authz.ActionDeploymentEdit,
 		authz.ActionDeploymentOperate,
-		authz.ActionDeploymentDelete,
 	} {
 		assertContractDecision(t, checker, matt, action, resource, true)
 	}
+	assertContractDecision(t, checker, matt, authz.ActionDeploymentDelete, resource, false)
 	assertContractDecision(t, checker, matt, authz.ActionDeploymentManageAccess, resource, false)
 	assignments, recorded, err := service.ListAccess(ctx, resource)
 	if err != nil {
 		t.Fatalf("list effective group access: %v", err)
 	}
-	assertContractDerivedBuilder(t, assignments, "user_matt")
-	assertContractDerivedBuilder(t, assignments, "user_saswat")
+	assertContractDerivedMaintainer(t, assignments, "user_matt")
+	assertContractDerivedMaintainer(t, assignments, "user_saswat")
 	if len(recorded) != 1 || recorded[0].Status() != authz.AccessSyncSynced {
 		t.Fatalf("access intents = %+v, want one synced group intent", recorded)
 	}
@@ -170,14 +170,14 @@ func assertContractVisibility(
 	}
 }
 
-func assertContractDerivedBuilder(t *testing.T, assignments []authz.AccessAssignment, userID string) {
+func assertContractDerivedMaintainer(t *testing.T, assignments []authz.AccessAssignment, userID string) {
 	t.Helper()
 	for _, assignment := range assignments {
-		if assignment.UserID == userID && assignment.Level == authz.AccessLevelBuilder && assignment.Source == authz.AssignmentSourceGroup {
+		if assignment.UserID == userID && assignment.Level == authz.AccessLevelMaintainer && assignment.Source == authz.AssignmentSourceGroup {
 			return
 		}
 	}
-	t.Fatalf("missing group-derived builder assignment for %s: %+v", userID, assignments)
+	t.Fatalf("missing group-derived maintainer assignment for %s: %+v", userID, assignments)
 }
 
 type contractDecisionLogger struct{}
