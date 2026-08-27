@@ -1,6 +1,5 @@
 # scripts/
 
-- [local-dev.sh](#local-devsh)
 - [e2e.sh](#e2esh)
 - [smoke-test.sh](#smoke-testsh)
 - [update-submodules.sh](#update-submodulessh)
@@ -8,21 +7,6 @@
 - [release.ts](#releasets)
 - [agent-k8sfwd.sh](#agent-k8sfwdsh)
 - [merge-svg-pixels.ts](#merge-svg-pixelsts)
-
-## local-dev.sh
-
-Starts astro-server and astro-client behind Traefik, and builds the `ast-dev` CLI. Ctrl-C stops everything and tears down Docker.
-
-```bash
-bash scripts/local-dev.sh
-```
-
-- `http://localhost` — astro-client
-- `http://localhost/api` — astro-server
-- `http://localhost:8090` — Traefik dashboard
-- `modules/astro-cli/bin/ast-dev` — local CLI (built pointed at `http://localhost`)
-
-Requires Docker and Moon to be running.
 
 ## e2e.sh
 
@@ -42,7 +26,7 @@ Requires: `docker`, `kubectl`, `go`. Installs `kind` and `vcluster` via Homebrew
 Runs the Playwright smoke test suite against a live environment. Defaults to `ASTRO_ENV=dev` (local dev server at `http://localhost`).
 
 ```bash
-# Against local dev server (requires local-dev.sh running)
+# Against local dev server (requires the server, client, and Traefik running)
 ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke
 
 # Against prod

@@ -11,7 +11,7 @@ bun install
 bun run dev          # or: moon run astro-client:dev
 ```
 
-The app is available at `http://localhost:5173` and talks to the backend at `VITE_API_URL` (default `http://localhost:8080`). To bring up the whole stack (client + server + Traefik) behind `http://localhost`, use the repo-root `./scripts/local-dev.sh` (see the [repo README](../../README.md)).
+The app is available at `http://localhost:5173` and talks to the backend at `VITE_API_URL` (default `http://localhost:8080`). To bring up the whole stack (client + server + Traefik) behind `http://localhost`, see the [repo README](../../README.md).
 
 ## API Communication
 

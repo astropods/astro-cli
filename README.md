@@ -6,7 +6,7 @@ A platform for deploying and running AI agents. Includes the `ast` CLI, agent ru
 
 - **Bun** — JavaScript runtime
 - **Go** 1.25+ - for building the CLI and Go services
-- **Docker** - for `local-dev.sh` and `ast dev`
+- **Docker** - for Traefik, schema migrations, and `ast dev`
 
 ### Install Bun
 
@@ -72,26 +72,9 @@ The pre-commit hook runs `gofmt` on staged Go files.
 
 ## Astro AI Service Development
 
-There are two ways to run the platform locally. Both need `apps/astro-server/.env` (copy `apps/astro-server/.env.example` and set `DATABASE_URL` to your dev database - it's remote, nothing local starts Postgres; add stage WorkOS credentials for login, see the [astro-server README](apps/astro-server/README.md)) and a running Docker.
+Running the platform locally needs `apps/astro-server/.env` (copy `apps/astro-server/.env.example` and set `DATABASE_URL` to your dev database - it's remote, nothing local starts Postgres; add stage WorkOS credentials for login, see the [astro-server README](apps/astro-server/README.md)) and a running Docker.
 
-### Option A: one command, behind Traefik
-
-```bash
-./scripts/local-dev.sh
-```
-
-Starts Traefik, astro-server, and astro-client, and builds the `ast-dev` CLI, then fronts everything on a single origin at **http://localhost** (`/api` routes to the server, everything else to the client). This mirrors production most closely. `Ctrl+C` stops all services and tears down Traefik.
-
-| Endpoint | Service |
-|---|---|
-| http://localhost | astro-client |
-| http://localhost/api | astro-server |
-| http://localhost:8090/dashboard/ | Traefik dashboard |
-| `modules/astro-cli/bin/ast-dev` | local CLI |
-
-### Option B: each service separately, no Traefik
-
-Run each service in its own terminal - simpler, with no Traefik front, but the client and server sit on different ports:
+Run each service in its own terminal:
 
 ```bash
 moon run astro-server:dev   # applies schema + River migrations, hot-reloads on http://localhost:8080
@@ -99,6 +82,15 @@ moon run astro-client:dev   # http://localhost:5173
 ```
 
 The client talks to the backend at `VITE_API_URL` (default `http://localhost:8080`); its Vite dev server proxies `/api`, `/auth`, `/download`, `/install`, and `/webhooks` there, so the browser stays same-origin at `:5173`. Override `VITE_API_URL` in `apps/astro-client/.env`. Build the CLI with `moon run astro-cli:link` (it targets `:8080`).
+
+To put both services behind a single origin at **http://localhost**, as production does, start Traefik alongside them:
+
+```bash
+docker compose -f docker-compose.local.yml up -d    # http://localhost, dashboard on :8090
+docker compose -f docker-compose.local.yml down
+```
+
+Traefik routes `/api` to the server and everything else to the client. Nothing else needs it, so start it only when you want the single-origin setup or are running smoke tests.
 
 ## Astro Agent Local Development
 
@@ -144,10 +136,10 @@ Smoke tests use a WorkOS test account whose credentials are passed as environmen
 
 ### Running
 
-Run via the Moon target (`scripts/smoke-test.sh`). It defaults to `ASTRO_ENV=dev` (local dev server at `http://localhost`, so `local-dev.sh` must be running):
+Run via the Moon target (`scripts/smoke-test.sh`). It defaults to `ASTRO_ENV=dev`, which targets `http://localhost`, so both services and Traefik must be running:
 
 ```bash
-# Against the local dev server (local-dev.sh running)
+# Against the local dev server (server, client, and Traefik running)
 ASTRO_TEST_EMAIL=... ASTRO_TEST_PASSWORD=... ASTRO_TEST_USERNAME=... moon run tests:smoke
 
 # Against prod
