@@ -506,7 +506,7 @@ func (c *Controller) driveLifecycle(dep *deploymentstore.Deployment, observed []
 			return fmt.Errorf("mark failed: %w", err)
 		}
 		if applied {
-			c.log.Info("deploycontroller: deployment failed", "deployment_id", dep.ID, "reason", reason)
+			c.log.Info("deploycontroller: deployment failed", "deployment_id", dep.ID, "reason", reason, "detail", msg)
 		}
 
 	case phase == deploymentstore.WorkloadPhaseReady &&
