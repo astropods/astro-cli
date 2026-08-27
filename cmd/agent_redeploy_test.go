@@ -229,25 +229,6 @@ func TestRunAgentRedeployPassesDeploymentID(t *testing.T) {
 	assert.Equal(t, "dep-xyz", captured.DeploymentID)
 }
 
-func TestRunAgentRedeployDefaultsToWebOIDC(t *testing.T) {
-	deployments := []agentDeployment{
-		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
-	}
-	var captured deployTemplateRequest
-	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
-
-	buf := &bytes.Buffer{}
-	agentRedeployCmd.SetOut(buf)
-	agentRedeployCmd.SetContext(context.Background())
-
-	setAgentTargetName(t, agentRedeployCmd, "my-agent")
-	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
-	require.NotNil(t, captured.Interfaces)
-	assert.Equal(t, []string{"web"}, captured.Interfaces.Adapters)
-	require.NotNil(t, captured.Interfaces.Auth)
-	assert.Equal(t, "oidc", captured.Interfaces.Auth.Web.Type)
-}
-
 func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	deployments := []agentDeployment{
 		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
@@ -266,6 +247,30 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	require.NotNil(t, captured.Interfaces)
 	assert.Equal(t, []string{"slack"}, captured.Interfaces.Adapters)
 	assert.Nil(t, captured.Interfaces.Auth, "slack adapter should have no auth")
+}
+
+func TestRunAgentRedeployWithoutAdapterPreservesStoredAdapters(t *testing.T) {
+	// REGRESSION: a flagless redeploy used to send {Adapters: ["web"]}, which the
+	// server applies over the stored set (internal/deployment/template.go), so it
+	// silently removed a Slack-facing agent's slack adapter. The pod stayed
+	// healthy and Slack reported "This agent is unavailable". Omitting --adapter
+	// must send nil Interfaces so the server leaves stored adapters alone.
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
+
+	// deliberately no setRedeployFlag(t, "adapter", ...)
+
+	buf := &bytes.Buffer{}
+	agentRedeployCmd.SetOut(buf)
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Nil(t, captured.Interfaces,
+		"a redeploy without --adapter must not send an interfaces block; sending one resets stored adapters to web")
 }
 
 func TestRunAgentRedeployPassesCluster(t *testing.T) {
@@ -318,4 +323,46 @@ func TestRunAgentRedeployInvalidAdapterBeforeAPICall(t *testing.T) {
 	err := runAgentRedeploy(agentRedeployCmd, nil)
 	require.ErrorContains(t, err, "unknown adapter")
 	assert.False(t, apiCalled, "API should not be called when adapter is invalid")
+}
+
+func TestRunAgentRedeployGrantWithoutAdapterIsRejected(t *testing.T) {
+	apiCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		http.NotFound(w, r)
+	})
+	setupAgentRedeployTest(t, handler)
+
+	setRedeployFlag(t, "grant", "web:anyone")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	err := runAgentRedeploy(agentRedeployCmd, nil)
+	require.ErrorContains(t, err, "--grant needs --adapter")
+	assert.False(t, apiCalled,
+		"grants ride in the interfaces block, which resets stored adapters, so refuse before calling the API")
+}
+
+func TestRunAgentRedeployGrantWithAdapterReachesTheWire(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
+
+	setRedeployFlag(t, "adapter", "web")
+	setRedeployFlag(t, "grant", "web:anyone")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	require.NotNil(t, captured.Interfaces)
+	require.NotNil(t, captured.Interfaces.Auth)
+	require.NotNil(t, captured.Interfaces.Auth.Web)
+	require.Len(t, captured.Interfaces.Auth.Web.Grants, 1)
+	assert.True(t, captured.Interfaces.Auth.Web.Grants[0].Anyone)
 }

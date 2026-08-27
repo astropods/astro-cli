@@ -520,7 +520,7 @@ func TestRegisterAgent_UsesFreshAccountToken(t *testing.T) {
 					AccountID:   "acct-org",
 				},
 				Accounts: []auth.StoredAccount{
-					{ID: "acct-org", Name: "my-org", Type: "organization", WorkOSOrganizationID: "org_workos_123"},
+					{ID: "acct-org", Name: "my-org", Type: "organization", OrganizationID: "org_workos_123"},
 				},
 			},
 		},
@@ -852,7 +852,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 				},
 				Accounts: []auth.StoredAccount{
 					{ID: "acct-1", Name: "personal", Type: "personal"},
-					{ID: "acct-2", Name: "my-org", Type: "organization", WorkOSOrganizationID: "org_workos_123"},
+					{ID: "acct-2", Name: "my-org", Type: "organization", OrganizationID: "org_workos_123"},
 				},
 			},
 		},
