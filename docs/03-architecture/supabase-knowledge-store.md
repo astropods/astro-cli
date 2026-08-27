@@ -1,5 +1,8 @@
 # Supabase Knowledge Store — Architecture
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 This document explains how the Supabase knowledge-store integration works end to
 end: the "Supabase is really Postgres" design decision, the WorkOS Pipes OAuth
 brokering, the server endpoints, and the client UI.
@@ -34,8 +37,12 @@ flowchart LR
     style D fill:#cde,color:#000
 ```
 
-**Trade-off:** after creation a Supabase store is indistinguishable from any
-other Postgres store — there is no per-store "Supabase" badge. The OAuth
+**Trade-off:** the `knowledge_stores` row itself is a plain `provider =
+'postgres'` row with no schema-level Supabase marker — the distinction lives
+entirely in `annotations.source == "supabase"`. The client's detail page reads
+that annotation to show a Supabase project badge, live project health, name,
+and region (`KnowledgeStoreDetail/OverviewTab.tsx`); nothing server-side
+outside that annotation treats the store as anything but Postgres. The OAuth
 connection is per-**account/user**, not per-store.
 
 ## 2. OAuth is brokered by WorkOS Pipes

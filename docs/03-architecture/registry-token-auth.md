@@ -1,5 +1,8 @@
 # Registry Token Authentication
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 How `astro-registry` authenticates Docker push/pull operations using the
 Docker Registry v2 token-auth flow, decoupling registry-scope tokens from
 WorkOS access-token TTL.

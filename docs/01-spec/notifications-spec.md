@@ -198,7 +198,7 @@ It is a **lightweight in-process evaluator**, not an embed of `prometheus/promet
 | `latency_high` *(Langfuse, unshipped)* | p95 over threshold, sustained | warning → `observation.warning` |
 | `storage_near_full` *(sidecar, unshipped)* | disk > 85% / 95% | warning → `observation.warning` |
 
-Audience `members`; per-user opt-out applies. All three observation workflows deliver **in-app by default with email off** (opt-in per user), since these can be higher-volume than discrete events. Resolve notifications are in-app only. The eight VM/Prom conditions are implemented; the Langfuse and sidecar rows await their engine/source.
+Audience is resolved against `internal/watcher`, not the `members` policy above: a user is implicitly a watcher of a deployment once they take any `deployment.*` action on it (an audit-log-backed enrollment), falling back to `managers`→`owner` if nobody has. See [`03-architecture/observation-alerts.md`](../03-architecture/observation-alerts.md) for the as-built evaluator this section originally specified, including the daily-cap ledger and admin-mute mechanism added since this spec was written. Per-user opt-out applies. All three observation workflows deliver **in-app by default with email off** (opt-in per user), since these can be higher-volume than discrete events. Resolve notifications are in-app only. The eight VM/Prom conditions are implemented; the Langfuse and sidecar rows await their engine/source.
 
 ---
 

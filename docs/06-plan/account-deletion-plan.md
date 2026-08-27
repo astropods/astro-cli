@@ -1,8 +1,14 @@
 # Account Deletion Implementation Plan
 
+> **Shipped.** `DeleteAccount` (`apps/astro-server/handlers/accounts.go`) is
+> implemented per this plan's design (soft-delete, async undeploy, billing
+> archive, audit log, judge-key revocation) — see
+> [`../changelog/admin-delete-account-2026-08-24.md`](../changelog/admin-delete-account-2026-08-24.md).
+> Kept here as the original plan, not as current documentation.
+
 ## Context
 
-The `DELETE /api/v1/accounts/:account` endpoint currently returns 501 Not Implemented. The frontend (`DeleteAccountDialog`) already has the full UI flow — confirmation dialog, mutation hook, logout on success. We need to implement the backend handler and add safety filters to prevent deleted accounts from being accessible.
+The `DELETE /api/v1/accounts/:account` endpoint used to return 501 Not Implemented. The frontend (`DeleteAccountDialog`) already had the full UI flow — confirmation dialog, mutation hook, logout on success. This plan covers implementing the backend handler and adding safety filters to prevent deleted accounts from being accessible.
 
 ## Approach: Synchronous soft-delete + async deployment teardown
 

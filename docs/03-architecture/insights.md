@@ -1,11 +1,11 @@
 # Insights
 
 **Status:** Authoritative — describes the shipped system
-**Last verified:** 2026-08-17
+**Last verified:** 2026-08-26
 
 The account **Insights** page answers one question: *where is this account's AI spend going, by agent and by person?* It unifies two spend sources, deployed Astro agents and local AI coding tools, into a single server-owned view model.
 
-This document is the source of truth for how Insights fits together. The design behind the fact table is specified in [insights-rollup-spec.md](../01-spec/insights-rollup-spec.md), and the ingest side that feeds it in [claude-code-observability-spec.md](../01-spec/claude-code-observability-spec.md) and [devtool-prompt-collection-spec.md](../01-spec/devtool-prompt-collection-spec.md).
+This document is the source of truth for how Insights fits together. The design behind the fact table is specified in [insights-rollup-spec.md](../01-spec/insights-rollup-spec.md), the ingest side that feeds it in [claude-code-observability-spec.md](../01-spec/claude-code-observability-spec.md) and [devtool-prompt-collection-spec.md](../01-spec/devtool-prompt-collection-spec.md), and the Claude Code prompt-classification detail page in [claude-code-classification-insights-spec.md](../01-spec/claude-code-classification-insights-spec.md).
 
 ---
 
@@ -207,7 +207,7 @@ Adding a tool is one entry. The rest falls out, because dev-tool spend is rolled
 
 Dev-tool facts carry no deployment id, so the read path gives each source one synthetic entry keyed by the source. Agent usage that never reported which agent produced it gets the same treatment under a single `Unattributed usage` row: dropping it would understate account spend, and a row makes the gap visible.
 
-`requests` is zero on dev-tool rows because no such measure is reported. That zero is real data, which is why every per-request denominator is guarded.
+`requests` on dev-tool rows is a real trace count, not always zero: `fetchDevtoolUsage` (`handlers/devtool_langfuse.go`) queries Langfuse's `traces` view for a `count` measure alongside cost/tokens, and `devtoolFactsFor` (`handlers/insights_rollup_producer.go`) writes it into `Fact.Requests` for both per-member and system-remainder rows. Every per-request denominator is still guarded, because a dev-tool source predating this count, or one Langfuse can't report it for, legitimately has none.
 
 ### People roll-up and identity
 
@@ -218,6 +218,69 @@ Dev-tool traces carry `user.email`. The roll-up resolves it through `member_emai
 ### The Sources filter
 
 `hide_sources` is a comma-separated list of source keys plus the `agents` pseudo-source; absent means all on. It is applied once, as a `WHERE` clause on every fact query, so a hidden source is absent from every surface at the same time. `devtool_sources` always lists every *present* source regardless of selection, or a hidden source could never be switched back on.
+
+---
+
+## Claude Code prompt classification
+
+Insights shows Claude Code *spend* with no indication of what it was for. Clicking the Claude Code row opens a source detail page (`GET /api/v1/accounts/:account/insights/sources/:source`) that classifies the account's Claude Code prompts and shows the breakdown, gated behind the `PromptClassificationStats` experiment flag (a disabled account gets a 404, not a 403, so the page's existence is not advertised). Design intent is in [claude-code-classification-insights-spec.md](../01-spec/claude-code-classification-insights-spec.md); this section covers what actually shipped.
+
+**This pipeline is Claude-Code-specific, not a generic dev-tool classifier.** Unlike the spend roll-up above, where adding a tool is one `devtoolAdapters` entry, classification hardcodes the Claude Code trace name (`claude_code.interaction`, filtered out of the `tool_result`/`assistant_response`/`user_prompt` records the same `claude-code` tag also matches) and Claude-Code-specific label sets. A second dev tool would need its own trace filter and label sets, not just a registry entry.
+
+Two axes ship: **purpose** (work / personal / ambiguous) and **topic** (15 categories, `internal/workclassifier.Labels`). A third axis, **task**, exists in `classification.Axis` but is never sent to inference (`workclassifier.Axes` only lists purpose and topic) — deferred pending session-grouping work the spec describes.
+
+### Pipeline
+
+A day's prompts are grouped by `trace.sessionId` into conversations (a prompt with no session id becomes a conversation of one), joined oldest-first, and classified as one text per axis — matching how the ModernBERT heads were trained. The verdict is then written per prompt, not per conversation, because cost is apportioned by row count.
+
+```mermaid
+flowchart TD
+  P["River periodic tick, every 1h"] --> D["ClassificationDiscoveryWorker"]
+  D --> L["langfuseStore.ListAccountIDs"]
+  L --> F{"per account"}
+  F -->|"Insert with UniqueOpts"| A["ClassificationAccountWorker<br/>-> ClassifyAccount"]
+
+  A --> PLAN["planDays: forward edge from the watermark,<br/>then backfill toward the 400-day floor"]
+  PLAN --> RD{"per day, tick-budget limited"}
+  RD --> FT["Langfuse: claude_code.interaction traces for the day"]
+  FT --> GC["group into conversations by session.id"]
+  GC --> CL["Classify(purpose), Classify(topic)<br/>skips units already at the current model_version"]
+  CL --> SV["SaveResults: upsert trace_classifications"]
+  SV --> AG["aggregateDay: CountsForDay + Langfuse spend<br/>-> ReplaceDayAggregates"]
+  AG --> WM["narrow cursors to the ground actually covered<br/>SetCursors / SetCursorsPartial"]
+```
+
+`apps/astro-server/internal/riverqueue/classification.go` owns the workers, `handlers/classification_producer.go` owns the upstream reads and day planning, `internal/classification` owns the store.
+
+| Constant | Value | Rationale |
+|---|---|---|
+| `ClassificationInterval` | 1h | Labels feed daily aggregates; they don't need to be fresher than that. |
+| `classificationMaxWorkers` (queue `classification`) | 2 | Caps concurrent account backfills so they can't stampede the inference services. |
+| `maxDaysPerTick` / `maxTracesPerTick` | 7 / 20,000 | Per-tick budget so one account's backfill can't monopolize the shared pool. |
+| `workclassifier.maxBatch` | 64 | Empirically the batch size a call completes in ~11s instead of timing out; a single call scales with its own token count. |
+| `backfillFloorDays` | 400 | Bounds the backward walk. Deeper than the 90-day window the page shows, because labelled prompts also feed offline work-classifier retraining. |
+
+A day whose plan gets only partly covered (a failed fetch, or the tick budget running out) is not advanced past: the forward cursor and backfill cursor each narrow to the last day that actually completed, so a stuck day retries next tick without stalling the days around it. Three or more consecutive failures arm an exponential backoff, capped at 24h, so a broken account's Langfuse credentials don't get re-tried every tick.
+
+### Storage
+
+Three tables. `classification_state` holds the per-account watermark (`classified_through` forward edge, `backfilled_from` and `backfill_complete` for the backward edge, plus `last_error`/`consecutive_errors` for the backoff) — the same watermark shape as `insightsrollup`'s state row.
+
+`trace_classifications` holds one row per prompt per axis, upserted on conflict at `(account_id, unit_kind, unit_id, axis, model_version)`. **This is a real deviation from the spec**: the spec's storage section describes `model_version` sitting outside the key so a retrain overwrites the old label; what shipped instead keys the upsert *on* `model_version`; a retrain writes a new row per generation rather than overwriting, and `ClassifiedAxes` (which checks `model_version = $current`) treats an older-generation row as unclassified and reclassifies it. That fits the spec's own "Backfill depth" rationale better than the spec's storage section does — the table is a training corpus, so keeping every generation is the useful behavior — but a future cleanup expecting one row per prompt will find one row per (prompt, model generation) instead.
+
+`insights_classification_daily` holds the precomputed aggregate per `(account, day, source, axis, label, actor)`, replaced wholesale per day (`ReplaceDayAggregates`) rather than merged, which is what makes reruns and the trailing-day re-classify idempotent. It shares `insights_usage_daily`'s actor key space (`ActorKindMember` is imported straight from `internal/insightsrollup`), so a classification row's `member:<user_id>` actor key is the same key a rollup fact for that person carries — the two fact tables join without a translation step, though nothing currently queries them together.
+
+### Cost attribution
+
+Cost is read from Langfuse via the same `fetchDevtoolUsage` helper the main Insights roll-up calls, then partitioned per user per day by that user's share of labelled prompts: `cost(user, day, label) = spend(user, day) × prompt_share`. Because both paths call the same helper, a source page's segments always sum to the number the main Insights page reports for that account. The tradeoff: every prompt in a user's day is priced as equally expensive, which token-count variance makes an approximation — segment splits are approximate even though totals are exact. A day whose spend lookup fails is skipped entirely rather than written with zero cost, since `ReplaceDayAggregates` is a full replace and a backfilled day is never revisited.
+
+### Per-developer breakdown and visibility
+
+The detail page follows the same visibility rule as the main Insights page: an account admin (`org:manage`) sees every developer's rows, everyone else sees only their own, enforced as a `WHERE` clause so restricted rows never leave Postgres. A restricted viewer whose Claude Code address doesn't resolve to any account member is reported as its own state (`ViewerUnresolved`), distinct from "you have no prompts" — the `source` distinguisher on `otel_ingest_tokens`/`account_member_emails` needed for direct-add attribution is unimplemented, so this is the common case for a non-admin today.
+
+`Coverage` on the response is a first-class signal, not inferred from empty rows: `BackfillComplete`, `ClassifiedFrom`/`ClassifiedThrough`, `ContentAvailable` (any classified rows at all, ignoring viewer scope), and `CostUnavailable` (traces exist but none priced). These map to different reader-facing states — content collection off in the account's Claude Code console, versus a model that isn't priced in Langfuse — that a single empty state would conflate.
+
+Topic's 15 labels are folded server-side to the top 8 by cost plus one `Aggregated` remainder label, so the chart and the per-developer table can't disagree about which segments exist.
 
 ---
 
@@ -326,6 +389,11 @@ Other client-side conventions:
 | Roll-up producer (upstream reads) | `apps/astro-server/handlers/insights_rollup_producer.go` |
 | Fact store, queries, schedule | `apps/astro-server/internal/insightsrollup/` |
 | Roll-up workers | `apps/astro-server/internal/riverqueue/insights_rollup.go` |
+| Claude Code classification endpoint, view model | `apps/astro-server/handlers/insights_source.go` |
+| Classification upstream reads, day planning | `apps/astro-server/handlers/classification_producer.go` |
+| Classification store (`trace_classifications`, `insights_classification_daily`, watermark) | `apps/astro-server/internal/classification/` |
+| Foundry work-classifier HTTP client | `apps/astro-server/internal/workclassifier/` |
+| Classification workers | `apps/astro-server/internal/riverqueue/classification.go` |
 | Langfuse `Compute*` fan-outs (other observability endpoints) | `apps/astro-server/handlers/observability_langfuse.go` |
 | Route registration | `apps/astro-server/main.go` |
 | Page | `apps/astro-client/src/pages/Insights.tsx` |

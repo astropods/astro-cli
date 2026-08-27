@@ -180,7 +180,15 @@ resource "aws_security_group" "knowledge_privatelink" {
 }
 ```
 
-No ingress or egress rules. Rules are added/removed at runtime by astro-server per endpoint.
+No ingress or egress rules at Terraform-apply time. **Not yet built**: the
+runtime, per-endpoint egress-rule automation this phase called for
+(`AuthorizeSecurityGroupEgress`/`RevokeSecurityGroupEgress` calls scoped to
+one store's endpoint) doesn't exist in code today. The SG's actual behavior
+is whatever broad rule it currently carries, and `config.go`'s own comment on
+`PRIVATELINK_SG_ID` says fine-grained access was meant to come from a
+per-namespace K8s `NetworkPolicy` instead — that NetworkPolicy also doesn't
+exist. Don't rely on this section for the real blast radius; it describes the
+intended design, not what runs.
 
 **2. IRSA policy** — extends the existing astro-server service account role:
 

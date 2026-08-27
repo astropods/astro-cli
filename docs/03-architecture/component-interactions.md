@@ -1,5 +1,8 @@
 # Astro Component Architecture
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 This document describes the architecture and interactions between the three core Astro components: **astro-cli**, **astro-registry**, and **astro-server**.
 
 > **Note:** Registry namespaces are **account names** (the active account, set via `ast account switch`), not per-user `user_id`s. The registry resolves a namespace to an account, authorizes by **membership** (plus `agents:read` / `agents:write` for org accounts), and rewrites to the ECR repository `{env}-tenant-{account_id}`. The `user123` in the diagrams below is an illustrative account name.
@@ -128,15 +131,16 @@ Both components validate WorkOS JWTs using JWKS:
 ```
 Developer runs: ast push <name>
 
-1. CLI: Load and parse astropods.yml
-2. CLI: Build images locally (docker build)
-3. CLI: Tag images under the active-account namespace
-   └─ registry.example.com/{account}/{agent_name}:{tag}
+1. CLI: Parse astropods.yml and collect its components
+2. CLI: Resolve visibility (prompts before any expensive work)
+3. CLI: Build images locally (docker build), tagged under the active-account
+   namespace: registry.example.com/{account}/{agent_name}:{build_id}
 4. CLI: Push images via crane
    └─ Registry authorizes by account membership, adds the {env}-tenant-{account} prefix, proxies to ECR
-5. CLI: Transform spec (build: → image:)
-6. CLI: POST /api/v1/agents/{account}/{name}/register to server
-   └─ Server stores spec in agent index
+5. CLI: Transform spec (build: → image:) and strip secret defaults
+6. CLI: Load AGENT.md and upload its referenced images to the assets CDN
+7. CLI: POST /api/v1/agents/{account}/{name}/register to server
+   └─ Server stores the spec and readme in the agent index, keyed on build_id
 ```
 
 ## ECR Tenant Namespace Mapping
@@ -193,23 +197,29 @@ The registry has no `/api/namespace`. The push namespace is the active account (
 
 ### Server: Register Agent
 
+The request carries a CLI-generated `build_id`, not a semver version; the server
+keys published builds on it (`latest_build_id`), not on a version string.
+
 ```
 POST /api/v1/agents/{account}/{name}/register
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "name": "my-agent",
-  "version": "1.0.0",
+  "build_id": "<CLI-generated build id>",
   "registry": "registry.example.com/{account}",
-  "spec_content": "<YAML with image refs>"
+  "spec_content": "<YAML with image refs>",
+  "readme": "<AGENT.md contents, optional>",
+  "readme_assets": {"<local image path>": "<CDN URL>"},
+  "visibility": "public"
 }
 
 Response 201:
 {
   "message": "Agent registered successfully",
+  "account": "{account}",
   "name": "my-agent",
-  "version": "1.0.0"
+  "build_id": "<build id>"
 }
 ```
 
@@ -218,25 +228,16 @@ Response 201:
 ```
 POST /api/v1/deploy
 Authorization: Bearer <token>
-Content-Type: application/json
+Content-Type: application/json (or application/yaml)
 
-{
-  "name": "my-agent",
-  "version": "1.0.0",
-  "k8s_namespace": "astro-agents",
-  "user_credentials": {
-    "OPENAI_API_KEY": "sk-..."
-  }
-}
-
-Response 200:
-{
-  "status": "success",
-  "deployed_at": "2026-02-02T10:35:00Z",
-  "resources": [...],
-  "service_endpoints": [...]
-}
+<a fulfilled deployment/v1 spec>
 ```
+
+The body is a complete `deployment/v1` document (images, ports, variables,
+component wiring), not a small name/version/credentials payload. See
+[`../00-RFC/RFC-2-deployment-spec.md`](../00-RFC/RFC-2-deployment-spec.md) for
+the spec format and [`deployment-state-machine.md`](deployment-state-machine.md)
+for how the server translates it into Kubernetes manifests and deploys it.
 
 ## Image Naming Convention
 

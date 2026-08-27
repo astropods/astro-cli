@@ -1,5 +1,10 @@
 # Running Astro Agents on AWS Bedrock AgentCore
 
+**Status:** Under evaluation, not a decided direction. No AgentCore
+integration code exists. Moved here from `03-architecture` because that
+folder is for how a system actually works today, not a third-party option
+still being scoped.
+
 Integration notes, questions, and AWS's answers — shared with the AWS Bedrock AgentCore team.
 
 Astro is a platform for deploying and running AI agents. Users package an agent as a container, and we run it alongside managed models, knowledge / vector stores, tool integrations, messaging, identity, and observability. Today agents run as containers on Amazon EKS. We are evaluating **AgentCore Runtime as an alternative place to run the agent's container**, keeping the rest of the platform as-is. This note describes how we'd integrate it and the questions we'd like AWS's input on. Where we state how AgentCore behaves, it's our current understanding — please correct anything wrong.

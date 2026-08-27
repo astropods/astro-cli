@@ -1,5 +1,8 @@
 # GitHub Connection Architecture
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 Automated builds from GitHub: when a user pushes to a linked repo, Astro
 fetches the code, builds a container image with BuildKit inside Kubernetes,
 pushes it to ECR, and registers the new agent version — all without the CLI.

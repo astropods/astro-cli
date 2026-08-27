@@ -3,7 +3,7 @@ name: astro-audit-cli-docs
 description: >-
   Audit the ast CLI's actual --help output against the public CLI reference
   (docs-public/fern/docs/pages/cli-reference.mdx) and the internal spec
-  (docs/02-cli/cli-command-tree.md). Finds commands or flags in the CLI but
+  (docs/01-spec/cli-command-tree.md). Finds commands or flags in the CLI but
   missing from the docs, docs describing commands/flags no longer in the CLI,
   and drift between the internal spec and the public reference. Use when the
   user asks to audit CLI docs, check what CLI commands/flags aren't documented,
@@ -17,9 +17,9 @@ Compare three sources and surface gaps in every direction:
 
 1. **CLI truth** — recursive `--help` from the `ast` binary.
 2. **Public reference** — `docs-public/fern/docs/pages/cli-reference.mdx`.
-3. **Internal spec** — `docs/02-cli/cli-command-tree.md`.
+3. **Internal spec** — `docs/01-spec/cli-command-tree.md`.
 
-`apps/astro-cli/CLAUDE.md` requires that command changes update the internal
+`modules/astro-cli/CLAUDE.md` requires that command changes update the internal
 spec *and* the public reference in the same PR, so drift between (2) and (3) is
 itself a finding.
 
@@ -30,11 +30,11 @@ The public reference documents the **prod `ast`** surface, so audit the
 must not be documented:
 
 ```bash
-moon run astro-cli:build-preview   # → apps/astro-cli/bin/ast-preview
-BIN=apps/astro-cli/bin/ast-preview
+moon run astro-cli:build-preview   # → modules/astro-cli/bin/ast-preview
+BIN=modules/astro-cli/bin/ast-preview
 ```
 
-Fallbacks: the released `ast` on `PATH`, or `apps/astro-cli/bin/ast-preview` if
+Fallbacks: the released `ast` on `PATH`, or `modules/astro-cli/bin/ast-preview` if
 already built. Note the binary and version you audited (`"$BIN" --version`).
 
 If only the **dev** binary (`ast-dev`) is available, you must still exclude
@@ -43,7 +43,7 @@ dev-only commands or the audit over-reports. Dev-only commands are gated by
 findings:
 
 ```bash
-grep -rln "BuildTypeDev" apps/astro-cli/cmd/   # e.g. account.go → `account token`
+grep -rln "BuildTypeDev" modules/astro-cli/cmd/   # e.g. account.go → `account token`
 ```
 
 The binary prints its own name (`ast-preview`/`ast-dev`); the docs use `ast` —
@@ -90,11 +90,11 @@ grep -oE '\-\-[a-z][a-z-]*' "$REF" | sort -u     # documented flags
 A header may pack several commands: `### agent pause / resume`, `### settings
 bash / zsh / fish / powershell`. Split on ` / ` and prefix with the parent noun.
 
-**Internal spec** — `docs/02-cli/cli-command-tree.md` lists commands in table
+**Internal spec** — `docs/01-spec/cli-command-tree.md` lists commands in table
 rows (`` | `blueprint push <name>` | … | ``) and flag notes in prose:
 
 ```bash
-TREE=docs/02-cli/cli-command-tree.md
+TREE=docs/01-spec/cli-command-tree.md
 grep -oE '`[a-z]+ [a-z][a-z <>|._-]*`' "$TREE" | tr -d '`' | sort -u
 ```
 
@@ -105,10 +105,10 @@ prod `ast` surface — these are intentionally undocumented, not gaps):
 - `ast knowledge` and all its subcommands.
 - Top-level aliases (`build`/`create`/`deploy`/`push`) — covered if the
   underlying `blueprint …` command is documented.
-- **Cobra-hidden** commands (`grep 'Hidden: true' apps/astro-cli/cmd/`:
+- **Cobra-hidden** commands (`grep 'Hidden: true' modules/astro-cli/cmd/`:
   `configure`, `blueprint create`, `spec explain`, `spec repair`, `chatui-serve`,
   `connect`).
-- **Dev-only** commands (`grep 'BuildTypeDev' apps/astro-cli/cmd/`: `account
+- **Dev-only** commands (`grep 'BuildTypeDev' modules/astro-cli/cmd/`: `account
   token`) — absent from the prod build.
 
 - **A. Commands in CLI but not in the public reference.** For each leaf command
@@ -138,7 +138,7 @@ must be checked per command; coverage on one command doesn't imply another.
 ## Audited
 - Binary: <ast-dev|ast> <version>
 - Public reference: docs-public/fern/docs/pages/cli-reference.mdx
-- Internal spec: docs/02-cli/cli-command-tree.md
+- Internal spec: docs/01-spec/cli-command-tree.md
 
 ## Summary
 - CLI commands (leaf): N · documented: M · gaps: Q

@@ -1,5 +1,19 @@
 # Deployment Template — Knowledge Store Bindings
 
+> **Stale in several places — verify against code before relying on this
+> doc.** Confirmed wrong as of this pass: there is no `knlg0-*` K8s DNS
+> namespace anywhere in the codebase. A bound entry's host resolves via
+> `boundKnowledgeHost` (`internal/deployer/deployer.go`) to either the
+> store's own PrivateLink endpoint DNS or its decrypted `HOST` credential —
+> see [`knowledge-store.md`](knowledge-store.md) for the correct mechanism.
+> The generic top-level `editable` field this doc describes doesn't exist on
+> the real `TemplateResponse` either — see
+> [`deployment-template-post.md`](deployment-template-post.md)'s banner.
+> The binding request/response shape (`bindings.knowledge`, `ResolvedBindings`)
+> and the `knowledge_store_bindings` table are still accurate, field-for-field
+> — the one naming difference is the response struct is `KnowledgeBindingInfo`
+> in code, not `KnowledgeBinding` as below.
+
 Scope: adding knowledge store binding support to the interactive POST template endpoint. Depends on the POST endpoint (deployment-template-post.md) being in place.
 
 ---
@@ -42,7 +56,7 @@ When `bindings.knowledge["db"] = "arn:knowledge:acme:postgres-main"`:
 
 4. **Editable fields** for the bound entry (`knowledge.db.replicas`, `knowledge.db.resources`, `knowledge.db.storage`, etc.) are removed from the `editable` list.
 
-5. **Agent env var references still resolve** — `POSTGRES_HOST = ${knowledge.db.host}` stays in the agent's environment block. At deploy time, the reference resolves to the managed store's service DNS (`{store-id}.knlg0-{account-id}.svc.cluster.local`) instead of a local container service.
+5. **Agent env var references still resolve** — `POSTGRES_HOST = ${knowledge.db.host}` stays in the agent's environment block. At deploy time, the reference resolves via `boundKnowledgeHost` to the store's PrivateLink endpoint DNS if it has one, otherwise its own decrypted `HOST` credential — never a local container service.
 
 6. **Binding metadata is returned** in a new top-level `bindings` field in the response so the client knows what's bound:
 
@@ -236,7 +250,7 @@ The entry only has `binding: "arn:..."`. The resolver follows the ARN to the sto
 
 | Reference | Resolves to | Source |
 |-----------|-------------|--------|
-| `${knowledge.db.host}` | `{store-id}.knlg0-{account-id}.svc.cluster.local` | Store record → service DNS in knowledge namespace |
+| `${knowledge.db.host}` | The store's PrivateLink endpoint DNS, or its own `HOST` credential if it has no PrivateLink endpoint | `boundKnowledgeHost` (`internal/deployer/deployer.go`) — never a K8s service DNS name, since the platform creates no resources for a bound store |
 | `${knowledge.db.http.port}` | `5432` | Store record → provider → provider registry default port |
 
 Credentials resolve via `${}` references the same way host and port do:
@@ -267,7 +281,7 @@ When the deploy handler sees `knowledge.db.binding` is set:
 
 2. **Skips container creation** — no StatefulSet or Service created in the agent namespace for that entry.
 
-3. **Resolves references differently** — `${knowledge.db.host}` resolves to `{store-id}.knlg0-{account-id}.svc.cluster.local` instead of `{agent}-knowledge-db.{agent-ns}.svc.cluster.local`. Port references (`${knowledge.db.http.port}`) resolve from the provider registry as usual.
+3. **Resolves references differently** — `${knowledge.db.host}` resolves via `boundKnowledgeHost` (the store's PrivateLink endpoint DNS, or its own `HOST` credential) instead of `{agent}-knowledge-db.{agent-ns}.svc.cluster.local`. Port references (`${knowledge.db.http.port}`) resolve from the provider registry as usual.
 
 4. **Resolves credentials** — `${knowledge.db.credentials.*}` references resolve from the store's `knowledge_store_credentials` record, same path as host and port resolution.
 

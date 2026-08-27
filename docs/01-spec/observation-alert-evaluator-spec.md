@@ -1,5 +1,7 @@
 # Observation Alert Evaluator Spec
 
+> Superseded by [`03-architecture/observation-alerts.md`](../03-architecture/observation-alerts.md) for as-built behavior. The core algorithm below (sustained-window firing, edge-only emit, per-episode dedup, silent resolve) shipped as designed, but the system has since grown a third severity, a daily send cap, admin mute, and a deployment-watcher-based audience that this spec doesn't reflect — see the architecture doc for current behavior.
+
 > This spec covers the **alerting evaluator** — the continuous producer that detects sustained resource/health problems on running agents and emits notifications. It is the observation half of the notifications system (`notifications-spec.md`); read this for the algorithm, that for the delivery path.
 
 ## Summary

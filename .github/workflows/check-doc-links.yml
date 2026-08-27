@@ -1,0 +1,32 @@
+name: Check Doc Links
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/check-doc-links.mjs'
+      - 'scripts/check-doc-stamps.mjs'
+      - '.github/workflows/check-doc-links.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'docs/**'
+      - 'scripts/check-doc-links.mjs'
+      - 'scripts/check-doc-stamps.mjs'
+      - '.github/workflows/check-doc-links.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Check relative links and symlinks under docs/
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check doc links
+        run: node scripts/check-doc-links.mjs
+
+      - name: Check Status/Last-verified stamps
+        run: node scripts/check-doc-stamps.mjs

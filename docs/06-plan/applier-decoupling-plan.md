@@ -1,5 +1,14 @@
 # Plan: Decouple Env Resolution from K8s Applier
 
+> **Likely moot.** Neither the bug this plan patches around
+> (`ManagedAnthropicAPIKey` being dropped by `ApplyDeploymentSpec`'s internal
+> re-resolution) nor the patch itself exists in current code —
+> `internal/k8s/applier.go`'s `ApplierConfig` has no such field, and the only
+> remaining references anywhere are in test files. Whether the underlying
+> env-resolution duplication this plan describes still exists elsewhere is
+> unverified; re-check before reviving this plan rather than assuming it's
+> current. Kept here as the original design thinking, not as a live proposal.
+
 ## Context
 
 The managed Anthropic API key was never reaching pods because `ApplyDeploymentSpec` internally re-resolves the env from the spec, discarding any upstream credential injection. This was patched by threading `ManagedAnthropicAPIKey` through `ApplierConfig`, but the underlying coupling remains: env resolution is duplicated across multiple call sites, and adding a new managed credential requires touching every path.

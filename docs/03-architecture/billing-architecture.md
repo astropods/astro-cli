@@ -1,5 +1,8 @@
 # Astro billing architecture
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 For a short version, read
 [`billing-overview.md`](billing-overview.md) first. For the function-by-function
 view with file references, read
@@ -246,12 +249,10 @@ creator.
 2. `BillingProvisionWorker` reads or creates the Metronome customer, passing the
    account ID, name, type, and the **owner's WorkOS-verified email**, not the
    requesting user's.
-3. `plan()` picks one of three packages. An internal creator is answered first,
-   before the ledger is touched; otherwise `claimSignupCredit` decides.
+3. `plan()` picks one of two packages, based purely on the credit ledger.
 
    | Plan | Chosen when | Package |
    |---|---|---|
-   | `unlimited` | the creator's verified address matches `BILLING_UNLIMITED_EMAIL_DOMAINS` | `METRONOME_PACKAGE_ID_UNLIMITED` |
    | `credit` | that person's one signup credit is still unclaimed | `METRONOME_PACKAGE_ID` |
    | `no_credit` | they already spent it on another account | `METRONOME_PACKAGE_ID_NO_CREDIT` |
 4. `ProvisionCustomer` puts the customer on the rate card with that package. It is
@@ -270,20 +271,10 @@ contract has its usage rated by nothing at all. A missing credit-free package fa
 the job rather than falling back to the credit package, and the hourly sweep
 re-runs it once the configuration lands.
 
-**The unlimited plan is a package, not a gate exemption.** It carries the same
-rate card and statement schedule as the other two, with every metered product
-overridden to a zero multiplier. Usage still meters and still appears on the
-statement; the total is always zero. Putting the guarantee in the rating means it
-holds whether or not the gate logic is correct.
-
-Matching is exact, on the part after the last `@` of a **verified** address, so
-neither a subdomain nor a lookalike like `evil-postman.com` matches. The address
-comes from `GetCreatorVerifiedEmail`, which pins to the creator rather than
-joining across members: a later member's domain must not decide the plan. A
-creator with no verified address takes the standard plan.
-
-An internal account never reaches the credit ledger, so an employee does not
-spend their one claim on a plan that has no use for it.
+Gate exemption for an internal account is unrelated to plan. Every account,
+internal or not, provisions on `credit` or `no_credit` like any other; an account
+billing must never suspend is instead named in `BILLING_EXEMPT_ACCOUNTS`, checked
+in the status machine. See [Lifecycle 4](#lifecycle-4-signals-and-the-status-machine).
 
 **Provisioning cannot change a plan.** `ProvisionCustomer` returns early whenever
 any contract covers now, because a second contract would bill the customer twice.
@@ -501,13 +492,10 @@ The workers translate provider vocabulary into Astro's twelve signals.
 
 `invoice.payment_succeeded` overlaps `invoice.paid`; only one is consumed.
 
-**The credit alert cannot gate an unlimited account.** The unlimited package
-grants no credit, so Metronome's zero-threshold balance alert reads an empty
-balance as an exhausted one. It fires on the first evaluation and stays in alarm
-with nothing to resolve it. The Metronome worker drops `SignalCreditsExhausted`
-for an account on the unlimited plan, resolving the plan the same way
-provisioning resolved it rather than storing the verdict, because a stale copy
-would gate an internal account for money.
+The worker applies `SignalCreditsExhausted` the same way for every account; it
+does no per-account special-casing. An exempt account still latches
+`credits_exhausted` like any other, and still reads active, because the status
+machine is where the exemption lives. See [`computeStatus`](#applysignal-and-computestatus).
 
 The card events are a **backstop**. The card handlers write `has_payment_method`
 inline and best-effort; Stripe redelivers, an inline write does not.
@@ -517,7 +505,9 @@ inline and best-effort; Stripe redelivers, an inline write does not.
 `ApplySignal` writes one latch and recomputes. It performs no provider calls and
 touches no workloads. The caller reconciles from the returned `(status, changed)`.
 
-`computeStatus` is pure, and first match wins:
+`computeStatus` is pure, and first match wins. Before any of these ranks, it
+checks whether the account is in `BILLING_EXEMPT_ACCOUNTS`, and if so returns
+active outright, whatever the latches say:
 
 | Rank | Condition | Status | Reason |
 |---|---|---|---|
@@ -528,7 +518,7 @@ touches no workloads. The caller reconciles from the returned `(status, changed)
 | 5 | `dunning_since` within grace | past_due | `dunning` |
 | 6 | otherwise | active | |
 
-Two properties follow from the ranking that are easy to get wrong:
+Three properties follow from the ranking that are easy to get wrong:
 
 - **Clearing one latch drops to the next, not to active.** Voiding an invoice
   clears the write-off but leaves an exhaustion latch in place. Telling a
@@ -537,10 +527,13 @@ Two properties follow from the ranking that are easy to get wrong:
 - **Rank 3 is conditional on the card.** Credits exhausted with a card on file is
   not a problem; it is the pay-as-you-go transition. The latch stays set, because
   the credits really are spent. It just stops gating.
-- **Rank 3 is also where an unlimited account would have been caught.** Internal
-  accounts hold no card, by design, so the exemption has to happen before the
-  signal is applied rather than inside this table. `computeStatus` stays pure and
-  plan-blind.
+- **An exempt account bypasses every rank, not just one.** `BILLING_EXEMPT_ACCOUNTS`
+  names account IDs billing must never suspend, checked before rank 1. An
+  internal account still provisions on a normal plan, still meters, and can still
+  exhaust its signup credit or trip a hard alert; none of it gates, because
+  `computeStatus` short-circuits to active before reading any latch. `Get` and
+  `Record` re-check the same list, so a row written before an account became
+  exempt does not gate it either.
 
 ### The dunning sweep
 
@@ -548,6 +541,12 @@ Two properties follow from the ranking that are easy to get wrong:
 lists accounts with `dunning_since` set and recomputes each against `now`. An
 account that crossed the grace boundary flips to suspended, enqueues
 `billing.suspend`, and notifies the owner.
+
+Every run also reconciles the exempt list: each account named in
+`BILLING_EXEMPT_ACCOUNTS` is recomputed and, if that returns it to active while
+its workloads are still stopped, resumed. This is what catches an account that
+was already suspended when it became exempt, since the sweep's own account list
+above only scans `dunning_since`.
 
 Grace defaults to seven days (`BILLING_DUNNING_GRACE_DAYS`).
 
@@ -697,12 +696,13 @@ zero. One response carries two money units on purpose: spend and credit are
 converted to their named currency for astro-queen, and the thresholds stay in the
 provider's raw cents, which is what the write path sends.
 
-**A usage cap is the only control the unlimited plan can carry.** Every product
-on that plan is overridden to a zero multiplier, so priced spend never moves and
-a spend threshold can never fire. `usage_threshold_reached` evaluates a billable
-metric's quantity over the current billing period and is rated by nothing, so it
-still does. The cap therefore gates every plan: it is the owner's own number, not
-a provider verdict, and the credit exemption does not extend to it.
+**A usage cap does not depend on price.** `usage_threshold_reached` evaluates a
+billable metric's raw quantity over the current billing period, not its priced
+spend, so it still fires when priced spend understates real consumption, for
+example a gateway request with no cost attribute (see
+[Known gaps](#known-gaps)). Crossing it gates unconditionally: unlike
+`credits_exhausted`, it carries no exemption for an account with a card on file.
+It is the owner's own number, not a provider verdict.
 
 **The two are the same provider alert type at different amounts**, told apart by
 the alert name. That makes the name load-bearing:
@@ -841,7 +841,7 @@ The local operator CLI. Reads preview and dev by default.
 ```
 station metronome audit       # every account's contract coverage and delivery routing
 station metronome account     # cross-check one astro account against Metronome
-station metronome balances    # credit and commit balances, which is what gating fires on
+station metronome balances    # a customer's credit and commit balances, for support lookups
 station metronome contracts   # a customer's contracts
 station novu workflows        # what the environment holds, and whether it is active
 station novu billing-workflows # report or author the seven billing workflows
@@ -869,8 +869,7 @@ and Stripe dashboards. Two write operations exist: `RetryBillingProvision` and
 | `METRONOME_WEBHOOK_SECRET` | Unset disables the endpoint with 404 |
 | `METRONOME_PACKAGE_ID` | The rate card package, with signup credit |
 | `METRONOME_PACKAGE_ID_NO_CREDIT` | Same terms, no grant. Used when the creator's credit is already claimed. Missing means provisioning fails rather than granting again |
-| `METRONOME_PACKAGE_ID_UNLIMITED` | Same terms at a zero multiplier. Required whenever a domain list is set, checked at boot |
-| `BILLING_UNLIMITED_EMAIL_DOMAINS` | Comma-separated, defaults to `postman.com`. An explicit empty value turns the plan off and drops the package requirement |
+| `BILLING_EXEMPT_ACCOUNTS` | Comma-separated account IDs billing must never suspend, checked before every suspension reason |
 | `METRONOME_DASHBOARD_ENV` | Names the environment in astro-queen's Metronome deep links |
 | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | The vault |
 | `STRIPE_WEBHOOK_SECRET` | Unset disables the endpoint with 404 |
@@ -968,9 +967,8 @@ an account written off learns about it by discovering it is suspended.
 **Organizations per user are still uncapped.** The credit-farming loop is closed by
 the per-person grant, but `CreateAccount` still caps only personal accounts
 (`HasPersonalAccount`), and `POST /api/v1/accounts` has no rate limiting anywhere in
-astro-server. A user can still create organizations without limit; each now
-provisions on the credit-free package, or the unlimited one when the creator is
-internal.
+astro-server. A user can still create organizations without limit; every one
+after the first now provisions on the credit-free package.
 
 **An undeployed astro-server is metering into the shared Metronome environment.**
 Established 2026-08-14. The preview Metronome environment holds 94 customers

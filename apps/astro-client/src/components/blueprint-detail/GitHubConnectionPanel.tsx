@@ -44,7 +44,7 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
   const githubConnected = searchParams.get("github_connected") === "true";
   useCleanupOAuthParams(GITHUB_OAUTH_PARAMS);
 
-  const { data: status, isLoading: statusLoading } = useGitHubStatus(account, name);
+  const { data: status, isLoading: statusLoading, isLoadingError: statusLoadError, refetch: refetchStatus } = useGitHubStatus(account, name);
   const { data: accountStatus } = useGitHubAccountStatus(account, { enabled: !!account });
   const connect = useGitHubAccountConnect(account);
   const disconnect = useGitHubDisconnect(account, name);
@@ -76,6 +76,23 @@ export function GitHubConnectionPanel({ account, name, preConnectedRepo, preConn
         <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
           <Spinner size={14} />
           <span>Loading…</span>
+        </div>
+      </SidebarSection>
+    );
+  }
+
+  // A failed initial load has no repo to fall back on, so it must not render
+  // like "no repo connected": that would put a "Connect" button in front of a
+  // user whose repo is already linked, inviting a redundant reconnect.
+  if (statusLoadError && !effectiveRepo) {
+    return (
+      <SidebarSection title="GitHub">
+        <div className="space-y-2">
+          <p className="text-xs text-destructive">Couldn't check GitHub connection status.</p>
+          <Button size="sm" variant="outline" className="w-full gap-2" onClick={() => refetchStatus()}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
         </div>
       </SidebarSection>
     );

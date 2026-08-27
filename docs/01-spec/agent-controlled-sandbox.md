@@ -1,8 +1,14 @@
 # Agent-Controlled Sandbox
 
+**Status:** Design intent, pre-implementation. No sandbox code exists yet
+(see [docs/06-plan/agent-controlled-sandbox-plan.md](../06-plan/agent-controlled-sandbox-plan.md)
+for the milestone sequencing). Moved here from `03-architecture` because
+that folder is for how a system actually works today; this is the design
+this system will follow once M1 ships.
+
 Research on giving an Astro agent a **sandbox it drives as a tool** — a separate, isolated compute environment external to the agent container.
 
-This is a different question from [container-vs-microvm.md](container-vs-microvm.md). That doc asks *"how do we harden the box the agent itself runs in?"* This one asks *"what second box do we hand the agent so it can run untrusted code, install packages, and keep a workspace?"* The two are complementary: the first is a runtime-hardening decision, this is a **product primitive**. An agent can have a hardened runtime and no sandbox, or a plain container runtime and a strongly isolated sandbox. The latter is cheaper and more useful, because the sandbox is where the dangerous work actually happens.
+This is a different question from [container-vs-microvm.md](../03-architecture/container-vs-microvm.md). That doc asks *"how do we harden the box the agent itself runs in?"* This one asks *"what second box do we hand the agent so it can run untrusted code, install packages, and keep a workspace?"* The two are complementary: the first is a runtime-hardening decision, this is a **product primitive**. An agent can have a hardened runtime and no sandbox, or a plain container runtime and a strongly isolated sandbox. The latter is cheaper and more useful, because the sandbox is where the dangerous work actually happens.
 
 **Settled: we build this, not buy it.** Reselling a hosted sandbox puts the one place customer code and customer data actually execute outside our infrastructure, which contradicts the private-namespace, private-DNS, private-store story the rest of the platform tells. The differentiator is not that the sandbox reaches private services — by default it reaches nothing — but that it runs inside the customer's boundary at all: their VPC, their egress policy, their audit trail, no third party in the data path.
 

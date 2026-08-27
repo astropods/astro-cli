@@ -1,5 +1,8 @@
 # Billing overview
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 Astro measures what an account uses, bills it, and stops it if it does not pay.
 This page is the short version. It takes about five minutes.
 
@@ -34,12 +37,11 @@ Three external systems each own one job:
 
 ## Plans
 
-Every account sits on one of three packages. All three share the same rate card,
+Every account sits on one of two packages. Both share the same rate card,
 so usage meters identically. They differ only in what is attached.
 
 | Plan | Who gets it | What it means |
 |---|---|---|
-| Unlimited | the creator's verified email is on an internal domain | Usage is rated at zero. Nothing is ever owed. |
 | Signup credit | a new customer, first account | Draws down the signup credit, then bills the card. |
 | Pay as you go | a returning customer's second account | Bills the card from the start. |
 

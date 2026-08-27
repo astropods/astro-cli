@@ -1,5 +1,8 @@
 # Billing: Code-Level Data Flow (as built)
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 How billing data actually moves through `apps/astro-server` today. This is the
 **as-built** view (function-by-function, with file references), complementing the
 design intent in [`../01-spec/metronome-billing-spec.md`](../01-spec/metronome-billing-spec.md).
@@ -37,9 +40,9 @@ rather than panicking. `BillingBackend()` defaults to `noop` when
 
 `internal/billing/provider.go` defines one `BillingProvider` interface every
 backend implements: `CreateCustomer`, `DeleteCustomer`, `IngestUsage`,
-`SetIngestAliases`, `GetIngestAliases`, `UsageData`, `Invoices`, `InvoicePDF`,
-`Balances`. `noop` returns zero values and is the default backend; `metronome`
-implements the real calls.
+`SetIngestAliases`, `GetIngestAliases`, `UsageData`, `DailySpend`, `Invoices`,
+`InvoicePDF`, `Balances`. `noop` returns zero values and is the default
+backend; `metronome` implements the real calls.
 
 Hosted-only capabilities sit on separate interfaces, found by assertion, so the
 core seam stays metering-only and `noop` implements none of them:
@@ -312,12 +315,11 @@ Putting a customer on a package is a server operation, run as a River job rather
 than inline at signup, so a provider outage delays a plan instead of failing an
 account creation.
 
-`BillingProvisionWorker` resolves one of three plans, then calls
-`ProvisionCustomer`:
+`BillingProvisionWorker` resolves one of two plans, purely from the credit
+ledger, then calls `ProvisionCustomer`:
 
 | Plan | Chosen when | Package |
 |---|---|---|
-| `unlimited` | the creator's verified address matches `BILLING_UNLIMITED_EMAIL_DOMAINS` | `METRONOME_PACKAGE_ID_UNLIMITED` |
 | `credit` | the creator's one signup credit is still unclaimed | `METRONOME_PACKAGE_ID` |
 | `no_credit` | that person already spent their claim on another account | `METRONOME_PACKAGE_ID_NO_CREDIT` |
 
@@ -328,7 +330,7 @@ flowchart TD
     JOB --> CUST{"customer exists?"}
     CUST -->|no| CREATE["CreateCustomer + persist id"]
     CUST -->|yes| PLAN
-    CREATE --> PLAN["plan(): creator's verified domain,<br/>then the credit ledger"]
+    CREATE --> PLAN["plan(): the credit ledger"]
     PLAN --> PROV["ProvisionCustomer(customerID, accountID, plan)"]
     PROV --> COVER{"a contract already covers now?"}
     COVER -->|yes| SKIP["no-op: a second contract would bill twice"]
@@ -365,12 +367,13 @@ lever for releasing a stuck gating latch without touching the contract.
 | Customer-id persistence | ✅ (backend-aware) | `account/store.go` |
 | Billing gating (suspended account → 402) | ✅ status row, not the seam | `middleware.Entitlements` over `account_billing_status`, `BILLING_GATE_ENFORCE` |
 | Resource-count limits (agents, deployments, …) | ✅ DB-backed | `internal/quota` (`quota.Wrap`/`Check`) |
-| Usage readback | ✅ | `/billing/usage` → `metronome.UsageData`; `/usage` still returns DB resource counts |
+| Usage readback | ✅ | `/billing/usage` → `metronome.UsageData`; `/billing/usage/daily-spend` → `metronome.DailySpend` (rated, per-day, for the client's chart); `/billing/balances` → `metronome.Balances` (credits/commits, for the free-trial-credit modal); `/usage` still returns DB resource counts |
 | Packaging / contracts / signup credit | ✅ `Provisioner` | `BillingProvisionWorker` (Flow 7); packages themselves are created per Metronome environment |
 | Payment method (card collection) | ➖ separate `payment.Provider` (Stripe) | `handlers/payment_methods.go`; linked to Metronome via `LinkStripeCustomer` |
 | AI-token metering | ➖ not emitted here | the AI gateway ingests `ai_gateway_llm_usage` itself; astro-server only registers the account's Bifrost customer as an ingest alias so it attributes |
 
-`Balances` is implemented on every provider and has no request-path caller;
-gating reads the status row instead. The remaining hosted-cutover work is
+`Balances` is implemented on every provider and is read by `/billing/balances`,
+which the client's one-time free-trial-credit modal calls; gating itself still
+reads the status row, never a balance. The remaining hosted-cutover work is
 configuration, not code: create the packages in the production Metronome
 environment and flip `BILLING_PROVIDER`.

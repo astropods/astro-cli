@@ -1,6 +1,8 @@
 # Insights Rollup Store
 
-**Status:** Draft — phase 1 in progress
+**Status:** Phases 1-4 shipped (cutover complete; see "Parallel build and
+cutover" below). Phase 5 (ingest-time producer) has not started. For the
+as-built system, prefer [insights.md](../03-architecture/insights.md).
 **Date:** 2026-08-04
 **Supersedes (on cutover):** the Redis page cache and 6-hourly refresh described in [insights.md](../03-architecture/insights.md)
 
@@ -89,7 +91,7 @@ Two columns carry more than they appear to:
 
 **Dev-tool spend stops being a special case.** Claude Code writes `actor`-grain rows keyed `member:<user_id>` (or an unidentified row when the email doesn't resolve), plus one `deployment`-grain row with `deployment_id = ''` that becomes the synthetic agents-table row. Chart series, stat-card contributions, the People roll-up, and `cost_pct` then fall out of the same `GROUP BY` as agent spend. `insights_devtool_fold.go` is deleted, not ported, and `hide_sources` becomes a `WHERE` clause.
 
-Dev tools are also the one producer whose grains are *cheap* — VictoriaMetrics answers per-source and per-developer in one range query each, so no fan-out.
+Dev tools are also the one producer whose grains are *cheap* — Langfuse answers per-source and per-developer in one `traces`-view query each, so no fan-out.
 
 One column stays structurally empty. **No dev-tool source reports a request count**, so `requests` is `0` on those rows permanently — not pending, not missing. That matches today's synthetic source rows, but with one grain feeding every surface the derived per-request columns must guard the denominator explicitly. A zero here is real data.
 
@@ -162,7 +164,7 @@ flowchart LR
   subgraph now["Phase 1-2 — ETL producers"]
     LF[("Langfuse")] -->|"traces view, 1d<br/>group by tags x userId"| P1["usage grain"]
     LF -->|"observations view, 1d<br/>group by providedModelName"| P2["model grain"]
-    VM[("VictoriaMetrics")] -->|"increase over 1d,<br/>by astro.source and user.email"| P3["dev-tool producer"]
+    LF -->|"traces view, 1d<br/>by astro.source and user.email"| P3["dev-tool producer"]
   end
 
   subgraph later["Phase 5 — ingest producer"]
@@ -180,7 +182,7 @@ flowchart LR
 
 Key property: the ETL fetches **one day at a time** instead of a 90-day window, so a completed day is fetched once, ever.
 
-Per-account cost per daily tick is **two Langfuse queries plus two VictoriaMetrics queries** — flat, regardless of deployment count. Today the same account costs `N + 4` Langfuse queries over a 90-day window, four times a day, where `N` is its deployment count. For a 50-deployment account that is a three-orders-of-magnitude reduction in steady-state upstream work, and it stops scaling with either retention or deployment count.
+Per-account cost per daily tick is **four Langfuse queries** — flat, regardless of deployment count. Today the same account costs `N + 4` Langfuse queries over a 90-day window, four times a day, where `N` is its deployment count. For a 50-deployment account that is a three-orders-of-magnitude reduction in steady-state upstream work, and it stops scaling with either retention or deployment count.
 
 Two consequences worth stating:
 

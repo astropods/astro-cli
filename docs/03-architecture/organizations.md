@@ -1,5 +1,8 @@
 # Organizations Architecture
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 This document explains how organizations work in Astro, covering account types, authentication, permissions, membership sync, and agent visibility.
 
 > **Note:** Membership reconciliation remains login/refresh driven through `org.Sync.SyncMembershipsForUser`; there is no background WorkOS membership poller. Organization-scoped JWT permissions, including the existing `deployments:*` grants, and resource-scoped deployment authorization are separate layers. See [Fine-grained access control](fine-grained-access-control.md) for deployment permissions, roles, groups, enforcement, and rollback behavior.

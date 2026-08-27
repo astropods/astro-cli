@@ -32,13 +32,16 @@ export default defineConfig([
       'react-hooks/preserve-manual-memoization': 'off',
     },
   },
-  // Custom theme rule: enforces semantic tokens / `<Card>` over raw palette
-  // utilities in component code. See eslint-rules/no-raw-theme-colors.js.
+  // Custom theme rules: enforce semantic tokens over raw palette utilities,
+  // and Tailwind classes over a literal-valued style={{}} for CSS properties
+  // Tailwind already covers. See eslint-rules/no-raw-theme-colors.js and
+  // eslint-rules/no-static-inline-style.js.
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { 'local-theme': localTheme },
     rules: {
       'local-theme/no-raw-theme-colors': 'warn',
+      'local-theme/no-static-inline-style': 'warn',
     },
   },
   // Allowlist: stories, tests, and intentionally-literal UI primitives.
@@ -51,6 +54,7 @@ export default defineConfig([
     ],
     rules: {
       'local-theme/no-raw-theme-colors': 'off',
+      'local-theme/no-static-inline-style': 'off',
     },
   },
   ...storybook.configs["flat/recommended"],

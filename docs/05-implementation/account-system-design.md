@@ -1,5 +1,14 @@
 # Account System Design
 
+> **Superseded.** This is the original design for introducing accounts,
+> written before organizations, WorkOS org linking, and fine-grained access
+> existed. Org creation is no longer "deferred" (§ Org creation flow), the
+> CLI lives at `modules/astro-cli` not `apps/astro-cli`, and schema changes
+> go through `sql/astro-server/schema.sql` via Atlas, not a `migrations/`
+> folder. For the current account/org system, see
+> [`../03-architecture/organizations.md`](../03-architecture/organizations.md).
+> Kept here as the original design, not as current documentation.
+
 Introduces GitHub-style accounts to establish globally unique namespaces for agents and all scoped resources.
 
 ## Core Concept

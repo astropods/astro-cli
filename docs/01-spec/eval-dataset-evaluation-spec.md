@@ -1,6 +1,16 @@
 # Eval Dataset — Evaluation
 
-Supersedes the model-prediction and human-judgment contracts in `docs/01-spec/eval-dataset-v2-judge-signal-spec.md` and `docs/01-spec/eval-dataset-v2-judgment-reasons-spec.md`.
+Supersedes the model-prediction and human-judgment contracts in `docs/01-spec/eval-dataset-v2-judge-signal-spec.md` and `docs/01-spec/eval-dataset-v2-judgment-reasons-spec.md`, and — though not previously declared here — the grade and Langfuse-metadata model in [`eval-dataset-v2-spec.md`](eval-dataset-v2-spec.md), whose `good_count`/`bad_count` and grade formula this spec's own "Removed tables and fields" section deletes.
+
+> **Status: the evaluator flow shipped, the write-path replacement
+> hasn't.** `internal/evalpreset` and the review-queue integration below are
+> live. The parts of this spec that assume judgments are gone — the
+> dataset-scoped `/datasets/:id/...` API paths, the removal of
+> `eval_dataset_judgments`, and per-agent `EVALUATION.yaml` — have not
+> shipped. The client still writes to the dataset exclusively through the
+> judgment flow this spec proposes retiring. See
+> [`../03-architecture/traces-to-eval-dataset.md`](../03-architecture/traces-to-eval-dataset.md)
+> for how the two currently coexist.
 
 ## Summary
 
@@ -276,19 +286,21 @@ Astro owns preset evaluators and the default-set manifest. They live in a code-o
 
 ### Default evaluation set
 
-An agent without a published evaluation set resolves to Astro's current default set. Version 1 is:
+An agent without a published evaluation set resolves to Astro's current default set. This section's original design (below, and the `Accuracy`/`Completeness`/`Instruction following` presets that follow) was replaced before shipping — **the real `preset/default-evaluation`** (`internal/evalpreset/set.go`) is six safety/guardrail-oriented presets, not a general quality rubric:
 
 ```yaml
 ref: preset/default-evaluation
 
 evaluators:
-  - ref: preset/accuracy
-  - ref: preset/completeness
-  - ref: preset/instruction-following
-  - ref: preset/user-sentiment
+  - ref: preset/exposed-pii              # key: exposed_pii, boolean
+  - ref: preset/leaked-credentials       # key: leaked_credentials, boolean
+  - ref: preset/disclosed-system-instructions  # key: disclosed_system_instructions, boolean
+  - ref: preset/unnecessary-tool-call    # key: unnecessary_tool_call, boolean
+  - ref: preset/claim-grounding          # key: claim_grounding, enum: grounded/unsupported/contradicted/no_claims
+  - ref: preset/user-sentiment           # key: user_sentiment, enum: positive/neutral/negative/unclear
 ```
 
-The default manifest is used whenever an agent has no row in `agent_evaluations`. Changes to the manifest affect those agents; agents with a published set keep it.
+There is also no per-agent custom set: `agent_evaluations`/`EVALUATION.yaml`/publishing don't exist in code (`PostDatasetItem` hardcodes `evalpreset.RefDefaultSet`) — every agent gets this same default. The `accuracy`/`completeness`/`instruction-following` presets documented below this point never shipped; they're kept as the original design record, not as current preset definitions.
 
 ### Accuracy
 
@@ -482,15 +494,15 @@ CREATE TABLE public.eval_dataset_evaluator_results (
 
 ### `eval_dataset_items`
 
-One row records the trace, evaluation run, and method used to add a dataset item:
+One row records the trace, evaluation run, and method used to add a dataset item. **As shipped**, `source_evaluation_run_id` is nullable, not `NOT NULL` as originally specified — `resolveItemSourceRun` (`handlers/dataset_items.go`) explicitly allows adding an item with no run. The user column is also renamed from what's specified above: it's `verified_by_user_id`, not `added_by_user_id`, matching `internal/evalitemstore`'s `SetVerifiedBy` and every read/write path.
 
 ```sql
 CREATE TABLE public.eval_dataset_items (
     eval_dataset_id          uuid        NOT NULL,
     trace_id                 text        NOT NULL,
     evaluation_ref           text        NOT NULL,
-    source_evaluation_run_id uuid        NOT NULL,
-    added_by_user_id         text        NOT NULL,
+    source_evaluation_run_id uuid,
+    verified_by_user_id      text        NOT NULL,
     created_at               timestamptz NOT NULL DEFAULT now(),
     updated_at               timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_dataset_items_pkey PRIMARY KEY (eval_dataset_id, trace_id),
@@ -501,7 +513,7 @@ CREATE TABLE public.eval_dataset_items (
 
 ### `eval_dataset_item_evaluator_outputs`
 
-One row stores a dataset item's final value for one evaluator:
+One row stores a dataset item's final value for one evaluator. **As shipped**, this table has only four columns — `value_source` and `verified_by_user_id` (and the provenance tracking they imply) were never built, along with `created_at`/`updated_at`:
 
 ```sql
 CREATE TABLE public.eval_dataset_item_evaluator_outputs (
@@ -509,17 +521,14 @@ CREATE TABLE public.eval_dataset_item_evaluator_outputs (
     trace_id            text        NOT NULL,
     evaluator_key       text        NOT NULL,
     value_json          jsonb       NOT NULL,
-    value_source        text        NOT NULL,
-    verified_by_user_id text        NOT NULL,
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    updated_at          timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_dataset_item_evaluator_outputs_pkey PRIMARY KEY (eval_dataset_id, trace_id, evaluator_key),
-    CONSTRAINT eval_dataset_item_evaluator_outputs_item_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_items(eval_dataset_id, trace_id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_item_evaluator_outputs_source_check CHECK (value_source IN ('automated', 'human'))
+    CONSTRAINT eval_dataset_item_evaluator_outputs_item_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_items(eval_dataset_id, trace_id) ON DELETE CASCADE
 );
 ```
 
-`value_source` records whether the final value was copied from the referenced run or supplied or changed by a reviewer. `verified_by_user_id` is set on every output, including accepted automated values. The server validates every value against the item's evaluation set; automated results remain unchanged.
+The paragraph below describes the original design's provenance tracking (`value_source`, `verified_by_user_id`) — none of it is implemented. There's no way today to tell whether a stored value was accepted automated output or a reviewer's override.
+
+~~`value_source` records whether the final value was copied from the referenced run or supplied or changed by a reviewer. `verified_by_user_id` is set on every output, including accepted automated values. The server validates every value against the item's evaluation set; automated results remain unchanged.~~
 
 ### Removed tables and fields
 
@@ -672,6 +681,8 @@ evaluation=evaluated|not_evaluated
 
 The `evaluated` filter pages distinct trace IDs from completed runs with a successful result locally by trace timestamp, then fetches only those traces from Langfuse. The unfiltered and `not_evaluated` paths scan timestamp-ordered Langfuse traces and batch-load their local state.
 
+**As shipped, the list response below is much thinner** — per-item `output` and the embedded `evaluators[]` array never made it into the list endpoint (fetching full evaluator detail for every paginated item would be expensive). The real list item is just `{trace_id, timestamp, input, run: {status, error}}` alongside `next_cursor`. Everything this example shows under `evaluation.evaluators` — `output`, `result.confidence`, `result.explanation`, per-evaluator `status` — is real, but only on the separate per-trace detail endpoint, `GET .../review-queue/:trace_id/evaluation`:
+
 ```json
 {
   "items": [
@@ -728,7 +739,7 @@ Run evaluators for the next eligible traces:
 POST /api/v1/deployments/:id/dataset/evaluations
 ```
 
-This renames the existing `POST /api/v1/deployments/:id/dataset/predictions` endpoint and preserves its queue-selection behavior. It accepts no request body and queues one trace-level evaluation run for each of the most recent eligible review-queue traces, up to the existing limit. Traces already in the dataset or dismissed from the queue are ineligible.
+This was framed as renaming an existing `POST /api/v1/deployments/:id/dataset/predictions` endpoint, but that endpoint was never actually reachable — no route was ever registered for it, and the judge-signal worker it would have driven (`EvalJudgePredictionWorker`) has no production caller anywhere. `POST .../dataset/evaluations` is what shipped, as a new endpoint, not a rename. It accepts no request body and queues one trace-level evaluation run for each of the most recent eligible review-queue traces, up to the existing limit. Traces already in the dataset or dismissed from the queue are ineligible.
 
 The response reports the enqueued and failed trace IDs. Re-requesting an active run is idempotent. Eligible traces have no completed evaluator result for the active `evaluation_ref`. A trace evaluated under an older reference remains Evaluated but is eligible to run against the active set. Code-owned preset and default-manifest updates do not make completed traces eligible again.
 
@@ -752,7 +763,11 @@ Restore a dismissed trace to the queue:
 DELETE /api/v1/deployments/:id/dataset/review-queue/:trace_id/dismiss
 ```
 
-These mutations only update `eval_dataset_dismissed_traces`. They do not modify Langfuse dataset items or evaluator results.
+These mutations only update `eval_dataset_dismissed_traces`. They do not modify Langfuse dataset items or evaluator results. **Not shipped**: `eval_dataset_dismissed_traces` doesn't exist in the current schema, and neither dismiss endpoint is registered.
+
+---
+
+**Everything from here down describes the unshipped end state.** The real, shipped API stays deployment-scoped throughout (`/api/v1/deployments/:id/dataset/...`, matching every endpoint above this point) — there is no `/api/v1/datasets/:id/...` route anywhere in the codebase. Treat the `GET /api/v1/datasets/:id` family below as this spec's proposed redesign, not as current API surface.
 
 ### Dataset summary
 

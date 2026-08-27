@@ -1,5 +1,8 @@
 # Fine-Grained Access Control
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 Astro uses WorkOS Fine-Grained Authorization (FGA) for organization deployment access. WorkOS owns effective resource assignments and permission decisions. Astro owns product policy, tenant validation, resource lifecycle, durable write intent, and every API exposed to clients.
 
 This document is the source of truth for the deployed architecture. The staged implementation history remains in [Deployment FGAC API Rollout](../01-spec/deployment-fgac-rollout.md).

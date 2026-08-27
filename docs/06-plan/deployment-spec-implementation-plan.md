@@ -1,5 +1,14 @@
 # Deployment Spec Implementation Plan
 
+> **Largely superseded by what shipped.** The "Current State" table below
+> describes an already-superseded `DeployRequest` flow. For the current
+> design, see [`../00-RFC/RFC-2-deployment-spec.md`](../00-RFC/RFC-2-deployment-spec.md)
+> (spec — has its own known drift, tracked in
+> [`../07-feedback/doc-drift-log.md`](../07-feedback/doc-drift-log.md)) and
+> [`../03-architecture/deployment-state-machine.md`](../03-architecture/deployment-state-machine.md)
+> (as-built).
+> Kept here as the original plan, not as current documentation.
+
 Implementation plan to make `astro-spec.md` and `astro-deployment-spec.md` a reality. Covers every layer from CLI to k8s manifests.
 
 ---

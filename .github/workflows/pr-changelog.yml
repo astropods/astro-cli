@@ -95,6 +95,40 @@ jobs:
             }
 
             const content = fs.readFileSync(path.join(changelogDir, files[0]), 'utf8');
+
+            // Soft warning, same as the missing-file case above -- doesn't block.
+            const shapeMarker = '<!-- pr-changelog-shape-bot -->';
+            const requiredSections = ['## Summary', '## Design', '## Migration'];
+            const missingSections = requiredSections.filter(s => !content.includes(s));
+            const shapeComment = comments.find(c => c.body.includes(shapeMarker));
+
+            if (missingSections.length > 0) {
+              const warning = [
+                shapeMarker,
+                `> **${files[0]} is missing: ${missingSections.join(', ')}**`,
+                '>',
+                '> Changelogs need all three sections (Summary, Design, Migration) per `agents.md`\'s Changelogs rule, even if Migration is just "None."',
+              ].join('\n');
+
+              if (shapeComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  comment_id: shapeComment.id, body: warning,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number, body: warning,
+                });
+              }
+              console.log(`Changelog missing sections: ${missingSections.join(', ')} — posted warning comment.`);
+            } else if (shapeComment) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: shapeComment.id,
+              });
+            }
+
             const current = context.payload.pull_request.body || '';
 
             const marker = '<!-- changelog-start -->';

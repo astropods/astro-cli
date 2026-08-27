@@ -213,3 +213,67 @@ describe('GitHubConnectionPanel – direct connect (no OAuth)', () => {
     expect(screen.getByPlaceholderText(/search repositories/i)).toBeInTheDocument();
   });
 });
+
+describe('GitHubConnectionPanel – status fetch fails', () => {
+  function renderNoParam() {
+    return renderWithProviders(
+      <GitHubConnectionPanel account="testuser" name="my-agent" />,
+      { initialEntries: ['/'] },
+    );
+  }
+
+  it('shows a retry state instead of "Connect GitHub repo" when there is no repo to fall back on', async () => {
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderNoParam();
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't check github connection status/i)).toBeInTheDocument();
+    });
+    // A load failure must never read as "not connected" — that button would
+    // send an already-connected user through a redundant OAuth flow.
+    expect(screen.queryByRole('button', { name: /connect github repo/i })).not.toBeInTheDocument();
+  });
+
+  it('retries the status query on click', async () => {
+    let calls = 0;
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => {
+        calls += 1;
+        return calls === 1
+          ? new HttpResponse(null, { status: 500 })
+          : HttpResponse.json(notConnected);
+      }),
+    );
+    renderNoParam();
+
+    const retryBtn = await screen.findByRole('button', { name: /retry/i });
+    fireEvent.click(retryBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /connect github repo/i })).toBeInTheDocument();
+    });
+    expect(calls).toBeGreaterThanOrEqual(2);
+  });
+
+  it('still shows the connected repo view via the wizard-supplied repo when the status fetch fails', async () => {
+    server.use(
+      http.get('/api/v1/agents/testuser/my-agent/github', () => new HttpResponse(null, { status: 500 })),
+    );
+    renderWithProviders(
+      <GitHubConnectionPanel
+        account="testuser"
+        name="my-agent"
+        preConnectedRepo="testuser/my-agent"
+        preConnectedBranch="main"
+      />,
+      { initialEntries: ['/'] },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('my-agent')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/couldn't check github connection status/i)).not.toBeInTheDocument();
+  });
+});

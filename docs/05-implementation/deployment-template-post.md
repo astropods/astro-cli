@@ -1,5 +1,22 @@
 # Deployment Template — Interactive POST Endpoint
 
+> **Stale in several places — verify against code before relying on this
+> doc.** Confirmed wrong as of this pass: the structs live in
+> `apps/astro-server/internal/deployment/deployment_spec.go`, not
+> `packages/astro-spec/deployment_spec.go`. `TemplateRequest` and
+> `TemplateResponse` have grown well past what's shown below — real
+> `TemplateRequest` adds `Revision`, `Interfaces`, `Models`, `Schedules`,
+> `Bindings`, `Provisioning`, `Finalize`, `ClusterID`; real `TemplateResponse`
+> replaces the generic `Editable []string` this doc describes with typed
+> fields the client edits directly (`Interfaces`, `Models`, `Schedules`,
+> `Provisioning`), and adds a `Signature` for the finalize/deploy handoff.
+> `ShapeTemplate`'s real signature is
+> `ShapeTemplate(ctx, base *AstroDeploymentSpec, req *TemplateRequest, opts *ShapeOptions) *TemplateResponse`.
+> The narrative sections below (why POST replaced GET, the phased client
+> migration) are still accurate context; the struct/field-level details are
+> not. See [`deployment-template-bindings.md`](deployment-template-bindings.md)
+> for the same caveat on the bindings extension.
+
 Scope: converting the deployment template from a static GET to an interactive POST that accepts deploy-time inputs (adapters, variables), shapes the template accordingly, and returns inline validation. Knowledge store bindings are out of scope — they build on top of this endpoint in a follow-up.
 
 ---
@@ -176,43 +193,48 @@ Client                                    Server
 
 ## Server Implementation
 
-### New structs — `packages/astro-spec/deployment_spec.go`
+### Structs — `apps/astro-server/internal/deployment/deployment_spec.go`
+
+As shipped (grown well past the original design below — see this file's
+banner). The shape at time of writing:
 
 ```go
 type TemplateRequest struct {
     Build        string                   `json:"build,omitempty"`
     DeploymentID string                   `json:"deployment_id,omitempty"`
-    Adapters     []string                 `json:"adapters,omitempty"`
+    Revision     int                      `json:"revision,omitempty"`
+    Interfaces   *TemplateInterfaces      `json:"interfaces,omitempty"`
     Variables    map[string]VariableInput `json:"variables,omitempty"`
-}
-
-type VariableInput struct {
-    Value string `json:"value,omitempty"`
-    Ref   string `json:"ref,omitempty"`
+    Models       map[string]string        `json:"models,omitempty"`
+    Schedules    map[string]string        `json:"schedules,omitempty"`
+    Bindings     *TemplateBindings        `json:"bindings,omitempty"`
+    Provisioning *TemplateProvisioning    `json:"provisioning,omitempty"`
+    Finalize     bool                     `json:"finalize,omitempty"` // response includes a deploy-time HMAC signature
+    ClusterID    string                   `json:"cluster_id,omitempty"`
 }
 
 type TemplateResponse struct {
-    Spec       string              `json:"spec"`
-    Template   AstroDeploymentSpec `json:"template"`
-    Variables  map[string]Variable `json:"variables,omitempty"`
-    Editable   []string            `json:"editable,omitempty"`
-    Validation TemplateValidation  `json:"validation"`
-}
-
-type TemplateValidation struct {
-    Valid  bool              `json:"valid"`
-    Errors []ValidationError `json:"errors,omitempty"`
-}
-
-type ValidationError struct {
-    Field   string `json:"field"`
-    Message string `json:"message"`
+    Spec         string               `json:"spec"`
+    Template     AstroDeploymentSpec  `json:"template"`
+    Variables    map[string]Variable  `json:"variables,omitempty"`
+    Models       []ModelSelection     `json:"models,omitempty"`
+    Interfaces   TemplateInterfaces   `json:"interfaces"`
+    Schedules    map[string]string    `json:"schedules"`
+    Bindings     *ResolvedBindings    `json:"bindings,omitempty"`
+    Provisioning TemplateProvisioning `json:"provisioning,omitzero"`
+    Validation   TemplateValidation   `json:"validation"`
+    Signature    string               `json:"signature,omitempty"`
 }
 ```
 
+The original design's generic `Editable []string` doesn't exist anymore —
+editability is now expressed as typed fields the client edits directly
+(`Interfaces`, `Models`, `Schedules`, `Provisioning`) rather than a list of
+editable JSON paths into `template`.
+
 ### Template shaping — `apps/astro-server/internal/deployment/template.go`
 
-New function `ShapeTemplate(base *spec.AstroDeploymentSpec, req *spec.TemplateRequest) *spec.TemplateResponse`:
+Function `ShapeTemplate(ctx context.Context, base *AstroDeploymentSpec, req *TemplateRequest, opts *ShapeOptions) *TemplateResponse` (added `ctx` and `opts` since the original design; behavior below is still the shape of what it does):
 
 1. Deep-copy the base template.
 2. Apply adapter shaping — set `interfaces.adapters`, flip Slack variable optionality.

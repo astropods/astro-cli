@@ -1,5 +1,8 @@
 # Astro Authentication Flow
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-27
+
 This document describes the authentication system used in Astro, including the OAuth flow with WorkOS, session management, and security measures.
 
 ## Overview
@@ -51,7 +54,7 @@ Astro uses WorkOS AuthKit for authentication, which provides:
      │   │ 1. Generate     │    │ 1. Get session  │    │ 1. Get session  │           │
      │   │    state (32B)  │    │    cookie       │    │    cookie       │           │
      │   │ 2. Set state in │    │ 2. Unseal/      │    │ 2. Revoke at    │           │
-     │   │    cookie (5m)  │    │    decrypt      │    │    WorkOS       │           │
+     │   │    cookie (15m) │    │    decrypt      │    │    WorkOS       │           │
      │   │ 3. Redirect to  │    │ 3. Check expiry │    │ 3. Clear cookie │           │
      │   │    WorkOS       │    │ 4. Auto-refresh │    │ 4. Redirect to  │           │
      │   │                 │    │    if expired   │    │    WorkOS logout│           │
@@ -123,13 +126,11 @@ The session is stored in an encrypted, HttpOnly cookie named `astro_session`.
 │    │  ┌───────────────────────────────────────────────────────────────────────┐  │      │
 │    │  │  SessionData {                                                        │  │      │
 │    │  │    Session: {                                                         │  │      │
-│    │  │      ID:             string   // WorkOS Session ID                    │  │      │
-│    │  │      UserID:         string   // User identifier                      │  │      │
-│    │  │      OrganizationID: string   // Optional org context                 │  │      │
-│    │  │      Role:           string   // User role                            │  │      │
+│    │  │      ID, UserID, OrganizationID,                                      │  │      │
+│    │  │      WorkOSMembershipID, Role, Permissions, ...                       │  │      │
 │    │  │      AccessToken:    string   // JWT for API calls                    │  │      │
 │    │  │      RefreshToken:   string   // Token for session refresh            │  │      │
-│    │  │      ExpiresAt:      time     // Session expiry                       │  │      │
+│    │  │      ExpiresAt, CreatedAt: time                                       │  │      │
 │    │  │    }                                                                  │  │      │
 │    │  │    User: {                                                            │  │      │
 │    │  │      ID, Email, FirstName, LastName, EmailVerified, ...               │  │      │
@@ -158,7 +159,10 @@ For API clients, authentication can also be done via Bearer token in the Authori
 │                     │         ├──▶ Validate issuer (iss claim)                          │
 │                     │         ├──▶ Validate audience (aud claim)                        │
 │                     │         ├──▶ Check expiration                                     │
-│                     │         └──▶ Set user/session in request context                  │
+│                     │         ├──▶ Machine token (aud contains its own sub)?            │
+│                     │         │         └──▶ Resolve app by client ID, set App context, │
+│                     │         │             no User (scopes fill Session.Permissions)   │
+│                     │         └──▶ Otherwise: set User + Session in request context     │
 │                     │                                                                   │
 │                     └──▶ Check "astro_session" cookie (fallback)                        │
 │                               │                                                         │
@@ -168,6 +172,13 @@ For API clients, authentication can also be done via Bearer token in the Authori
 │                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+A machine (M2M) token is discriminated from a user token by `isMachineToken`
+(`internal/middleware/auth.go`): a machine token names its own client in
+both `aud` and `sub`, while a WorkOS user access token carries no `aud`
+claim at all. A machine token resolves to an `App` on the request context,
+never a `User`; its scopes fill `Session.Permissions` so the rest of the
+codebase's permission checks read one field for both caller kinds.
 
 ## Security Measures
 
@@ -193,8 +204,8 @@ For API clients, authentication can also be done via Bearer token in the Authori
 | Check | Implementation |
 |-------|----------------|
 | Signature | RSA verification via JWKS (cached 1 hour) |
-| Issuer (`iss`) | Must match `https://api.workos.com` |
-| Audience (`aud`) | Must match WorkOS Client ID |
+| Issuer (`iss`) | Must match `https://api.workos.com`, or its `/user_management/<client_id>` form |
+| Audience (`aud`) | Not checked. WorkOS access tokens carry no `aud` claim, so validation passes an empty audience by design (`internal/auth/jwt.go`). |
 | Expiration (`exp`) | Must not be expired |
 
 ### CSRF Protection
@@ -210,6 +221,7 @@ For API clients, authentication can also be done via Bearer token in the Authori
 |----------|----------|---------|-------------|
 | `WORKOS_API_KEY` | Yes | - | WorkOS API key |
 | `WORKOS_CLIENT_ID` | Yes | - | WorkOS client ID |
+| `AUTH_JWT_ISSUER` | No | `https://api.workos.com` | Expected `iss` claim for Bearer-token validation |
 | `WORKOS_REDIRECT_URI` | Yes | `http://localhost:8080/auth/callback` | OAuth callback URL |
 | `FRONTEND_URL` | No | `http://localhost:5173` | Frontend redirect URL |
 | `AUTH_COOKIE_NAME` | No | `astro_session` | Session cookie name |
@@ -229,26 +241,33 @@ For API clients, authentication can also be done via Bearer token in the Authori
 | `/auth/logout` | GET | Clears session, redirects to WorkOS logout |
 | `/auth/me` | GET | Returns current user info |
 | `/auth/refresh` | POST | Explicitly refreshes the session |
+| `/auth/switch-org` | POST | Re-scopes the current session to a different WorkOS org the user belongs to |
 
 ## Client-Side Integration
 
-The React frontend uses the `AuthProvider` component to manage authentication state:
+The React frontend uses the `AuthProvider` component (`apps/astro-client/src/lib/AuthProvider.tsx`) to manage authentication state:
 
 ```typescript
-// Check authentication on mount
+// Check authentication on mount, unless already hydrated from the server-rendered response.
 useEffect(() => {
-  api.getCurrentUser()
-    .then(updateFromResponse)
-    .catch(handleAuthError);
-}, []);
+  if (!hydratedRef.current) checkAuth();
+}, [checkAuth]);
 
-// Proactive token refresh on tab visibility
+// Re-validate session when the tab regains visibility or the window gains
+// focus. checkAuth() dedupes concurrent calls: with WorkOS refresh-token
+// rotation, two simultaneous /me requests would race on the same refresh
+// token and log the user out.
 useEffect(() => {
+  if (!state.isAuthenticated) return;
   const handleVisibilityChange = () => {
-    if (document.visibilityState === 'visible') {
-      refreshIfNeeded();
-    }
+    if (document.visibilityState === 'visible') checkAuth();
   };
+  const handleFocus = () => checkAuth();
   document.addEventListener('visibilitychange', handleVisibilityChange);
-}, []);
+  window.addEventListener('focus', handleFocus);
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('focus', handleFocus);
+  };
+}, [state.isAuthenticated, checkAuth]);
 ```

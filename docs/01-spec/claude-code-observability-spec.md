@@ -1,5 +1,11 @@
 # Claude Code Observability
 
+> This is the original design. Some details below are corrected by
+> [claude-code-observability-implementation.md](claude-code-observability-implementation.md)
+> as built (metrics route to VictoriaMetrics, not Prometheus/Mimir; the
+> ingest-key table is `otel_ingest_tokens`, not `ingest_tokens`) — read that
+> doc for the as-built version of anything storage- or schema-related.
+
 ## Summary
 
 Astro captures observability from deployed agents today. This feature extends that to **local AI coding tools**, starting with **Claude Code**, running on an enterprise's developer machines. Astro streams usage telemetry (sessions, tokens, cost, tool activity, request traces) off each machine into its observability pipeline and surfaces it back to the enterprise as adoption, cost, and productivity insights.

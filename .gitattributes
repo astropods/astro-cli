@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# git's binary-detection heuristic misreads .mjs files as binary when they
+# have a shebang line plus a high density of multi-byte UTF-8 characters
+# (confirmed on .claude/hooks/docs-map-check.mjs) — force text so diffs
+# render instead of "Bin X -> Y bytes".
+*.mjs text diff

@@ -1,7 +1,13 @@
 # Public Profile Page Spec
 
-**Status:** Draft  
-**Author:** Sohum Dalal  
+> Superseded by [`03-architecture/account-profile.md`](../03-architecture/account-profile.md)
+> for as-built behavior. The page/tabs/view-toggle design intent below mostly
+> matches what shipped, but the data model, several tab filter/sort details,
+> and the view-toggle mechanism differ — see the architecture doc for current
+> behavior.
+
+**Status:** Shipped; see the superseded banner above.
+**Author:** Sohum Dalal
 **Date:** 2026-04-29
 
 ---

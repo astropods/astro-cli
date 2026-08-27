@@ -1,5 +1,13 @@
 # Knowledge Stores — UI Specification
 
+> **Shipped, with drift.** The knowledge UI this describes has been built
+> (`apps/astro-client/src/pages/knowledge/**`), but some sections below
+> describe features that were never built or have since been removed (a
+> managed-store creation dialog, Logs/Events tabs) — don't treat those as
+> current. For the as-built store model, see
+> [`../05-implementation/knowledge-store.md`](../05-implementation/knowledge-store.md).
+> Kept here as the original plan, not as current documentation.
+
 Design reference for building the knowledge store management UI.
 
 ---

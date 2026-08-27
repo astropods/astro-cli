@@ -1,5 +1,24 @@
 # Async Database-Driven Deployment Architecture
 
+> **Partially shipped, partially abandoned — this is the root of a real
+> drift chain, read carefully before trusting any detail below.** The core
+> idea (handlers write desired state to the DB and enqueue a River job;
+> a worker reconciles to K8s asynchronously) shipped and is exactly what
+> `DeployWorker` does today. Everything KEDA-related did not ship — there is
+> no KEDA integration, no `scaled_down` status, no `scaled_namespaces`
+> table, no `MarkScaledDown`/`ClearScaledDown`/`IsScaledDown`, and no
+> "unified reconciler." What actually replaced the described reconciler is
+> `deploycontroller`, a K8s informer-driven controller with a materially
+> different design (event-driven, not polling; no KEDA awareness because
+> there's nothing to be aware of). This doc's `RecoverOrphanedDeployment`
+> mention is also unbuilt — no such function exists anywhere in code.
+> For the current, verified design, see
+> [`../03-architecture/deployment-state-machine.md`](../03-architecture/deployment-state-machine.md).
+> Kept here as the original design record, not as current documentation —
+> and flagging explicitly because an earlier version of that architecture
+> doc had silently inherited this doc's fabricated details as if they were
+> shipped.
+
 ## Summary
 
 Deploy/undeploy handlers synchronously call K8s APIs inline with the HTTP request. This causes four problems:

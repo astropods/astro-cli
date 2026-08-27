@@ -1,5 +1,11 @@
 # Eval Infrastructure
 
+> **Dead.** The `deployment_datasets` table and its sync jobs
+> (`DatasetSyncSchedulerArgs`/`DatasetSyncArgs`) described below don't exist
+> in current schema or code. This system was superseded by the eval-dataset
+> judgment flow — see [`../01-spec/eval-dataset-v2-spec.md`](../01-spec/eval-dataset-v2-spec.md).
+> Kept here as history, not as current documentation.
+
 ## Phase 1: Deployment Datasets
 
 ### Summary

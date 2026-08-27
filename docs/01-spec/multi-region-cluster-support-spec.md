@@ -1,5 +1,18 @@
 # Multi-Region Cluster Support — Astro-Server Contract
 
+> **Superseded.** The primary-vs-additional split this spec designs around
+> (env-var-only primary, RPC-registered additional clusters, an
+> `enabled`/`disabled` gate) was removed by `a41d2bf62`: every cluster,
+> including the one astro-server runs on, is now a row in `clusters`, synced
+> from a config file, with no enabled/disabled distinction. For the as-built
+> system, read
+> [`../03-architecture/cluster-configuration.md`](../03-architecture/cluster-configuration.md).
+> For the config-driven registration design that replaced RPC registration,
+> see [`cluster-registration-config-spec.md`](cluster-registration-config-spec.md)
+> (also superseded on the primary-cluster point, but accurate on the
+> boot-sync mechanism). Kept here as the original plan, not as current
+> documentation.
+
 **Version**: 2.0
 **Status**: Draft
 **Date**: 2026-05-13

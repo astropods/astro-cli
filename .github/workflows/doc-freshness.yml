@@ -1,0 +1,26 @@
+name: Doc Freshness
+
+# Runs on a schedule, not on pull_request or push: this reports cumulative
+# drift (has code moved since a doc's Last-verified date), which isn't tied
+# to any one PR's diff. Never blocks a merge. A failing run here is a signal
+# to go re-verify a doc, visible in this workflow's own run history, not a
+# gate on anything.
+
+on:
+  schedule:
+    - cron: '0 14 * * 1' # Monday 14:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Report docs/README.md areas whose code has moved since Last-verified
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history: the check needs git log across all of docs/README.md's globs
+
+      - name: Check doc freshness
+        run: node scripts/check-doc-freshness.mjs

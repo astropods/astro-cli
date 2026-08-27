@@ -120,6 +120,18 @@ jobs:
       - name: Lint (astro-client)
         run: bun x moon run astro-client:lint
 
+      - name: Theme lint budget (astro-client)
+        run: node scripts/check-theme-lint-budget.mjs
+        working-directory: apps/astro-client
+
+      - name: Inline style lint budget (astro-client)
+        run: node scripts/check-inline-style-budget.mjs
+        working-directory: apps/astro-client
+
+      - name: Card-chrome lint budget (astro-client)
+        run: node scripts/check-card-chrome-budget.mjs
+        working-directory: apps/astro-client
+
       - name: Run tests
         run: bun run test
         working-directory: apps/astro-client

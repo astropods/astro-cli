@@ -1,5 +1,14 @@
 # Billing Gating Implementation Plan
 
+> **Superseded.** This plan shipped, then grew well past what's described
+> here: the status model now has exemptions, credit-exhaustion and
+> per-metric usage limits alongside dunning, a force-suspend/write-off state,
+> and a different schema than the one drafted below. For the as-built
+> design, read
+> [`../03-architecture/billing-data-flow.md`](../03-architecture/billing-data-flow.md)
+> and [`../03-architecture/billing-architecture.md`](../03-architecture/billing-architecture.md).
+> Kept here as the original plan, not as current documentation.
+
 ## Context
 
 Metered consumption gating is a no-op today (`middleware.Entitlements` passes through). `internal/quota` still enforces DB resource *counts* (402). We want to block metered consumption when an account can no longer pay — **but astro-server does not read or interpret billing balances/credits/spend; Metronome owns all of that.** astro-server only reacts to the signals Metronome emits (payment failures, threshold/spend alerts) and to a local dunning timer.

@@ -7,6 +7,9 @@ third-party `fern-docs` skill is installed on demand and is **not** committed.
 
 | Skill | Purpose |
 |-------|---------|
+| `docs-map` | Look up which `docs/` (internal spec/architecture/guide/plan) files are canonical for a feature area, and check them after a change. Not for `docs-public/`. |
+| `write-changelog` | Write or update the `docs/changelog/` entry required on every PR. |
+| `write-release-notes` | Cut a new `docs/releases/` note and tag it, per `agents.md`'s Releases process. |
 | `astro-docs-style` | Check `docs-public/` copy against the house word/term list; answer style questions. |
 | `astro-docs-review` | Per-page QA for `docs-public/`: `fern check` + frontmatter + style + structure. |
 | `astro-audit-cli-docs` | Audit the public CLI reference against the prod `ast` CLI surface. |

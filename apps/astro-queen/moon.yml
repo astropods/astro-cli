@@ -39,7 +39,7 @@ tasks:
       - "bin/queen"
 
   start:
-    command: "./bin/queen server"
+    command: "./bin/queen local admin"
     deps:
       - "build"
     local: true

@@ -1,7 +1,17 @@
 # Messaging Ingress Authentication Specification
 
+> **Superseded.** The per-deployment ALB-OIDC mechanism below shipped, then
+> was replaced by a front-door ALB listener rule under the tenant-router
+> model — OIDC is now enforced once at the front door, not per deployment.
+> None of the `MESSAGING_OIDC_*` env vars or the per-deployment
+> `messaging-oidc` Secret this spec describes exist anymore
+> (`apps/astro-server/internal/k8s/spec_applier.go` has the current comment
+> and behavior; `modules/astro-infra/docs/architecture/14-tenant-router.md`
+> is the as-built doc for the replacement). Kept here as the original design,
+> not as current documentation.
+
 **Version**: 2.0
-**Status**: Implemented
+**Status**: Implemented (superseded — see banner above)
 **Author**: Astro Team
 **Date**: 2026-04-07
 

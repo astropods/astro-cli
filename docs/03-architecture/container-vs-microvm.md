@@ -1,5 +1,8 @@
 # Container vs. MicroVM for Agent Execution
 
+**Status:** Authoritative — describes the shipped system
+**Last verified:** 2026-08-26
+
 ## Current State (Astro)
 
 All agents run as OCI containers on Amazon EKS. Isolation today is Kubernetes-native:

@@ -1,6 +1,6 @@
 # Agent-Controlled Sandbox — Delivery Plan
 
-Companion to [agent-controlled-sandbox.md](../05-architecture/agent-controlled-sandbox.md), which decides the architecture. This one sequences it.
+Companion to [agent-controlled-sandbox.md](../01-spec/agent-controlled-sandbox.md), which decides the architecture. This one sequences it.
 
 ## The sequencing rule
 

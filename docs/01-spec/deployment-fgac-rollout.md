@@ -3,6 +3,11 @@
 **Status:** Phase 8 implemented; Phase 9 hardening
 **Updated:** 2026-08-20
 
+> [`private-by-default-fgac-rollout.md`](private-by-default-fgac-rollout.md)
+> proposes replacing the Organization-rooted hierarchy this rollout built
+> with an Account-rooted one. Not built yet — this doc's shipped phases are
+> still the current model.
+
 ## Decision
 
 Introduce WorkOS FGA for deployment control-plane access through small, reversible server PRs. The milestone is API-first: every behavior must be proven through Astro API requests in preview before frontend work begins. The deployment UI is a later designer handoff, not part of PRs 1–9.

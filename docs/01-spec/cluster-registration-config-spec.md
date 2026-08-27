@@ -1,5 +1,18 @@
 # Config-Driven Cluster Registration — astro-infra ↔ astro-server Contract
 
+> **Superseded on one central point.** The boot-sync mechanism below (config
+> file, one-time startup sync, `DeregisterCluster` as the only surviving
+> mutation RPC, no background reconciler) shipped and is accurate. But
+> `a41d2bf62` (landed the day after this spec) went further than this
+> document proposes: it removed the primary/additional split entirely, so
+> "Never includes the primary/default cluster, which keeps its own env vars"
+> is no longer true — the primary is just the config entry whose id matches
+> `DEFAULT_CLUSTER_ID`, sourced from the same file as every other cluster,
+> with no separate env vars. For the as-built system, read
+> [`../03-architecture/cluster-configuration.md`](../03-architecture/cluster-configuration.md).
+> Kept here for the boot-sync design rationale, not as current documentation
+> of the primary cluster's model.
+
 **Version**: 2.0
 **Status**: Draft
 **Date**: 2026-08-12
