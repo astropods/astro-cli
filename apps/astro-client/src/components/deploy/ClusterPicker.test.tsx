@@ -103,10 +103,10 @@ describe("ClusterPicker", () => {
     expect(screen.getByText("This agent runs in the only available region.")).toBeInTheDocument();
     const region = screen.getByRole("radio", { name: /US East \(N\. Virginia\).*Default.*us-east-1/ });
     expect(region).toBeChecked();
-    expect(region).toBeDisabled();
+    expect(region).toHaveAttribute("aria-disabled", "true");
 
     await user.tab();
-    expect(region.closest("label")).toHaveFocus();
+    expect(region).toHaveFocus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "Region availability is set for this account. Contact support to request another region.",
     );

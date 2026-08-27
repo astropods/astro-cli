@@ -69,9 +69,9 @@ export function ClusterPicker({ account, value, onChange, currentClusterId, depl
     allowed.find((cluster) => cluster.cluster_id === currentClusterId) ??
     allowed.find((cluster) => cluster.is_default) ??
     allowed[0];
-  const effective = value || resolved.cluster_id;
-  const moving = !!deployed && effective !== resolved.cluster_id;
   const readOnly = allowed.length === 1;
+  const effective = readOnly ? resolved.cluster_id : value || resolved.cluster_id;
+  const moving = !!deployed && effective !== resolved.cluster_id;
 
   return (
     <div className="w-full">
@@ -101,38 +101,17 @@ export function ClusterPicker({ account, value, onChange, currentClusterId, depl
         >
           {allowed.map((cluster, index) => {
             const isSelected = cluster.cluster_id === effective;
-            const row = (
-              <label
-                key={cluster.cluster_id}
-                aria-disabled={readOnly || undefined}
-                tabIndex={readOnly ? 0 : undefined}
-                className={cn(
-                  "relative flex min-h-16 items-center gap-3 px-4 py-3 text-left transition-colors",
-                  readOnly ? "cursor-help" : "cursor-pointer",
-                  index > 0 && "border-t border-border",
-                  isSelected && (readOnly ? "bg-muted/40" : "bg-muted"),
-                  !isSelected && "bg-transparent hover:bg-muted/50",
-                  readOnly &&
-                    "rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                )}
-              >
-                <input
-                  type="radio"
-                  name={`cluster-${account}`}
-                  value={cluster.cluster_id}
-                  aria-label={getRegionAccessibleName(cluster)}
-                  checked={isSelected}
-                  disabled={readOnly}
-                  onChange={() => onChange(cluster.cluster_id)}
-                  className="peer sr-only"
-                />
-                <span
-                  aria-hidden
-                  className={cn(
-                    "pointer-events-none absolute inset-0",
-                    "peer-focus-visible:ring-2 peer-focus-visible:ring-inset peer-focus-visible:ring-ring",
-                  )}
-                />
+            const rowClassName = cn(
+              "relative flex min-h-16 items-center gap-3 px-4 py-3 text-left transition-colors",
+              readOnly ? "cursor-help" : "cursor-pointer",
+              index > 0 && "border-t border-border",
+              isSelected && (readOnly ? "bg-muted/40" : "bg-muted"),
+              !isSelected && "bg-transparent hover:bg-muted/50",
+              readOnly &&
+                "rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+            );
+            const details = (
+              <>
                 <RegionDetails cluster={cluster} />
                 <span
                   aria-hidden
@@ -147,6 +126,39 @@ export function ClusterPicker({ account, value, onChange, currentClusterId, depl
                     />
                   )}
                 </span>
+              </>
+            );
+            const row = readOnly ? (
+              <div
+                key={cluster.cluster_id}
+                role="radio"
+                aria-label={getRegionAccessibleName(cluster)}
+                aria-checked={isSelected}
+                aria-disabled="true"
+                tabIndex={0}
+                className={rowClassName}
+              >
+                {details}
+              </div>
+            ) : (
+              <label key={cluster.cluster_id} className={rowClassName}>
+                <input
+                  type="radio"
+                  name={`cluster-${account}`}
+                  value={cluster.cluster_id}
+                  aria-label={getRegionAccessibleName(cluster)}
+                  checked={isSelected}
+                  onChange={() => onChange(cluster.cluster_id)}
+                  className="peer sr-only"
+                />
+                <span
+                  aria-hidden
+                  className={cn(
+                    "pointer-events-none absolute inset-0",
+                    "peer-focus-visible:ring-2 peer-focus-visible:ring-inset peer-focus-visible:ring-ring",
+                  )}
+                />
+                {details}
               </label>
             );
 
