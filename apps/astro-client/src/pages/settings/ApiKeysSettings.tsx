@@ -5,6 +5,7 @@ import { PlusIcon } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FieldHeader } from '@/components/ui/field-header'
 import { Switch } from '@/components/ui/switch'
 import { InlineBadge } from '@/components/InlineBadge'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
@@ -127,21 +128,26 @@ function EmailExclusionsEditor({
   }
 
   return (
-    <div className="space-y-2">
+    <div>
       {!hideHeading && (
-        <div>
-          <Label size="md" htmlFor="excl-email">
-            Excluded users <span className="font-normal text-muted-foreground">(optional)</span>
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Provide <strong className="font-medium text-foreground">Anthropic</strong> account emails for users to
-            exclude from prompt and tool call collection. Usage metadata is collected for all ingested users
-            regardless of exclusion.
-          </p>
-        </div>
+        <FieldHeader
+          label={(
+            <>
+              Excluded users <span className="font-normal text-muted-foreground">(optional)</span>
+            </>
+          )}
+          description={(
+            <>
+              Provide <strong className="font-medium text-foreground">Anthropic</strong> account emails for users to
+              exclude from prompt and tool call collection. Usage metadata is collected for all ingested users
+              regardless of exclusion.
+            </>
+          )}
+          htmlFor="excl-email"
+        />
       )}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="mb-2 flex flex-wrap gap-1.5">
           {value.map((email) => (
             <InlineBadge key={email} variant="soft" className="gap-1 border border-border-strong bg-popover">
               {email}
@@ -179,7 +185,7 @@ function EmailExclusionsEditor({
           Add
         </Button>
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
     </div>
   )
 }

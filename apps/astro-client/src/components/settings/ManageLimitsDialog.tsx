@@ -3,7 +3,7 @@ import { linkifyEmail } from "@/lib/linkify-email";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldHeader } from "@/components/ui/field-header";
 import {
   Dialog,
   DialogContent,
@@ -97,12 +97,12 @@ function LimitField({
 }) {
   const messageId = `${id}-message`;
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        <Label size="md" className="mb-0" htmlFor={id}>
-          {label}
-        </Label>
-        {value !== "" && (
+    <div>
+      <FieldHeader
+        label={label}
+        description={helperText}
+        htmlFor={id}
+        action={value !== "" ? (
           <button
             type="button"
             aria-label={removeLabel}
@@ -111,9 +111,8 @@ function LimitField({
           >
             Remove
           </button>
-        )}
-      </div>
-      <p className="text-body-sm text-muted-foreground">{helperText}</p>
+        ) : undefined}
+      />
       <div className="relative">
         {prefix && (
           <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-body-sm text-muted-foreground">
@@ -133,12 +132,12 @@ function LimitField({
         />
       </div>
       {error ? (
-        <p id={messageId} className="text-body-sm text-destructive">
+        <p id={messageId} className="mt-1.5 text-body-sm text-destructive">
           {error}
         </p>
       ) : (
         notice && (
-          <p id={messageId} className="text-body-sm text-warning">
+          <p id={messageId} className="mt-1.5 text-body-sm text-warning">
             {notice}
           </p>
         )

@@ -1,6 +1,7 @@
 import { CheckIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { FieldHeader } from "@/components/ui/field-header";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -28,16 +29,21 @@ export function InteractionField({ field, value, onChange, invalid, disabled }: 
 
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-baseline gap-1">
-        <Label size="md" htmlFor={field.key}>
-          {field.label}
-        </Label>
-        {field.required && <span className="text-destructive">*</span>}
-      </div>
-      {field.description && (
-        <p id={describedBy} className="mb-1.5 text-body-sm text-muted-foreground">
-          {field.description}
-        </p>
+      {field.description ? (
+        <FieldHeader
+          label={field.label}
+          description={field.description}
+          htmlFor={field.key}
+          descriptionId={describedBy}
+          adornment={field.required ? <span className="text-destructive">*</span> : undefined}
+        />
+      ) : (
+        <div className="mb-1 flex items-center gap-1">
+          <Label size="md" className="mb-0" htmlFor={field.key}>
+            {field.label}
+          </Label>
+          {field.required && <span className="text-destructive">*</span>}
+        </div>
       )}
       <FieldControl
         field={field}

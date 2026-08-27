@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronRight, Lock, RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldHeader } from "@/components/ui/field-header";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import {
@@ -284,39 +285,33 @@ function TierSlider({
   const currentDisplay = displayLabels[indexOf(current, tiers, index)] ?? current;
   return (
     <div>
-      <div className="mb-2 flex items-baseline justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <Label size="md" className="mb-0">{label}</Label>
-            {disabled && (
-              <Lock className="size-3.5 text-muted-foreground" aria-label="Locked" />
+      <FieldHeader
+        label={label}
+        description={disabled && disabledHint ? disabledHint : description}
+        adornment={disabled ? <Lock className="size-3.5 text-muted-foreground" aria-label="Locked" /> : undefined}
+        action={(
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              "text-heading-4 tabular-nums",
+              isOverridden ? "text-foreground" : "text-muted-foreground",
+            )}>
+              {currentDisplay}
+              {displayUnit && <span className="text-body-sm text-muted-foreground"> {displayUnit}</span>}
+            </span>
+            {isOverridden && !disabled && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Reset ${label.toLowerCase()} to default`}
+                onClick={() => onChange("")}
+              >
+                <RotateCcw />
+              </Button>
             )}
           </div>
-          <p className="text-body-sm text-muted-foreground">
-            {disabled && disabledHint ? disabledHint : description}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className={cn(
-            "text-heading-4 tabular-nums",
-            isOverridden ? "text-foreground" : "text-muted-foreground",
-          )}>
-            {currentDisplay}
-            {displayUnit && <span className="text-body-sm text-muted-foreground"> {displayUnit}</span>}
-          </span>
-          {isOverridden && !disabled && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label={`Reset ${label.toLowerCase()} to default`}
-              onClick={() => onChange("")}
-            >
-              <RotateCcw />
-            </Button>
-          )}
-        </div>
-      </div>
+        )}
+      />
       <Slider
         min={0}
         max={max}
