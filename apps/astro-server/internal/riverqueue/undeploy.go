@@ -2,13 +2,13 @@ package riverqueue
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/riverqueue/river"
 
+	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
@@ -41,14 +41,14 @@ func (UndeployArgs) InsertOpts() river.InsertOpts {
 // UndeployWorker tears down K8s resources for an undeploying deployment.
 type UndeployWorker struct {
 	river.WorkerDefaults[UndeployArgs]
-	deployer *deployer.Deployer
-	store    *deploymentstore.Store
-	ksStore  *knowledgestore.Store
-	log      *logger.Logger
-	cache    k8scache.Cache
-	billing  *metering.BillingStateManager
-	fgaSync  *authz.DeploymentFGASyncStore
-	fgaQueue deploymentFGAQueue
+	deployer  *deployer.Deployer
+	store     *deploymentstore.Store
+	accounts  *account.AccountStore
+	resources authz.ResourceLifecycle
+	ksStore   *knowledgestore.Store
+	log       *logger.Logger
+	cache     k8scache.Cache
+	billing   *metering.BillingStateManager
 }
 
 func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs]) error {
@@ -91,16 +91,21 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
-	var fgaRecorded bool
-	if err := w.store.UpdateStatusWithTx(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}, func(tx *sql.Tx) error {
-		var recordErr error
-		fgaRecorded, recordErr = w.fgaSync.RecordDeletionTx(ctx, tx, dep.ID)
-		return recordErr
-	}); err != nil {
+	if err := w.store.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}); err != nil {
 		return fmt.Errorf("set undeployed: %w", err)
 	}
-	if fgaRecorded {
-		w.enqueueDeploymentFGAReconciliation(ctx, dep.ID)
+	if w.resources != nil && w.accounts != nil {
+		acct, accountErr := w.accounts.GetByID(dep.AccountID)
+		if accountErr != nil {
+			w.log.Warn("undeploy: load account for authorization cleanup failed", "error", accountErr, "account_id", dep.AccountID, "deployment_id", dep.ID)
+		} else if acct.Type == "organization" && acct.WorkOSOrganizationID != "" {
+			resourceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			deleteErr := w.resources.DeleteResource(resourceCtx, acct.WorkOSOrganizationID, authz.DeploymentResource(dep.ID))
+			cancel()
+			if deleteErr != nil && !errors.Is(deleteErr, authz.ErrResourceNotFound) {
+				w.log.Warn("undeploy: delete authorization resource failed", "error", deleteErr, "account_id", dep.AccountID, "deployment_id", dep.ID)
+			}
+		}
 	}
 	// Undeploy → the deployment drops out of the visible list for this account.
 	_ = deploycache.Invalidate(ctx, w.cache, dep.AccountID)
@@ -111,17 +116,4 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	}
 
 	return nil
-}
-
-func (w *UndeployWorker) enqueueDeploymentFGAReconciliation(ctx context.Context, deploymentID string) {
-	if w.fgaQueue == nil {
-		return
-	}
-	if err := w.fgaQueue.InsertDeploymentFGAReconcileJob(ctx, deploymentID); err != nil {
-		w.log.Warn("undeploy: enqueue deployment FGA reconciliation failed",
-			"deployment_id", deploymentID,
-			"desired_state", authz.DeploymentFGADeleted,
-			"error", err,
-		)
-	}
 }

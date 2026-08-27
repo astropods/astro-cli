@@ -216,7 +216,7 @@ func TestUserDeploymentCacheChangesWithLiveVisibility(t *testing.T) {
 
 	for _, readable := range []string{"dep-1", "dep-2"} {
 		expectCrossAccountMemberships(mock)
-		mock.ExpectQuery(`(?s)FROM deployments d.*deployment_fga_sync.*d.id = ANY\(\$4::varchar\[\]\)`).
+		mock.ExpectQuery(`(?s)FROM deployments d.*d.id = ANY\(\$4::varchar\[\]\)`).
 			WithArgs(
 				"user-1", pq.Array([]string{"acct-1", "acct-2"}),
 				pq.Array([]string{"acct-1"}), pq.Array([]string{readable}),

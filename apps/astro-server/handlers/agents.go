@@ -671,7 +671,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
 // from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
 // using provider:astro-gateway in a gateway-less env fails at admission.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, registrar authz.ResourceRegistrar) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -821,7 +821,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 			})
 			return
 		}
-		registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.BlueprintResource(resourceID), agentName)
+		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID), agentName)
 
 		// Publishing a new build shifts `latest_build_id` for every downstream
 		// deployment whose lineage points at this agent. Bust their per-account
@@ -904,7 +904,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, registrar authz.ResourceRegistrar) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -946,7 +946,7 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create blueprint"})
 			return
 		}
-		registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.BlueprintResource(resourceID), req.Name)
+		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID), req.Name)
 
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {
@@ -997,7 +997,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -1008,6 +1008,11 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			return
 		}
 
+		resourceID, resourceIDErr := index.ResourceID(acct.ID, agentName)
+		if resourceIDErr != nil {
+			log.Warn("authorization resource: resolve blueprint id for delete failed", "account_id", acct.ID, "agent", agentName, "error", resourceIDErr)
+		}
+
 		if err := index.Archive(acct.ID, agentName); err != nil {
 			log.Error("agents: archive agent failed", "error", err, "account", accountName, "name", agentName)
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -1015,6 +1020,9 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 				"details": err.Error(),
 			})
 			return
+		}
+		if resourceID != "" {
+			deleteAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID))
 		}
 
 		// Best-effort: disconnect any linked GitHub repo so it can be reused.

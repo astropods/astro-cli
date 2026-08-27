@@ -9,7 +9,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 )
 
-func TestDeploymentAccountResolverEnablesConvergedOrganizationResource(t *testing.T) {
+func TestDeploymentAccountResolverEnablesOrganizationResource(t *testing.T) {
 	t.Parallel()
 
 	db, mock, err := sqlmock.New()
@@ -20,8 +20,8 @@ func TestDeploymentAccountResolverEnablesConvergedOrganizationResource(t *testin
 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT d.account_id,")).
 		WithArgs("dep_123").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id", "ready"}).
-			AddRow("acct_123", "organization", "org_123", true))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id"}).
+			AddRow("acct_123", "organization", "org_123"))
 
 	resolver := authz.NewDeploymentAccountResolver(db)
 	ctx := authz.WithRequestCache(context.Background())
@@ -48,10 +48,10 @@ func TestDeploymentAccountResolverScopesRollout(t *testing.T) {
 	tests := []struct {
 		name        string
 		accountType string
-		ready       bool
+		wantEnabled bool
 	}{
-		{name: "resource not converged", accountType: "organization", ready: false},
-		{name: "personal account", accountType: "personal", ready: false},
+		{name: "organization account", accountType: "organization", wantEnabled: true},
+		{name: "personal account", accountType: "personal", wantEnabled: false},
 	}
 
 	for _, test := range tests {
@@ -64,13 +64,13 @@ func TestDeploymentAccountResolverScopesRollout(t *testing.T) {
 
 			mock.ExpectQuery(regexp.QuoteMeta("SELECT d.account_id,")).
 				WithArgs("dep_123").
-				WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id", "ready"}).
-					AddRow("acct_123", test.accountType, "org_123", test.ready))
+				WillReturnRows(sqlmock.NewRows([]string{"account_id", "type", "workos_org_id"}).
+					AddRow("acct_123", test.accountType, "org_123"))
 
 			enabled, resolveErr := authz.NewDeploymentAccountResolver(db).
 				Enabled(context.Background(), authz.DeploymentResource("dep_123"))
-			if resolveErr != nil || enabled {
-				t.Fatalf("Enabled() = (%v, %v), want (false, nil)", enabled, resolveErr)
+			if resolveErr != nil || enabled != test.wantEnabled {
+				t.Fatalf("Enabled() = (%v, %v), want (%v, nil)", enabled, resolveErr, test.wantEnabled)
 			}
 			if err := mock.ExpectationsWereMet(); err != nil {
 				t.Fatal(err)

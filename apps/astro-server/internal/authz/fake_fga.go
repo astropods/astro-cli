@@ -8,29 +8,46 @@ import (
 // FakeFGA is a strict programmable fake for downstream resource lifecycle and
 // enforcement tests. Unconfigured calls fail instead of silently authorizing.
 type FakeFGA struct {
-	RegisterResourceFunc         func(context.Context, string, ResourceRef, string) error
-	UpdateResourceNameFunc       func(context.Context, string, ResourceRef, string) error
-	DeleteResourceFunc           func(context.Context, string, ResourceRef) error
-	AssignRoleFunc               func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
-	RemoveRoleFunc               func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
-	ListRoleAssignmentsFunc      func(context.Context, string, ResourceRef) ([]RoleAssignment, error)
-	ListGroupRoleAssignmentsFunc func(context.Context, string) ([]RoleAssignment, error)
-	ListResourcesFunc            func(context.Context, string, Action, ResourceRef) ([]ResourceRef, error)
-	ListMembershipsFunc          func(context.Context, string, ResourceRef, Action) ([]string, error)
-	CheckFunc                    func(context.Context, string, Action, ResourceRef) (bool, error)
-	ListPermissionsFunc          func(context.Context, string, ResourceRef) ([]Action, error)
+	RegisterResourceFunc           func(context.Context, string, ResourceRef, string) error
+	RegisterResourceWithParentFunc func(context.Context, string, ResourceRef, ResourceRef, string) error
+	GetResourceFunc                func(context.Context, string, ResourceRef) (AuthorizationResource, error)
+	UpdateResourceNameFunc         func(context.Context, string, ResourceRef, string) error
+	DeleteResourceFunc             func(context.Context, string, ResourceRef) error
+	AssignRoleFunc                 func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
+	RemoveRoleFunc                 func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
+	ListRoleAssignmentsFunc        func(context.Context, string, ResourceRef) ([]RoleAssignment, error)
+	ListGroupRoleAssignmentsFunc   func(context.Context, string) ([]RoleAssignment, error)
+	ListResourcesFunc              func(context.Context, string, Action, ResourceRef) ([]ResourceRef, error)
+	ListMembershipsFunc            func(context.Context, string, ResourceRef, Action) ([]string, error)
+	CheckFunc                      func(context.Context, string, Action, ResourceRef) (bool, error)
+	ListPermissionsFunc            func(context.Context, string, ResourceRef) ([]Action, error)
 }
 
 var _ FGA = (*FakeFGA)(nil)
 var _ AccessAssignments = (*FakeFGA)(nil)
 var _ ResourceDiscovery = (*FakeFGA)(nil)
 var _ ResourceMembershipDiscovery = (*FakeFGA)(nil)
+var _ ResourceLifecycle = (*FakeFGA)(nil)
 
 func (f *FakeFGA) RegisterResource(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
 	if f.RegisterResourceFunc == nil {
 		return errors.New("unexpected FGA resource registration")
 	}
 	return f.RegisterResourceFunc(ctx, organizationID, resource, name)
+}
+
+func (f *FakeFGA) RegisterResourceWithParent(ctx context.Context, organizationID string, resource, parent ResourceRef, name string) error {
+	if f.RegisterResourceWithParentFunc == nil {
+		return errors.New("unexpected FGA child resource registration")
+	}
+	return f.RegisterResourceWithParentFunc(ctx, organizationID, resource, parent, name)
+}
+
+func (f *FakeFGA) GetResource(ctx context.Context, organizationID string, resource ResourceRef) (AuthorizationResource, error) {
+	if f.GetResourceFunc == nil {
+		return AuthorizationResource{}, errors.New("unexpected FGA resource read")
+	}
+	return f.GetResourceFunc(ctx, organizationID, resource)
 }
 
 func (f *FakeFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {

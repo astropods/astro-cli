@@ -6,6 +6,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
@@ -25,7 +26,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, queue notifyQueue) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, queue notifyQueue, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -75,6 +76,10 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found in source account"})
 			return
 		}
+		resourceID, resourceIDErr := index.ResourceID(sourceAcct.ID, agentName)
+		if resourceIDErr != nil {
+			log.Warn("authorization resource: resolve Blueprint id for transfer failed", "account_id", sourceAcct.ID, "agent", agentName, "error", resourceIDErr)
+		}
 
 		// Check for name collision in target account
 		if _, err := index.Get(targetAcct.ID, agentName); err == nil {
@@ -95,6 +100,10 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 				"details": err.Error(),
 			})
 			return
+		}
+		if resourceID != "" {
+			deleteAuthorizationResource(c.Request.Context(), log, resources, sourceAcct, authz.BlueprintResource(resourceID))
+			registerAuthorizationResource(c.Request.Context(), log, resources, targetAcct, authz.BlueprintResource(resourceID), agentName)
 		}
 
 		// Transfer mutates `source_account_id` on every cross-account

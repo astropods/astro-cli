@@ -48,7 +48,6 @@ type Config struct {
 	K8sRegistry        *k8s.Registry
 	K8sCache           k8scache.Cache
 	ServerConfig       *config.Config
-	DeploymentFGASync  *authz.DeploymentFGASyncStore
 	ResourceAccessSync *authz.ResourceAccessSyncStore
 	AccessReconciler   *authz.AccessReconciler
 	AuthorizationAdmin *authorizationadmin.Service
@@ -106,9 +105,6 @@ type Queue struct {
 // New creates a Queue: opens a pgxpool, registers workers, and builds the River client.
 // The River schema tables must already exist (managed via Bytebase).
 func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
-	if cfg.DeploymentFGASync == nil {
-		cfg.DeploymentFGASync = authz.NewDeploymentFGASyncStore(cfg.DB, false)
-	}
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("riverqueue: pgxpool: %w", err)
@@ -188,12 +184,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	}
 	if wired.observation != nil {
 		wired.observation.queue = q
-	}
-	if wired.undeploy != nil {
-		wired.undeploy.fgaQueue = q
-	}
-	if wired.deploymentFGA != nil {
-		wired.deploymentFGA.queue = q
 	}
 	if wired.resourceAccess != nil {
 		wired.resourceAccess.queue = q
@@ -303,13 +293,6 @@ func (q *Queue) UndeployFunc(store *deploymentstore.Store) func(ctx context.Cont
 		}
 		return q.InsertUndeployJob(ctx, deploymentID, cid)
 	}
-}
-
-// InsertDeploymentFGAReconcileJob enqueues immediate WorkOS reconciliation.
-// The durable desired-state row and periodic sweep recover a failed enqueue.
-func (q *Queue) InsertDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error {
-	_, err := q.Insert(ctx, DeploymentFGAReconcileArgs{DeploymentID: deploymentID}, nil)
-	return err
 }
 
 // InsertResourceAccessFGAReconcileJob enqueues reconciliation for one resource.

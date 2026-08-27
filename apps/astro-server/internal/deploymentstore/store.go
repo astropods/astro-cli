@@ -852,13 +852,6 @@ func updateStatusTx(tx *sql.Tx, id string, u StatusUpdate) error {
 // UpdateStatus is the single entry point for all deployment status changes.
 // It updates the deployment row and inserts a deployment_events row in one transaction.
 func (s *Store) UpdateStatus(id string, u StatusUpdate) error {
-	return s.UpdateStatusWithTx(id, u, nil)
-}
-
-// UpdateStatusWithTx applies a status transition and optional related writes in
-// one transaction. The callback is used when external reconciliation intent
-// must commit atomically with the lifecycle transition.
-func (s *Store) UpdateStatusWithTx(id string, u StatusUpdate, txFn func(*sql.Tx) error) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -868,12 +861,6 @@ func (s *Store) UpdateStatusWithTx(id string, u StatusUpdate, txFn func(*sql.Tx)
 	if err := updateStatusTx(tx, id, u); err != nil {
 		return err
 	}
-	if txFn != nil {
-		if err := txFn(tx); err != nil {
-			return fmt.Errorf("failed to run status tx callback: %w", err)
-		}
-	}
-
 	return tx.Commit()
 }
 
@@ -1060,9 +1047,8 @@ func (s *Store) SaveDeploymentPending(p SaveDeploymentParams, txFn func(tx *sql.
 	return &d, nil
 }
 
-// UpdateDisplayNameWithTx updates the display name and related reconciliation
-// intent atomically.
-func (s *Store) UpdateDisplayNameWithTx(deploymentID, displayName string, txFn func(*sql.Tx) error) error {
+// UpdateDisplayName updates a deployment display name.
+func (s *Store) UpdateDisplayName(deploymentID, displayName string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin deployment display name update: %w", err)
@@ -1072,11 +1058,6 @@ func (s *Store) UpdateDisplayNameWithTx(deploymentID, displayName string, txFn f
 	_, err = tx.Exec(`UPDATE deployments SET display_name = $2 WHERE id = $1`, deploymentID, displayName)
 	if err != nil {
 		return fmt.Errorf("update deployment display name: %w", err)
-	}
-	if txFn != nil {
-		if err := txFn(tx); err != nil {
-			return fmt.Errorf("record deployment display name update: %w", err)
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit deployment display name update: %w", err)

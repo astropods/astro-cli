@@ -10,6 +10,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/accountlifecycle"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	billingpkg "github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
@@ -143,7 +144,6 @@ type wiredWorkers struct {
 	ghBuild           *GitHubBuildWorker
 	observation       *ObservationSweepWorker
 	undeploy          *UndeployWorker
-	deploymentFGA     *DeploymentFGAReconcileWorker
 	resourceAccess    *ResourceAccessFGAReconcileWorker
 }
 
@@ -308,14 +308,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	log.Info("river: registered worker", "worker", "NotifyWorker")
 
 	store := deploymentstore.NewStore(cfg.DB)
-	deploymentFGAWorker := &DeploymentFGAReconcileWorker{
-		fga:           cfg.FGA,
-		sync:          cfg.DeploymentFGASync,
-		organizations: cfg.OrgClient,
-		log:           log,
-	}
-	addWorkerWithCatalogCheck(log, workers, deploymentFGAWorker)
-	log.Info("river: registered worker", "worker", "DeploymentFGAReconcileWorker", "period", "1m")
 	var resourceAccessWorker *ResourceAccessFGAReconcileWorker
 	if cfg.AccessReconciler != nil && cfg.ResourceAccessSync != nil {
 		resourceAccessWorker = &ResourceAccessFGAReconcileWorker{
@@ -466,12 +458,13 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	undeployWorker := &UndeployWorker{
 		deployer: dep,
 		store:    store,
+		accounts: cfg.AccountStore,
 		ksStore:  knowledgestore.NewStore(cfg.DB, cfg.K8sCache),
 		log:      log,
 		cache:    cfg.K8sCache,
 		billing:  billing,
-		fgaSync:  cfg.DeploymentFGASync,
 	}
+	undeployWorker.resources, _ = cfg.FGA.(authz.ResourceLifecycle)
 	addWorkerWithCatalogCheck(log, workers, undeployWorker)
 	log.Info("river: registered worker", "worker", "UndeployWorker")
 	addWorkerWithCatalogCheck(log, workers, &WakeUpWorker{deployer: dep, store: store, log: log, cache: cfg.K8sCache})
@@ -582,7 +575,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		Log:         log,
 		DB:          cfg.DB,
 		Deployments: store,
-		FGASync:     cfg.DeploymentFGASync,
 	}
 	if dep != nil {
 		purgerDeps.Langfuse = dep.LangfuseProvisioner
@@ -693,7 +685,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		insightsRollup:    insightsRollupDiscovery,
 		classification:    classificationDiscovery,
 		undeploy:          undeployWorker,
-		deploymentFGA:     deploymentFGAWorker,
 		resourceAccess:    resourceAccessWorker,
 	}
 }

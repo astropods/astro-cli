@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
@@ -14,17 +15,17 @@ const authorizationResourceRegistrationTimeout = 5 * time.Second
 func registerAuthorizationResource(
 	ctx context.Context,
 	log *logger.Logger,
-	registrar authz.ResourceRegistrar,
+	resources authz.ResourceLifecycle,
 	acct *account.Account,
 	resource authz.ResourceRef,
 	name string,
 ) bool {
-	if registrar == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+	if resources == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
 		return false
 	}
 	registrationCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
 	defer cancel()
-	if err := registrar.RegisterResourceWithParent(
+	if err := resources.RegisterResourceWithParent(
 		registrationCtx,
 		acct.WorkOSOrganizationID,
 		resource,
@@ -42,13 +43,58 @@ func registerAuthorizationResource(
 	return true
 }
 
+func updateAuthorizationResource(
+	ctx context.Context,
+	log *logger.Logger,
+	resources authz.ResourceLifecycle,
+	acct *account.Account,
+	resource authz.ResourceRef,
+	name string,
+) {
+	if resources == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" || name == "" {
+		return
+	}
+	updateCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
+	defer cancel()
+	if err := resources.UpdateResourceName(updateCtx, acct.WorkOSOrganizationID, resource, name); err != nil {
+		log.Warn("authorization resource: direct update failed",
+			"account_id", acct.ID,
+			"resource_type", resource.Type,
+			"resource_id", resource.ExternalID,
+			"error", err,
+		)
+	}
+}
+
+func deleteAuthorizationResource(
+	ctx context.Context,
+	log *logger.Logger,
+	resources authz.ResourceLifecycle,
+	acct *account.Account,
+	resource authz.ResourceRef,
+) {
+	if resources == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+		return
+	}
+	deleteCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
+	defer cancel()
+	if err := resources.DeleteResource(deleteCtx, acct.WorkOSOrganizationID, resource); err != nil && !errors.Is(err, authz.ErrResourceNotFound) {
+		log.Warn("authorization resource: direct delete failed",
+			"account_id", acct.ID,
+			"resource_type", resource.Type,
+			"resource_id", resource.ExternalID,
+			"error", err,
+		)
+	}
+}
+
 func registerAccountAuthorizationResources(
 	ctx context.Context,
 	log *logger.Logger,
-	registrar authz.ResourceRegistrar,
+	resources authz.ResourceLifecycle,
 	acct *account.Account,
 ) {
-	if registrar == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+	if resources == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
 		return
 	}
 	registrationCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
@@ -57,7 +103,7 @@ func registerAccountAuthorizationResources(
 	if name == "" {
 		name = acct.Name
 	}
-	if err := registrar.RegisterResourceWithParent(
+	if err := resources.RegisterResourceWithParent(
 		registrationCtx,
 		acct.WorkOSOrganizationID,
 		authz.AccountResource(acct.ID),
@@ -72,5 +118,5 @@ func registerAccountAuthorizationResources(
 		)
 		return
 	}
-	registerAuthorizationResource(registrationCtx, log, registrar, acct, authz.InsightsResource(acct.ID), "Insights")
+	registerAuthorizationResource(ctx, log, resources, acct, authz.InsightsResource(acct.ID), "Insights")
 }

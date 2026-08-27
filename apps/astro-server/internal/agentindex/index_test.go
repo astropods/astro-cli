@@ -91,6 +91,53 @@ func TestCreate_ArchivedAgentUnarchivesAndClearsVersions(t *testing.T) {
 	}
 }
 
+func TestResourceID(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT uid::text").
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow("11111111-1111-1111-1111-111111111111"))
+
+	resourceID, err := NewIndexWithDB(db).ResourceID("acct-1", "my-agent")
+	if err != nil {
+		t.Fatalf("ResourceID() error = %v", err)
+	}
+	if resourceID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("ResourceID() = %q", resourceID)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestResourceIDAllowsLegacyNullUID(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT uid::text").
+		WithArgs("acct-1", "legacy-agent").
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow(nil))
+
+	resourceID, err := NewIndexWithDB(db).ResourceID("acct-1", "legacy-agent")
+	if err != nil {
+		t.Fatalf("ResourceID() error = %v", err)
+	}
+	if resourceID != "" {
+		t.Fatalf("ResourceID() = %q, want empty", resourceID)
+	}
+}
+
 // ── SetVisibility ─────────────────────────────────────────────────────────────
 
 // Going public permanently sets name_reserved = true via the sticky OR expression.

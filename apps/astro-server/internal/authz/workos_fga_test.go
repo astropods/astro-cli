@@ -125,6 +125,31 @@ func TestWorkOSFGAUpdateResourceName(t *testing.T) {
 	}
 }
 
+func TestWorkOSFGAGetResource(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/authorization/organizations/org_123/resources/deployment/dep_123" {
+			t.Fatalf("request = %s %s", request.Method, request.URL.Path)
+		}
+		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
+			"id": "authz_resource_123", "external_id": "dep_123", "name": "Support agent",
+			"organization_id": "org_123", "resource_type_slug": "deployment",
+			"parent_resource_id": "authz_account_123", "description": nil,
+			"created_at": "2026-08-25T12:00:00Z", "updated_at": "2026-08-25T12:00:00Z",
+		})
+	})
+	defer closeServer()
+
+	resource, err := fga.GetResource(context.Background(), "org_123", DeploymentResource("dep_123"))
+	if err != nil {
+		t.Fatalf("GetResource() error = %v", err)
+	}
+	if resource.ID != "authz_resource_123" || resource.Resource != DeploymentResource("dep_123") || resource.ParentResourceID != "authz_account_123" {
+		t.Fatalf("GetResource() = %+v", resource)
+	}
+}
+
 func TestWorkOSFGADeleteResourceCascadesAssignments(t *testing.T) {
 	t.Parallel()
 
@@ -211,6 +236,25 @@ func TestWorkOSFGAClassifiesResourceErrors(t *testing.T) {
 			wantPrefix: "register WorkOS resource deployment:dep_123: workos: 409",
 			call: func(fga *WorkOSFGA) error {
 				return fga.RegisterResource(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent")
+			},
+		},
+		{
+			name:       "get not found",
+			statusCode: http.StatusNotFound,
+			want:       ErrResourceNotFound,
+			wantPrefix: "get WorkOS resource deployment:dep_123: workos: 404",
+			call: func(fga *WorkOSFGA) error {
+				_, err := fga.GetResource(context.Background(), "org_123", DeploymentResource("dep_123"))
+				return err
+			},
+		},
+		{
+			name:       "update not found",
+			statusCode: http.StatusNotFound,
+			want:       ErrResourceNotFound,
+			wantPrefix: "update WorkOS resource deployment:dep_123 name: workos: 404",
+			call: func(fga *WorkOSFGA) error {
+				return fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent")
 			},
 		},
 		{
@@ -966,6 +1010,12 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	t.Parallel()
 
+	if err := (&FakeFGA{}).RegisterResourceWithParent(context.Background(), "org_123", DeploymentResource("dep_123"), AccountResource("account_123"), "Support agent"); err == nil {
+		t.Fatal("RegisterResourceWithParent() error = nil, want unexpected-call error")
+	}
+	if _, err := (&FakeFGA{}).GetResource(context.Background(), "org_123", DeploymentResource("dep_123")); err == nil {
+		t.Fatal("GetResource() error = nil, want unexpected-call error")
+	}
 	if err := (&FakeFGA{}).UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent"); err == nil {
 		t.Fatal("UpdateResourceName() error = nil, want unexpected-call error")
 	}

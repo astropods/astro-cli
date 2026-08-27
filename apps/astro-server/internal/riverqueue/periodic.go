@@ -181,20 +181,6 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 		))
 	}
 
-	if cfg.DeploymentFGASync != nil && cfg.DeploymentFGASync.Enabled() {
-		jobs = append(jobs, river.NewPeriodicJob(
-			river.PeriodicInterval(1*time.Minute),
-			func() (river.JobArgs, *river.InsertOpts) {
-				return DeploymentFGAReconcileArgs{}, &river.InsertOpts{
-					UniqueOpts: river.UniqueOpts{
-						ByPeriod: 1 * time.Minute,
-					},
-				}
-			},
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
-	}
-
 	if cfg.ResourceAccessSync != nil && cfg.AccessReconciler != nil {
 		jobs = append(jobs, river.NewPeriodicJob(
 			river.PeriodicInterval(1*time.Minute),

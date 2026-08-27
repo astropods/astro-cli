@@ -166,7 +166,7 @@ func TestListReadableDeploymentIDsForUserAppliesFGAScope(t *testing.T) {
 	requested := []string{"abc-def-ghi", "jkl-mno-pqr"}
 	fgaAccounts := []string{"11111111-1111-1111-1111-111111111111"}
 	readable := []string{"abc-def-ghi"}
-	mock.ExpectQuery(`(?s)SELECT d.id.*deployment_fga_sync.*desired_state = 'registered'.*d.id = ANY\(\$4::varchar\[\]\)`).
+	mock.ExpectQuery(`(?s)SELECT d.id.*d.id = ANY\(\$4::varchar\[\]\)`).
 		WithArgs("user-1", pq.Array(requested), pq.Array(fgaAccounts), pq.Array(readable), false).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(readable[0]))
 
@@ -194,7 +194,7 @@ func TestListReadableDeploymentHistoryIDsForUserIncludesUndeployed(t *testing.T)
 
 	deploymentID := "abc-def-ghi"
 	fgaAccountID := "11111111-1111-1111-1111-111111111111"
-	mock.ExpectQuery(`(?s)SELECT d.id.*\$5::boolean OR d.status <> 'undeployed'.*deployment_fga_sync.*d.id = ANY\(\$4::varchar\[\]\)`).
+	mock.ExpectQuery(`(?s)SELECT d.id.*\$5::boolean OR d.status <> 'undeployed'.*d.id = ANY\(\$4::varchar\[\]\)`).
 		WithArgs(
 			"user-1",
 			pq.Array([]string{deploymentID}),
@@ -216,34 +216,6 @@ func TestListReadableDeploymentHistoryIDsForUserIncludesUndeployed(t *testing.T)
 	}
 	if len(visible) != 1 || visible[0] != deploymentID {
 		t.Fatalf("visible history = %#v, want %q", visible, deploymentID)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestAccountsWithManagedDeploymentsUsesOneQuery(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock: %v", err)
-	}
-	defer db.Close() //nolint:errcheck
-	store := NewStore(db)
-
-	accountIDs := []string{
-		"11111111-1111-1111-1111-111111111111",
-		"22222222-2222-2222-2222-222222222222",
-	}
-	mock.ExpectQuery(`(?s)SELECT DISTINCT d.account_id.*JOIN deployment_fga_sync.*desired_state = 'registered'`).
-		WithArgs(pq.Array(accountIDs)).
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow(accountIDs[0]))
-
-	managed, err := store.AccountsWithManagedDeployments(context.Background(), accountIDs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(managed) != 1 || managed[0] != accountIDs[0] {
-		t.Fatalf("managed = %#v", managed)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

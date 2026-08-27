@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -76,7 +77,7 @@ func ListAccountVariables(log *logger.Logger, store *accountvars.Store) gin.Hand
 // CreateAccountVariable stores one or more account variables (optionally encrypted).
 // The request body is { "variables": [ ... ] }. Each entry is saved via upsert.
 // POST /api/v1/accounts/:account/variables
-func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault, registrar authz.ResourceRegistrar) gin.HandlerFunc {
+func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -108,6 +109,9 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 				break
 			}
 		}
+
+		registrationCtx, cancelRegistration := context.WithTimeout(c.Request.Context(), authorizationResourceRegistrationTimeout)
+		defer cancelRegistration()
 
 		results := make([]CreateVariableResult, 0, len(req.Variables))
 		for _, entry := range req.Variables {
@@ -143,7 +147,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 				results = append(results, result)
 				continue
 			}
-			registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.VariableResource(acct.ID, entry.Name), entry.Name)
+			registerAuthorizationResource(registrationCtx, log, resources, acct, authz.VariableResource(acct.ID, entry.Name), entry.Name)
 
 			result.Status = "created"
 			results = append(results, result)
@@ -266,7 +270,7 @@ func UpdateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 
 // DeleteAccountVariable removes an account variable.
 // DELETE /api/v1/accounts/:account/variables/:varName
-func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store) gin.HandlerFunc {
+func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -281,6 +285,7 @@ func DeleteAccountVariable(log *logger.Logger, store *accountvars.Store) gin.Han
 			c.JSON(http.StatusNotFound, gin.H{"error": "variable not found"})
 			return
 		}
+		deleteAuthorizationResource(c.Request.Context(), log, resources, acct, authz.VariableResource(acct.ID, varName))
 
 		log.Info("account secrets: account variable deleted", "account_id", acct.ID, "name", varName)
 		c.JSON(http.StatusOK, gin.H{"message": "variable deleted"})

@@ -121,7 +121,7 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue, registrar authz.ResourceRegistrar) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -229,7 +229,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			switch {
 			case err == nil:
 				acct.WorkOSOrganizationID = workosOrgID
-				registerAccountAuthorizationResources(ctx, log, registrar, acct)
+				registerAccountAuthorizationResources(ctx, log, resources, acct)
 			case req.Type == "organization":
 				log.Error("accounts: provision WorkOS organization failed", "error", err, "account_id", acct.ID)
 				orgProvisioner.DiscardOrganization(ctx, acct.ID)
@@ -484,7 +484,7 @@ type UpdateAccountRequest struct {
 
 // UpdateAccount handles PATCH /api/v1/accounts/:account (admin only)
 // Updates mutable account fields such as display_name.
-func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
+func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -566,6 +566,9 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			log.Error("accounts: update account profile failed", "error", err, "account_id", acct.ID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return
+		}
+		if req.DisplayName != nil && displayName != acct.DisplayName {
+			updateAuthorizationResource(c.Request.Context(), log, resources, acct, authz.AccountResource(acct.ID), displayName)
 		}
 
 		log.Info("accounts: account profile updated", "account_id", acct.ID, "display_name", displayName)

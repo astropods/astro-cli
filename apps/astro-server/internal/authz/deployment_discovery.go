@@ -30,10 +30,6 @@ func (v DeploymentVisibility) EnforcesAccount(accountID string) bool {
 	return slices.Contains(v.FGAAccountIDs, accountID)
 }
 
-type deploymentManagedAccountStore interface {
-	AccountsWithManagedDeployments(context.Context, []string) ([]string, error)
-}
-
 type deploymentDiscoveryMemberStore interface {
 	GetMemberContext(context.Context, string, string) (*account.AccountMember, error)
 }
@@ -45,7 +41,6 @@ type DeploymentDiscovery struct {
 	active     bool
 	discovery  ResourceDiscovery
 	experiment AccountExperimentGate
-	managed    deploymentManagedAccountStore
 	members    deploymentDiscoveryMemberStore
 
 	cacheMu         sync.Mutex
@@ -71,11 +66,10 @@ func NewDeploymentDiscovery(
 	active bool,
 	discovery ResourceDiscovery,
 	experiment AccountExperimentGate,
-	managed deploymentManagedAccountStore,
 	members deploymentDiscoveryMemberStore,
 ) *DeploymentDiscovery {
 	return &DeploymentDiscovery{
-		log: log, active: active, discovery: discovery, experiment: experiment, managed: managed, members: members,
+		log: log, active: active, discovery: discovery, experiment: experiment, members: members,
 		cache:           make(map[deploymentDiscoveryCacheKey]deploymentDiscoveryCacheEntry),
 		cacheGeneration: make(map[string]uint64),
 	}
@@ -100,9 +94,7 @@ func (d *DeploymentDiscovery) InvalidateAccount(accountID string) {
 	}
 }
 
-// Visible discovers deployment:read resources for selected organizations that
-// have entered the PR4 lifecycle. Historical deployments without a lifecycle
-// row retain legacy visibility until backfill; pending rows fail closed.
+// Visible discovers deployment:read resources for selected organizations.
 func (d *DeploymentDiscovery) Visible(
 	ctx context.Context,
 	userID string,
@@ -111,7 +103,7 @@ func (d *DeploymentDiscovery) Visible(
 	if !d.Active() {
 		return DeploymentVisibility{}, nil
 	}
-	if d.log == nil || d.discovery == nil || d.experiment == nil || d.managed == nil || d.members == nil {
+	if d.log == nil || d.discovery == nil || d.experiment == nil || d.members == nil {
 		return DeploymentVisibility{}, errors.New("deployment discovery is not configured")
 	}
 	discoveryCtx, cancel := context.WithTimeout(ctx, deploymentDiscoveryTimeout)
@@ -129,11 +121,6 @@ func (d *DeploymentDiscovery) Visible(
 	if len(accountIDs) == 0 {
 		return DeploymentVisibility{}, nil
 	}
-	managedIDs, err := d.managed.AccountsWithManagedDeployments(discoveryCtx, accountIDs)
-	if err != nil {
-		return DeploymentVisibility{}, fmt.Errorf("resolve FGA-managed deployment accounts: %w", err)
-	}
-
 	var mu sync.Mutex
 	visibility := DeploymentVisibility{}
 	// A failed organization stays in the enforced set with no discovered IDs.
@@ -150,7 +137,7 @@ func (d *DeploymentDiscovery) Visible(
 	}
 	group, groupCtx := errgroup.WithContext(discoveryCtx)
 	group.SetLimit(4)
-	for _, accountID := range managedIDs {
+	for _, accountID := range accountIDs {
 		acct, ok := byID[accountID]
 		if !ok {
 			continue

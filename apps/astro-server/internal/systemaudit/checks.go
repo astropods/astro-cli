@@ -34,15 +34,10 @@ var checks = []Check{
 			         'type', a.type,
 			         'deleted_at', a.deleted_at,
 			         'days_deleted', floor(extract(epoch FROM now() - a.deleted_at) / 86400),
-			         'retention_days', %[1]d,
-			         'pending_deployments', (SELECT count(*) FROM deployments d
-			                                  WHERE d.account_id = a.id AND d.status <> 'undeployed'),
-			         'pending_authorization', (SELECT count(*) FROM deployment_fga_sync s
-			                                    JOIN deployments d ON d.id = s.deployment_id
-			                                   WHERE d.account_id = a.id
-			                                     AND (s.synced_state IS DISTINCT FROM s.desired_state
-			                                          OR s.synced_version IS DISTINCT FROM s.desired_version)),
-			         'has_langfuse_project', EXISTS (SELECT 1 FROM account_langfuse l
+				         'retention_days', %[1]d,
+				         'pending_deployments', (SELECT count(*) FROM deployments d
+				                                  WHERE d.account_id = a.id AND d.status <> 'undeployed'),
+				         'has_langfuse_project', EXISTS (SELECT 1 FROM account_langfuse l
 			                                          WHERE l.account_id = a.id)
 			       )
 			  FROM accounts a

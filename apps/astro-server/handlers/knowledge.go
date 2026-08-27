@@ -116,7 +116,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker, registrar authz.ResourceRegistrar) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -256,7 +256,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create store"})
 			return
 		}
-		registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.KnowledgeStoreResource(ks.ID), ks.Name)
+		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.KnowledgeStoreResource(ks.ID), ks.Name)
 
 		if enc != nil {
 			if err := ksStore.SaveCredentials(storeID, enc.Credentials); err != nil {
@@ -684,7 +684,7 @@ func resolveEndpointDNS(ctx context.Context, log *logger.Logger, newEC2 func(con
 	return aws.ToString(vpce.DnsEntries[0].DnsName)
 }
 
-func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, queue *riverqueue.Queue) gin.HandlerFunc {
+func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, queue *riverqueue.Queue, resources authz.ResourceLifecycle) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -735,6 +735,7 @@ func DeleteKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, que
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete store"})
 			return
 		}
+		deleteAuthorizationResource(c.Request.Context(), log, resources, acct, authz.KnowledgeStoreResource(ks.ID))
 
 		c.JSON(http.StatusOK, gin.H{"deleted": true})
 	}

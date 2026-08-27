@@ -155,9 +155,6 @@ func assertContractVisibility(
 		true,
 		workos.fga(),
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{contractAccountID}, nil
-		}),
 		discoveryMemberStoreFunc(func(ctx context.Context, accountID, userID string) (*account.AccountMember, error) {
 			return members.GetMemberContext(ctx, accountID, userID)
 		}),

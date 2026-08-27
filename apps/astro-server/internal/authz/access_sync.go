@@ -256,14 +256,14 @@ func (s *ResourceAccessSyncStore) ResourceDeleted(ctx context.Context, resource 
 	}
 	var deleted bool
 	err := s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
+		SELECT NOT EXISTS (
 			SELECT 1
-			FROM deployment_fga_sync
-			WHERE deployment_id = $1 AND desired_state = $2
+			FROM deployments
+			WHERE id = $1 AND status <> 'undeployed'
 		)
-	`, resource.ExternalID, DeploymentFGADeleted).Scan(&deleted)
+	`, resource.ExternalID).Scan(&deleted)
 	if err != nil {
-		return false, fmt.Errorf("confirm deployment FGA deletion: %w", err)
+		return false, fmt.Errorf("confirm deployment deletion: %w", err)
 	}
 	return deleted, nil
 }
@@ -289,7 +289,7 @@ func (s *ResourceAccessSyncStore) MarkSynced(ctx context.Context, intent AccessI
 	if err != nil {
 		return false, fmt.Errorf("mark resource access intent synced: %w", err)
 	}
-	return changed(result, "mark resource access intent synced")
+	return accessRowsChanged(result, "mark resource access intent synced")
 }
 
 // Discard removes work for a resource that no longer exists in WorkOS.
@@ -306,7 +306,15 @@ func (s *ResourceAccessSyncStore) Discard(ctx context.Context, intent AccessInte
 	if err != nil {
 		return false, fmt.Errorf("discard resource access intent: %w", err)
 	}
-	return changed(result, "discard resource access intent")
+	return accessRowsChanged(result, "discard resource access intent")
+}
+
+func accessRowsChanged(result sql.Result, operation string) (bool, error) {
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("%s rows affected: %w", operation, err)
+	}
+	return rows > 0, nil
 }
 
 func (s *ResourceAccessSyncStore) RecordFailure(ctx context.Context, intent AccessIntent, cause error) error {

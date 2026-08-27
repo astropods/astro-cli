@@ -62,9 +62,12 @@ type FGA interface {
 	ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error)
 }
 
-// ResourceRegistrar projects newly created Astro resources into WorkOS.
-type ResourceRegistrar interface {
+// ResourceLifecycle projects Astro resource lifecycle changes into WorkOS.
+type ResourceLifecycle interface {
 	RegisterResourceWithParent(ctx context.Context, organizationID string, resource, parent ResourceRef, name string) error
+	GetResource(ctx context.Context, organizationID string, resource ResourceRef) (AuthorizationResource, error)
+	UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error
+	DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error
 }
 
 // AccessAssignments is the resource-sharing slice of WorkOS authorization.

@@ -508,16 +508,10 @@ func (s *Service) localDeploymentMetadata(ctx context.Context) (map[string]deplo
 		SELECT d.id,
 		       d.account_id,
 		       COALESCE(NULLIF(a.display_name, ''), a.name),
-		       CASE
-		         WHEN f.deployment_id IS NULL THEN 'registered'
-		         WHEN f.synced_state IS NOT DISTINCT FROM f.desired_state
-		          AND f.synced_version IS NOT DISTINCT FROM f.desired_version THEN 'synced'
-		         ELSE 'pending'
-		       END,
-		       COALESCE(f.last_error, '')
+		       'registered',
+		       ''
 		FROM deployments d
 		JOIN accounts a ON a.id = d.account_id
-		LEFT JOIN deployment_fga_sync f ON f.deployment_id = d.id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("load authorization inventory deployment metadata: %w", err)

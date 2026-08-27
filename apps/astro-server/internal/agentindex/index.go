@@ -291,6 +291,23 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	return &agent, nil
 }
 
+// ResourceID returns the immutable WorkOS external id for a Blueprint.
+func (idx *Index) ResourceID(accountID, name string) (string, error) {
+	var resourceID sql.NullString
+	err := idx.db.QueryRow(`
+		SELECT uid::text
+		FROM agents
+		WHERE account_id = $1 AND name = $2
+	`, accountID, name).Scan(&resourceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("agent not found: %s", name)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get agent resource id: %w", err)
+	}
+	return resourceID.String, nil
+}
+
 // GetVersion retrieves a specific build of an agent by build ID
 func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, error) {
 	var v AgentVersion

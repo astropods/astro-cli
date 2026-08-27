@@ -12,12 +12,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 )
 
-type managedAccountStoreFunc func(context.Context, []string) ([]string, error)
-
-func (f managedAccountStoreFunc) AccountsWithManagedDeployments(ctx context.Context, accountIDs []string) ([]string, error) {
-	return f(ctx, accountIDs)
-}
-
 type discoveryMemberStore struct {
 	members map[string]*account.AccountMember
 }
@@ -48,10 +42,9 @@ func TestDeploymentVisibilityEnforcesUnsortedAccountIDs(t *testing.T) {
 	}
 }
 
-func TestDeploymentDiscoverySkipsManagedLookupWithoutWorkOSOrganizations(t *testing.T) {
+func TestDeploymentDiscoverySkipsAccountsWithoutWorkOSOrganizations(t *testing.T) {
 	t.Parallel()
 
-	managedCalls := 0
 	discovery := authz.NewDeploymentDiscovery(
 		&concurrentDecisionLog{},
 		true,
@@ -60,10 +53,6 @@ func TestDeploymentDiscoverySkipsManagedLookupWithoutWorkOSOrganizations(t *test
 			t.Fatal("experiment gate should not be called")
 			return false, nil
 		}),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			managedCalls++
-			return nil, errors.New("managed lookup should not be called")
-		}),
 		discoveryMemberStore{},
 	)
 
@@ -71,8 +60,8 @@ func TestDeploymentDiscoverySkipsManagedLookupWithoutWorkOSOrganizations(t *test
 		{ID: "acct_personal", Type: "personal"},
 		{ID: "acct_without_org", Type: "organization"},
 	})
-	if err != nil || managedCalls != 0 || len(visible.FGAAccountIDs) != 0 || len(visible.ReadableDeploymentIDs) != 0 {
-		t.Fatalf("Visible() = (%#v, %v), managed calls = %d", visible, err, managedCalls)
+	if err != nil || len(visible.FGAAccountIDs) != 0 || len(visible.ReadableDeploymentIDs) != 0 {
+		t.Fatalf("Visible() = (%#v, %v)", visible, err)
 	}
 }
 
@@ -98,12 +87,6 @@ func TestDeploymentDiscoveryListsOncePerManagedOptedInOrganization(t *testing.T)
 		fga,
 		experimentGateFunc(func(_ context.Context, accountID string) (bool, error) {
 			return accountID == "acct_123", nil
-		}),
-		managedAccountStoreFunc(func(_ context.Context, accountIDs []string) ([]string, error) {
-			if !reflect.DeepEqual(accountIDs, []string{"acct_123", "acct_legacy"}) {
-				t.Fatalf("managed account request = %#v", accountIDs)
-			}
-			return []string{"acct_123"}, nil
 		}),
 		discoveryMemberStore{members: map[string]*account.AccountMember{
 			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
@@ -144,9 +127,6 @@ func TestDeploymentDiscoveryCachesPollingBurstsAndInvalidatesExperimentChanges(t
 		experimentGateFunc(func(context.Context, string) (bool, error) {
 			experimentCalls++
 			return enabled, nil
-		}),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{"acct_123"}, nil
 		}),
 		discoveryMemberStore{members: map[string]*account.AccountMember{
 			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
@@ -197,9 +177,6 @@ func TestDeploymentDiscoveryFailsClosedOnlyForFailedOrganization(t *testing.T) {
 		true,
 		fga,
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{"acct_failed", "acct_healthy", "acct_missing"}, nil
-		}),
 		discoveryMemberStore{members: map[string]*account.AccountMember{
 			"acct_failed/user_123":  {AccountID: "acct_failed", UserID: "user_123", WorkOSMembershipID: "om_failed"},
 			"acct_healthy/user_123": {AccountID: "acct_healthy", UserID: "user_123", WorkOSMembershipID: "om_healthy"},
@@ -260,9 +237,6 @@ func TestDeploymentDiscoveryLogsPerOrganizationFailures(t *testing.T) {
 					}
 					return true, nil
 				}),
-				managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-					return []string{"acct_123"}, nil
-				}),
 				discoveryMemberStore{members: members},
 			)
 
@@ -299,9 +273,6 @@ func TestDeploymentDiscoveryBoundsWorkOSFanout(t *testing.T) {
 			return nil, nil
 		}},
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{"acct_123"}, nil
-		}),
 		discoveryMemberStore{members: map[string]*account.AccountMember{
 			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
 		}},
@@ -331,9 +302,6 @@ func TestDeploymentDiscoveryDeadlineIsRequestWideFailure(t *testing.T) {
 			return nil, ctx.Err()
 		}},
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{"acct_123"}, nil
-		}),
 		discoveryMemberStore{members: map[string]*account.AccountMember{
 			"acct_123/user_123": {AccountID: "acct_123", UserID: "user_123", WorkOSMembershipID: "om_123"},
 		}},
@@ -376,9 +344,6 @@ func TestDeploymentDiscoveryCanceledLeaderDoesNotFailFollower(t *testing.T) {
 			return []authz.ResourceRef{authz.DeploymentResource("dep_123")}, nil
 		}},
 		experimentGateFunc(func(context.Context, string) (bool, error) { return true, nil }),
-		managedAccountStoreFunc(func(context.Context, []string) ([]string, error) {
-			return []string{"acct_123"}, nil
-		}),
 		discoveryMemberStoreFunc(func(ctx context.Context, accountID, userID string) (*account.AccountMember, error) {
 			if ctx.Value(requestKey{}) == "follower" {
 				close(followerResolvedMembership)
@@ -422,7 +387,7 @@ func TestDeploymentDiscoveryCanceledLeaderDoesNotFailFollower(t *testing.T) {
 func TestDeploymentDiscoveryInactiveDoesNoWork(t *testing.T) {
 	t.Parallel()
 
-	discovery := authz.NewDeploymentDiscovery(nil, false, nil, nil, nil, nil)
+	discovery := authz.NewDeploymentDiscovery(nil, false, nil, nil, nil)
 	visible, err := discovery.Visible(context.Background(), "user_123", []account.AccountWithRole{{ID: "acct_123"}})
 	if err != nil || len(visible.FGAAccountIDs) != 0 {
 		t.Fatalf("Visible() = %#v, %v", visible, err)

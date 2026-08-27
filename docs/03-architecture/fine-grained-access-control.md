@@ -79,10 +79,10 @@ Changing existing deployments from organization-parented to blueprint-parented r
 | Organization-scoped roles and permissions | WorkOS; included in the organization JWT |
 | Authorization resources, resource roles, groups, and group membership | WorkOS Authorization |
 | Effective resource permission decision | Live WorkOS Authorization check |
-| Desired and applied deployment resource lifecycle | Astro `deployment_fga_sync` ledger |
+| Product resource lifecycle | Direct WorkOS SDK calls after local create, update, and delete; bounded backfill repairs missed creates |
 | Desired and applied access mutation | Astro `resource_access_fga_sync` ledger |
 
-The local ledgers are retry state, not entitlement mirrors. A row records what Astro asked WorkOS to converge and the last applied version. It cannot authorize a request.
+The access-mutation ledger is retry state, not an entitlement mirror. It records what Astro asked WorkOS to converge and the last applied version. It cannot authorize a request.
 
 ## Identity and organization scope
 

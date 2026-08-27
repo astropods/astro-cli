@@ -17,11 +17,13 @@ type resourceRegistration struct {
 	name           string
 }
 
-type recordingResourceRegistrar struct {
+type recordingResourceLifecycle struct {
 	registrations []resourceRegistration
+	updates       []resourceRegistration
+	deletions     []resourceRegistration
 }
 
-func (r *recordingResourceRegistrar) RegisterResourceWithParent(
+func (r *recordingResourceLifecycle) RegisterResourceWithParent(
 	_ context.Context,
 	organizationID string,
 	resource, parent authz.ResourceRef,
@@ -36,10 +38,24 @@ func (r *recordingResourceRegistrar) RegisterResourceWithParent(
 	return nil
 }
 
+func (r *recordingResourceLifecycle) GetResource(context.Context, string, authz.ResourceRef) (authz.AuthorizationResource, error) {
+	return authz.AuthorizationResource{}, nil
+}
+
+func (r *recordingResourceLifecycle) UpdateResourceName(_ context.Context, organizationID string, resource authz.ResourceRef, name string) error {
+	r.updates = append(r.updates, resourceRegistration{organizationID: organizationID, resource: resource, name: name})
+	return nil
+}
+
+func (r *recordingResourceLifecycle) DeleteResource(_ context.Context, organizationID string, resource authz.ResourceRef) error {
+	r.deletions = append(r.deletions, resourceRegistration{organizationID: organizationID, resource: resource})
+	return nil
+}
+
 func TestRegisterAccountAuthorizationResources(t *testing.T) {
 	t.Parallel()
 
-	registrar := &recordingResourceRegistrar{}
+	registrar := &recordingResourceLifecycle{}
 	acct := &account.Account{
 		ID:                   "account_123",
 		Name:                 "support",
@@ -72,7 +88,7 @@ func TestRegisterAccountAuthorizationResources(t *testing.T) {
 func TestRegisterAuthorizationResourceSkipsPersonalAccounts(t *testing.T) {
 	t.Parallel()
 
-	registrar := &recordingResourceRegistrar{}
+	registrar := &recordingResourceLifecycle{}
 	registered := registerAuthorizationResource(
 		context.Background(),
 		logger.New("error", "json"),
@@ -86,5 +102,40 @@ func TestRegisterAuthorizationResourceSkipsPersonalAccounts(t *testing.T) {
 	}
 	if len(registrar.registrations) != 0 {
 		t.Fatalf("registrations = %#v, want none", registrar.registrations)
+	}
+}
+
+func TestUpdateAndDeleteAuthorizationResource(t *testing.T) {
+	t.Parallel()
+
+	resources := &recordingResourceLifecycle{}
+	acct := &account.Account{ID: "account_123", Type: "organization", WorkOSOrganizationID: "org_123"}
+	resource := authz.DeploymentResource("deployment_123")
+
+	updateAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource, "Renamed")
+	deleteAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource)
+
+	wantUpdate := []resourceRegistration{{organizationID: "org_123", resource: resource, name: "Renamed"}}
+	if !reflect.DeepEqual(resources.updates, wantUpdate) {
+		t.Fatalf("updates = %#v, want %#v", resources.updates, wantUpdate)
+	}
+	wantDeletion := []resourceRegistration{{organizationID: "org_123", resource: resource}}
+	if !reflect.DeepEqual(resources.deletions, wantDeletion) {
+		t.Fatalf("deletions = %#v, want %#v", resources.deletions, wantDeletion)
+	}
+}
+
+func TestUpdateAndDeleteAuthorizationResourceSkipPersonalAccounts(t *testing.T) {
+	t.Parallel()
+
+	resources := &recordingResourceLifecycle{}
+	acct := &account.Account{ID: "account_123", Type: "personal", WorkOSOrganizationID: "org_123"}
+	resource := authz.DeploymentResource("deployment_123")
+
+	updateAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource, "Renamed")
+	deleteAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource)
+
+	if len(resources.updates) != 0 || len(resources.deletions) != 0 {
+		t.Fatalf("personal account lifecycle calls = updates %#v, deletions %#v; want none", resources.updates, resources.deletions)
 	}
 }

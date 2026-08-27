@@ -75,7 +75,6 @@ type Stores struct {
 	Webhook            *githubwebhook.Store
 	SlackID            *slackidentity.Store
 	Watcher            *watcher.Store
-	DeploymentFGASync  *authz.DeploymentFGASyncStore
 	ResourceAccessSync *authz.ResourceAccessSyncStore
 	Experiment         *experiment.Store
 	// BillingStatus is nil for non-metronome backends; handlers treat that as
@@ -98,7 +97,7 @@ type Clients struct {
 	Preflight  *k8s.ImagePreflighter
 	Queue      *riverqueue.Queue
 	FGA        authz.FGA
-	Resources  authz.ResourceRegistrar
+	Resources  authz.ResourceLifecycle
 	// ConnectApps is nil when no WorkOS API key is configured; handlers then
 	// report apps unavailable.
 	ConnectApps connectapps.Client

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
-	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -20,10 +19,9 @@ import (
 // sooner purges it directly rather than shortening the window for everyone.
 const RetentionDays = 7
 
-// ErrTeardownPending reports that an account still owns work the purge refuses
-// to delete around: deployments that have not finished undeploying, or WorkOS
-// authorization rows that have not converged. Hard-deleting through either
-// would orphan cluster resources or WorkOS tuples that nothing else cleans up.
+// ErrTeardownPending reports that an account still owns deployments that have
+// not finished undeploying. Hard-deleting through them would orphan cluster
+// resources.
 var ErrTeardownPending = errors.New("account teardown still pending")
 
 // Purger hard-deletes a soft-deleted account and the external resources it
@@ -45,7 +43,6 @@ type Purger struct {
 	Keys          *aigateway.Store
 	DevKeys       *aigateway.DevStore
 	JudgeKeys     *aigateway.JudgeStore
-	FGASync       *authz.DeploymentFGASyncStore
 }
 
 // PurgerDeps are the collaborators a caller owns. The key and credential stores
@@ -55,7 +52,6 @@ type PurgerDeps struct {
 	Log         *logger.Logger
 	DB          *sql.DB
 	Deployments *deploymentstore.Store
-	FGASync     *authz.DeploymentFGASyncStore
 	Langfuse    *langfuse.Provisioner
 	AIGateway   *aigateway.Provisioner
 	Undeploy    func(ctx context.Context, deploymentID string) error
@@ -70,7 +66,6 @@ func NewPurger(deps PurgerDeps) *Purger {
 		DB:          deps.DB,
 		Deployments: deps.Deployments,
 		Undeploy:    deps.Undeploy,
-		FGASync:     deps.FGASync,
 		Langfuse:    deps.Langfuse,
 		AIGateway:   deps.AIGateway,
 	}
@@ -132,16 +127,6 @@ func (p *Purger) Purge(ctx context.Context, accountID string) error {
 		}
 		return fmt.Errorf("%w: %d deployment(s) not yet undeployed", ErrTeardownPending, len(pending))
 	}
-	if p.FGASync != nil {
-		pendingFGA, err := p.FGASync.HasPendingForAccount(ctx, accountID)
-		if err != nil {
-			return err
-		}
-		if pendingFGA {
-			return fmt.Errorf("%w: deployment authorization cleanup has not converged", ErrTeardownPending)
-		}
-	}
-
 	// Langfuse must succeed before the row goes: the project holds trace data
 	// under our org, and once the account row is gone nothing records which
 	// project to delete.

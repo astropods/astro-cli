@@ -144,7 +144,7 @@ The existing `(account_id, name)` primary key stays in place, and `agent_version
 
 ## Local storage
 
-Resource registration adds no local sync or shipping ledger. WorkOS is the resource registry, Astro keeps its canonical product rows, and Queen reads both systems directly. PR4 is the bounded repair pass for any direct registration call that failed. The existing Deployment lifecycle ledger remains unchanged until the later cleanup phase.
+Resource registration adds no local sync or shipping ledger. WorkOS is the resource registry, Astro keeps its canonical product rows, and Queen reads both systems directly. PR4 is the bounded repair pass for any direct registration call that failed. Deployment uses this same direct path; its former River lifecycle and application-level ledger dependencies are removed. The physical `deployment_fga_sync` table remains temporarily for rolling-deploy compatibility and is dropped by the final cleanup after no running binary can depend on it.
 
 ### `groups`
 
@@ -200,17 +200,17 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 
 **Queen proof:** Preview shows zero Deployment resources, zero failed deletions, and no resources being recreated.
 
-### PR3: Register new resources
+### PR3: Direct resource lifecycle
 
 - Configure the resource types and roles in WorkOS.
 - Add nullable `agents.uid`; every new Blueprint write supplies its stable external ID.
-- After a successful local create, call the WorkOS SDK directly and idempotently.
-- Register each organization Account under the WorkOS-required root. Register its Blueprint, Deployment, Variable, Insights, and Knowledge Store children under that Account. The Audience create handler in PR #2145 uses the same registrar when it lands.
-- A WorkOS failure is logged and does not roll back the Astro object. PR4 repairs misses.
-- Add no generic sync table, River worker, name/delete lifecycle, role assignment, or enforcement.
-- Keep the existing Deployment registration and lifecycle path compatible during the transition.
+- Use one WorkOS SDK contract to create, read, rename, and delete authorization resources.
+- Register each organization Account under the WorkOS-required root. Register its Blueprint, Deployment, Variable, Insights, and Knowledge Store children under that Account. The Audience create handler in PR #2145 uses the same lifecycle contract when it lands.
+- Apply lifecycle changes from the matching Astro mutation: Account rename/delete, Blueprint archive/transfer, Deployment rename/undeploy, Variable delete, and Knowledge Store delete. Immutable resource names need no update call; deleting an Account removes its child resources.
+- A WorkOS failure is logged and does not roll back the Astro object. PR4 repairs missed creates.
+- Add no generic sync table, River worker, role assignment, or enforcement. Remove the Deployment-specific lifecycle ledger and River worker.
 
-**Queen proof:** newly created supported resources appear with the expected Astro ID, WorkOS ID, Account, name, and registered state.
+**Queen proof:** created resources appear with the expected Astro ID, WorkOS ID, Account, and name; renames update; deleted resources disappear.
 
 ### PR4: Backfill existing resources and account owners
 
@@ -220,7 +220,6 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 - List WorkOS resources for each linked Account, compare by type and external ID, and create only missing resources in bounded, restartable batches.
 - Resolve `accounts.owner_user_id` through `account_member_workos` and assign `account-admin` to each Account owner.
 - Report missing WorkOS memberships and failed resources without enabling enforcement.
-- Do not remove `deployment_fga_sync` in this phase.
 
 **Queen proof:** Preview shows every eligible supported resource; counts match Astro; every row has the correct Account parent; and every Account shows its owner as a direct admin.
 
@@ -282,7 +281,8 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 
 - Start only after PR9 is stable in Preview and the first production cohort.
 - Remove legacy membership authorization and shadow-only code.
-- Remove the old deployment lifecycle worker, store, role slugs, fakes, and compatibility adapters.
+- Drop the unused `deployment_fga_sync` table after no running binary can depend on it.
+- Remove obsolete role slugs, fakes, and compatibility adapters.
 - Consolidate Blueprint and Deployment code behind generic resource contracts.
 - Remove obsolete schema only after Queen shows no pending work.
 - Keep the global kill switch until the production rollback window closes.

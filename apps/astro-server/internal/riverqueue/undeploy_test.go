@@ -13,7 +13,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
@@ -61,9 +60,6 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO deployment_events`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)INSERT INTO deployment_fga_sync.*a\.type = 'organization'`).
-		WithArgs(depID, authz.DeploymentFGADeleted).
-		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -76,14 +72,11 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 	}
 
 	d := &deployer.Deployer{Registry: k8s.NewRegistryWithPrimary(&noopClusterClient{cs: cs})}
-	fgaQueue := &deploymentFGATestQueue{}
 	w := &UndeployWorker{
 		deployer: d,
 		store:    deploymentstore.NewStore(db),
 		log:      logger.New("error", "json"),
 		cache:    k8scache.NoopCache{},
-		fgaSync:  authz.NewDeploymentFGASyncStore(db, true),
-		fgaQueue: fgaQueue,
 	}
 
 	jobErr := w.Work(context.Background(), &river.Job[UndeployArgs]{
@@ -91,9 +84,6 @@ func TestUndeployWorker_SkipsK8sWhenClusterClientUnavailable(t *testing.T) {
 	})
 	if jobErr != nil {
 		t.Fatalf("Work() = %v, want nil", jobErr)
-	}
-	if len(fgaQueue.reconciled) != 1 || fgaQueue.reconciled[0] != depID {
-		t.Fatalf("reconciled = %v, want [%s]", fgaQueue.reconciled, depID)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

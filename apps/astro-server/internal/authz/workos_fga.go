@@ -36,7 +36,7 @@ var _ ResourceDiscovery = (*WorkOSFGA)(nil)
 var _ Groups = (*WorkOSFGA)(nil)
 var _ ResourceMembershipDiscovery = (*WorkOSFGA)(nil)
 var _ AuthorizationResourceCatalog = (*WorkOSFGA)(nil)
-var _ ResourceRegistrar = (*WorkOSFGA)(nil)
+var _ ResourceLifecycle = (*WorkOSFGA)(nil)
 
 // NewWorkOSFGA creates the process-wide client from cfg.Auth.WorkOSAPIKey.
 // Server wiring should construct this once and share it with consumers.
@@ -113,6 +113,21 @@ func (f *WorkOSFGA) RegisterResourceWithParent(
 	return nil
 }
 
+func (f *WorkOSFGA) GetResource(ctx context.Context, organizationID string, resource ResourceRef) (AuthorizationResource, error) {
+	if organizationID == "" {
+		return AuthorizationResource{}, errors.New("organization id is required")
+	}
+	if err := validateResource(resource); err != nil {
+		return AuthorizationResource{}, err
+	}
+
+	current, err := f.authorization.GetResourceByExternalID(ctx, organizationID, string(resource.Type), resource.ExternalID)
+	if err != nil {
+		return AuthorizationResource{}, fmt.Errorf("get WorkOS resource %s:%s: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
+	}
+	return authorizationResource(current), nil
+}
+
 func (f *WorkOSFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
 	if organizationID == "" {
 		return errors.New("organization id is required")
@@ -132,7 +147,7 @@ func (f *WorkOSFGA) UpdateResourceName(ctx context.Context, organizationID strin
 		&workos.AuthorizationUpdateResourceByExternalIDParams{Name: &name},
 	)
 	if err != nil {
-		return fmt.Errorf("update WorkOS resource %s:%s name: %w", resource.Type, resource.ExternalID, err)
+		return fmt.Errorf("update WorkOS resource %s:%s name: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
 	}
 	return nil
 }
@@ -170,26 +185,30 @@ func (f *WorkOSFGA) listAuthorizationResources(ctx context.Context, params *work
 	resources := make([]AuthorizationResource, 0)
 	for iterator.Next() {
 		current := iterator.Current()
-		parentResourceID := ""
-		if current.ParentResourceID != nil {
-			parentResourceID = *current.ParentResourceID
-		}
-		resources = append(resources, AuthorizationResource{
-			ID:               current.ID,
-			OrganizationID:   current.OrganizationID,
-			ParentResourceID: parentResourceID,
-			Resource: ResourceRef{
-				Type:       ResourceType(current.ResourceTypeSlug),
-				ExternalID: current.ExternalID,
-			},
-			Name:      current.Name,
-			CreatedAt: current.CreatedAt,
-		})
+		resources = append(resources, authorizationResource(current))
 	}
 	if err := iterator.Err(); err != nil {
 		return nil, fmt.Errorf("list WorkOS authorization resources: %w", err)
 	}
 	return resources, nil
+}
+
+func authorizationResource(current *workos.AuthorizationResource) AuthorizationResource {
+	parentResourceID := ""
+	if current.ParentResourceID != nil {
+		parentResourceID = *current.ParentResourceID
+	}
+	return AuthorizationResource{
+		ID:               current.ID,
+		OrganizationID:   current.OrganizationID,
+		ParentResourceID: parentResourceID,
+		Resource: ResourceRef{
+			Type:       ResourceType(current.ResourceTypeSlug),
+			ExternalID: current.ExternalID,
+		},
+		Name:      current.Name,
+		CreatedAt: current.CreatedAt,
+	}
 }
 
 func (f *WorkOSFGA) DeleteAuthorizationResource(ctx context.Context, resourceID string) error {

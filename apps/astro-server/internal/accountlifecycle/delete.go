@@ -8,9 +8,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -31,6 +33,7 @@ type Deleter struct {
 	Undeploy func(ctx context.Context, dep *deploymentstore.Deployment) error
 
 	Org            *org.Client
+	Resources      authz.ResourceLifecycle
 	Billing        billing.BillingProvider
 	BillingBackend string
 	AIGateway      *aigateway.Provisioner
@@ -94,6 +97,15 @@ func (d *Deleter) Delete(ctx context.Context, acct *account.Account) (Result, er
 			continue
 		}
 		result.DeploymentsUndeploying++
+	}
+
+	if d.Resources != nil && acct.WorkOSOrganizationID != "" {
+		resourceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := d.Resources.DeleteResource(resourceCtx, acct.WorkOSOrganizationID, authz.AccountResource(acct.ID))
+		cancel()
+		if err != nil && !errors.Is(err, authz.ErrResourceNotFound) {
+			d.Log.Warn("account delete: delete authorization resource failed", "error", err, "account_id", acct.ID)
+		}
 	}
 
 	if d.Org != nil && acct.WorkOSOrganizationID != "" {

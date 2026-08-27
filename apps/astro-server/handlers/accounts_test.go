@@ -777,7 +777,7 @@ func setupUpdateAccountRouter(accountType ...string) (*gin.Engine, sqlmock.Sqlmo
 		})
 		c.Next()
 	})
-	router.PATCH("/api/v1/accounts/:account", UpdateAccount(log, store, auditStore))
+	router.PATCH("/api/v1/accounts/:account", UpdateAccount(log, store, auditStore, nil))
 	return router, mock
 }
 

@@ -445,9 +445,8 @@ CREATE UNIQUE INDEX idx_deployments_live_display_name ON public.deployments(acco
 
 CREATE INDEX idx_deployments_cluster_id ON public.deployments(cluster_id) WHERE cluster_id IS NOT NULL;
 
--- Transactional desired state for the deployment resource in WorkOS FGA. The
--- deployment transaction is authoritative; a River worker applies this state
--- after commit and records failures here for retry without rolling Astro back.
+-- Legacy deployment authorization ledger retained for rolling-deploy
+-- compatibility. New code does not read or write it; final cleanup drops it.
 CREATE TABLE public.deployment_fga_sync (
     deployment_id varchar(11) NOT NULL,
     desired_state text NOT NULL,

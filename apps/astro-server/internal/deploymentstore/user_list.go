@@ -31,11 +31,6 @@ const fgaReadPredicate = `
 		  AND (
 		    $3::uuid[] IS NULL
 		    OR NOT (d.account_id = ANY($3::uuid[]))
-		    OR NOT EXISTS (
-		      SELECT 1 FROM deployment_fga_sync s
-		      WHERE s.deployment_id = d.id
-		        AND s.desired_state = 'registered'
-		    )
 		    OR d.id = ANY($4::varchar[])
 		  )`
 
@@ -68,24 +63,12 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+userDeploymentColumns+`, a.name,
-		       CASE
-		         WHEN NOT (d.account_id = ANY(COALESCE($3::uuid[], ARRAY[]::uuid[]))) THEN TRUE
-		         WHEN fs.desired_state IS DISTINCT FROM 'registered' THEN TRUE
-		         ELSE COALESCE(
-		           fs.desired_state = 'registered'
-		           AND fs.synced_state = fs.desired_state
-		           AND fs.synced_version = fs.desired_version
-		           AND NOT fs.creator_assignment_pending,
-		           FALSE
-		         )
-		       END AS access_ready
+		SELECT `+userDeploymentColumns+`, a.name, TRUE AS access_ready
 		FROM deployments d
 		JOIN account_members am
 		  ON am.account_id = d.account_id
 		 AND am.user_id = $1
 		JOIN accounts a ON a.id = d.account_id AND a.deleted_at IS NULL
-		LEFT JOIN deployment_fga_sync fs ON fs.deployment_id = d.id
 		WHERE d.account_id = ANY($2::uuid[])
 		  AND d.status <> 'undeployed'
 	`+fgaReadPredicate+`
@@ -152,8 +135,7 @@ func (s *Store) ListVisibleDeploymentIDsForUser(
 	return s.ListReadableDeploymentIDsForUser(ctx, userID, deploymentIDs, nil, nil)
 }
 
-// ListReadableDeploymentIDsForUser applies membership visibility plus FGA to
-// deployment IDs that have entered the lifecycle ledger.
+// ListReadableDeploymentIDsForUser applies membership visibility plus FGA.
 func (s *Store) ListReadableDeploymentIDsForUser(
 	ctx context.Context,
 	userID string,
@@ -219,39 +201,6 @@ func (s *Store) listReadableDeploymentIDsForUser(
 		return nil, fmt.Errorf("iterate visible deployment ids for user: %w", err)
 	}
 	return visible, nil
-}
-
-// AccountsWithManagedDeployments returns selected accounts containing at
-// least one active deployment that has entered the WorkOS lifecycle.
-func (s *Store) AccountsWithManagedDeployments(ctx context.Context, accountIDs []string) ([]string, error) {
-	if len(accountIDs) == 0 {
-		return []string{}, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT d.account_id
-		FROM deployments d
-		JOIN deployment_fga_sync s ON s.deployment_id = d.id
-		WHERE d.account_id = ANY($1::uuid[])
-		  AND d.status <> 'undeployed'
-		  AND s.desired_state = 'registered'
-	`, pq.Array(accountIDs))
-	if err != nil {
-		return nil, fmt.Errorf("list FGA-managed deployment accounts: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	result := make([]string, 0, len(accountIDs))
-	for rows.Next() {
-		var accountID string
-		if err := rows.Scan(&accountID); err != nil {
-			return nil, fmt.Errorf("scan FGA-managed deployment account: %w", err)
-		}
-		result = append(result, accountID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate FGA-managed deployment accounts: %w", err)
-	}
-	return result, nil
 }
 
 // CountReadableDeploymentsForUser counts active deployments after applying
