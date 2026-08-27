@@ -48,19 +48,12 @@ type AuthorizationResourceLifecycleDeps struct {
 	Queue authorizationResourceQueue
 }
 
-func authorizationLifecycle(deps []AuthorizationResourceLifecycleDeps) AuthorizationResourceLifecycleDeps {
-	if len(deps) == 0 {
-		return AuthorizationResourceLifecycleDeps{}
-	}
-	return deps[0]
-}
-
 func enqueueAuthorizationResource(log *logger.Logger, deps AuthorizationResourceLifecycleDeps, key authz.ResourceSyncKey, recorded bool) {
 	if !recorded || deps.Queue == nil || key.Resource.ExternalID == "" {
 		return
 	}
 	if err := deps.Queue.InsertAuthorizationResourceReconcileJob(context.Background(), key); err != nil {
-		log.Warn("authorization resource: immediate reconciliation enqueue failed; periodic sweep will retry",
+		log.Warn("authorization resource: enqueue reconciliation failed",
 			"resource_type", key.Resource.Type,
 			"resource_id", key.Resource.ExternalID,
 			"error", err,
@@ -701,7 +694,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
 // from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
 // using provider:astro-gateway in a gateway-less env fails at admission.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, authorizationDeps AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -846,11 +839,10 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Parse agent card from readme and merge spec-derived integrations at registration time
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
 
-		lifecycle := authorizationLifecycle(authorizationDeps)
 		var recorder agentindex.BlueprintAuthorizationRecorder
-		if lifecycle.Sync != nil {
+		if authorizationDeps.Sync != nil {
 			recorder = func(ctx context.Context, tx *sql.Tx, accountID, name string) (bool, error) {
-				_, recorded, err := lifecycle.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
+				_, recorded, err := authorizationDeps.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
 				return recorded, err
 			}
 		}
@@ -866,7 +858,7 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 			})
 			return
 		}
-		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+		enqueueAuthorizationResource(log, authorizationDeps, authz.ResourceSyncKey{
 			OrganizationID: acct.WorkOSOrganizationID,
 			Resource:       authz.BlueprintResource(authorizationID),
 		}, authorizationRecorded)
@@ -952,7 +944,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, authorizationDeps AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		creatorUserID := ""
 		if user, ok := middleware.GetUser(c); ok {
@@ -983,11 +975,10 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			return
 		}
 
-		lifecycle := authorizationLifecycle(authorizationDeps)
 		var recorder agentindex.BlueprintAuthorizationRecorder
-		if lifecycle.Sync != nil {
+		if authorizationDeps.Sync != nil {
 			recorder = func(ctx context.Context, tx *sql.Tx, accountID, name string) (bool, error) {
-				_, recorded, err := lifecycle.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
+				_, recorded, err := authorizationDeps.Sync.RecordBlueprintRegistrationTx(ctx, tx, accountID, name)
 				return recorded, err
 			}
 		}
@@ -1006,7 +997,7 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create blueprint"})
 			return
 		}
-		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+		enqueueAuthorizationResource(log, authorizationDeps, authz.ResourceSyncKey{
 			OrganizationID: acct.WorkOSOrganizationID,
 			Resource:       authz.BlueprintResource(authorizationID),
 		}, authorizationRecorded)
@@ -1060,7 +1051,7 @@ type SetAgentVisibilityRequest struct {
 // Soft-deletes an agent by setting archived_at, hiding it from listings
 // while preserving data for existing deployments.
 // Requires agents:write permission (enforced by middleware).
-func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, authorizationDeps ...AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
+func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, auditStore *auditlog.Store, ghStore *githubconnection.Store, webhookStore *githubwebhook.Store, pipesClient *pipes.Client, authorizationDeps AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 		agentName := c.Param("name")
@@ -1071,10 +1062,9 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			return
 		}
 
-		lifecycle := authorizationLifecycle(authorizationDeps)
 		var recorder agentindex.BlueprintAuthorizationDeletionRecorder
-		if lifecycle.Sync != nil {
-			recorder = lifecycle.Sync.RecordBlueprintDeletionTx
+		if authorizationDeps.Sync != nil {
+			recorder = authorizationDeps.Sync.RecordBlueprintDeletionTx
 		}
 		authorizationID, authorizationRecorded, err := index.ArchiveWithAuthorization(c.Request.Context(), acct.ID, agentName, recorder)
 		if err != nil {
@@ -1085,7 +1075,7 @@ func ArchiveAgent(log *logger.Logger, index *agentindex.Index, db *sql.DB, audit
 			})
 			return
 		}
-		enqueueAuthorizationResource(log, lifecycle, authz.ResourceSyncKey{
+		enqueueAuthorizationResource(log, authorizationDeps, authz.ResourceSyncKey{
 			OrganizationID: acct.WorkOSOrganizationID,
 			Resource:       authz.BlueprintResource(authorizationID),
 		}, authorizationRecorded)

@@ -22,8 +22,8 @@ var errAuthorizationCreatorMembershipUnavailable = errors.New("resource creator 
 
 type AuthorizationResourceReconcileArgs struct {
 	OrganizationID string `json:"organization_id,omitempty"`
-	ResourceType   string `json:"resource_type,omitempty"`
-	ResourceID     string `json:"resource_id,omitempty"`
+	ResourceType   string `json:"resource_type,omitempty" river:"unique"`
+	ResourceID     string `json:"resource_id,omitempty" river:"unique"`
 }
 
 func (AuthorizationResourceReconcileArgs) Kind() string { return "authorization.resource_reconcile" }
@@ -132,7 +132,7 @@ func (w *AuthorizationResourceReconcileWorker) reconcile(ctx context.Context, ke
 		if (firstRegistration || work.CreatorAssignmentPending) && work.CreatorRole != "" && work.CreatorUserID != "" {
 			switch {
 			case !work.CreatorIsMember:
-				w.log.Info("authorization resource: creator is not a current Account member; skipping admin assignment",
+				w.log.Info("authorization resource: skipped creator admin assignment, not a member",
 					"resource_type", work.Resource.Type,
 					"resource_id", work.Resource.ExternalID,
 					"creator_user_id", work.CreatorUserID,
@@ -153,7 +153,7 @@ func (w *AuthorizationResourceReconcileWorker) reconcile(ctx context.Context, ke
 					return err
 				}
 				if deferred {
-					w.log.Warn("authorization resource: creator membership unavailable; deferring admin assignment",
+					w.log.Warn("authorization resource: deferred creator admin assignment, membership unavailable",
 						"resource_type", work.Resource.Type,
 						"resource_id", work.Resource.ExternalID,
 						"creator_user_id", work.CreatorUserID,
@@ -171,7 +171,7 @@ func (w *AuthorizationResourceReconcileWorker) reconcile(ctx context.Context, ke
 			_, orgErr := w.organizations.GetOrganization(ctx, work.OrganizationID)
 			switch {
 			case errors.Is(orgErr, org.ErrOrganizationNotFound):
-				w.log.Info("authorization resource: WorkOS organization is gone; treating deletion as complete",
+				w.log.Info("authorization resource: completed deletion, organization unavailable",
 					"resource_type", work.Resource.Type,
 					"resource_id", work.Resource.ExternalID,
 				)

@@ -733,7 +733,7 @@ func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key")))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key"), AuthorizationResourceLifecycleDeps{}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()
@@ -797,7 +797,7 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key")))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key"), AuthorizationResourceLifecycleDeps{}))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()

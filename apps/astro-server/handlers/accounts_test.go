@@ -363,7 +363,7 @@ func TestCreateAccount_OrgRequiresDisplayName(t *testing.T) {
 				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 				c.Next()
 			})
-			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil))
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 			body := fmt.Sprintf(`{"name":"valid-org","type":"organization","display_name":%q}`, tt.displayName)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(body))
@@ -469,7 +469,7 @@ func TestCreateAccount_InvalidName(t *testing.T) {
 				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 				c.Next()
 			})
-			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil))
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 			// Include a valid display_name so the org-display-name check doesn't
 			// fire before we reach name validation.

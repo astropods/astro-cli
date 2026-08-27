@@ -3,6 +3,7 @@ package riverqueue
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -11,6 +12,19 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
+
+func TestAuthorizationResourceReconcileArgsDeduplicateAcrossOrganizationHints(t *testing.T) {
+	t.Parallel()
+
+	argsType := reflect.TypeOf(AuthorizationResourceReconcileArgs{})
+	organizationField, _ := argsType.FieldByName("OrganizationID")
+	resourceTypeField, _ := argsType.FieldByName("ResourceType")
+	resourceIDField, _ := argsType.FieldByName("ResourceID")
+	if organizationField.Tag.Get("river") != "" || resourceTypeField.Tag.Get("river") != "unique" || resourceIDField.Tag.Get("river") != "unique" {
+		t.Fatalf("unique tags organization=%q resource_type=%q resource_id=%q",
+			organizationField.Tag.Get("river"), resourceTypeField.Tag.Get("river"), resourceIDField.Tag.Get("river"))
+	}
+}
 
 type authorizationLifecycleFake struct {
 	registered []authz.ResourceRef

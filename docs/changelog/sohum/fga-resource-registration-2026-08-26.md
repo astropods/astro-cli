@@ -6,7 +6,7 @@ New organization Accounts, Blueprints, and Deployments now project into WorkOS a
 
 ## Design
 
-`authorization_resource_sync` is the generic lifecycle ledger for all three resource types. An Account is registered beneath the WorkOS-required organization root; its Blueprints and Deployments are registered beneath that Account. Creation intent, Deployment renames and undeploys, and Blueprint archives update the ledger in the same Astro transaction. River jobs carry the full organization and resource key, apply the newest version to WorkOS, and retry failures.
+`authorization_resource_sync` is the generic lifecycle ledger for all three resource types. An Account is registered beneath the WorkOS-required organization root; its Blueprints and Deployments are registered beneath that Account. Creation intent, Deployment renames and undeploys, and Blueprint archives update the ledger in the same Astro transaction. River jobs carry the full organization and resource key, apply the newest version to WorkOS, and retry failures. Job uniqueness uses resource type plus external ID so immediate and sweep reconciliation cannot run concurrently for one resource.
 
 New Blueprints receive an immutable UUID for their WorkOS external ID and record their creator. After registration converges, creators receive `account-admin`, `blueprint-admin`, or `deployment-admin` as appropriate. A missing membership mirror delays only the creator assignment: successful resource registration and its WorkOS ID are persisted before the role retry.
 

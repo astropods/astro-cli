@@ -226,7 +226,7 @@ func TestRegisterAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	// Expect transaction: BEGIN, INSERT agent, INSERT version, COMMIT
 	mock.ExpectBegin()
@@ -284,7 +284,7 @@ func TestRegisterAgent_InvalidName_ReturnsValidatorError(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+tc.name+"/register", strings.NewReader(`{}`))
 			req.Header.Set("Content-Type", "application/json")
@@ -305,7 +305,7 @@ func TestRegisterAgent_NoReadme_ReturnsHint(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	mock.ExpectBegin()
 	expectSuccessfulAgentAuthorizationUpsert(mock)
@@ -354,7 +354,7 @@ func TestRegisterAgent_WithReadme_NoHint(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	mock.ExpectBegin()
 	expectSuccessfulAgentAuthorizationUpsert(mock)
@@ -422,7 +422,7 @@ func TestRegisterAgent_MissingFields(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -450,7 +450,7 @@ func TestRegisterAgent_InvalidJSON(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/my-agent/register", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -467,7 +467,7 @@ func TestRegisterAgent_InvalidYAMLSpec(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	body := `{
 		"name": "test-agent",
@@ -500,7 +500,7 @@ func TestRegisterAgent_RejectsSecretDefaults(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	// Spec with a secret input that still has a default value
 	specYAML := `name: test-agent
@@ -544,7 +544,7 @@ func TestRegisterAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 	// Simulate DB failure on BEGIN
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
@@ -591,7 +591,7 @@ func TestRegisterAgent_RejectsOrgScopedName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router, _, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, nil, "", nil, nil, nil, nil, nil, false))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, nil, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 			body := `{
 				"build_id": "a3f2b1c9",
@@ -626,7 +626,7 @@ func TestRegisterAgent_RejectsInvalidName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			router, index, _ := setupAgentTestRouter()
 			log := logger.New("error", "json")
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 			body := `{"build_id":"b1","registry":"r.example.com","spec_content":"name: test\nversion: 1.0\n"}`
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/"+url.PathEscape(name)+"/register", strings.NewReader(body))
@@ -645,7 +645,7 @@ func TestCreateBlueprint_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 	mock.ExpectBegin()
 	expectSuccessfulBlueprintAuthorizationUpsert(mock)
@@ -685,7 +685,7 @@ func TestCreateBlueprint_ConflictReturns409(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 	// Active agent: INSERT returns no row → ErrAlreadyExists
 	mock.ExpectBegin()
@@ -722,7 +722,7 @@ func TestCreateBlueprint_InvalidNameReturns400(t *testing.T) {
 	router, index, _ := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 	body := `{"name": "INVALID NAME!!!"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount", strings.NewReader(body))
@@ -740,7 +740,7 @@ func TestCreateBlueprint_DBErrorReturns500(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil))
+	router.POST("/api/v1/agents/:account", injectTestAccount(), CreateBlueprint(log, index, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 	mock.ExpectBegin().WillReturnError(sqlmock.ErrCancelled)
 
@@ -780,7 +780,7 @@ func TestRegisterAgent_VersionGate(t *testing.T) {
 			router, index, mock := setupAgentTestRouter()
 			log := logger.New("error", "json")
 
-			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, tt.minVersion, nil, nil, nil, nil, nil, false))
+			router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, tt.minVersion, nil, nil, nil, nil, nil, false, AuthorizationResourceLifecycleDeps{}))
 
 			if !tt.expectRejected {
 				mock.ExpectBegin()
