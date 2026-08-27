@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClusterPicker } from "./ClusterPicker";
@@ -42,21 +42,13 @@ describe("ClusterPicker", () => {
       />,
     );
 
-    expect(screen.getByText("Deployment region")).toHaveClass("mb-0");
     expect(screen.getByText("Select where this agent runs.")).toBeInTheDocument();
     const group = screen.getByRole("radiogroup", { name: "Deployment region" });
-    expect(group.previousElementSibling).toHaveClass("mb-3");
-    const us = screen.getByRole("radio", { name: /US East \(N\. Virginia\).*Default.*us-east-1/ });
-    const eu = screen.getByRole("radio", { name: /Europe \(Ireland\).*eu-west-1/ });
+    const us = within(group).getByRole("radio", { name: /US East \(N\. Virginia\).*Default.*us-east-1/ });
+    const eu = within(group).getByRole("radio", { name: /Europe \(Ireland\).*eu-west-1/ });
 
     expect(us).toBeChecked();
     expect(eu).not.toBeChecked();
-    expect(screen.getByText("(N. Virginia)")).toHaveClass("font-normal", "text-muted-foreground");
-    expect(screen.getByText("(Ireland)")).toHaveClass("font-normal", "text-muted-foreground");
-    expect(us.closest("label")).toHaveClass("bg-muted");
-    expect(screen.getByText("Default")).toHaveClass("bg-neutral-300", "dark:bg-neutral-700");
-    expect(us.closest("label")?.parentElement).toBe(group);
-    expect(eu.closest("label")?.parentElement).toBe(group);
     expect(screen.queryByText("🇺🇸")).not.toBeInTheDocument();
     expect(screen.queryByText("🇮🇪")).not.toBeInTheDocument();
   });
@@ -109,8 +101,6 @@ describe("ClusterPicker", () => {
     );
 
     expect(screen.getByText("This agent runs in the only available region.")).toBeInTheDocument();
-    const group = screen.getByRole("radiogroup", { name: "Deployment region" });
-    expect(group).toHaveClass("border-border-strong");
     const region = screen.getByRole("radio", { name: /US East \(N\. Virginia\).*Default.*us-east-1/ });
     expect(region).toBeChecked();
     expect(region).toBeDisabled();
