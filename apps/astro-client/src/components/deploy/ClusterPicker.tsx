@@ -109,7 +109,7 @@ export function ClusterPicker({ account, value, onChange, currentClusterId, depl
               "relative flex min-h-16 items-center gap-3 px-4 py-3 text-left transition-colors",
               readOnly ? "cursor-help" : "cursor-pointer",
               index > 0 && "border-t border-border",
-              isSelected && (readOnly ? "bg-muted/40" : "bg-muted"),
+              isSelected && (readOnly ? "bg-muted/40 dark:bg-foreground/5" : "bg-muted"),
               !isSelected && "bg-transparent hover:bg-muted/50",
               readOnly &&
                 "rounded-[5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
