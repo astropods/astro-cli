@@ -25,6 +25,20 @@ if ! docker info &>/dev/null; then
   exit 1
 fi
 
+# ── tenant node pool ─────────────────────────────────────────────────────────
+
+# Agent pods select `workload-type: tenant` to stay off the system pool. A
+# local cluster has one node and no pools, so without this label every agent
+# pod stays Pending and the deployment fails as Unschedulable.
+KUBE_CONTEXT=$(grep '^KUBE_CONTEXT=' apps/astro-server/.env | tail -n 1 | cut -d= -f2- | tr -d "\"'" || true)
+KUBE_CONTEXT="${KUBE_CONTEXT:-docker-desktop}"
+if kubectl --context "$KUBE_CONTEXT" cluster-info &>/dev/null; then
+  log "Labelling nodes in $KUBE_CONTEXT as the tenant pool..."
+  kubectl --context "$KUBE_CONTEXT" label node --all workload-type=tenant --overwrite >/dev/null
+else
+  err "kubectl context '$KUBE_CONTEXT' is unreachable. Agent deploys will fail until it is running."
+fi
+
 # ── traefik ───────────────────────────────────────────────────────────────────
 
 log "Starting Traefik..."
