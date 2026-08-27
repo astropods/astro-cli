@@ -94,11 +94,15 @@ func (w *UndeployWorker) Work(ctx context.Context, job *river.Job[UndeployArgs])
 	k8scache.InvalidateNamespace(ctx, w.cache, dep.Namespace)
 
 	var fgaRecorded bool
-	if err := w.store.UpdateStatusWithTx(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}, func(tx *sql.Tx) error {
-		var recordErr error
-		fgaRecorded, recordErr = w.fgaSync.RecordDeletionTx(ctx, tx, dep.ID)
-		return recordErr
-	}); err != nil {
+	var recordDeletion func(*sql.Tx) error
+	if w.fgaSync != nil {
+		recordDeletion = func(tx *sql.Tx) error {
+			var recordErr error
+			fgaRecorded, recordErr = w.fgaSync.RecordDeletionTx(ctx, tx, dep.ID)
+			return recordErr
+		}
+	}
+	if err := w.store.UpdateStatusWithTx(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeployed}, recordDeletion); err != nil {
 		return fmt.Errorf("set undeployed: %w", err)
 	}
 	if fgaRecorded {
