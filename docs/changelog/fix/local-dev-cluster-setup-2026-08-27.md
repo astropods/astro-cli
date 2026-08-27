@@ -2,11 +2,24 @@
 
 ## Summary
 
-A fresh local setup could not deploy an agent. Two independent defaults broke
-the path, and both failed silently: the deploy request returned success, the
-UI showed the agent as pending, and nothing in the logs said why.
+A fresh local setup could not deploy an agent, and one of the three defaults
+responsible stopped the server from starting at all. Each fails differently and
+none says what is wrong: the server rejects its own connection string, or the
+deploy request returns success and the agent sits pending forever.
 
 ## Design
+
+**The connection string required TLS the server does not offer.**
+`.env.example` shipped `?sslmode=require`, and the per-developer dev Postgres
+serves no TLS, so astro-server could not connect. It now ships
+`?sslmode=disable`.
+
+Dropping the parameter looks like the tidier fix and is wrong. astro-server
+connects through `sql.Open("postgres", …)`, which is `lib/pq`, and `lib/pq`
+reads an absent `sslmode` as `require`. libpq and pgx both default to `prefer`
+and fall back to plaintext, so the same URL succeeds in `psql` and fails in the
+server. Terraform's `dev-tenant` module outputs the string with no `sslmode`
+for that reason, which is correct for `psql` and misleading here.
 
 **The queue had no consumer.** `SERVER_MODE` picks which halves of astro-server
 a process runs. `api` starts the HTTP and gRPC servers with an insert-only River
@@ -36,4 +49,6 @@ diverge from the ones that run in production.
 
 Existing local checkouts keep their own `apps/astro-server/.env`, which
 `.env.example` does not touch. If yours has `SERVER_MODE=api`, change it to
-`all`. The node label applies itself the next time you run `local-dev.sh`.
+`all`; a working `DATABASE_URL` already ends in `sslmode=disable`, since no
+other value connects. The node label applies itself the next time you run
+`local-dev.sh`.
