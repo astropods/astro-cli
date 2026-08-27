@@ -18,7 +18,9 @@ The real rule is that a personal account holds one person. The account type sets
 | `WorkOSOrganizationID != ""` | The organization link exists | Yes. Empty only until provisioning finishes |
 | `session.OrganizationID == acct.WorkOSOrganizationID` | This caller's JWT claims apply to this account | Per request. Authorization reads this first |
 
-Four call sites read the link but meant the type: invitations, member roles in the member list, the alert manager lookup, and the Insights role fallback. They now check the type. So a personal account still cannot be invited into, even though it has an organization. `org.Sync` already checked the type when adding, removing, and re-roling members.
+Five call sites read the link but meant the type: invitations, the invite list on account creation, member roles in the member list, the alert manager lookup, and the Insights role fallback. They now check the type. So a personal account still cannot be invited into, even though it has an organization. `org.Sync` already checked the type when adding, removing, and re-roling members.
+
+Account creation carries its own invite path, because a new organization takes an `invitations` list in the same request. That list is validated with the rest of the request body, so a non-organization account gets a `400` before the server creates anything.
 
 Where a path still reads the link, it needs the ID to call WorkOS. A missing link on an organization account is a broken state, not a normal one, so those paths say so instead of skipping quietly:
 

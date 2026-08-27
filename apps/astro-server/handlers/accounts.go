@@ -170,6 +170,14 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			return
 		}
 
+		if req.Type != "organization" && len(req.Invitations) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid request",
+				"details": "invitations are only supported for organization accounts",
+			})
+			return
+		}
+
 		// Validate name format (length, charset, casing, hyphens)
 		if err := account.ValidateAccountName(req.Name); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{

@@ -386,6 +386,64 @@ func TestCreateAccount_OrgRequiresDisplayName(t *testing.T) {
 	}
 }
 
+func TestCreateAccount_InvitationsRequireOrganization(t *testing.T) {
+	tests := []struct {
+		name     string
+		acctType string
+	}{
+		{"personal", "personal"},
+		{"unrecognized type", "team"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			db, mock, _ := sqlmock.New()
+			store := account.NewAccountStore(db)
+			log := logger.New("error", "json")
+
+			if tt.acctType == "personal" {
+				mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM accounts").
+					WithArgs("user-1").
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			}
+
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
+				c.Next()
+			})
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil))
+
+			body := fmt.Sprintf(
+				`{"name":"valid-name","type":%q,"invitations":[{"kind":"email","value":"someone@example.com"}]}`,
+				tt.acctType,
+			)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+
+			var resp map[string]interface{}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to unmarshal: %v", err)
+			}
+			want := "invitations are only supported for organization accounts"
+			if resp["details"] != want {
+				t.Errorf("details = %v, want %q", resp["details"], want)
+			}
+
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unfulfilled mock expectations: %v", err)
+			}
+		})
+	}
+}
+
 func TestCreateAccount_InvalidName(t *testing.T) {
 	tests := []struct {
 		name    string
