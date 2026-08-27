@@ -92,7 +92,7 @@ What's relevant for organizations:
   3. WorkOS returns new JWT with:
      - organization_id: org-B
      - role: "admin"
-     - permissions: ["agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage", "variable:read", "variable:write"]
+     - permissions: ["agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage"]
   4. Seal new session → update cookie
   5. Return updated auth response with role + permissions
 
@@ -105,11 +105,11 @@ What's relevant for organizations:
 
 The organization JWT role matrix covers account-level permissions read directly by Astro:
 
-| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` | `variable:read` | `variable:write` |
-| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: | :-------------: | :--------------: |
-| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |        Y        |        Y         |
-| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |        Y        |        Y         |
-| **member** |       Y       |       Y        |         Y          |          Y          |      -       |        -        |        -         |
+| Role       | `agents:read` | `agents:write` | `deployments:read` | `deployments:write` | `org:manage` |
+| ---------- | :-----------: | :------------: | :----------------: | :-----------------: | :----------: |
+| **owner**  |       Y       |       Y        |         Y          |          Y          |      Y       |
+| **admin**  |       Y       |       Y        |         Y          |          Y          |      Y       |
+| **member** |       Y       |       Y        |         Y          |          Y          |      -       |
 
 Ownership is not a permission. `accounts.owner_user_id` names the single owner,
 and the actions reserved for them check that column rather than a role claim.
@@ -120,11 +120,14 @@ Permission slugs map to actions:
 | ------------------- | ------------------------------------------------------ |
 | `agents:read`       | View agents, versions, configs                         |
 | `agents:write`      | Push (register) agents, set visibility                 |
-| `deployments:read`  | View running agents, logs, metrics, deployment history |
+| `deployments:read`  | View running agents, logs, metrics, deployment history, and org account vault variables |
 | `deployments:write` | Deploy, undeploy, restart pods, trigger ingestions     |
-| `org:manage`        | Manage members, invitations, account settings, billing |
-| `variable:read`     | List and read org account vault variables              |
-| `variable:write`    | Create, update, delete org account vault variables     |
+| `org:manage`        | Manage members, invitations, account settings, billing, and org account vault variables |
+
+The vault rides on `deployments:read` and `org:manage` because the dedicated
+`variable:read` and `variable:write` slugs no longer exist as org role
+permissions in WorkOS. See
+[`variables-secrets-vault.md`](variables-secrets-vault.md) for the detail.
 
 WorkOS organization roles separately inherit resource-scoped permissions across child deployments:
 
@@ -169,8 +172,8 @@ The JWT may still carry legacy plural `deployments:read` and `deployments:write`
 | `GET/POST/DELETE .../invitations`                  | `org:manage`        | Invitation CRUD       |
 | `POST /agents/:account/:name/register`             | `agents:write`      | Register agent build  |
 | `PUT /agents/:account/:name/visibility`            | `agents:write`      | Set public/private    |
-| `GET .../accounts/:account/variables`, `GET .../variables/:varName` | `variable:read` | List/read vault variables |
-| `POST/PUT/DELETE .../variables`, `PUT/DELETE .../variables/:varName` | `variable:write` | Mutate vault variables |
+| `GET .../accounts/:account/variables`, `GET .../variables/:varName` | `deployments:read` | List/read vault variables |
+| `POST/PUT/DELETE .../variables`, `PUT/DELETE .../variables/:varName` | `org:manage` | Mutate vault variables |
 
 ## Organization Account Lifecycle
 
@@ -343,9 +346,9 @@ account_member_workos (
 | `POST`   | `.../:account/invitations`          | Required | `org:manage`   | Send invitation      |
 | `DELETE` | `.../:account/invitations/:id`      | Required | `org:manage`       | Revoke invitation      |
 | `PUT`    | `/agents/:account/:name/visibility` | Required | `agents:write`     | Set visibility         |
-| `GET`    | `.../:account/variables`            | Required | `variable:read`    | List vault variables   |
-| `GET`    | `.../:account/variables/:varName`   | Required | `variable:read`    | Get vault variable     |
-| `POST`   | `.../:account/variables`            | Required | `variable:write`   | Create vault variables |
-| `PUT`    | `.../:account/variables/:varName`   | Required | `variable:write`   | Update vault variable  |
-| `DELETE` | `.../:account/variables/:varName` | Required | `variable:write`   | Delete vault variable  |
+| `GET`    | `.../:account/variables`            | Required | `deployments:read` | List vault variables   |
+| `GET`    | `.../:account/variables/:varName`   | Required | `deployments:read` | Get vault variable     |
+| `POST`   | `.../:account/variables`            | Required | `org:manage`       | Create vault variables |
+| `PUT`    | `.../:account/variables/:varName`   | Required | `org:manage`       | Update vault variable  |
+| `DELETE` | `.../:account/variables/:varName` | Required | `org:manage`       | Delete vault variable  |
 | `POST`   | `/auth/switch-org`                  | Session  | -                  | Switch org context     |

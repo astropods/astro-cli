@@ -21,9 +21,10 @@ func TestRoutePermissionWiring(t *testing.T) {
 	ok := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) }
 
 	baseMember := []string{"agents:read", "agents:write", "deployments:read", "deployments:write"}
-	orgAdminNoVault := []string{"agents:read", "agents:write", "deployments:write", "org:manage"}
-	withVaultRead := append(orgAdminNoVault, "variable:read")
-	withVaultWrite := append(orgAdminNoVault, "variable:write")
+	orgAdmin := []string{"agents:read", "agents:write", "deployments:read", "deployments:write", "org:manage"}
+	// Vault reads ride on deployments:read, writes on org:manage.
+	vaultReadOnly := []string{"agents:read", "deployments:read"}
+	vaultWriteOnly := []string{"agents:read", "deployments:write", "org:manage"}
 
 	tests := []struct {
 		name         string
@@ -74,42 +75,43 @@ func TestRoutePermissionWiring(t *testing.T) {
 		{"admin_POST_quota_increase_allowed", "POST", "/api/v1/accounts/myorg/quota-increase", `{}`,
 			[]string{"agents:read", "agents:write", "deployments:write", "org:manage"}, http.StatusOK, ""},
 
-		// Vault GET routes require variable:read
-		{"member_GET_variables_denied", "GET", "/api/v1/accounts/myorg/variables", "",
-			baseMember, http.StatusForbidden, ""},
-		{"admin_GET_variables_denied_without_variable_read", "GET", "/api/v1/accounts/myorg/variables", "",
-			orgAdminNoVault, http.StatusForbidden, ""},
-		{"admin_GET_variables_allowed_with_variable_read", "GET", "/api/v1/accounts/myorg/variables", "",
-			withVaultRead, http.StatusOK, ""},
-		{"admin_GET_variable_by_name_allowed_with_variable_read", "GET", "/api/v1/accounts/myorg/variables/MY_KEY", "",
-			withVaultRead, http.StatusOK, ""},
-		{"GET_variables_denied_write_only_jwt", "GET", "/api/v1/accounts/myorg/variables", "",
-			withVaultWrite, http.StatusForbidden, ""},
+		// Vault GET routes require deployments:read, which every org role carries
+		{"member_GET_variables_allowed", "GET", "/api/v1/accounts/myorg/variables", "",
+			baseMember, http.StatusOK, ""},
+		{"member_GET_variable_by_name_allowed", "GET", "/api/v1/accounts/myorg/variables/MY_KEY", "",
+			baseMember, http.StatusOK, ""},
+		{"GET_variables_denied_without_deployments_read", "GET", "/api/v1/accounts/myorg/variables", "",
+			vaultWriteOnly, http.StatusForbidden, ""},
+		{"admin_GET_variables_allowed", "GET", "/api/v1/accounts/myorg/variables", "",
+			orgAdmin, http.StatusOK, ""},
 
 		{"GET_variables_denied_wrong_org_jwt", "GET", "/api/v1/accounts/myorg/variables", "",
-			withVaultRead, http.StatusForbidden, "org_other"},
+			vaultReadOnly, http.StatusForbidden, "org_other"},
 
-		// Vault mutations require variable:write
+		// Vault mutations require org:manage
 		{"member_POST_variables_denied", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
 			baseMember, http.StatusForbidden, ""},
 		{"POST_variables_denied_read_only_jwt", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
-			withVaultRead, http.StatusForbidden, ""},
-		{"POST_variables_allowed_write_only_jwt", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
-			withVaultWrite, http.StatusOK, ""},
+			vaultReadOnly, http.StatusForbidden, ""},
+		{"POST_variables_allowed_with_org_manage", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
+			vaultWriteOnly, http.StatusOK, ""},
 
 		{"member_PUT_variables_denied", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
 			baseMember, http.StatusForbidden, ""},
 		{"PUT_variables_denied_read_only_jwt", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
-			withVaultRead, http.StatusForbidden, ""},
-		{"PUT_variables_allowed_write_only_jwt", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
-			withVaultWrite, http.StatusOK, ""},
+			vaultReadOnly, http.StatusForbidden, ""},
+		{"PUT_variables_allowed_with_org_manage", "PUT", "/api/v1/accounts/myorg/variables/Foo", `{}`,
+			vaultWriteOnly, http.StatusOK, ""},
 
 		{"member_DELETE_variables_denied", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
 			baseMember, http.StatusForbidden, ""},
 		{"DELETE_variables_denied_read_only_jwt", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
-			withVaultRead, http.StatusForbidden, ""},
-		{"DELETE_variables_allowed_write_only_jwt", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
-			withVaultWrite, http.StatusOK, ""},
+			vaultReadOnly, http.StatusForbidden, ""},
+		{"DELETE_variables_allowed_with_org_manage", "DELETE", "/api/v1/accounts/myorg/variables/Foo", "",
+			vaultWriteOnly, http.StatusOK, ""},
+
+		{"POST_variables_denied_wrong_org_jwt", "POST", "/api/v1/accounts/myorg/variables", `{"variables":[]}`,
+			vaultWriteOnly, http.StatusForbidden, "org_other"},
 	}
 
 	for _, tt := range tests {
@@ -168,13 +170,13 @@ func TestRoutePermissionWiring(t *testing.T) {
 
 			accountVarsRead := v1.Group("/accounts/:account")
 			accountVarsRead.Use(middleware.ResolveAccount(store))
-			accountVarsRead.Use(middleware.RequireAccountPermission(store, "variable:read"))
+			accountVarsRead.Use(middleware.RequireAccountPermission(store, "deployments:read"))
 			accountVarsRead.GET("/variables", ok)
 			accountVarsRead.GET("/variables/:varName", ok)
 
 			accountVarsWrite := v1.Group("/accounts/:account")
 			accountVarsWrite.Use(middleware.ResolveAccount(store))
-			accountVarsWrite.Use(middleware.RequireAccountPermission(store, "variable:write"))
+			accountVarsWrite.Use(middleware.RequireAccountPermission(store, "org:manage"))
 			accountVarsWrite.POST("/variables", ok)
 			accountVarsWrite.PUT("/variables/:varName", ok)
 			accountVarsWrite.DELETE("/variables/:varName", ok)

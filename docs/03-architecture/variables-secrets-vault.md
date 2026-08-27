@@ -135,8 +135,16 @@ Authorization for both is the same middleware chain
 (`main.go`, `accountVarsRead`/`accountVarsWrite` route groups):
 
 - `middleware.ResolveAccount` resolves `:account` from the path.
-- `middleware.RequireAccountPermission(accountStore, "variable:read")` (read
-  routes) or `"variable:write"` (write routes) enforces the permission.
+- `middleware.RequireAccountPermission(accountStore, "deployments:read")` (read
+  routes) or `"org:manage"` (write routes) enforces the permission.
+
+The dedicated `variable:read` and `variable:write` slugs the vault used to
+check no longer exist as org role permissions in WorkOS: the FGA model
+(`scripts/workos-fga/model.json`) claims `variable:read` for the `variable`
+resource type, and `variable:write` was dropped. Both route groups borrow an
+existing org role permission until the dedicated slugs are reinstated, so vault
+read now follows the same gate as viewing a deployment. See
+[`04-guides/workos-org-rbac-setup.md`](../04-guides/workos-org-rbac-setup.md).
 
 `RequireAccountPermission` (`internal/middleware/account.go`) branches on
 account type:
@@ -146,11 +154,10 @@ account type:
 - **Organization account:** the caller's session must be scoped to that
   WorkOS organization (`session.OrganizationID == acct.WorkOSOrganizationID`,
   otherwise a 403 telling the caller to switch org first), and the
-  `variable:read`/`variable:write` WorkOS FGA permission must be present
-  on the JWT for the caller's role. In practice this means org owner and
-  admin roles get read/write; other roles get read-only or no access,
-  per the WorkOS role/permission configuration described in
-  [`04-guides/workos-org-rbac-setup.md`](../04-guides/workos-org-rbac-setup.md).
+  `deployments:read`/`org:manage` permission must be present on the JWT for
+  the caller's role. Every role carries `deployments:read`, so owner, admin,
+  and member all read the vault; only owner and admin carry `org:manage`, so
+  writes stay with them.
 
 The frontend mirrors this gate client-side (`VaultPicker`'s `canCreate`)
 purely as a UX affordance — hiding the "+ New" button for a read-only org
@@ -163,11 +170,11 @@ Routes (`main.go`, tag `Variables`):
 
 | Method | Path | Permission | Handler |
 |---|---|---|---|
-| GET | `/api/v1/accounts/:account/variables` | `variable:read` | `ListAccountVariables` |
-| GET | `/api/v1/accounts/:account/variables/:varName` | `variable:read` | `GetAccountVariable` |
-| POST | `/api/v1/accounts/:account/variables` | `variable:write` | `CreateAccountVariable` |
-| PUT | `/api/v1/accounts/:account/variables/:varName` | `variable:write` | `UpdateAccountVariable` |
-| DELETE | `/api/v1/accounts/:account/variables/:varName` | `variable:write` | `DeleteAccountVariable` |
+| GET | `/api/v1/accounts/:account/variables` | `deployments:read` | `ListAccountVariables` |
+| GET | `/api/v1/accounts/:account/variables/:varName` | `deployments:read` | `GetAccountVariable` |
+| POST | `/api/v1/accounts/:account/variables` | `org:manage` | `CreateAccountVariable` |
+| PUT | `/api/v1/accounts/:account/variables/:varName` | `org:manage` | `UpdateAccountVariable` |
+| DELETE | `/api/v1/accounts/:account/variables/:varName` | `org:manage` | `DeleteAccountVariable` |
 
 `CreateAccountVariable` accepts a batch (`{"variables": [...]}`) and
 returns a per-entry result (`created` or `error` with a message), so a
@@ -333,7 +340,7 @@ manually-typed value for a same-named vault entry.
   store-level invariant preventing an inconsistent `(secret, nonce)`
   pair from being written by a future caller that skips the handler.
 - The frontend's `canCreate` gate in `VaultPicker` is explicitly a UX
-  mirror of the server's `variable:write` check, not itself
+  mirror of the server's write check, not itself
   authoritative (correctly documented in a comment) — worth knowing if
   auditing for authorization bugs, since the real enforcement is
   entirely server-side in `RequireAccountPermission`.

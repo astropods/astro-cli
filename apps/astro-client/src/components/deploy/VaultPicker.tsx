@@ -70,7 +70,7 @@ export function VaultPicker({ onSelect, entries = [], expectedSecret, accountNam
       ? acct.organization_id
       : null
   const scopeReady = targetOrgId === null
-  // Mirrors the server's variable:write gate so members of an org (who can read but not write
+  // Mirrors the server's org:manage gate so members of an org (who can read but not write
   // variables) don't see a "+ New" affordance that would 403 on submit. Unknown accounts fall
   // through to true and let the server enforce — but only when the caller actually supplied an
   // account name; without one the create endpoint would 400 ("account name is required") because

@@ -1797,10 +1797,12 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 			}
 
-			// Account variables (vault) — WorkOS permissions variable:read / variable:write on owner + admin roles.
+			// Account variables (vault). The dedicated variable:read / variable:write
+			// slugs no longer exist as org role permissions, so reads ride on
+			// deployments:read and writes on org:manage until they are reinstated.
 			accountVarsRead := protected.Group("/accounts/:account")
 			accountVarsRead.Use(middleware.ResolveAccount(accountStore))
-			accountVarsRead.Use(middleware.RequireAccountPermission(accountStore, "variable:read"))
+			accountVarsRead.Use(middleware.RequireAccountPermission(accountStore, "deployments:read"))
 			{
 				api.GET(accountVarsRead, "/variables", "List account variables", handlers.ListAccountVariables(log, accountVarsStore),
 					oapispec.Tags("Variables"),
@@ -1818,7 +1820,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 			accountVarsWrite := protected.Group("/accounts/:account")
 			accountVarsWrite.Use(middleware.ResolveAccount(accountStore))
-			accountVarsWrite.Use(middleware.RequireAccountPermission(accountStore, "variable:write"))
+			accountVarsWrite.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
 				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, deps.Vault, resourceLifecycle),
 					oapispec.Tags("Variables"),
