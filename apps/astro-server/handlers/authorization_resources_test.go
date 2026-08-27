@@ -19,7 +19,6 @@ type resourceRegistration struct {
 
 type recordingResourceLifecycle struct {
 	registrations []resourceRegistration
-	updates       []resourceRegistration
 	deletions     []resourceRegistration
 }
 
@@ -40,11 +39,6 @@ func (r *recordingResourceLifecycle) RegisterResourceWithParent(
 
 func (r *recordingResourceLifecycle) GetResource(context.Context, string, authz.ResourceRef) (authz.AuthorizationResource, error) {
 	return authz.AuthorizationResource{}, nil
-}
-
-func (r *recordingResourceLifecycle) UpdateResourceName(_ context.Context, organizationID string, resource authz.ResourceRef, name string) error {
-	r.updates = append(r.updates, resourceRegistration{organizationID: organizationID, resource: resource, name: name})
-	return nil
 }
 
 func (r *recordingResourceLifecycle) DeleteResource(_ context.Context, organizationID string, resource authz.ResourceRef) error {
@@ -105,37 +99,31 @@ func TestRegisterAuthorizationResourceSkipsPersonalAccounts(t *testing.T) {
 	}
 }
 
-func TestUpdateAndDeleteAuthorizationResource(t *testing.T) {
+func TestDeleteAuthorizationResource(t *testing.T) {
 	t.Parallel()
 
 	resources := &recordingResourceLifecycle{}
 	acct := &account.Account{ID: "account_123", Type: "organization", WorkOSOrganizationID: "org_123"}
 	resource := authz.DeploymentResource("deployment_123")
 
-	updateAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource, "Renamed")
 	deleteAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource)
 
-	wantUpdate := []resourceRegistration{{organizationID: "org_123", resource: resource, name: "Renamed"}}
-	if !reflect.DeepEqual(resources.updates, wantUpdate) {
-		t.Fatalf("updates = %#v, want %#v", resources.updates, wantUpdate)
-	}
 	wantDeletion := []resourceRegistration{{organizationID: "org_123", resource: resource}}
 	if !reflect.DeepEqual(resources.deletions, wantDeletion) {
 		t.Fatalf("deletions = %#v, want %#v", resources.deletions, wantDeletion)
 	}
 }
 
-func TestUpdateAndDeleteAuthorizationResourceSkipPersonalAccounts(t *testing.T) {
+func TestDeleteAuthorizationResourceSkipsPersonalAccounts(t *testing.T) {
 	t.Parallel()
 
 	resources := &recordingResourceLifecycle{}
 	acct := &account.Account{ID: "account_123", Type: "personal", WorkOSOrganizationID: "org_123"}
 	resource := authz.DeploymentResource("deployment_123")
 
-	updateAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource, "Renamed")
 	deleteAuthorizationResource(context.Background(), logger.New("error", "json"), resources, acct, resource)
 
-	if len(resources.updates) != 0 || len(resources.deletions) != 0 {
-		t.Fatalf("personal account lifecycle calls = updates %#v, deletions %#v; want none", resources.updates, resources.deletions)
+	if len(resources.deletions) != 0 {
+		t.Fatalf("personal account lifecycle deletions = %#v, want none", resources.deletions)
 	}
 }

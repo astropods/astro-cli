@@ -1427,7 +1427,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountSettings.Use(middleware.ResolveAccount(accountStore))
 			accountSettings.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
-				api.PATCH(accountSettings, "", "Update account", handlers.UpdateAccount(log, accountStore, auditStore, resourceLifecycle),
+				api.PATCH(accountSettings, "", "Update account", handlers.UpdateAccount(log, accountStore, auditStore),
 					oapispec.Tags("Accounts"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2182,7 +2182,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.GetDeploymentStatusResponse{}),
 			)
-			deploymentRoutes.ObservedPATCH(authz.ActionDeploymentEdit, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache, resourceLifecycle),
+			deploymentRoutes.ObservedPATCH(authz.ActionDeploymentEdit, "/deployments/:id", "Update deployment display name", handlers.UpdateDeploymentDisplayName(log, accountStore, deploymentStore, auditStore, k8sCache),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

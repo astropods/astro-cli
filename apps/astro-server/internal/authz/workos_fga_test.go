@@ -101,30 +101,6 @@ func TestWorkOSFGARegisterResourceWithParentIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestWorkOSFGAUpdateResourceName(t *testing.T) {
-	t.Parallel()
-
-	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
-		assertRequest(t, request, http.MethodPatch, "/authorization/organizations/org_123/resources/deployment/dep_123", map[string]any{
-			"name": "Renamed support agent",
-		})
-		writeWorkOSJSON(t, response, http.StatusOK, map[string]any{
-			"id":                 "resource_123",
-			"external_id":        "dep_123",
-			"name":               "Renamed support agent",
-			"organization_id":    "org_123",
-			"resource_type_slug": "deployment",
-			"description":        nil,
-			"parent_resource_id": nil,
-		})
-	})
-	defer closeServer()
-
-	if err := fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Renamed support agent"); err != nil {
-		t.Fatalf("UpdateResourceName() error = %v", err)
-	}
-}
-
 func TestWorkOSFGAGetResource(t *testing.T) {
 	t.Parallel()
 
@@ -246,15 +222,6 @@ func TestWorkOSFGAClassifiesResourceErrors(t *testing.T) {
 			call: func(fga *WorkOSFGA) error {
 				_, err := fga.GetResource(context.Background(), "org_123", DeploymentResource("dep_123"))
 				return err
-			},
-		},
-		{
-			name:       "update not found",
-			statusCode: http.StatusNotFound,
-			want:       ErrResourceNotFound,
-			wantPrefix: "update WorkOS resource deployment:dep_123 name: workos: 404",
-			call: func(fga *WorkOSFGA) error {
-				return fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent")
 			},
 		},
 		{
@@ -829,30 +796,6 @@ func TestWorkOSFGAValidationDoesNotCallWorkOS(t *testing.T) {
 			},
 		},
 		{
-			name: "update resource name with empty organization id",
-			call: func(fga *WorkOSFGA) error {
-				return fga.UpdateResourceName(context.Background(), "", DeploymentResource("dep_123"), "Support agent")
-			},
-		},
-		{
-			name: "update resource name with empty resource type",
-			call: func(fga *WorkOSFGA) error {
-				return fga.UpdateResourceName(context.Background(), "org_123", ResourceRef{ExternalID: "dep_123"}, "Support agent")
-			},
-		},
-		{
-			name: "update resource name with empty resource external id",
-			call: func(fga *WorkOSFGA) error {
-				return fga.UpdateResourceName(context.Background(), "org_123", ResourceRef{Type: ResourceDeployment}, "Support agent")
-			},
-		},
-		{
-			name: "update resource with empty name",
-			call: func(fga *WorkOSFGA) error {
-				return fga.UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "")
-			},
-		},
-		{
 			name: "delete resource with empty organization id",
 			call: func(fga *WorkOSFGA) error {
 				return fga.DeleteResource(context.Background(), "", DeploymentResource("dep_123"))
@@ -1015,9 +958,6 @@ func TestFakeFGARejectsUnexpectedCalls(t *testing.T) {
 	}
 	if _, err := (&FakeFGA{}).GetResource(context.Background(), "org_123", DeploymentResource("dep_123")); err == nil {
 		t.Fatal("GetResource() error = nil, want unexpected-call error")
-	}
-	if err := (&FakeFGA{}).UpdateResourceName(context.Background(), "org_123", DeploymentResource("dep_123"), "Support agent"); err == nil {
-		t.Fatal("UpdateResourceName() error = nil, want unexpected-call error")
 	}
 	if _, err := (&FakeFGA{}).Check(context.Background(), "om_123", ActionDeploymentRead, DeploymentResource("dep_123")); err == nil {
 		t.Fatal("Check() error = nil, want unexpected-call error")

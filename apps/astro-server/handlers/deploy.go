@@ -178,7 +178,7 @@ func validateAgentDisplayName(name string) (string, error) {
 
 // UpdateDeploymentDisplayName returns a handler that updates only the display name
 // of a deployment without triggering a redeploy.
-func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache, resources authz.ResourceLifecycle) gin.HandlerFunc {
+func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -209,14 +209,6 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 			log.Error("deploy: update display name failed", "deployment_id", dep.ID, "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update display name"})
 			return
-		}
-		if name != dep.DisplayName {
-			acct, accountErr := accountStore.GetByID(dep.AccountID)
-			if accountErr != nil {
-				log.Warn("authorization resource: load account for update failed", "account_id", dep.AccountID, "deployment_id", dep.ID, "error", accountErr)
-			} else {
-				updateAuthorizationResource(c.Request.Context(), log, resources, acct, authz.DeploymentResource(dep.ID), name)
-			}
 		}
 		_ = deploycache.Invalidate(c.Request.Context(), cache, dep.AccountID)
 
@@ -1057,8 +1049,6 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 		if !dctx.isUpdate {
 			registerAuthorizationResource(c.Request.Context(), log, resources, dctx.acct, authz.DeploymentResource(dctx.deploymentID), resourceName)
-		} else if dctx.displayName != "" && dctx.previousDisplayName != dctx.displayName {
-			updateAuthorizationResource(c.Request.Context(), log, resources, dctx.acct, authz.DeploymentResource(dctx.deploymentID), resourceName)
 		}
 
 		tmplCache.DeleteByDeploymentID(dctx.deploymentID)

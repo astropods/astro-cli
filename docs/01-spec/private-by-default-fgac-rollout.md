@@ -204,13 +204,13 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 
 - Configure the resource types and roles in WorkOS.
 - Add nullable `agents.uid`; every new Blueprint write supplies its stable external ID.
-- Use one WorkOS SDK contract to create, read, rename, and delete authorization resources.
+- Use one WorkOS SDK contract to create, read, and delete authorization resources.
 - Register each organization Account under the WorkOS-required root. Register its Blueprint, Deployment, Variable, Insights, and Knowledge Store children under that Account. The Audience create handler in PR #2145 uses the same lifecycle contract when it lands.
-- Apply lifecycle changes from the matching Astro mutation: Account rename/delete, Blueprint archive/transfer, Deployment rename/undeploy, Variable delete, and Knowledge Store delete. Immutable resource names need no update call; deleting an Account removes its child resources.
+- Delete resources from WorkOS when the matching Astro resource is removed. WorkOS names are creation-time labels only; immutable Astro external IDs identify resources for authorization.
 - A WorkOS failure is logged and does not roll back the Astro object. PR4 repairs missed creates.
 - Add no generic sync table, River worker, role assignment, or enforcement. Remove the Deployment-specific lifecycle ledger and River worker.
 
-**Queen proof:** created resources appear with the expected Astro ID, WorkOS ID, Account, and name; renames update; deleted resources disappear.
+**Queen proof:** created resources appear with the expected Astro ID, WorkOS ID, Account, and creation-time name; deleted resources disappear.
 
 ### PR4: Backfill existing resources and account owners
 

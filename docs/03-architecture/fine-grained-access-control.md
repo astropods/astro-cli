@@ -79,7 +79,7 @@ Changing existing deployments from organization-parented to blueprint-parented r
 | Organization-scoped roles and permissions | WorkOS; included in the organization JWT |
 | Authorization resources, resource roles, groups, and group membership | WorkOS Authorization |
 | Effective resource permission decision | Live WorkOS Authorization check |
-| Product resource lifecycle | Direct WorkOS SDK calls after local create, update, and delete; bounded backfill repairs missed creates |
+| Product resource lifecycle | Direct WorkOS SDK calls after local create and delete; bounded backfill repairs missed creates |
 | Desired and applied access mutation | Astro `resource_access_fga_sync` ledger |
 
 The access-mutation ledger is retry state, not an entitlement mirror. It records what Astro asked WorkOS to converge and the last applied version. It cannot authorize a request.
@@ -148,27 +148,20 @@ Denied and nonexistent protected deployments return the same not-found response.
 
 ## Deployment resource lifecycle
 
-Deployment lifecycle changes and WorkOS writes are deliberately decoupled. A successful deployment operation is not rolled back because WorkOS is temporarily unavailable.
+Deployment creation and deletion make direct, best-effort WorkOS calls after the local mutation succeeds. A WorkOS failure never rolls back the deployment; bounded backfill repairs missed registrations.
 
 ```mermaid
 flowchart LR
-    Deploy["Commit organization deployment"] --> Intent["Record registered desired state"]
-    Intent --> Queue["Enqueue deployment FGA reconcile"]
-    Queue --> Register["Register WorkOS deployment resource"]
-    Register --> Creator["Assign deployment-admin to creator"]
-    Creator --> Ready["Mark lifecycle and creator access ready"]
-    Queue -. failure .-> Retry["Backoff plus periodic repair sweep"]
-    Retry --> Register
+    Deploy["Commit organization deployment"] --> Register["Register WorkOS deployment resource"]
+    Register -. failure .-> Log["Log failure"]
+    Log --> Backfill["Bounded backfill repairs registration"]
+    Deploy --> Response["Return successful deployment"]
 ```
 
-- Creation registers an organization deployment and assigns its current creator membership Admin.
-- Rename updates the WorkOS resource name only when the display name changes.
+- Creation registers an organization deployment beneath its Account.
+- WorkOS names are creation-time labels; immutable Astro external IDs drive authorization.
 - Delete removes the WorkOS resource; WorkOS cascades its assignments.
-- Missing creators do not block resource registration or account purge.
-- A creator membership that may still be mirroring is retried without marking creator access ready.
-- When WorkOS is disabled, Astro skips lifecycle intent writes and jobs.
-
-Clients can use `access_ready` to represent the short period between deployment creation and creator-role convergence. A pending deployment remains fail-closed rather than briefly inheriting broad organization-member visibility.
+- When WorkOS is disabled, Astro skips lifecycle calls.
 
 ## Read visibility and discovery
 
@@ -296,7 +289,7 @@ Adding blueprints, knowledge stores, or a future primitive follows one repeatabl
 1. Define the WorkOS resource type, parent relationship, flat actor-neutral permissions, and initial role bundles.
 2. Add repository `ResourceType`, `Action`, and role contracts whose string values match WorkOS exactly.
 3. Add an Astro account and organization resolver for the resource.
-4. Record resource lifecycle intent in the owning database transaction and reconcile WorkOS asynchronously.
+4. Register and delete the WorkOS resource directly after the local mutation; repair missed registrations through bounded backfill.
 5. Catalog every control-plane route, explicitly separating data-plane and model-owned surfaces.
 6. Add live checks, effective capabilities, and batched readable-resource discovery.
 7. Reuse the access-intent service and group subjects rather than creating a second assignment model.

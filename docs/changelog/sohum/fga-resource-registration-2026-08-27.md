@@ -6,7 +6,9 @@ Organization resources now follow one direct WorkOS authorization lifecycle with
 
 ## Design
 
-One shared lifecycle contract wraps WorkOS create, read, update, and delete calls. Account creation registers the Account and its singleton Insights resource. Existing creation paths register Blueprints, Deployments, Variables, and Knowledge Stores beneath that Account. Product rename and removal paths update or delete the corresponding resource. The Audience creation API currently landing separately uses the same contract.
+One shared lifecycle contract wraps WorkOS create, read, and delete calls. Account creation registers the Account and its singleton Insights resource. Existing creation paths register Blueprints, Deployments, Variables, and Knowledge Stores beneath that Account. Removal paths delete the corresponding resource. The Audience creation API currently landing separately uses the same contract.
+
+WorkOS names are creation-time operator labels only. Astro external IDs are immutable and remain the authorization identity, so product renames do not require a WorkOS write.
 
 Astro remains the product source of truth. A WorkOS failure is logged without rolling back the successful local create; PR4 compares Astro with WorkOS and backfills any missing resources. Blueprints receive an immutable UUID because their current database key includes the mutable name.
 

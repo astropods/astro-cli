@@ -128,30 +128,6 @@ func (f *WorkOSFGA) GetResource(ctx context.Context, organizationID string, reso
 	return authorizationResource(current), nil
 }
 
-func (f *WorkOSFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
-	if organizationID == "" {
-		return errors.New("organization id is required")
-	}
-	if name == "" {
-		return errors.New("resource name is required")
-	}
-	if err := validateResource(resource); err != nil {
-		return err
-	}
-
-	_, err := f.authorization.UpdateResourceByExternalID(
-		ctx,
-		organizationID,
-		string(resource.Type),
-		resource.ExternalID,
-		&workos.AuthorizationUpdateResourceByExternalIDParams{Name: &name},
-	)
-	if err != nil {
-		return fmt.Errorf("update WorkOS resource %s:%s name: %w", resource.Type, resource.ExternalID, classifyAPIError(err, http.StatusNotFound, ErrResourceNotFound))
-	}
-	return nil
-}
-
 func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error {
 	if organizationID == "" {
 		return errors.New("organization id is required")

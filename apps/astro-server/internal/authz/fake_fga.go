@@ -11,7 +11,6 @@ type FakeFGA struct {
 	RegisterResourceFunc           func(context.Context, string, ResourceRef, string) error
 	RegisterResourceWithParentFunc func(context.Context, string, ResourceRef, ResourceRef, string) error
 	GetResourceFunc                func(context.Context, string, ResourceRef) (AuthorizationResource, error)
-	UpdateResourceNameFunc         func(context.Context, string, ResourceRef, string) error
 	DeleteResourceFunc             func(context.Context, string, ResourceRef) error
 	AssignRoleFunc                 func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
 	RemoveRoleFunc                 func(context.Context, AssignmentSubject, RoleSlug, ResourceRef) error
@@ -48,13 +47,6 @@ func (f *FakeFGA) GetResource(ctx context.Context, organizationID string, resour
 		return AuthorizationResource{}, errors.New("unexpected FGA resource read")
 	}
 	return f.GetResourceFunc(ctx, organizationID, resource)
-}
-
-func (f *FakeFGA) UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error {
-	if f.UpdateResourceNameFunc == nil {
-		return errors.New("unexpected FGA resource name update")
-	}
-	return f.UpdateResourceNameFunc(ctx, organizationID, resource, name)
 }
 
 func (f *FakeFGA) DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error {

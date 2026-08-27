@@ -484,7 +484,7 @@ type UpdateAccountRequest struct {
 
 // UpdateAccount handles PATCH /api/v1/accounts/:account (admin only)
 // Updates mutable account fields such as display_name.
-func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store, resources authz.ResourceLifecycle) gin.HandlerFunc {
+func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, auditStore *auditlog.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -567,10 +567,6 @@ func UpdateAccount(log *logger.Logger, accountStore *account.AccountStore, audit
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update profile"})
 			return
 		}
-		if req.DisplayName != nil && displayName != acct.DisplayName {
-			updateAuthorizationResource(c.Request.Context(), log, resources, acct, authz.AccountResource(acct.ID), displayName)
-		}
-
 		log.Info("accounts: account profile updated", "account_id", acct.ID, "display_name", displayName)
 
 		evt := auditlog.FromGinContext(c, acct.ID)

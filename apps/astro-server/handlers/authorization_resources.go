@@ -43,29 +43,6 @@ func registerAuthorizationResource(
 	return true
 }
 
-func updateAuthorizationResource(
-	ctx context.Context,
-	log *logger.Logger,
-	resources authz.ResourceLifecycle,
-	acct *account.Account,
-	resource authz.ResourceRef,
-	name string,
-) {
-	if resources == nil || acct == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" || name == "" {
-		return
-	}
-	updateCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
-	defer cancel()
-	if err := resources.UpdateResourceName(updateCtx, acct.WorkOSOrganizationID, resource, name); err != nil {
-		log.Warn("authorization resource: direct update failed",
-			"account_id", acct.ID,
-			"resource_type", resource.Type,
-			"resource_id", resource.ExternalID,
-			"error", err,
-		)
-	}
-}
-
 func deleteAuthorizationResource(
 	ctx context.Context,
 	log *logger.Logger,
