@@ -9,6 +9,7 @@ import (
 
 	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/accountvars"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -75,7 +76,7 @@ func ListAccountVariables(log *logger.Logger, store *accountvars.Store) gin.Hand
 // CreateAccountVariable stores one or more account variables (optionally encrypted).
 // The request body is { "variables": [ ... ] }. Each entry is saved via upsert.
 // POST /api/v1/accounts/:account/variables
-func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault) gin.HandlerFunc {
+func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *envelope.Vault, registrar authz.ResourceRegistrar) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -142,6 +143,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 				results = append(results, result)
 				continue
 			}
+			registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.VariableResource(acct.ID, entry.Name), entry.Name)
 
 			result.Status = "created"
 			results = append(results, result)

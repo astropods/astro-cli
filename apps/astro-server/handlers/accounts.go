@@ -16,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/avatar"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/clusterid"
@@ -120,7 +121,7 @@ type ProfileUser struct {
 
 // CreateAccount handles POST /api/v1/accounts
 // If billingProvider is non-nil, creates a corresponding billing customer (non-blocking).
-func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue, authorizationDeps AuthorizationResourceLifecycleDeps) gin.HandlerFunc {
+func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgProvisioner *org.Provisioner, orgSync *org.Sync, memberEmails memberEmailUpserter, billingProvider billing.BillingProvider, auditStore *auditlog.Store, queue notifyQueue, registrar authz.ResourceRegistrar) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -228,25 +229,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			switch {
 			case err == nil:
 				acct.WorkOSOrganizationID = workosOrgID
-				if req.Type == "organization" && authorizationDeps.Sync != nil {
-					key, recorded, recordErr := authorizationDeps.Sync.RecordAccountRegistration(ctx, acct.ID)
-					if recordErr != nil {
-						log.Error("accounts: record Account authorization registration failed", "error", recordErr, "account_id", acct.ID)
-						if req.Type == "organization" {
-							orgProvisioner.DiscardOrganization(ctx, acct.ID)
-							_ = accountStore.DeleteByID(acct.ID)
-							c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register account authorization"})
-							return
-						}
-						if q, ok := queue.(orgProvisionQueue); ok {
-							if err := q.InsertAccountOrgProvision(ctx, acct.ID); err != nil {
-								log.Error("accounts: enqueue WorkOS organization provisioning failed", "error", err, "account_id", acct.ID)
-							}
-						}
-					} else {
-						enqueueAuthorizationResource(log, authorizationDeps, key, recorded)
-					}
-				}
+				registerAccountAuthorizationResources(ctx, log, registrar, acct)
 			case req.Type == "organization":
 				log.Error("accounts: provision WorkOS organization failed", "error", err, "account_id", acct.ID)
 				orgProvisioner.DiscardOrganization(ctx, acct.ID)

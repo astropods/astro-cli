@@ -38,26 +38,23 @@ import (
 
 // Config holds dependencies that River workers need.
 type Config struct {
-	DB                        *sql.DB
-	Billing                   billing.BillingProvider
-	BillingBackend            string // active billing backend ("metronome"|"noop")
-	AccountStore              *account.AccountStore
-	AgentIndex                *agentindex.Index
-	AvatarStore               *avatar.Store
-	ReadmeAssetStore          *readmeassets.Store
-	K8sRegistry               *k8s.Registry
-	K8sCache                  k8scache.Cache
-	ServerConfig              *config.Config
-	DeploymentFGASync         *authz.DeploymentFGASyncStore
-	AuthorizationResourceSync *authz.AuthorizationResourceSyncStore
-	DeploymentResourceSync    authz.DeploymentResourceSyncRecorder
-	ResourceAccessSync        *authz.ResourceAccessSyncStore
-	AccessReconciler          *authz.AccessReconciler
-	AuthorizationAdmin        *authorizationadmin.Service
+	DB                 *sql.DB
+	Billing            billing.BillingProvider
+	BillingBackend     string // active billing backend ("metronome"|"noop")
+	AccountStore       *account.AccountStore
+	AgentIndex         *agentindex.Index
+	AvatarStore        *avatar.Store
+	ReadmeAssetStore   *readmeassets.Store
+	K8sRegistry        *k8s.Registry
+	K8sCache           k8scache.Cache
+	ServerConfig       *config.Config
+	DeploymentFGASync  *authz.DeploymentFGASyncStore
+	ResourceAccessSync *authz.ResourceAccessSyncStore
+	AccessReconciler   *authz.AccessReconciler
+	AuthorizationAdmin *authorizationadmin.Service
 	// AuthorizationAdminResetEnabled registers the reset worker only when explicitly configured.
 	AuthorizationAdminResetEnabled bool
 	FGA                            authz.FGA
-	AuthorizationResourceLifecycle authz.AuthorizationResourceLifecycle
 	OrgClient                      *org.Client
 	PromClient                     *promquery.Client
 	Logger                         *logger.Logger
@@ -198,9 +195,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.deploymentFGA != nil {
 		wired.deploymentFGA.queue = q
 	}
-	if wired.authorizationResource != nil {
-		wired.authorizationResource.queue = q
-	}
 	if wired.resourceAccess != nil {
 		wired.resourceAccess.queue = q
 	}
@@ -311,26 +305,10 @@ func (q *Queue) UndeployFunc(store *deploymentstore.Store) func(ctx context.Cont
 	}
 }
 
-// InsertDeploymentFGAReconcileJob enqueues generic deployment-resource reconciliation.
+// InsertDeploymentFGAReconcileJob enqueues immediate WorkOS reconciliation.
+// The durable desired-state row and periodic sweep recover a failed enqueue.
 func (q *Queue) InsertDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error {
-	return q.InsertAuthorizationResourceReconcileJob(ctx, authz.ResourceSyncKey{
-		Resource: authz.DeploymentResource(deploymentID),
-	})
-}
-
-// InsertLegacyDeploymentFGAReconcileJob drains rows written before the generic ledger.
-func (q *Queue) InsertLegacyDeploymentFGAReconcileJob(ctx context.Context, deploymentID string) error {
 	_, err := q.Insert(ctx, DeploymentFGAReconcileArgs{DeploymentID: deploymentID}, nil)
-	return err
-}
-
-// InsertAuthorizationResourceReconcileJob enqueues one generic lifecycle key.
-func (q *Queue) InsertAuthorizationResourceReconcileJob(ctx context.Context, key authz.ResourceSyncKey) error {
-	_, err := q.Insert(ctx, AuthorizationResourceReconcileArgs{
-		OrganizationID: key.OrganizationID,
-		ResourceType:   string(key.Resource.Type),
-		ResourceID:     key.Resource.ExternalID,
-	}, nil)
 	return err
 }
 

@@ -37,22 +37,11 @@ var checks = []Check{
 			         'retention_days', %[1]d,
 			         'pending_deployments', (SELECT count(*) FROM deployments d
 			                                  WHERE d.account_id = a.id AND d.status <> 'undeployed'),
-				         'pending_authorization', (
-				           (SELECT count(*) FROM authorization_resource_sync s
-				             WHERE s.account_id = a.id
-				               AND (s.synced_state IS DISTINCT FROM s.desired_state
-				                    OR s.synced_version IS DISTINCT FROM s.desired_version))
-				           +
-				           (SELECT count(*) FROM deployment_fga_sync s
-				              JOIN deployments d ON d.id = s.deployment_id
-				             WHERE d.account_id = a.id
-				               AND NOT EXISTS (
-				                 SELECT 1 FROM authorization_resource_sync r
-				                  WHERE r.resource_type = 'deployment' AND r.resource_id = d.id
-				               )
-				               AND (s.synced_state IS DISTINCT FROM s.desired_state
-				                    OR s.synced_version IS DISTINCT FROM s.desired_version))
-				         ),
+			         'pending_authorization', (SELECT count(*) FROM deployment_fga_sync s
+			                                    JOIN deployments d ON d.id = s.deployment_id
+			                                   WHERE d.account_id = a.id
+			                                     AND (s.synced_state IS DISTINCT FROM s.desired_state
+			                                          OR s.synced_version IS DISTINCT FROM s.desired_version)),
 			         'has_langfuse_project', EXISTS (SELECT 1 FROM account_langfuse l
 			                                          WHERE l.account_id = a.id)
 			       )

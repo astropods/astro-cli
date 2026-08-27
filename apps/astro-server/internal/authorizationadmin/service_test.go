@@ -110,8 +110,8 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 	expectLinkedOrganizations(mock, "org_123")
 	mock.ExpectQuery(`SELECT mw.workos_membership_id`).WillReturnRows(sqlmock.NewRows([]string{"workos_membership_id", "label"}).
 		AddRow("om_admin", "jessye@example.com"))
-	mock.ExpectQuery(`SELECT s.resource_type`).WillReturnRows(sqlmock.NewRows([]string{"resource_type", "resource_id", "account_id", "account_name", "sync_state", "last_error"}).
-		AddRow("deployment", "dep_123", "acct_123", "Astro Spaceship", "synced", ""))
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}).
+		AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
 	store := &fakeOperationStore{}
 	service := newService(db, workos, store)
 
@@ -153,21 +153,25 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.ResourceRef{Type: authz.ResourceAccount, ExternalID: "acct_123"}, Name: "Astro Spaceship"},
+			{ID: "workos_blueprint", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.BlueprintResource("blueprint_123"), Name: "Support blueprint"},
 			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
 		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
-	mock.ExpectQuery(`SELECT s.resource_type`).WillReturnRows(sqlmock.NewRows([]string{"resource_type", "resource_id", "account_id", "account_name", "sync_state", "last_error"}))
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
 	service := newService(db, workos, &fakeOperationStore{})
 
 	inventory, err := service.Inventory(context.Background())
 	if err != nil {
 		t.Fatalf("Inventory() error = %v", err)
 	}
-	if len(inventory.Resources) != 2 {
+	if len(inventory.Resources) != 3 {
 		t.Fatalf("resources = %+v", inventory.Resources)
 	}
-	deployment := inventory.Resources[1]
+	if blueprint := inventory.Resources[1]; blueprint.Type != "blueprint" || blueprint.SyncState != "registered" {
+		t.Fatalf("blueprint = %+v", blueprint)
+	}
+	deployment := inventory.Resources[2]
 	if deployment.AccountID != "acct_123" || deployment.SyncState != "workos_only" {
 		t.Fatalf("deployment = %+v", deployment)
 	}
@@ -200,9 +204,9 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 		}},
 	}
 	expectLinkedOrganizations(mock, "org_123")
-	rows := []string{"resource_type", "resource_id", "account_id", "account_name", "sync_state", "last_error"}
-	mock.ExpectQuery(`SELECT s.resource_type`).WillReturnRows(sqlmock.NewRows(rows).AddRow("deployment", "dep_123", "acct_123", "Astro Spaceship", "synced", ""))
-	mock.ExpectQuery(`SELECT s.resource_type`).WillReturnRows(sqlmock.NewRows(rows).AddRow("deployment", "dep_123", "acct_123", "Astro Spaceship", "synced", ""))
+	rows := []string{"id", "account_id", "account_name", "sync_state", "last_error"}
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
 	service := newService(db, workos, &fakeOperationStore{})
 
 	if _, err := service.Inventory(context.Background()); err != nil {
@@ -242,7 +246,7 @@ func TestInventoryListsResourcesByLinkedOrganization(t *testing.T) {
 		},
 	}
 	expectLinkedOrganizations(mock, "org_a", "org_b")
-	mock.ExpectQuery(`SELECT s.resource_type`).WillReturnRows(sqlmock.NewRows([]string{"resource_type", "resource_id", "account_id", "account_name", "sync_state", "last_error"}))
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
 
 	inventory, err := newService(db, workos, &fakeOperationStore{}).Inventory(context.Background())
 	if err != nil {

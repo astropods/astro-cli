@@ -179,7 +179,7 @@ func validateAgentDisplayName(name string) (string, error) {
 
 // UpdateDeploymentDisplayName returns a handler that updates only the display name
 // of a deployment without triggering a redeploy.
-func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache, fgaSync authz.DeploymentResourceSyncRecorder, queue DeployQueue) gin.HandlerFunc {
+func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.AccountStore, deployStore *deploymentstore.Store, auditStore *auditlog.Store, cache k8scache.Cache, fgaSync *authz.DeploymentFGASyncStore, queue DeployQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, exists := middleware.GetUser(c); !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
@@ -208,7 +208,7 @@ func UpdateDeploymentDisplayName(log *logger.Logger, accountStore *account.Accou
 
 		var fgaRecorded bool
 		var txFn func(*sql.Tx) error
-		if fgaSync != nil && name != dep.DisplayName {
+		if name != dep.DisplayName {
 			txFn = func(tx *sql.Tx) error {
 				var recordErr error
 				fgaRecorded, recordErr = fgaSync.RecordNameUpdateTx(c.Request.Context(), tx, dep.ID)
@@ -860,7 +860,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, fgaSync authz.DeploymentResourceSyncRecorder, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, fgaSync *authz.DeploymentFGASyncStore, registrar authz.ResourceRegistrar, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -1052,7 +1052,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 					return fmt.Errorf("replace grants: %w", err)
 				}
 			}
-			if fgaSync != nil && (!dctx.isUpdate || dctx.previousDisplayName != dctx.displayName) {
+			if !dctx.isUpdate || dctx.previousDisplayName != dctx.displayName {
 				var recordErr error
 				switch {
 				case !dctx.isUpdate:
@@ -1080,6 +1080,13 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 			log.Error("deploy: save deployment record failed", "error", storeErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule deployment"})
 			return
+		}
+		if !dctx.isUpdate {
+			resourceName := dctx.displayName
+			if resourceName == "" {
+				resourceName = dctx.agentName
+			}
+			registerAuthorizationResource(c.Request.Context(), log, registrar, dctx.acct, authz.DeploymentResource(dctx.deploymentID), resourceName)
 		}
 
 		tmplCache.DeleteByDeploymentID(dctx.deploymentID)

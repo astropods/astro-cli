@@ -14,6 +14,7 @@ import (
 
 	spec "github.com/astropods/astro-spec"
 	"github.com/astropods/astro/apps/astro-server/internal/arn"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deployid"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
@@ -115,7 +116,7 @@ func toKnowledgeResponse(ks *knowledgestore.KnowledgeStore) KnowledgeResponse {
 
 // ConnectKnowledgeStore onboards an external (bring-your-own) database under an ARN.
 // No K8s resources are created — the platform is a credential broker only.
-func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker) gin.HandlerFunc {
+func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pipesClient *pipes.Client, cfg *config.Config, vault *envelope.Vault, queue *riverqueue.Queue, db *sql.DB, quotaCheck quota.Checker, registrar authz.ResourceRegistrar) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -255,6 +256,7 @@ func ConnectKnowledgeStore(log *logger.Logger, ksStore *knowledgestore.Store, pi
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create store"})
 			return
 		}
+		registerAuthorizationResource(c.Request.Context(), log, registrar, acct, authz.KnowledgeStoreResource(ks.ID), ks.Name)
 
 		if enc != nil {
 			if err := ksStore.SaveCredentials(storeID, enc.Credentials); err != nil {

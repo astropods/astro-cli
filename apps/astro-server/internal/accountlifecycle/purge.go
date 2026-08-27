@@ -45,7 +45,7 @@ type Purger struct {
 	Keys          *aigateway.Store
 	DevKeys       *aigateway.DevStore
 	JudgeKeys     *aigateway.JudgeStore
-	FGASync       authz.DeploymentResourceSyncRecorder
+	FGASync       *authz.DeploymentFGASyncStore
 }
 
 // PurgerDeps are the collaborators a caller owns. The key and credential stores
@@ -55,7 +55,7 @@ type PurgerDeps struct {
 	Log         *logger.Logger
 	DB          *sql.DB
 	Deployments *deploymentstore.Store
-	FGASync     authz.DeploymentResourceSyncRecorder
+	FGASync     *authz.DeploymentFGASyncStore
 	Langfuse    *langfuse.Provisioner
 	AIGateway   *aigateway.Provisioner
 	Undeploy    func(ctx context.Context, deploymentID string) error

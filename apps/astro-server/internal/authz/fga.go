@@ -9,18 +9,7 @@ const (
 	RoleDeploymentViewer  RoleSlug = "deployment-viewer"
 	RoleDeploymentBuilder RoleSlug = "deployment-builder"
 	RoleDeploymentAdmin   RoleSlug = "deployment-admin"
-	RoleAccountAdmin      RoleSlug = "account-admin"
-	RoleBlueprintAdmin    RoleSlug = "blueprint-admin"
 )
-
-// AuthorizationResourceLifecycle is the parent-aware resource projection
-// used by the durable registration reconciler.
-type AuthorizationResourceLifecycle interface {
-	RegisterResourceWithParent(ctx context.Context, organizationID string, resource, parent ResourceRef, name string) (string, error)
-	UpdateResourceName(ctx context.Context, organizationID string, resource ResourceRef, name string) error
-	DeleteResource(ctx context.Context, organizationID string, resource ResourceRef) error
-	AssignRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
-}
 
 // AssignmentSubjectType identifies who receives a resource-scoped role.
 type AssignmentSubjectType string
@@ -71,6 +60,11 @@ type FGA interface {
 	RemoveRole(ctx context.Context, subject AssignmentSubject, role RoleSlug, resource ResourceRef) error
 	Check(ctx context.Context, membershipID string, action Action, resource ResourceRef) (bool, error)
 	ListEffectivePermissions(ctx context.Context, membershipID string, resource ResourceRef) ([]Action, error)
+}
+
+// ResourceRegistrar projects newly created Astro resources into WorkOS.
+type ResourceRegistrar interface {
+	RegisterResourceWithParent(ctx context.Context, organizationID string, resource, parent ResourceRef, name string) error
 }
 
 // AccessAssignments is the resource-sharing slice of WorkOS authorization.

@@ -21,7 +21,7 @@ func TestCreate_NewAgent(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO agents").
-		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", "", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow("11111111-1111-1111-1111-111111111111"))
 	mock.ExpectExec("DELETE FROM agent_versions").
 		WithArgs("acct-1", "my-agent").
@@ -46,10 +46,10 @@ func TestCreate_ActiveAgentReturnsErrAlreadyExists(t *testing.T) {
 
 	idx := NewIndexWithDB(db)
 
-	// ON CONFLICT DO UPDATE WHERE archived_at IS NOT NULL returns no row when the agent is active.
+	// ON CONFLICT DO UPDATE WHERE archived_at IS NOT NULL — no rows affected when agent is active.
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO agents").
-		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", "", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"uid"}))
 	mock.ExpectRollback()
 
@@ -72,10 +72,10 @@ func TestCreate_ArchivedAgentUnarchivesAndClearsVersions(t *testing.T) {
 
 	idx := NewIndexWithDB(db)
 
-	// ON CONFLICT DO UPDATE unarchives and returns the stable authorization id.
+	// ON CONFLICT DO UPDATE unarchives — 1 row affected.
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO agents").
-		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", "", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs("acct-1", sqlmock.AnyArg(), "my-agent", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow("11111111-1111-1111-1111-111111111111"))
 	mock.ExpectExec("DELETE FROM agent_versions").
 		WithArgs("acct-1", "my-agent").

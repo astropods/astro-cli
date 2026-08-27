@@ -713,7 +713,9 @@ func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
 	store := githubconnection.New(ghDB)
 	whStore := githubwebhook.New(ghDB)
 
-	expectSuccessfulBlueprintArchive(indexMock, "test-account-id", "service-a")
+	indexMock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Get: returns service-a's connection on the subpath.
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
@@ -733,7 +735,7 @@ func TestArchiveAgent_KeepsWebhookWhenSubpathConnExists(t *testing.T) {
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key"), AuthorizationResourceLifecycleDeps{}))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key")))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()
@@ -778,7 +780,9 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	store := githubconnection.New(ghDB)
 	whStore := githubwebhook.New(ghDB)
 
-	expectSuccessfulBlueprintArchive(indexMock, "test-account-id", "service-a")
+	indexMock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "service-a").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	ghMock.ExpectQuery(`SELECT .+ FROM github_connections`).
 		WithArgs("test-account-id", "service-a").
@@ -797,7 +801,7 @@ func TestArchiveAgent_DeletesWebhookWhenLastConn(t *testing.T) {
 	router := gin.New()
 	router.Use(injectTestAccount(), injectTestSession())
 	router.POST("/agents/:account/:name/archive",
-		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key"), AuthorizationResourceLifecycleDeps{}))
+		ArchiveAgent(logger.New("error", "json"), index, nil, nil, store, whStore, pipes.New("fake-key")))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/service-a/archive", nil)
 	rec := httptest.NewRecorder()

@@ -60,25 +60,24 @@ type Deps struct {
 }
 
 type Stores struct {
-	Account                   *account.AccountStore
-	App                       *appstore.Store
-	Deployment                *deploymentstore.Store
-	AccountVars               *accountvars.Store
-	Heart                     *heartstore.Store
-	AgentMetrics              *metricsstore.Store
-	Cluster                   *clusterstore.Store
-	Audit                     *auditlog.Store
-	Avatar                    *avatar.Store
-	ReadmeAssets              *readmeassets.Store
-	Knowledge                 *knowledgestore.Store
-	GH                        *githubconnection.Store
-	Webhook                   *githubwebhook.Store
-	SlackID                   *slackidentity.Store
-	Watcher                   *watcher.Store
-	DeploymentFGASync         *authz.DeploymentFGASyncStore
-	AuthorizationResourceSync *authz.AuthorizationResourceSyncStore
-	ResourceAccessSync        *authz.ResourceAccessSyncStore
-	Experiment                *experiment.Store
+	Account            *account.AccountStore
+	App                *appstore.Store
+	Deployment         *deploymentstore.Store
+	AccountVars        *accountvars.Store
+	Heart              *heartstore.Store
+	AgentMetrics       *metricsstore.Store
+	Cluster            *clusterstore.Store
+	Audit              *auditlog.Store
+	Avatar             *avatar.Store
+	ReadmeAssets       *readmeassets.Store
+	Knowledge          *knowledgestore.Store
+	GH                 *githubconnection.Store
+	Webhook            *githubwebhook.Store
+	SlackID            *slackidentity.Store
+	Watcher            *watcher.Store
+	DeploymentFGASync  *authz.DeploymentFGASyncStore
+	ResourceAccessSync *authz.ResourceAccessSyncStore
+	Experiment         *experiment.Store
 	// BillingStatus is nil for non-metronome backends; handlers treat that as
 	// "every account active".
 	BillingStatus *billing.StatusStore
@@ -99,6 +98,7 @@ type Clients struct {
 	Preflight  *k8s.ImagePreflighter
 	Queue      *riverqueue.Queue
 	FGA        authz.FGA
+	Resources  authz.ResourceRegistrar
 	// ConnectApps is nil when no WorkOS API key is configured; handlers then
 	// report apps unavailable.
 	ConnectApps connectapps.Client

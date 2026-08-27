@@ -234,7 +234,7 @@ func TestAccountsWithManagedDeploymentsUsesOneQuery(t *testing.T) {
 		"11111111-1111-1111-1111-111111111111",
 		"22222222-2222-2222-2222-222222222222",
 	}
-	mock.ExpectQuery(`(?s)SELECT DISTINCT d.account_id.*deployment_fga_sync.*authorization_resource_sync.*desired_state = 'registered'`).
+	mock.ExpectQuery(`(?s)SELECT DISTINCT d.account_id.*JOIN deployment_fga_sync.*desired_state = 'registered'`).
 		WithArgs(pq.Array(accountIDs)).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow(accountIDs[0]))
 

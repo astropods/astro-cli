@@ -32,11 +32,9 @@ func TestArchiveInvalidatesUserBlueprintPages(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	cache := &generationRecordingCache{}
 	index := NewIndexWithDB(db).WithCache(cache)
-	mock.ExpectBegin()
-	mock.ExpectQuery(`UPDATE agents SET archived_at`).
+	mock.ExpectExec(`UPDATE agents SET archived_at`).
 		WithArgs(sqlmock.AnyArg(), "acct-1", "agent-a").
-		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow("11111111-1111-1111-1111-111111111111"))
-	mock.ExpectCommit()
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	if err := index.Archive("acct-1", "agent-a"); err != nil {
 		t.Fatal(err)

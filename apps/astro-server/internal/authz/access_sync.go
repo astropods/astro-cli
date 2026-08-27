@@ -260,10 +260,6 @@ func (s *ResourceAccessSyncStore) ResourceDeleted(ctx context.Context, resource 
 			SELECT 1
 			FROM deployment_fga_sync
 			WHERE deployment_id = $1 AND desired_state = $2
-		) OR EXISTS (
-			SELECT 1
-			FROM authorization_resource_sync
-			WHERE resource_type = 'deployment' AND resource_id = $1 AND desired_state = $2
 		)
 	`, resource.ExternalID, DeploymentFGADeleted).Scan(&deleted)
 	if err != nil {

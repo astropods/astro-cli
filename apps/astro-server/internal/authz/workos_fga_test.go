@@ -42,7 +42,7 @@ func TestWorkOSFGARegisterResource(t *testing.T) {
 	}
 }
 
-func TestWorkOSFGARegisterResourceWithAccountParent(t *testing.T) {
+func TestWorkOSFGARegisterResourceWithParent(t *testing.T) {
 	t.Parallel()
 
 	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, request *http.Request) {
@@ -66,11 +66,38 @@ func TestWorkOSFGARegisterResourceWithAccountParent(t *testing.T) {
 	})
 	defer closeServer()
 
-	id, err := fga.RegisterResourceWithParent(
-		context.Background(), "org_123", BlueprintResource("blueprint_123"), AccountResource("account_123"), "Support agent",
+	err := fga.RegisterResourceWithParent(
+		context.Background(),
+		"org_123",
+		BlueprintResource("blueprint_123"),
+		AccountResource("account_123"),
+		"Support agent",
 	)
-	if err != nil || id != "resource_123" {
-		t.Fatalf("RegisterResourceWithParent() = (%q, %v)", id, err)
+	if err != nil {
+		t.Fatalf("RegisterResourceWithParent() error = %v", err)
+	}
+}
+
+func TestWorkOSFGARegisterResourceWithParentIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	fga, closeServer := testWorkOSFGA(t, func(response http.ResponseWriter, _ *http.Request) {
+		writeWorkOSJSON(t, response, http.StatusConflict, map[string]string{
+			"code":    "resource_exists",
+			"message": "resource already exists",
+		})
+	})
+	defer closeServer()
+
+	err := fga.RegisterResourceWithParent(
+		context.Background(),
+		"org_123",
+		DeploymentResource("dep_123"),
+		AccountResource("account_123"),
+		"Support agent",
+	)
+	if err != nil {
+		t.Fatalf("RegisterResourceWithParent() error = %v", err)
 	}
 }
 

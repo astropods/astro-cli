@@ -36,12 +36,6 @@ const fgaReadPredicate = `
 		      WHERE s.deployment_id = d.id
 		        AND s.desired_state = 'registered'
 		    )
-		    AND NOT EXISTS (
-		      SELECT 1 FROM authorization_resource_sync s
-		      WHERE s.resource_type = 'deployment'
-		        AND s.resource_id = d.id
-		        AND s.desired_state = 'registered'
-		    )
 		    OR d.id = ANY($4::varchar[])
 		  )`
 
@@ -77,19 +71,14 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 		SELECT `+userDeploymentColumns+`, a.name,
 		       CASE
 		         WHEN NOT (d.account_id = ANY(COALESCE($3::uuid[], ARRAY[]::uuid[]))) THEN TRUE
-		         WHEN rs.desired_state = 'registered' THEN COALESCE(
-		           rs.synced_state = rs.desired_state
-		           AND rs.synced_version = rs.desired_version
-		           AND NOT rs.creator_assignment_pending,
-		           FALSE
-		         )
-		         WHEN fs.desired_state = 'registered' THEN COALESCE(
+		         WHEN fs.desired_state IS DISTINCT FROM 'registered' THEN TRUE
+		         ELSE COALESCE(
 		           fs.desired_state = 'registered'
 		           AND fs.synced_state = fs.desired_state
 		           AND fs.synced_version = fs.desired_version
 		           AND NOT fs.creator_assignment_pending,
-		           FALSE)
-		         ELSE TRUE
+		           FALSE
+		         )
 		       END AS access_ready
 		FROM deployments d
 		JOIN account_members am
@@ -97,8 +86,6 @@ func (s *Store) ListVisibleDeploymentsForUserPage(
 		 AND am.user_id = $1
 		JOIN accounts a ON a.id = d.account_id AND a.deleted_at IS NULL
 		LEFT JOIN deployment_fga_sync fs ON fs.deployment_id = d.id
-		LEFT JOIN authorization_resource_sync rs
-		  ON rs.resource_type = 'deployment' AND rs.resource_id = d.id
 		WHERE d.account_id = ANY($2::uuid[])
 		  AND d.status <> 'undeployed'
 	`+fgaReadPredicate+`
@@ -243,12 +230,10 @@ func (s *Store) AccountsWithManagedDeployments(ctx context.Context, accountIDs [
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT d.account_id
 		FROM deployments d
+		JOIN deployment_fga_sync s ON s.deployment_id = d.id
 		WHERE d.account_id = ANY($1::uuid[])
 		  AND d.status <> 'undeployed'
-		  AND (
-		    EXISTS (SELECT 1 FROM deployment_fga_sync s WHERE s.deployment_id = d.id AND s.desired_state = 'registered')
-		    OR EXISTS (SELECT 1 FROM authorization_resource_sync s WHERE s.resource_type = 'deployment' AND s.resource_id = d.id AND s.desired_state = 'registered')
-		  )
+		  AND s.desired_state = 'registered'
 	`, pq.Array(accountIDs))
 	if err != nil {
 		return nil, fmt.Errorf("list FGA-managed deployment accounts: %w", err)

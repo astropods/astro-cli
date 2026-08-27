@@ -14,9 +14,6 @@ import (
 	"github.com/lib/pq"
 )
 
-type BlueprintAuthorizationRecorder func(context.Context, *sql.Tx, string, string) (bool, error)
-type BlueprintAuthorizationDeletionRecorder func(context.Context, *sql.Tx, string) (bool, error)
-
 // AgentVersion represents a specific published build of an agent
 type AgentVersion struct {
 	BuildID            string           `json:"build_id"`
@@ -117,25 +114,16 @@ func parseValidationWarnings(raw string) []map[string]any {
 
 // Register adds or updates an agent build in the index
 func (idx *Index) Register(accountID, name, buildID, registry, ecrNamespace string, spec map[string]any, readme string, agentCardJSON string, validationWarnings string) error {
-	_, _, err := idx.RegisterWithAuthorization(
-		context.Background(), accountID, name, buildID, registry, ecrNamespace,
-		spec, readme, agentCardJSON, validationWarnings, "", nil,
-	)
+	_, err := idx.RegisterWithResourceID(accountID, name, buildID, registry, ecrNamespace, spec, readme, agentCardJSON, validationWarnings, uuid.NewString())
 	return err
 }
 
-// RegisterWithAuthorization registers a build and records new Blueprint
-// authorization intent in the same transaction.
-func (idx *Index) RegisterWithAuthorization(
-	ctx context.Context,
-	accountID, name, buildID, registry, ecrNamespace string,
-	spec map[string]any,
-	readme, agentCardJSON, validationWarnings, creatorUserID string,
-	record BlueprintAuthorizationRecorder,
-) (string, bool, error) {
+// RegisterWithResourceID adds or updates a build while preserving one stable
+// authorization resource id for the Blueprint.
+func (idx *Index) RegisterWithResourceID(accountID, name, buildID, registry, ecrNamespace string, spec map[string]any, readme string, agentCardJSON string, validationWarnings string, resourceID string) (string, error) {
 	tx, err := idx.db.Begin()
 	if err != nil {
-		return "", false, fmt.Errorf("failed to begin transaction: %w", err)
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck
 
@@ -147,24 +135,23 @@ func (idx *Index) RegisterWithAuthorization(
 	// Marshal spec to JSON
 	specJSON, err := json.Marshal(spec)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to marshal spec: %w", err)
+		return "", fmt.Errorf("failed to marshal spec: %w", err)
 	}
 
 	// Insert or update agent using ON CONFLICT
-	var authorizationID string
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO agents (account_id, uid, name, registry, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7)
+	var persistedResourceID string
+	err = tx.QueryRow(`
+		INSERT INTO agents (account_id, uid, name, registry, created_at, updated_at)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6)
 		ON CONFLICT (account_id, name) DO UPDATE SET
-		  uid = COALESCE(agents.uid, EXCLUDED.uid),
-		  created_by = COALESCE(agents.created_by, EXCLUDED.created_by),
-		  registry = EXCLUDED.registry,
-		  updated_at = EXCLUDED.updated_at,
-		  archived_at = NULL
+			uid = COALESCE(agents.uid, EXCLUDED.uid),
+			registry = EXCLUDED.registry,
+			updated_at = EXCLUDED.updated_at,
+			archived_at = NULL
 		RETURNING uid::text
-	`, accountID, uuid.NewString(), name, registry, creatorUserID, now, now).Scan(&authorizationID)
+	`, accountID, resourceID, name, registry, now, now).Scan(&persistedResourceID)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to insert agent: %w", err)
+		return "", fmt.Errorf("failed to insert agent: %w", err)
 	}
 
 	if agentCardJSON == "" {
@@ -178,22 +165,14 @@ func (idx *Index) RegisterWithAuthorization(
 		ON CONFLICT (account_id, name, build_id) DO UPDATE SET spec_json = $5, readme = $6, agent_card_json = $7, validation_warnings = $8, updated_at = $10
 	`, accountID, name, buildID, ecrNamespace, string(specJSON), readme, agentCardJSON, validationWarnings, now, now)
 	if err != nil {
-		return "", false, fmt.Errorf("failed to insert version: %w", err)
-	}
-
-	var authorizationRecorded bool
-	if record != nil {
-		authorizationRecorded, err = record(ctx, tx, accountID, name)
-		if err != nil {
-			return "", false, err
-		}
+		return "", fmt.Errorf("failed to insert version: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return "", false, err
+		return "", err
 	}
 	idx.invalidateBlueprintLists(accountID)
-	return authorizationID, authorizationRecorded, nil
+	return persistedResourceID, nil
 }
 
 // ErrAlreadyExists is returned by Create when an active (non-archived) agent with the same name exists.
@@ -203,42 +182,37 @@ var ErrAlreadyExists = fmt.Errorf("agent already exists")
 // unarchived instead and its old versions are cleared so it starts as a clean draft.
 // Returns ErrAlreadyExists if a non-archived agent with that name exists.
 func (idx *Index) Create(accountID, name string) error {
-	_, _, err := idx.CreateWithAuthorization(context.Background(), accountID, name, "", nil)
+	_, err := idx.CreateWithResourceID(accountID, name, uuid.NewString())
 	return err
 }
 
-// CreateWithAuthorization creates a Blueprint shell and its authorization
-// intent atomically.
-func (idx *Index) CreateWithAuthorization(
-	ctx context.Context,
-	accountID, name, creatorUserID string,
-	record BlueprintAuthorizationRecorder,
-) (string, bool, error) {
+// CreateWithResourceID creates a Blueprint shell with a stable authorization
+// resource id.
+func (idx *Index) CreateWithResourceID(accountID, name, resourceID string) (string, error) {
 	tx, err := idx.db.Begin()
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
 	now := time.Now()
-	var authorizationID string
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO agents (account_id, uid, name, registry, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, '', NULLIF($4, ''), $5, $6)
+	var persistedResourceID string
+	err = tx.QueryRow(`
+		INSERT INTO agents (account_id, uid, name, registry, created_at, updated_at)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, '', $4, $5)
 		ON CONFLICT (account_id, name) DO UPDATE SET
 		  uid          = COALESCE(agents.uid, EXCLUDED.uid),
-		  created_by   = COALESCE(agents.created_by, EXCLUDED.created_by),
 		  archived_at = NULL,
 		  registry    = '',
-		  updated_at  = EXCLUDED.updated_at
+		  updated_at  = $5
 		WHERE agents.archived_at IS NOT NULL
 		RETURNING uid::text
-	`, accountID, uuid.NewString(), name, creatorUserID, now, now).Scan(&authorizationID)
+	`, accountID, resourceID, name, now, now).Scan(&persistedResourceID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, ErrAlreadyExists
+		return "", ErrAlreadyExists
 	}
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
 
 	// Clear any stale versions from before archival so the agent starts as a
@@ -246,22 +220,14 @@ func (idx *Index) CreateWithAuthorization(
 	if _, err := tx.Exec(`
 		DELETE FROM agent_versions WHERE account_id = $1 AND name = $2
 	`, accountID, name); err != nil {
-		return "", false, err
-	}
-
-	var authorizationRecorded bool
-	if record != nil {
-		authorizationRecorded, err = record(ctx, tx, accountID, name)
-		if err != nil {
-			return "", false, err
-		}
+		return "", err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return "", false, err
+		return "", err
 	}
 	idx.invalidateBlueprintLists(accountID)
-	return authorizationID, authorizationRecorded, nil
+	return persistedResourceID, nil
 }
 
 // Exists reports whether the account owns a live agent by that name, without
@@ -458,46 +424,25 @@ func (idx *Index) AgentNames(accountID string) ([]string, error) {
 //
 //	ALTER TABLE agents ADD COLUMN archived_at TIMESTAMP;
 func (idx *Index) Archive(accountID, name string) error {
-	_, _, err := idx.ArchiveWithAuthorization(context.Background(), accountID, name, nil)
-	return err
-}
-
-func (idx *Index) ArchiveWithAuthorization(
-	ctx context.Context,
-	accountID, name string,
-	record BlueprintAuthorizationDeletionRecorder,
-) (string, bool, error) {
-	tx, err := idx.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", false, err
-	}
-	defer tx.Rollback() //nolint:errcheck
-	var authorizationID sql.NullString
-	err = tx.QueryRowContext(ctx, `
+	result, err := idx.db.Exec(`
 		UPDATE agents SET archived_at = $1, updated_at = $1
 		WHERE account_id = $2 AND name = $3 AND archived_at IS NULL
-		RETURNING uid::text
-	`, time.Now(), accountID, name).Scan(&authorizationID)
+	`, time.Now(), accountID, name)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", false, fmt.Errorf("agent not found or already archived: %s", name)
-		}
-		return "", false, fmt.Errorf("failed to archive agent: %w", err)
+		return fmt.Errorf("failed to archive agent: %w", err)
 	}
 
-	var authorizationRecorded bool
-	if record != nil && authorizationID.Valid {
-		authorizationRecorded, err = record(ctx, tx, authorizationID.String)
-		if err != nil {
-			return "", false, err
-		}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return "", false, err
+
+	if rows == 0 {
+		return fmt.Errorf("agent not found or already archived: %s", name)
 	}
 
 	idx.invalidateBlueprintLists(accountID)
-	return authorizationID.String, authorizationRecorded, nil
+	return nil
 }
 
 // DeleteVersion removes a specific build of an agent

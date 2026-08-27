@@ -156,9 +156,11 @@ func TestArchiveAgent_Success(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
 
-	expectSuccessfulBlueprintArchive(mock, "test-account-id", "my-agent")
+	mock.ExpectExec("UPDATE agents SET archived_at").
+		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()
@@ -177,13 +179,11 @@ func TestArchiveAgent_NotFound(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("UPDATE agents SET archived_at").
+	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "nonexistent").
-		WillReturnRows(sqlmock.NewRows([]string{"uid"}))
-	mock.ExpectRollback()
+		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/nonexistent/archive", nil)
 	rec := httptest.NewRecorder()
@@ -198,13 +198,11 @@ func TestArchiveAgent_DBError(t *testing.T) {
 	router, index, mock := setupAgentTestRouter()
 	log := logger.New("error", "json")
 
-	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
+	router.POST("/agents/:account/:name/archive", injectTestAccount(), ArchiveAgent(log, index, nil, nil, nil, nil, nil))
 
-	mock.ExpectBegin()
-	mock.ExpectQuery("UPDATE agents SET archived_at").
+	mock.ExpectExec("UPDATE agents SET archived_at").
 		WithArgs(sqlmock.AnyArg(), "test-account-id", "my-agent").
 		WillReturnError(sqlmock.ErrCancelled)
-	mock.ExpectRollback()
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()
@@ -231,7 +229,7 @@ func TestArchiveAgent_NoAccount(t *testing.T) {
 
 	router := gin.New()
 	// No account injected
-	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
+	router.POST("/agents/:account/:name/archive", ArchiveAgent(log, index, nil, nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/agents/testaccount/my-agent/archive", nil)
 	rec := httptest.NewRecorder()

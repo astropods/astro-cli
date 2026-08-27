@@ -6,8 +6,12 @@ type ResourceType string
 const (
 	ResourceOrganization ResourceType = "organization"
 	ResourceAccount      ResourceType = "account"
+	ResourceAudience     ResourceType = "audience"
 	ResourceBlueprint    ResourceType = "blueprint"
 	ResourceDeployment   ResourceType = "deployment"
+	ResourceInsights     ResourceType = "insights"
+	ResourceKnowledge    ResourceType = "knowledge_store"
+	ResourceVariable     ResourceType = "variable"
 )
 
 // ResourceRef identifies one resource instance. ExternalID is the Astro id
@@ -25,6 +29,26 @@ func AccountResource(id string) ResourceRef {
 	return ResourceRef{Type: ResourceAccount, ExternalID: id}
 }
 
+func AudienceResource(id string) ResourceRef {
+	return ResourceRef{Type: ResourceAudience, ExternalID: id}
+}
+
 func BlueprintResource(id string) ResourceRef {
 	return ResourceRef{Type: ResourceBlueprint, ExternalID: id}
+}
+
+func InsightsResource(accountID string) ResourceRef {
+	return ResourceRef{Type: ResourceInsights, ExternalID: accountID}
+}
+
+func KnowledgeStoreResource(id string) ResourceRef {
+	return ResourceRef{Type: ResourceKnowledge, ExternalID: id}
+}
+
+func OrganizationResource(id string) ResourceRef {
+	return ResourceRef{Type: ResourceOrganization, ExternalID: id}
+}
+
+func VariableResource(accountID, name string) ResourceRef {
+	return ResourceRef{Type: ResourceVariable, ExternalID: accountID + ":" + name}
 }
