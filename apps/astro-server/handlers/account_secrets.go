@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -110,9 +109,6 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 			}
 		}
 
-		registrationCtx, cancelRegistration := context.WithTimeout(c.Request.Context(), authorizationResourceRegistrationTimeout)
-		defer cancelRegistration()
-
 		results := make([]CreateVariableResult, 0, len(req.Variables))
 		for _, entry := range req.Variables {
 			entry.Name = strings.TrimSpace(entry.Name)
@@ -147,7 +143,7 @@ func CreateAccountVariable(log *logger.Logger, store *accountvars.Store, vault *
 				results = append(results, result)
 				continue
 			}
-			registerAuthorizationResource(registrationCtx, log, resources, acct, authz.VariableResource(acct.ID, entry.Name), entry.Name)
+			registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.VariableResource(acct.ID, entry.Name), entry.Name)
 
 			result.Status = "created"
 			results = append(results, result)
