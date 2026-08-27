@@ -3,7 +3,7 @@
 // The rule itself stays at 'warn' -- this only blocks the count from growing.
 // Lower BASELINE in the same PR that fixes a violation, to lock it in.
 
-const BASELINE = 4;
+const BASELINE = 3;
 
 const { execFileSync } = await import("node:child_process");
 

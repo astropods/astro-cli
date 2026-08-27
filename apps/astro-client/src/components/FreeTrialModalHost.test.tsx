@@ -10,6 +10,11 @@ vi.mock("@/api/queries/billing", () => ({
   useBillingBalances: (account: string) => mockBalances(account),
 }));
 
+const mockBlueprints = vi.fn();
+vi.mock("@/api/queries/blueprints", () => ({
+  useAccountBlueprints: (account: string) => mockBlueprints(account),
+}));
+
 vi.mock("@/hooks/use-active-account", () => ({
   useActiveAccount: () => ({ activeAccount: "acme" }),
 }));
@@ -48,6 +53,8 @@ function grant(granted: number) {
 
 beforeEach(() => {
   mockBalances.mockReset();
+  mockBlueprints.mockReset();
+  mockBlueprints.mockReturnValue({ data: { agents: [{ name: "agent-1" }] } });
   setSearchParams.mockClear();
   mockNavigate.mockClear();
   searchParams = new URLSearchParams();
@@ -87,16 +94,29 @@ describe("FreeTrialModalHost", () => {
   });
 
   // A CTA that only closed the card would dead-end the one conversion moment.
-  it("navigates to the account's blueprints on the CTA, and clears pending", async () => {
+  it("navigates to the account's blueprints on the CTA when it has any, and clears pending", async () => {
     const user = userEvent.setup();
     localStorage.setItem(PENDING_KEY, "true");
     mockBalances.mockReturnValue({ data: grant(20), isLoading: false });
+    mockBlueprints.mockReturnValue({ data: { agents: [{ name: "agent-1" }] } });
     render(<FreeTrialModalHost />);
 
     await user.click(screen.getByRole("button", { name: /deploy an agent/i }));
 
     expect(mockNavigate).toHaveBeenCalledWith("/blueprints?account=acme");
     expect(localStorage.getItem(PENDING_KEY)).toBeNull();
+  });
+
+  it("navigates to explore on the CTA when the account has no blueprints", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(PENDING_KEY, "true");
+    mockBalances.mockReturnValue({ data: grant(20), isLoading: false });
+    mockBlueprints.mockReturnValue({ data: { agents: [] } });
+    render(<FreeTrialModalHost />);
+
+    await user.click(screen.getByRole("button", { name: /deploy an agent/i }));
+
+    expect(mockNavigate).toHaveBeenCalledWith("/explore");
   });
 
   it("opens on the ?freeTrial=1 override regardless of the pending flag", () => {

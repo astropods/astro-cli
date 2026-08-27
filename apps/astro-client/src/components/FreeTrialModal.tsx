@@ -9,8 +9,10 @@ import { useIsMobile } from "@/hooks/use-compact-layout";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { StarField } from "@/components/agent-detail/starfield/StarField";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogClose, DialogOverlay, DialogPortal } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { InlineBadge } from "@/components/InlineBadge";
 
-// The card transitions in, then the balance waits, rolls, and pops.
 const CARD_ENTER_DELAY_MS = 30;
 const BALANCE_REVEAL_DELAY_MS = 500;
 const BALANCE_ROLL_MS = 850;
@@ -36,7 +38,6 @@ export function FreeTrialModal({
   onCta,
 }: FreeTrialModalProps) {
   const [entered, setEntered] = useState(false);
-  // Bottom sheet below the mobile breakpoint, as SidePanel does.
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -76,16 +77,9 @@ export function FreeTrialModal({
   }
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className="fixed inset-0 z-50 backdrop-blur-md"
-          style={{
-            background:
-              "radial-gradient(120% 90% at 50% 45%, rgba(6,10,18,.4), rgba(6,10,18,.72))",
-            animation: "ftv4-scrim .5s ease-out both",
-          }}
-        />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPortal>
+        <DialogOverlay />
         <DialogPrimitive.Content
           className="fixed inset-0 z-50 flex items-center justify-center p-7 outline-none"
           aria-describedby={undefined}
@@ -93,12 +87,11 @@ export function FreeTrialModal({
           <DialogPrimitive.Title className="sr-only">Free credits on us</DialogPrimitive.Title>
           {card}
         </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+      </DialogPortal>
+    </Dialog>
   );
 }
 
-// Transparent so the card's own gradient shows through the field.
 function CardBackdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
@@ -147,27 +140,32 @@ function FreeTrialCard({
   return (
     <section
       className={cn(
-        "relative overflow-hidden border border-t-0 text-center text-white dark:text-white",
+        "relative overflow-hidden text-center text-white dark:text-white",
         compact
           ? "w-full rounded-t-[24px]"
           : cn(
-              "w-[min(92vw,540px)] rounded-[24px] shadow-[0_40px_100px_-30px_rgba(0,0,0,.75)] transition-[opacity,transform] duration-500 ease-out",
+              "w-[min(92vw,540px)] rounded-[24px] transition-[opacity,transform] duration-500 ease-out",
               entered ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[.98]",
             ),
       )}
       style={{
-        borderColor: "rgba(255,255,255,.14)",
         background: "linear-gradient(to bottom,#070b14 0%,#0b1524 40%,#1b3247 74%,#41627e 100%)",
+        boxShadow: [
+          "inset 1px 0 0 0 rgba(255,255,255,.14)",
+          "inset -1px 0 0 0 rgba(255,255,255,.14)",
+          "inset 0 -1px 0 0 rgba(255,255,255,.14)",
+          ...(compact ? [] : ["0 40px 100px -30px rgba(0,0,0,.75)"]),
+        ].join(", "),
       }}
     >
       <CardBackdrop />
 
-      <DialogPrimitive.Close
+      <DialogClose
         aria-label="Close"
         className="absolute top-4 right-4 z-[3] inline-flex size-8 items-center justify-center rounded-full text-white/70 outline-none transition-colors hover:text-white focus-visible:text-white dark:text-white/70 dark:hover:text-white dark:focus-visible:text-white"
       >
         <X size={15} />
-      </DialogPrimitive.Close>
+      </DialogClose>
 
       <div
         className={cn(
@@ -176,28 +174,22 @@ function FreeTrialCard({
         )}
       >
         {/* aria-hidden: the dialog title already announces this wording. */}
-        <span
-          aria-hidden
-          className="inline-flex items-center rounded-full px-3.5 py-1.5 font-mono text-[11px] font-semibold leading-none tracking-[.16em] text-white/80 dark:text-white/80"
-          style={{
-            background: "rgba(255,255,255,.08)",
-            border: "1px solid rgba(255,255,255,.14)",
-          }}
-        >
-          Free credits on us
+        <span aria-hidden>
+          <InlineBadge
+            variant="soft"
+            className="tracking-[.16em] font-semibold text-white/80 dark:text-white/80 bg-[rgba(255,255,255,.08)] border border-[rgba(255,255,255,.14)]"
+          >
+            Free credits on us
+          </InlineBadge>
         </span>
 
         <BalanceReveal credits={credits} compact={compact} />
 
         <div className={cn("flex w-full flex-col items-center", compact ? "mt-8" : "mt-11")}>
-          <button
-            type="button"
-            onClick={onCta}
-            className="inline-flex h-[50px] items-center gap-2 rounded-md bg-indigo-600 px-7 font-semibold text-[15px] text-white shadow-[0_10px_30px_-8px_rgba(0,0,0,.55)] transition-all hover:-translate-y-px hover:bg-indigo-500 dark:bg-indigo-600 dark:hover:bg-indigo-500 dark:text-white"
-          >
+          <Button size="lg" onClick={onCta} className="shadow-[0_10px_30px_-8px_rgba(0,0,0,.55)]">
             {ctaLabel}
             <ArrowRight size={17} />
-          </button>
+          </Button>
           <p className="mt-5 text-[12.5px] font-medium text-white/60 dark:text-white/60">
             Yours to use across every agent. No card needed.
           </p>

@@ -5,9 +5,10 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useActiveAccount } from "@/hooks/use-active-account";
 import { useAuth } from "@/lib/auth";
 import { useBillingBalances } from "@/api/queries/billing";
+import { useAccountBlueprints } from "@/api/queries/blueprints";
 import { usePendingFreeTrialModal } from "@/hooks/use-pending-free-trial-modal";
 import { creditUnit, toBalanceRow } from "@/lib/billing-balances";
-import { blueprintsAccountPath } from "@/lib/routes";
+import { blueprintsAccountPath, explorePath } from "@/lib/routes";
 import { FreeTrialModal } from "@/components/FreeTrialModal";
 
 export function FreeTrialModalHost() {
@@ -53,6 +54,8 @@ function PendingFreeTrialModal({
   const { activeAccount } = useActiveAccount();
   const navigate = useNavigate();
   const { data, isLoading, isError, refetch } = useBillingBalances(activeAccount);
+  const { data: blueprintsData } = useAccountBlueprints(activeAccount);
+  const hasBlueprints = (blueprintsData?.agents?.length ?? 0) > 0;
   const [retries, setRetries] = useState(0);
 
   // What was granted, not what is left. A grant in another unit has no dollar
@@ -102,11 +105,9 @@ function PendingFreeTrialModal({
         if (!next) onClose();
       }}
       credits={(creditRow.granted ?? 0) / (unit.kind === "money" ? unit.scale : 1)}
-      // The CTA promises deploying an agent, so it navigates rather than
-      // reusing the close-only handler.
       onCta={() => {
         onClose();
-        navigate(blueprintsAccountPath(activeAccount));
+        navigate(hasBlueprints ? blueprintsAccountPath(activeAccount) : explorePath);
       }}
     />
   );

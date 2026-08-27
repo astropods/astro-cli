@@ -15,8 +15,8 @@ flags a literal-valued `style={{}}` property for a small set of CSS
 properties Tailwind definitely covers (`display`, `width`, `height`,
 `color`, `background`, `backgroundColor`, `flexGrow`, `fontSize`) — it
 can't catch every possible lazy inline style, only that narrow, low-false-
-positive slice. CI fails if that count grows past baseline (4 as of
-2026-08-26) — see `scripts/check-inline-style-budget.mjs`. If you fix one,
+positive slice. CI fails if that count grows past baseline (3 as of
+2026-08-27) — see `scripts/check-inline-style-budget.mjs`. If you fix one,
 the script prints a reminder (doesn't fail) to lower the baseline in the
 same PR, so the win doesn't quietly get available as slack again later.
 
