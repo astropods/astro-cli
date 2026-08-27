@@ -655,14 +655,6 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 			return
 		}
 
-		// Best-effort: sync org memberships so DB fallback can resolve membership id
-		if h.orgSync != nil {
-			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
-				h.log.Warn("auth: sync memberships on org switch failed", "error", err, "user_id", sessionData.Session.UserID)
-			}
-		}
-
-		// Build new session with the org-scoped token
 		newSession := h.sessionManager.CreateSession(
 			sessionData.Session.ID,
 			sessionData.Session.UserID,
@@ -676,6 +668,18 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		newSession.Role = claims.Role
 		newSession.Permissions = claims.Permissions
 		h.populateSessionMembership(newSession, claims)
+
+		// A membership id the JWT already carries needs no local repair, and a
+		// switch is on the critical path of every org change in the UI: the
+		// WorkOS membership listing this sync costs is only worth paying when
+		// the id is actually missing.
+		if newSession.WorkOSMembershipID == "" && h.orgSync != nil {
+			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+				h.log.Warn("auth: sync memberships on org switch failed", "error", err, "user_id", sessionData.Session.UserID)
+			} else {
+				h.populateSessionMembership(newSession, claims)
+			}
+		}
 
 		newSessionData := &auth.SessionData{
 			Session: newSession,

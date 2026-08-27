@@ -91,6 +91,44 @@ describe('Blueprints – ?account= deep links', () => {
     await waitFor(() => expect(requested).toContain('acme'));
   });
 
+  it('shows the target account before the session finishes re-scoping', async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const switchOrg = vi.fn(
+      () => new Promise<void>((resolve) => { release = () => resolve(); }),
+    );
+    const auth = {
+      ...mockAuthContext,
+      organizationId: 'wos-personal',
+      switchOrg,
+      accounts: [
+        { id: 'acct-1', name: 'testuser', display_name: 'Test User', type: 'personal', organization_id: 'wos-personal' },
+        { id: 'acct-2', name: 'acme', display_name: 'Acme', type: 'organization', organization_id: 'wos-acme' },
+      ],
+    };
+    const requested: string[] = [];
+    server.use(
+      http.get('/api/v1/me/blueprints', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('account') ?? '');
+        return userBlueprints([]);
+      }),
+    );
+
+    renderBlueprintsPage({ auth });
+    await waitFor(() => expect(requested).toContain('testuser'));
+    const trigger = screen.getByRole('combobox', { name: 'Scope by account' });
+
+    await user.click(trigger);
+    await user.click(screen.getByRole('option', { name: /Acme/ }));
+
+    expect(trigger).toHaveTextContent('Acme');
+    expect(trigger).toHaveAttribute('aria-busy', 'true');
+    expect(switchOrg).toHaveBeenCalledWith('wos-acme');
+
+    release();
+    await waitFor(() => expect(trigger).not.toHaveAttribute('aria-busy', 'true'));
+  });
+
   it('does not consume ?account param before accounts have loaded', async () => {
     const auth = { ...mockAuthContext, accounts: [] };
 

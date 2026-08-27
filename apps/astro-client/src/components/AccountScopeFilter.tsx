@@ -1,8 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
+import { Loader2 } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { comparePersonalFirst } from "@/lib/account-order";
 import { useAuth } from "@/lib/auth";
+import {
+  getOrgSwitchTarget,
+  subscribeOrgSwitchProgress,
+} from "@/lib/org-switch-progress";
 import { cn } from "@/lib/utils";
 
 interface AccountScopeFilterProps {
@@ -14,14 +19,23 @@ interface AccountScopeFilterProps {
 export function AccountScopeFilter({ value, onChange, className }: AccountScopeFilterProps) {
   const { accounts } = useAuth();
   const sorted = useMemo(() => [...accounts].sort(comparePersonalFirst), [accounts]);
-  const selected = sorted.find((account) => account.name === value);
+  const switchingTo = useSyncExternalStore(
+    subscribeOrgSwitchProgress,
+    getOrgSwitchTarget,
+    () => null,
+  );
+  const shown = switchingTo ?? value;
+  const selected = sorted.find((account) => account.name === shown);
 
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select value={shown} onValueChange={onChange} disabled={!!switchingTo}>
       <SelectTrigger
         aria-label="Scope by account"
+        aria-busy={!!switchingTo}
+        icon={switchingTo ? <Loader2 className="size-4 animate-spin opacity-50" /> : undefined}
         className={cn(
           "group h-auto w-auto max-w-full justify-start gap-2 rounded border-transparent bg-transparent px-2 py-1 text-heading-1 text-foreground hover:border-border hover:bg-surface data-[state=open]:border-border data-[state=open]:bg-surface [&>svg]:ml-0 [&>svg]:shrink-0 [&>svg]:transition-transform data-[state=open]:[&>svg]:rotate-180",
+          switchingTo && "disabled:cursor-progress disabled:opacity-100",
           className,
         )}
       >

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import { useQueryClient } from "@tanstack/react-query";
 import { useRevalidator, useRouteLoaderData } from "react-router";
 import { useAuth } from "@/lib/auth";
-import { setOrgSwitchProgress } from "@/lib/org-switch-progress";
+import { setOrgSwitchTarget } from "@/lib/org-switch-progress";
 import {
   ACTIVE_ACCOUNT_COOKIE,
   LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY,
@@ -77,7 +77,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     }
 
     accountSwitchTargetRef.current = accountName;
-    setOrgSwitchProgress(true);
+    setOrgSwitchTarget(accountName);
 
     const rescope = target.organization_id && target.organization_id !== organizationId
       ? switchOrg(target.organization_id)
@@ -87,17 +87,13 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
       () => {
         if (accountSwitchTargetRef.current !== accountName) return;
         persistActiveAccount(accountName);
-        requestAnimationFrame(() => {
-          revalidator.revalidate();
-          requestAnimationFrame(() => {
-            startAccountTransition(() => setOverride(accountName));
-          });
-        });
+        revalidator.revalidate();
+        startAccountTransition(() => setOverride(accountName));
       },
       () => {
         if (accountSwitchTargetRef.current !== accountName) return;
         accountSwitchTargetRef.current = null;
-        setOrgSwitchProgress(false);
+        setOrgSwitchTarget(null);
       },
     );
   }, [accounts, activeAccount, organizationId, persistActiveAccount, revalidator, switchOrg]);
@@ -120,7 +116,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     function finishSwitch() {
       if (accountSwitchTargetRef.current !== target) return;
       accountSwitchTargetRef.current = null;
-      setOrgSwitchProgress(false);
+      setOrgSwitchTarget(null);
     }
 
     function scheduleWarmCacheClear() {
@@ -147,6 +143,13 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     const unsub = queryClient.getQueryCache().subscribe(checkDone);
     return () => unsub();
   }, [activeAccount, isAccountPending, queryClient, revalidator.state]);
+
+  // A switch cannot finish once this tree is gone, and the target lives in a
+  // module-level store, so drop it rather than leave the app looking busy.
+  useEffect(() => () => {
+    accountSwitchTargetRef.current = null;
+    setOrgSwitchTarget(null);
+  }, []);
 
   // One-time migration for users from before the cookie existed: if
   // localStorage has a valid stored account but the cookie isn't set yet,

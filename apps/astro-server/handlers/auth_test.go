@@ -771,10 +771,11 @@ func TestPopulateSessionMembership_LogsQueryFailuresAtWarn(t *testing.T) {
 	assert.Contains(t, output.String(), "level=WARN")
 }
 
-func TestSwitchOrg_SyncsMembershipsBeforePopulate(t *testing.T) {
+func TestSwitchOrg_SyncsMembershipsWhenTheClaimIsMissing(t *testing.T) {
 	handler := createTestAuthHandler("Lax")
 	orgSync := &stubOrgSyncer{}
 	handler.orgSync = orgSync
+	handler.membershipResolver = &stubMembershipIDResolver{orgErr: errors.New("no local account")}
 	handler.orgRefresher = &stubOrgRefresher{
 		result: &auth.RefreshResult{
 			AccessToken: testAccessTokenWithClaims(t, map[string]any{
@@ -799,6 +800,39 @@ func TestSwitchOrg_SyncsMembershipsBeforePopulate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, 1, orgSync.syncCalls)
 	assert.Equal(t, "user-1", orgSync.syncUserID)
+}
+
+func TestSwitchOrg_SkipsMembershipSyncWhenTheJWTCarriesTheID(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	orgSync := &stubOrgSyncer{}
+	handler.orgSync = orgSync
+	handler.orgRefresher = &stubOrgRefresher{
+		result: &auth.RefreshResult{
+			AccessToken: testAccessTokenWithClaims(t, map[string]any{
+				"sid":                        "session_1",
+				"role":                       "member",
+				"organization_membership_id": "om_from_jwt",
+			}),
+			RefreshToken: "refresh-token-new",
+		},
+	}
+
+	router := gin.New()
+	router.POST("/auth/switch-org", handler.SwitchOrg())
+
+	body := `{"organization_id":"org-2"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/switch-org", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 0, orgSync.syncCalls)
+	sessionData, err := handler.sessionManager.UnsealSession(rec.Result().Cookies()[0].Value)
+	require.NoError(t, err)
+	assert.Equal(t, "om_from_jwt", sessionData.Session.WorkOSMembershipID)
 }
 
 func TestSwitchOrg_PopulatesWorkOSMembershipIDFromDBWhenClaimMissing(t *testing.T) {

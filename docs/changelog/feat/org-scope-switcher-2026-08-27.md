@@ -29,6 +29,20 @@ covers the token round trip as well.
 ("Agents for ▾ acme"), matching Insights. `useOrgScope` gives each page the
 active account, the setter, and the single-account scope its list query needs.
 
+**The switch answers the click, not the network.** Re-minting the token is a
+round trip, so the scope cannot commit instantly. The switcher therefore renders
+the account the switch is moving to, marks itself busy, and refuses a second
+switch until the first settles, which WorkOS refresh-token rotation cannot
+tolerate anyway. The pending target lives in the same module-level store the
+progress bar reads, and the provider drops it on unmount so a switch that loses
+its tree cannot leave the app looking busy.
+
+`POST /auth/switch-org` also stopped listing WorkOS memberships on every switch.
+The listing exists so the local `account_members` row can supply a membership id
+the JWT did not carry, so it now runs only when the claim is actually missing.
+That takes one of two WorkOS round trips off the critical path of every org
+change.
+
 **`?account=` is a deep link, not page state.** A URL naming a membership adopts
 that organization as the active scope and drops the param. Links that already
 point at an account, such as the post-deploy redirect to `/agents?account=x`,
