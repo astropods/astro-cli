@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
@@ -221,11 +222,13 @@ func TestLoginWaitLine(t *testing.T) {
 	tests := []struct {
 		name   string
 		isTTY  bool
+		width  int
 		assert func(t *testing.T, out string)
 	}{
 		{
 			name:  "piped output prints the line once",
 			isTTY: false,
+			width: 120,
 			assert: func(t *testing.T, out string) {
 				assert.Equal(t, 1, strings.Count(out, "Waiting for authentication"))
 				assert.Contains(t, out, "Waiting for authentication...\n")
@@ -235,9 +238,30 @@ func TestLoginWaitLine(t *testing.T) {
 		{
 			name:  "terminal redraws the line in place",
 			isTTY: true,
+			width: 120,
 			assert: func(t *testing.T, out string) {
 				assert.Greater(t, strings.Count(out, "Waiting for authentication"), 1)
 				assert.Contains(t, out, "\r")
+			},
+		},
+		{
+			// A frame wider than the terminal wraps, and \r rewinds only the
+			// current row, so animating stacks a fresh copy on every tick.
+			name:  "a terminal too narrow for the frame prints the line once",
+			isTTY: true,
+			width: utf8.RuneCountInString("→ Waiting for authentication...") - 1,
+			assert: func(t *testing.T, out string) {
+				assert.Equal(t, 1, strings.Count(out, "Waiting for authentication"))
+				assert.NotContains(t, out, "\r")
+			},
+		},
+		{
+			name:  "an unmeasurable terminal prints the line once",
+			isTTY: true,
+			width: 0,
+			assert: func(t *testing.T, out string) {
+				assert.Equal(t, 1, strings.Count(out, "Waiting for authentication"))
+				assert.NotContains(t, out, "\r")
 			},
 		},
 	}
@@ -247,7 +271,12 @@ func TestLoginWaitLine(t *testing.T) {
 			loginWaitTestServers(t)
 			prior := stdoutIsTerminal
 			stdoutIsTerminal = func() bool { return tt.isTTY }
-			t.Cleanup(func() { stdoutIsTerminal = prior })
+			priorWidth := stdoutWidth
+			stdoutWidth = func() int { return tt.width }
+			t.Cleanup(func() {
+				stdoutIsTerminal = prior
+				stdoutWidth = priorWidth
+			})
 
 			var loginErr error
 			out := captureStdout(t, func() { loginErr = runLogin(loginCmd, nil) })

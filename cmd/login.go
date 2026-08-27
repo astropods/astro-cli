@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
@@ -45,6 +46,14 @@ otherwise in the CLI config directory with restricted permissions.`,
 
 var stdoutIsTerminal = func() bool {
 	return term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec
+}
+
+var stdoutWidth = func() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd())) //nolint:gosec
+	if err != nil {
+		return 0
+	}
+	return w
 }
 
 func init() {
@@ -122,10 +131,13 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	waitLine := cyan.Sprint("→ ") + "Waiting for authentication"
+	const arrow, waitText = "→ ", "Waiting for authentication"
+	waitLine := cyan.Sprint(arrow) + waitText
 
-	// Piped output repeats the line once per \r frame instead of redrawing.
-	animate := stdoutIsTerminal()
+	// Piped output repeats the line once per \r frame instead of redrawing, and
+	// \r rewinds only the current row, so a frame wider than the terminal stacks.
+	frameWidth := utf8.RuneCountInString(arrow+waitText) + len("...")
+	animate := stdoutIsTerminal() && stdoutWidth() >= frameWidth
 	done := make(chan struct{})
 	stopped := make(chan struct{})
 	if animate {
