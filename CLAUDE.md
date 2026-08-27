@@ -1,5 +1,9 @@
 # astro-cli conventions
 
+This repo is normally checked out as `astropods/astro`'s `modules/astro-cli`
+submodule. That repo's `agents.md` (Writing style, Development Workflow)
+applies here too; where this file says something different, this file wins.
+
 Keep the CLI's command surface and help text accurate when you change commands,
 flags, or default behavior.
 
