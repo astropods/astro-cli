@@ -115,10 +115,6 @@ func (f *WorkOSFGA) DeleteResource(ctx context.Context, organizationID string, r
 	return nil
 }
 
-func (f *WorkOSFGA) ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error) {
-	return f.listAuthorizationResources(ctx, &workos.AuthorizationListResourcesParams{})
-}
-
 func (f *WorkOSFGA) ListAuthorizationResourcesForOrganization(ctx context.Context, organizationID string) ([]AuthorizationResource, error) {
 	if organizationID == "" {
 		return nil, errors.New("organization id is required")

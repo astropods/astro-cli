@@ -275,7 +275,7 @@ func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[
 		}
 		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workOSInventoryTimeout)
 		defer cancel()
-		resources, err := s.workos.ListAuthorizationResources(loadCtx)
+		resources, err := s.listAuthorizationResources(loadCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -297,6 +297,53 @@ func (s *Service) load(ctx context.Context) ([]authz.AuthorizationResource, map[
 	}
 	snapshot := loaded.(*workOSInventorySnapshot)
 	return snapshot.resources, snapshot.assignments, snapshot.groupNames, nil
+}
+
+func (s *Service) listAuthorizationResources(ctx context.Context) ([]authz.AuthorizationResource, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ao.workos_org_id
+		FROM account_organizations ao
+		JOIN accounts a ON a.id = ao.account_id
+		WHERE a.deleted_at IS NULL AND ao.workos_org_id <> ''
+		ORDER BY ao.workos_org_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list linked WorkOS organizations: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	organizationIDs := make([]string, 0)
+	for rows.Next() {
+		var organizationID string
+		if err := rows.Scan(&organizationID); err != nil {
+			return nil, fmt.Errorf("scan linked WorkOS organization: %w", err)
+		}
+		organizationIDs = append(organizationIDs, organizationID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate linked WorkOS organizations: %w", err)
+	}
+
+	resources := make([]authz.AuthorizationResource, 0)
+	var mu sync.Mutex
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(assignmentConcurrency)
+	for _, organizationID := range organizationIDs {
+		group.Go(func() error {
+			listed, err := s.workos.ListAuthorizationResourcesForOrganization(groupCtx, organizationID)
+			if err != nil {
+				return err
+			}
+			mu.Lock()
+			resources = append(resources, listed...)
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return nil, err
+	}
+	return resources, nil
 }
 
 func (s *Service) cachedWorkOSInventory() *workOSInventorySnapshot {

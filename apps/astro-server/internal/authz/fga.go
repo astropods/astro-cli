@@ -96,7 +96,6 @@ type AuthorizationResource struct {
 // AuthorizationResourceCatalog exposes resource administration that is not
 // part of request-time authorization.
 type AuthorizationResourceCatalog interface {
-	ListAuthorizationResources(ctx context.Context) ([]AuthorizationResource, error)
 	ListAuthorizationResourcesForOrganization(ctx context.Context, organizationID string) ([]AuthorizationResource, error)
 	DeleteAuthorizationResource(ctx context.Context, resourceID string) error
 }

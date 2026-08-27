@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
+	"sync"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -13,21 +15,28 @@ import (
 type fakeWorkOS struct {
 	*authz.FakeFGA
 	*authz.FakeGroups
+	mu               sync.Mutex
 	resources        []authz.AuthorizationResource
 	deleted          []string
 	listedOrgID      string
+	listedOrgIDs     []string
 	listResourcesErr error
 	listCalls        int
 }
 
-func (f *fakeWorkOS) ListAuthorizationResources(context.Context) ([]authz.AuthorizationResource, error) {
-	f.listCalls++
-	return f.resources, f.listResourcesErr
-}
-
 func (f *fakeWorkOS) ListAuthorizationResourcesForOrganization(_ context.Context, organizationID string) ([]authz.AuthorizationResource, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls++
 	f.listedOrgID = organizationID
-	return f.resources, f.listResourcesErr
+	f.listedOrgIDs = append(f.listedOrgIDs, organizationID)
+	resources := make([]authz.AuthorizationResource, 0)
+	for _, resource := range f.resources {
+		if resource.OrganizationID == organizationID {
+			resources = append(resources, resource)
+		}
+	}
+	return resources, f.listResourcesErr
 }
 
 func (f *fakeWorkOS) DeleteAuthorizationResource(_ context.Context, resourceID string) error {
@@ -56,6 +65,15 @@ func (f *fakeOperationStore) Complete(_ context.Context, _ string, target, _ int
 func (*fakeOperationStore) Fail(context.Context, string, int, int, int, int, []ReportEntry, error) error {
 	return nil
 }
+
+func expectLinkedOrganizations(mock sqlmock.Sqlmock, organizationIDs ...string) {
+	rows := sqlmock.NewRows([]string{"workos_org_id"})
+	for _, organizationID := range organizationIDs {
+		rows.AddRow(organizationID)
+	}
+	mock.ExpectQuery(`SELECT DISTINCT ao.workos_org_id`).WillReturnRows(rows)
+}
+
 func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -89,6 +107,7 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 			{ID: "workos_dep", OrganizationID: "org_123", Resource: resource, Name: "Support agent", CreatedAt: "2026-08-25T12:00:00Z"},
 		},
 	}
+	expectLinkedOrganizations(mock, "org_123")
 	mock.ExpectQuery(`SELECT mw.workos_membership_id`).WillReturnRows(sqlmock.NewRows([]string{"workos_membership_id", "label"}).
 		AddRow("om_admin", "jessye@example.com"))
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}).
@@ -137,6 +156,7 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
 		},
 	}
+	expectLinkedOrganizations(mock, "org_123")
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
 	service := newService(db, workos, &fakeOperationStore{})
 
@@ -179,6 +199,7 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 			ID: "workos_dep", OrganizationID: "org_123", Resource: authz.DeploymentResource("dep_123"),
 		}},
 	}
+	expectLinkedOrganizations(mock, "org_123")
 	rows := []string{"id", "account_id", "account_name", "sync_state", "last_error"}
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
 	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
@@ -192,6 +213,47 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 	}
 	if workos.listCalls != 1 {
 		t.Fatalf("WorkOS list calls = %d, want 1", workos.listCalls)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInventoryListsResourcesByLinkedOrganization(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	workos := &fakeWorkOS{
+		FakeFGA: &authz.FakeFGA{
+			ListRoleAssignmentsFunc:      func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) { return nil, nil },
+			ListGroupRoleAssignmentsFunc: func(context.Context, string) ([]authz.RoleAssignment, error) { return nil, nil },
+		},
+		FakeGroups: &authz.FakeGroups{
+			ListGroupsFunc: func(context.Context, string, authz.PageRequest) (authz.GroupPage, error) {
+				return authz.GroupPage{}, nil
+			},
+		},
+		resources: []authz.AuthorizationResource{
+			{ID: "account_a", OrganizationID: "org_a", Resource: authz.ResourceRef{Type: authz.ResourceAccount, ExternalID: "acct_a"}},
+			{ID: "account_b", OrganizationID: "org_b", Resource: authz.ResourceRef{Type: authz.ResourceAccount, ExternalID: "acct_b"}},
+		},
+	}
+	expectLinkedOrganizations(mock, "org_a", "org_b")
+	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
+
+	inventory, err := newService(db, workos, &fakeOperationStore{}).Inventory(context.Background())
+	if err != nil {
+		t.Fatalf("Inventory() error = %v", err)
+	}
+	if len(inventory.Resources) != 2 {
+		t.Fatalf("resources = %+v", inventory.Resources)
+	}
+	sort.Strings(workos.listedOrgIDs)
+	if !reflect.DeepEqual(workos.listedOrgIDs, []string{"org_a", "org_b"}) {
+		t.Fatalf("listed organizations = %v", workos.listedOrgIDs)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
