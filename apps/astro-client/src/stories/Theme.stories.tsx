@@ -307,6 +307,14 @@ const semanticTokens = [
     ],
   },
   {
+    group: "Data visualization",
+    desc: "Colors for distinguishing simultaneous chart series.",
+    tokens: [
+      { name: "chart-1", bg: "bg-chart-1", text: "text-white", desc: "Primary series", light: "primary alias", dark: "primary alias" },
+      { name: "chart-2", bg: "bg-chart-2", text: "text-black", desc: "Secondary series", light: "teal-300", dark: "teal-400" },
+    ],
+  },
+  {
     group: "Misc",
     desc: "Specialty tokens.",
     tokens: [

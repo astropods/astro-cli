@@ -48,6 +48,9 @@ export const lightTheme = {
   warning: "var(--color-yellow-600)",
   error: "var(--color-coral-600)",
   info: "var(--color-blue-600)",
+  // chart-2 is a distinct hue on purpose, not a shade of primary.
+  "chart-1": "var(--primary)",
+  "chart-2": "var(--color-teal-300)",
 } as const;
 
 export type SemanticToken = keyof typeof lightTheme;
@@ -86,4 +89,6 @@ export const darkTheme: Record<SemanticToken, string> = {
   warning: "var(--color-yellow-400)",
   error: "var(--color-coral-400)",
   info: "var(--color-blue-400)",
+  "chart-1": "var(--primary)",
+  "chart-2": "var(--color-teal-400)",
 };

@@ -344,16 +344,14 @@ function buildSpendChart(points: DailySpendPoint[], period: Period) {
   return Array.from(byDay.values()).sort((a, b) => a.ts.localeCompare(b.ts));
 }
 
-// The header's Compute/Models dots are the same primary token at different
-// opacity; kept as a Tailwind class since the swatch is real DOM, not a
-// recharts prop.
-const METRIC_FILL_OPACITY_CLASS: Record<string, string> = {
-  [METRIC_COMPUTE]: "opacity-100",
-  [METRIC_GATEWAY]: "opacity-40",
+// Kept as a Tailwind class since the swatch is real DOM, not a recharts prop.
+const METRIC_DOT_CLASS: Record<string, string> = {
+  [METRIC_COMPUTE]: "bg-chart-1",
+  [METRIC_GATEWAY]: "bg-chart-2",
 };
 
-function fillOpacityClassFor(metric: string): string {
-  return METRIC_FILL_OPACITY_CLASS[metric] ?? "opacity-100";
+function dotClassFor(metric: string): string {
+  return METRIC_DOT_CLASS[metric] ?? "bg-chart-1";
 }
 
 function StreamTotal({
@@ -373,7 +371,7 @@ function StreamTotal({
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5">
         <span
-          className={`size-2 shrink-0 rounded-full bg-primary ${fillOpacityClassFor(metric)}`}
+          className={`size-2 shrink-0 rounded-full ${dotClassFor(metric)}`}
           aria-hidden
         />
         <p className="text-body-sm text-muted-foreground">{label}</p>

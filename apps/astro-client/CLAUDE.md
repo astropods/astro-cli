@@ -37,6 +37,8 @@ Always use **semantic tokens** from `@astropods/theme`. They flip across light/d
 
 **Foregrounds**: `text-foreground` (primary), `text-muted-foreground` (secondary), `text-faint-foreground` (uppercase labels, captions), `text-foreground-accent` (links/icons). Reserve `bg-primary text-primary-foreground` for filled primary actions.
 
+**Two simultaneous data series** (e.g. a chart legend distinguishing Compute from Models spend): `bg-chart-1`/`bg-chart-2`, not opacity and not a hand-picked shade. `chart-2` is a different hue from `chart-1` (primary) on purpose — a lighter or dimmer version of the same color reads as indistinguishable from its sibling at swatch size, especially in dark mode. Don't reach for a status color (`success`/`warning`/`error`/`info`) for a data series; those already carry meaning elsewhere.
+
 **`<Card>` primitive** — for any tile that needs the card chrome, import `Card` from `@/components/ui/card` rather than rolling `border border-border bg-card rounded-…` by hand. The primitive applies the rounded `bg-card` chrome and forwards everything else through `className`. *Enforced (ratchet, not a lint rule):* as of 2026-08-26 only 9 files import `Card` while 30 lines still hand-roll the same `bg-card`+`border`+`rounded-*` combination — a real AST-based lint rule for this would false-positive on legitimate `bg-card` usage that isn't card chrome, so instead a grep-based count (same heuristic, deliberately coarse) is ratcheted in CI — see `scripts/check-card-chrome-budget.mjs`. Prefer `<Card>` for new code regardless of what's nearby; fix a violation opportunistically and lower the baseline in the same PR — the script reminds you (doesn't fail) if you fix one and forget to.
 
 ```tsx
