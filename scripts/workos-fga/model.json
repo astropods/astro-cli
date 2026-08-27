@@ -1,0 +1,144 @@
+{
+  "resourceTypes": [
+    { "slug": "account", "parent": null, "description": "An Astro account. The root of product authorization." },
+    { "slug": "blueprint", "parent": "account", "description": "A packaged agent that can be deployed." },
+    { "slug": "deployment", "parent": "account", "description": "A running agent." },
+    { "slug": "variable", "parent": "account", "description": "An account vault variable." },
+    { "slug": "audience", "parent": "account", "description": "A named list of people who may talk to an agent." },
+    { "slug": "insights", "parent": "account", "description": "The account's coding-tool activity. One per account." },
+    { "slug": "knowledge_store", "parent": "account", "description": "A connected or managed data store an agent reads." }
+  ],
+  "permissions": [
+    { "slug": "account:read", "resourceType": "account", "name": "Read account", "description": "View the account's name, avatar, profile, and experiments." },
+    { "slug": "account:edit", "resourceType": "account", "name": "Edit account", "description": "Change the account's name, avatar, profile, and experiments." },
+    { "slug": "account:delete", "resourceType": "account", "name": "Delete account", "description": "Delete the account." },
+    { "slug": "member:read", "resourceType": "account", "name": "Read members", "description": "View members and invitations." },
+    { "slug": "member:manage", "resourceType": "account", "name": "Manage members", "description": "Invite members, remove them, and change their roles." },
+    { "slug": "group:read", "resourceType": "account", "name": "Read groups", "description": "View groups and their membership." },
+    { "slug": "group:manage", "resourceType": "account", "name": "Manage groups", "description": "Create, rename, and delete groups, and change their membership." },
+    { "slug": "app:read", "resourceType": "account", "name": "Read apps", "description": "View machine apps and their scopes." },
+    { "slug": "app:manage", "resourceType": "account", "name": "Manage apps", "description": "Create and delete machine apps, their scopes, and their secrets." },
+    { "slug": "data_source:read", "resourceType": "account", "name": "Read data sources", "description": "View data sources and their exclusion lists." },
+    { "slug": "data_source:manage", "resourceType": "account", "name": "Manage data sources", "description": "Create, rename, and revoke data sources, and edit their exclusion lists." },
+    { "slug": "billing:read", "resourceType": "account", "name": "Read billing", "description": "View usage, invoices, balances, and spend thresholds." },
+    { "slug": "billing:manage", "resourceType": "account", "name": "Manage billing", "description": "Set spend thresholds and manage the payment method." },
+    { "slug": "audit_log:read", "resourceType": "account", "name": "Read audit log", "description": "View the account audit log." },
+    { "slug": "integration:read", "resourceType": "account", "name": "Read integrations", "description": "View GitHub, Slack, and Supabase connections." },
+    { "slug": "integration:manage", "resourceType": "account", "name": "Manage integrations", "description": "Connect and disconnect GitHub, Slack, and Supabase." },
+    { "slug": "cluster:read", "resourceType": "account", "name": "Read clusters", "description": "View the clusters assigned to the account." },
+    { "slug": "blueprint:create", "resourceType": "account", "name": "Create blueprints", "description": "Create blueprints in the account." },
+    { "slug": "deployment:create", "resourceType": "account", "name": "Create deployments", "description": "Deploy agents in the account." },
+    { "slug": "variable:create", "resourceType": "account", "name": "Create variables", "description": "Create account variables." },
+    { "slug": "audience:create", "resourceType": "account", "name": "Create audiences", "description": "Create audiences." },
+    { "slug": "knowledge_store:create", "resourceType": "account", "name": "Create knowledge stores", "description": "Connect or provision knowledge stores." },
+
+    { "slug": "blueprint:read", "resourceType": "blueprint", "name": "Read blueprint", "description": "View the blueprint, its versions, and its builds." },
+    { "slug": "blueprint:edit", "resourceType": "blueprint", "name": "Edit blueprint", "description": "Change the blueprint's content, avatar, and README." },
+    { "slug": "blueprint:operate", "resourceType": "blueprint", "name": "Operate blueprint", "description": "Trigger a rebuild and manage the blueprint's GitHub link." },
+    { "slug": "blueprint:delete", "resourceType": "blueprint", "name": "Delete blueprint", "description": "Archive the blueprint." },
+    { "slug": "blueprint:manage_access", "resourceType": "blueprint", "name": "Manage blueprint access", "description": "Grant and revoke access to the blueprint, and set whether it is public." },
+    { "slug": "blueprint:transfer", "resourceType": "blueprint", "name": "Transfer blueprint", "description": "Move the blueprint to another account." },
+
+    { "slug": "deployment:read", "resourceType": "deployment", "name": "Read deployment", "description": "View the deployment, its configuration, logs, traces, files, and chat history. Secret values stay redacted." },
+    { "slug": "deployment:edit", "resourceType": "deployment", "name": "Edit deployment", "description": "Change the deployment's configuration and metadata." },
+    { "slug": "deployment:operate", "resourceType": "deployment", "name": "Operate deployment", "description": "Redeploy, roll back, restart, stop, resume, cancel, and trigger ingestion." },
+    { "slug": "deployment:delete", "resourceType": "deployment", "name": "Delete deployment", "description": "Undeploy the deployment." },
+    { "slug": "deployment:manage_access", "resourceType": "deployment", "name": "Manage deployment access", "description": "Grant and revoke access to the deployment." },
+
+    { "slug": "variable:read", "resourceType": "variable", "name": "Read variable", "description": "View the variable's name, description, and plaintext value. A secret's value is never returned." },
+    { "slug": "variable:edit", "resourceType": "variable", "name": "Edit variable", "description": "Change the variable's value and description." },
+    { "slug": "variable:delete", "resourceType": "variable", "name": "Delete variable", "description": "Delete the variable." },
+    { "slug": "variable:manage_access", "resourceType": "variable", "name": "Manage variable access", "description": "Grant and revoke access to the variable." },
+
+    { "slug": "audience:read", "resourceType": "audience", "name": "Read audience", "description": "View the audience and its members." },
+    { "slug": "audience:edit", "resourceType": "audience", "name": "Edit audience", "description": "Rename the audience and change its description." },
+    { "slug": "audience:manage_members", "resourceType": "audience", "name": "Manage audience members", "description": "Add and remove audience members." },
+    { "slug": "audience:delete", "resourceType": "audience", "name": "Delete audience", "description": "Delete the audience." },
+    { "slug": "audience:manage_access", "resourceType": "audience", "name": "Manage audience access", "description": "Grant and revoke access to the audience." },
+
+    { "slug": "insights:read", "resourceType": "insights", "name": "Read Insights", "description": "View the account's aggregate coding-tool activity and your own." },
+    { "slug": "insights:read_members", "resourceType": "insights", "name": "Read member Insights", "description": "View each member's coding-tool activity." },
+    { "slug": "insights:manage_access", "resourceType": "insights", "name": "Manage Insights access", "description": "Grant and revoke access to Insights." },
+
+    { "slug": "knowledge_store:read", "resourceType": "knowledge_store", "name": "Read knowledge store", "description": "View the knowledge store and its connection details." },
+    { "slug": "knowledge_store:edit", "resourceType": "knowledge_store", "name": "Edit knowledge store", "description": "Change the knowledge store's credentials and settings." },
+    { "slug": "knowledge_store:operate", "resourceType": "knowledge_store", "name": "Operate knowledge store", "description": "Recheck the knowledge store's connection and repair its host." },
+    { "slug": "knowledge_store:delete", "resourceType": "knowledge_store", "name": "Delete knowledge store", "description": "Delete the knowledge store." },
+    { "slug": "knowledge_store:manage_access", "resourceType": "knowledge_store", "name": "Manage knowledge store access", "description": "Grant and revoke access to the knowledge store." }
+  ],
+  "roles": [
+    {
+      "slug": "account-member",
+      "resourceType": "account",
+      "name": "Member",
+      "description": "Belongs to the account. Sees no resource unless granted one directly.",
+      "permissions": ["account:read", "member:read", "group:read", "cluster:read"]
+    },
+    {
+      "slug": "account-maintainer",
+      "resourceType": "account",
+      "name": "Maintainer",
+      "description": "Runs the account without gaining access to the work inside it.",
+      "permissions": [
+        "account:read", "account:edit",
+        "member:read", "member:manage",
+        "group:read", "group:manage",
+        "app:read", "app:manage",
+        "data_source:read", "data_source:manage",
+        "integration:read", "integration:manage",
+        "audit_log:read", "billing:read", "cluster:read"
+      ]
+    },
+    {
+      "slug": "account-admin",
+      "resourceType": "account",
+      "name": "Admin",
+      "description": "Full control of the account and every resource in it.",
+      "permissions": [
+        "account:read", "account:edit", "account:delete",
+        "member:read", "member:manage",
+        "group:read", "group:manage",
+        "app:read", "app:manage",
+        "data_source:read", "data_source:manage",
+        "billing:read", "billing:manage",
+        "audit_log:read",
+        "integration:read", "integration:manage",
+        "cluster:read",
+        "blueprint:create", "deployment:create", "variable:create", "audience:create", "knowledge_store:create",
+        "blueprint:read", "blueprint:edit", "blueprint:operate", "blueprint:delete", "blueprint:manage_access", "blueprint:transfer",
+        "deployment:read", "deployment:edit", "deployment:operate", "deployment:delete", "deployment:manage_access",
+        "variable:read", "variable:edit", "variable:delete", "variable:manage_access",
+        "audience:read", "audience:edit", "audience:manage_members", "audience:delete", "audience:manage_access",
+        "insights:read", "insights:read_members", "insights:manage_access",
+        "knowledge_store:read", "knowledge_store:edit", "knowledge_store:operate", "knowledge_store:delete", "knowledge_store:manage_access"
+      ]
+    },
+
+    { "slug": "blueprint-viewer", "resourceType": "blueprint", "name": "Viewer", "description": "Reads the blueprint.", "permissions": ["blueprint:read"] },
+    { "slug": "blueprint-writer", "resourceType": "blueprint", "name": "Writer", "description": "Reads and changes the blueprint.", "permissions": ["blueprint:read", "blueprint:edit"] },
+    { "slug": "blueprint-maintainer", "resourceType": "blueprint", "name": "Maintainer", "description": "Also rebuilds it and manages its GitHub link.", "permissions": ["blueprint:read", "blueprint:edit", "blueprint:operate"] },
+    { "slug": "blueprint-admin", "resourceType": "blueprint", "name": "Admin", "description": "Full control, including deletion, transfer, and access.", "permissions": ["blueprint:read", "blueprint:edit", "blueprint:operate", "blueprint:delete", "blueprint:manage_access", "blueprint:transfer"] },
+
+    { "slug": "deployment-viewer", "resourceType": "deployment", "name": "Viewer", "description": "Reads the deployment.", "permissions": ["deployment:read"] },
+    { "slug": "deployment-writer", "resourceType": "deployment", "name": "Writer", "description": "Reads and changes the deployment.", "permissions": ["deployment:read", "deployment:edit"] },
+    { "slug": "deployment-maintainer", "resourceType": "deployment", "name": "Maintainer", "description": "Also redeploys, rolls back, restarts, and stops it.", "permissions": ["deployment:read", "deployment:edit", "deployment:operate"] },
+    { "slug": "deployment-admin", "resourceType": "deployment", "name": "Admin", "description": "Full control, including deletion and access.", "permissions": ["deployment:read", "deployment:edit", "deployment:operate", "deployment:delete", "deployment:manage_access"] },
+
+    { "slug": "variable-viewer", "resourceType": "variable", "name": "Viewer", "description": "Reads the variable.", "permissions": ["variable:read"] },
+    { "slug": "variable-writer", "resourceType": "variable", "name": "Writer", "description": "Reads and changes the variable.", "permissions": ["variable:read", "variable:edit"] },
+    { "slug": "variable-admin", "resourceType": "variable", "name": "Admin", "description": "Full control, including deletion and access.", "permissions": ["variable:read", "variable:edit", "variable:delete", "variable:manage_access"] },
+
+    { "slug": "audience-viewer", "resourceType": "audience", "name": "Viewer", "description": "Reads the audience and its members.", "permissions": ["audience:read"] },
+    { "slug": "audience-writer", "resourceType": "audience", "name": "Writer", "description": "Also renames the audience.", "permissions": ["audience:read", "audience:edit"] },
+    { "slug": "audience-maintainer", "resourceType": "audience", "name": "Maintainer", "description": "Also adds and removes members.", "permissions": ["audience:read", "audience:edit", "audience:manage_members"] },
+    { "slug": "audience-admin", "resourceType": "audience", "name": "Admin", "description": "Full control, including deletion and access.", "permissions": ["audience:read", "audience:edit", "audience:manage_members", "audience:delete", "audience:manage_access"] },
+
+    { "slug": "insights-viewer", "resourceType": "insights", "name": "Viewer", "description": "Reads the account aggregate and their own activity.", "permissions": ["insights:read"] },
+    { "slug": "insights-admin", "resourceType": "insights", "name": "Admin", "description": "Also reads every member's activity and grants access.", "permissions": ["insights:read", "insights:read_members", "insights:manage_access"] },
+
+    { "slug": "knowledge_store-viewer", "resourceType": "knowledge_store", "name": "Viewer", "description": "Reads the knowledge store.", "permissions": ["knowledge_store:read"] },
+    { "slug": "knowledge_store-writer", "resourceType": "knowledge_store", "name": "Writer", "description": "Reads and changes the knowledge store.", "permissions": ["knowledge_store:read", "knowledge_store:edit"] },
+    { "slug": "knowledge_store-maintainer", "resourceType": "knowledge_store", "name": "Maintainer", "description": "Also rechecks its connection.", "permissions": ["knowledge_store:read", "knowledge_store:edit", "knowledge_store:operate"] },
+    { "slug": "knowledge_store-admin", "resourceType": "knowledge_store", "name": "Admin", "description": "Full control, including deletion and access.", "permissions": ["knowledge_store:read", "knowledge_store:edit", "knowledge_store:operate", "knowledge_store:delete", "knowledge_store:manage_access"] }
+  ]
+}
