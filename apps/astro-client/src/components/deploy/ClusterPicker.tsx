@@ -48,7 +48,7 @@ function RegionDetails({ cluster }: { cluster: AllowedCluster }) {
         {cluster.is_default && (
           <InlineBadge
             variant="soft"
-            className="shrink-0 bg-accent font-sans font-medium text-accent-foreground"
+            className="shrink-0 bg-foreground/10 font-sans font-medium text-foreground"
           >
             Default
           </InlineBadge>
