@@ -14,4 +14,4 @@ Deployment now uses the same direct lifecycle as every other resource. Its sync 
 
 ## Migration
 
-Apply the nullable `agents.uid` column before deploying the server. Configure the Account-rooted resource types in WorkOS first. Keep the existing `deployment_fga_sync` table through the rolling deployment; it is unused by the new binary and can be dropped in the final cleanup.
+Apply the nullable `agents.uid` column before deploying the server. Configure the Account-rooted resource types in WorkOS first. Preview and production keep `FGA_ENFORCEMENT_ENABLED=false` while registration and backfill populate WorkOS; shadow comparisons remain non-blocking. Keep the existing `deployment_fga_sync` table through the rolling deployment; it is unused by the new binary and can be dropped in the final cleanup.
