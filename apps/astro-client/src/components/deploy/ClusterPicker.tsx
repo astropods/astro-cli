@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { InlineBadge } from "@/components/InlineBadge";
 import { FieldHeader } from "@/components/ui/field-header";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAccount } from "@/api/queries/accounts";
@@ -41,9 +42,12 @@ function RegionDetails({ cluster }: { cluster: AllowedCluster }) {
           {locationLabel && <span className="font-normal text-muted-foreground"> {locationLabel}</span>}
         </span>
         {cluster.is_default && (
-          <span className="shrink-0 rounded-full bg-neutral-300 px-2 py-0.5 text-mono-sm font-medium text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100">
+          <InlineBadge
+            variant="soft"
+            className="shrink-0 bg-accent font-sans font-medium text-accent-foreground"
+          >
             Default
-          </span>
+          </InlineBadge>
         )}
       </div>
       {cluster.region && cluster.region !== label && (
