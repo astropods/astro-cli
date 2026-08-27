@@ -24,11 +24,12 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
+	grants, _ := cmd.Flags().GetStringArray("grant")
 	build, _ := cmd.Flags().GetString("build")
 	clusterID, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
-	iface, err := buildDeployInterfaces(adapters)
+	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {
 		return err
 	}
