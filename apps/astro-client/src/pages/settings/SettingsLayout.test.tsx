@@ -53,13 +53,12 @@ describe('SettingsLayout', () => {
     expect(screen.getByLabelText('Settings scope')).toHaveTextContent('testuser');
   });
 
-  it('links personal Connectors rather than marking it coming soon', async () => {
+  it('links Connectors, which is personal-scope only', async () => {
     renderLayout();
     await waitFor(() => expect(screen.getAllByText('Connectors').length).toBeGreaterThan(0));
     expect(screen.getAllByText('Connectors')[0].closest('a')).toHaveAttribute(
       'href',
       '/settings/connectors',
     );
-    expect(screen.queryAllByText('Coming soon')).toHaveLength(0);
   });
 });

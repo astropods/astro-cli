@@ -203,25 +203,6 @@ export function SidebarNavDivider() {
   return <div aria-hidden="true" className="hidden md:block md:my-3 border-t border-border" />;
 }
 
-/** A nav row for a section that isn't built yet: shown, never navigable. */
-export function SidebarNavPlaceholder({
-  note,
-  children,
-}: {
-  note: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      aria-disabled="true"
-      className={cn(navItemBase, "flex cursor-default items-center gap-2 text-faint-foreground")}
-    >
-      {children}
-      <span className="font-mono text-mono-xs text-faint-foreground">{note}</span>
-    </span>
-  );
-}
-
 /* ── Individual nav item ── */
 
 const navItemBase =

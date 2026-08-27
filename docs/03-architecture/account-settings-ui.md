@@ -75,9 +75,11 @@ Nav items are grouped by `SidebarNavGroup` (Manage, Access, Integrations)
 with `SidebarNavDivider` separating the trailing Experiments item. A group
 renders `display: contents` below `md` so its children still flow into the
 mobile pill row and dropdown as if ungrouped, and only the desktop column
-shows the group label. `SidebarNavPlaceholder` renders a section that isn't
-built yet as a non-navigable row with a "Coming soon" note; org Connectors is
-the only current use.
+shows the group label.
+
+The two scopes are not identical menus. Connectors and Organizations are
+personal-only, Members is org-only, and a section with no counterpart in the
+other scope is simply absent there rather than shown disabled.
 
 ## Profile, avatar, and username (`ProfileEditor`, `AvatarUploadDialog`, `ChangeUsernameDialog`)
 
@@ -262,8 +264,17 @@ switch still needs a home.
 - The settings design calls for a Groups section under Access in both scopes.
   The server has full access-group CRUD (`handlers/access_groups.go`) but the
   client has no page and no query hooks, so the nav item is not rendered yet.
-- Org Connectors is a `SidebarNavPlaceholder` ("Coming soon"): the personal
-  connector flows in `ConnectorsSettings` have no org-scoped equivalent.
+- There is no org-scoped Connectors page. The route doesn't exist and
+  `ConnectorsSettings` hardcodes `personalAccount` in all three sections
+  (`ConnectorsSettings.tsx:77`, `:247`, `:455`). The API is not the blocker:
+  the account routes already accept any account the caller belongs to, but
+  every handler keys the credential off `session.UserID` rather than the
+  account (`handlers/github.go:96`, `handlers/supabase.go:135`), so an org
+  connection would still be one member's personal grant. Slack is a
+  human-to-Slack identity link with no account column at all
+  (`handlers/slack.go:380`) and doesn't belong in org scope. The same
+  user-keying is what makes org builds fail when the linking member leaves,
+  documented in [`github-connection.md`](github-connection.md#dependency-on-workos_user_id).
 - Test coverage is thin around exactly the flows this doc leans on hardest:
   `AccountSettings.tsx`, `AuditLogSettings.tsx`/`OrgAuditLogSettings.tsx`,
   `ExperimentsSettings.tsx`, `ChangeUsernameDialog.tsx`, `DangerZoneItem.tsx`,

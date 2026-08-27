@@ -7,7 +7,6 @@ import {
   SidebarNavItem,
   SidebarNavGroup,
   SidebarNavDivider,
-  SidebarNavPlaceholder,
   SidebarBody,
 } from '@/components/ui/sidebar-layout'
 import { SettingsSidebar } from '@/components/settings/SettingsSidebar'
@@ -110,7 +109,6 @@ function OrgSettingsContent() {
           {isAdmin && (
             <SidebarNavGroup label="Integrations">
               <SidebarNavItem to={`/settings/org/${orgSlug}/secrets`}>Variables &amp; Secrets</SidebarNavItem>
-              <SidebarNavPlaceholder note="Coming soon">Connectors</SidebarNavPlaceholder>
               <SidebarNavItem to={`/settings/org/${orgSlug}/api-keys`}>Data Sources</SidebarNavItem>
               <SidebarNavItem to={`/settings/org/${orgSlug}/apps`}>OAuth Apps</SidebarNavItem>
             </SidebarNavGroup>

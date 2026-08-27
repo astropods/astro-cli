@@ -132,13 +132,10 @@ describe('OrgSettingsLayout', () => {
     expect(screen.getAllByText('Integrations').length).toBeGreaterThan(0);
   });
 
-  it('marks org Connectors as coming soon rather than linking it', async () => {
+  it('omits Connectors, which has no org-scoped route', async () => {
     renderLayout('admin');
-    await waitFor(() => expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0));
-
-    const connectors = screen.getAllByText('Connectors')[0];
-    expect(connectors.closest('a')).toBeNull();
-    expect(connectors).toHaveAttribute('aria-disabled', 'true');
+    await waitFor(() => expect(screen.getAllByText('Integrations').length).toBeGreaterThan(0));
+    expect(screen.queryAllByText('Connectors')).toHaveLength(0);
   });
 
   it('names the org in the scope selector and keeps long names inside it', async () => {

@@ -39,11 +39,14 @@ is `display: contents` below `md` and only shows its label on desktop. The
 active-item lookup that feeds the mobile dropdown trigger now recurses instead
 of scanning direct children.
 
-**Unbuilt sections say so.** Org Connectors renders through
-`SidebarNavPlaceholder` as a non-navigable row tagged "Coming soon" rather
-than being silently absent. Groups (designed for both scopes) is not in the
-nav at all: the server has access-group CRUD but the client has no page, and a
-nav item pointing at nothing is worse than an omission.
+**The two scopes are not identical menus.** Connectors and Organizations stay
+personal-only, Members stays org-only. A section with no counterpart is absent
+from that scope rather than shown disabled: org Connectors would need the
+credential to belong to the account rather than to one member's session, which
+is the same user-keying that already breaks org builds when the linking member
+leaves. Groups is out for the same reason — the server has access-group CRUD
+but the client has no page, and a nav item pointing at nothing is worse than an
+omission.
 
 **Organizations page.** Rows no longer link into org settings, since the
 selector is now that path. Each row gets a Leave button wired to the existing
