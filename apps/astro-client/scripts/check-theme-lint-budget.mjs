@@ -4,7 +4,7 @@
 // fixed in one pass) -- this only blocks the count from growing. Lower
 // BASELINE in the same PR that fixes violations, to lock the improvement in.
 
-const BASELINE = 60;
+const BASELINE = 51;
 
 const { execFileSync } = await import("node:child_process");
 

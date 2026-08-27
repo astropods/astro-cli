@@ -24,7 +24,7 @@ Use `cn()` from `@/lib/utils` for conditional or merged class strings.
 
 ### Colors
 
-Always use **semantic tokens** from `@astropods/theme`. They flip across light/dark automatically; raw palette utilities (`bg-white`, `bg-stone-*`, `text-stone-*`, `text-green-*`, etc.) are forbidden in component code by the `local-theme/no-raw-theme-colors` ESLint rule. *Enforced:* the rule is `warn`, not `error` (60 pre-existing violations as of 2026-08-26 aren't fixed yet), but CI fails if the violation count grows past that baseline — see `scripts/check-theme-lint-budget.mjs`. Fix a violation opportunistically when you're already in that file, and lower the baseline in the same PR; the script reminds you (doesn't fail) if you fix one and forget to.
+Always use **semantic tokens** from `@astropods/theme`. They flip across light/dark automatically; raw palette utilities (`bg-white`, `bg-stone-*`, `text-stone-*`, `text-green-*`, etc.) are forbidden in component code by the `local-theme/no-raw-theme-colors` ESLint rule. *Enforced:* the rule is `warn`, not `error` (51 pre-existing violations as of 2026-08-27 aren't fixed yet), but CI fails if the violation count grows past that baseline — see `scripts/check-theme-lint-budget.mjs`. Fix a violation opportunistically when you're already in that file, and lower the baseline in the same PR; the script reminds you (doesn't fail) if you fix one and forget to.
 
 **Elevation ladder** — pick the lightest level that visually separates from its parent:
 

@@ -48,27 +48,27 @@ function renderLayout(role: string, org = orgAccount) {
 }
 
 describe('OrgSettingsLayout', () => {
-  it('shows Secrets & Variables nav for admin', async () => {
+  it('shows Variables & Secrets nav for admin', async () => {
     renderLayout('admin');
     await waitFor(() => {
-      expect(screen.getAllByText('Secrets & Variables').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Variables & Secrets').length).toBeGreaterThan(0);
     });
   });
 
-  it('shows Secrets & Variables nav for owner', async () => {
+  it('shows Variables & Secrets nav for owner', async () => {
     renderLayout('owner');
     await waitFor(() => {
-      expect(screen.getAllByText('Secrets & Variables').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Variables & Secrets').length).toBeGreaterThan(0);
     });
   });
 
-  it('hides Secrets & Variables nav for member', async () => {
+  it('hides Variables & Secrets nav for member', async () => {
     renderLayout('member');
     await waitFor(() => {
-      // General nav is always present — use it to confirm the layout rendered
-      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+      // Account nav is always present — use it to confirm the layout rendered
+      expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
     });
-    expect(screen.queryAllByText('Secrets & Variables')).toHaveLength(0);
+    expect(screen.queryAllByText('Variables & Secrets')).toHaveLength(0);
   });
 
   it('shows Billing nav for admin and owner', async () => {
@@ -91,41 +91,57 @@ describe('OrgSettingsLayout', () => {
     cleanup();
     renderLayout('member');
     await waitFor(() => {
-      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
     });
     expect(screen.queryAllByText('Usage')).toHaveLength(0);
   });
 
-  it('shows Experiments after Audit Log for admins and hides it from members', async () => {
+  it('shows Experiments last for admins and hides it from members', async () => {
     renderLayout('admin');
     await waitFor(() => expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0));
 
     const navText = screen.getAllByRole('link').map((link) => link.textContent?.trim());
-    expect(navText.indexOf('Experiments')).toBe(navText.indexOf('Audit Log') + 1);
+    expect(navText[navText.length - 1]).toBe('ExperimentsBeta');
 
     cleanup();
     renderLayout('member');
-    await waitFor(() => expect(screen.getAllByText('General').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('Account').length).toBeGreaterThan(0));
     expect(screen.queryAllByText('Experiments')).toHaveLength(0);
   });
 
   it('hides Billing nav for member', async () => {
     renderLayout('member');
     await waitFor(() => {
-      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
     });
     expect(screen.queryAllByText('Billing')).toHaveLength(0);
   });
 
-  it('always shows General and Members nav for member', async () => {
+  it('always shows Account and Members nav for member', async () => {
     renderLayout('member');
     await waitFor(() => {
-      expect(screen.getAllByText('General').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Account').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Members').length).toBeGreaterThan(0);
     });
   });
 
-  it('keeps long organization names inside the settings sidebar', async () => {
+  it('groups nav items under section labels', async () => {
+    renderLayout('admin');
+    await waitFor(() => expect(screen.getAllByText('Manage').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('Access').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Integrations').length).toBeGreaterThan(0);
+  });
+
+  it('marks org Connectors as coming soon rather than linking it', async () => {
+    renderLayout('admin');
+    await waitFor(() => expect(screen.getAllByText('Coming soon').length).toBeGreaterThan(0));
+
+    const connectors = screen.getAllByText('Connectors')[0];
+    expect(connectors.closest('a')).toBeNull();
+    expect(connectors).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('names the org in the scope selector and keeps long names inside it', async () => {
     const longName = 'hereisaninsanelylongorgnamehereisaninsanelylongorgnamehereisanin';
     renderLayout('admin', {
       ...orgAccount,
@@ -138,8 +154,7 @@ describe('OrgSettingsLayout', () => {
     });
 
     const name = screen.getByText(longName);
-    expect(name).toHaveClass('min-w-0', 'max-w-full', 'hyphens-auto');
-    expect(name.className).toContain('[overflow-wrap:anywhere]');
-    expect(name.closest('h1')).toHaveClass('max-w-full');
+    expect(name).toHaveClass('truncate');
+    expect(name.closest('[aria-label="Settings scope"]')).toBeInTheDocument();
   });
 });

@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { Link, type MetaFunction } from 'react-router'
-import { ChevronRight } from 'lucide-react'
 import { PlusIcon } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { Tag, type TagColor } from '@/components/Tag'
 import { UserAvatar } from '@/components/UserAvatar'
 import { SectionHeader } from '@/components/settings/SettingsShared'
+import { LeaveOrganizationDialog } from '@/components/settings/LeaveOrganizationDialog'
 import { useAuth } from '@/lib/auth'
 
 export const meta: MetaFunction = () => [{ title: "Organizations - Settings | Astro" }];
@@ -18,12 +19,13 @@ const ORG_ROLE_TAG: Record<string, { label: string; color: TagColor }> = {
 export default function OrganizationsSettings() {
   const { accounts } = useAuth()
   const orgs = accounts.filter(a => a.type === 'organization')
+  const [leaving, setLeaving] = useState<string | null>(null)
 
   return (
     <>
       <SectionHeader
         title="Organizations"
-        subtitle="Manage your organizations and access settings"
+        subtitle="Manage organizations you have created or joined"
         action={
           <Button size="sm" asChild>
             <Link to="/organization/new">
@@ -41,35 +43,46 @@ export default function OrganizationsSettings() {
           {orgs.map(org => {
             const roleTag = org.role ? ORG_ROLE_TAG[org.role.toLowerCase()] : null
             return (
-            <Link
-              key={org.name}
-              to={`/settings/org/${org.name}/general`}
-              className="group flex items-center gap-4 px-4 py-3 rounded-lg border border-border transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <UserAvatar
-                handle={org.name}
-                name={org.display_name || org.name}
-                avatarUrl={org.avatar_url}
-                className="size-9 shrink-0 ring-1 ring-border"
-              />
+              <div
+                key={org.name}
+                className="flex items-center gap-4 px-4 py-3 rounded-lg border border-border"
+              >
+                <UserAvatar
+                  handle={org.name}
+                  name={org.display_name || org.name}
+                  avatarUrl={org.avatar_url}
+                  className="size-9 shrink-0 ring-1 ring-border"
+                />
 
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
-                {roleTag && (
-                  <div className="mt-1">
-                    <Tag color={roleTag.color}>{roleTag.label}</Tag>
-                  </div>
-                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">{org.display_name || org.name}</p>
+                  {roleTag && (
+                    <div className="mt-1">
+                      <Tag color={roleTag.color}>{roleTag.label}</Tag>
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-error"
+                  onClick={() => setLeaving(org.name)}
+                >
+                  Leave
+                </Button>
               </div>
-
-              <ChevronRight
-                aria-hidden
-                className="size-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground"
-              />
-            </Link>
             )
           })}
         </div>
+      )}
+
+      {leaving && (
+        <LeaveOrganizationDialog
+          orgSlug={leaving}
+          open
+          onOpenChange={open => !open && setLeaving(null)}
+        />
       )}
     </>
   )

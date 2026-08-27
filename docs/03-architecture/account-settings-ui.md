@@ -1,5 +1,5 @@
 **Status:** Authoritative — describes the shipped system
-**Last verified:** 2026-08-26
+**Last verified:** 2026-08-27
 
 # Account and org settings UI
 
@@ -31,7 +31,7 @@ page. It does not cover:
 
 `SettingsLayout.tsx` (personal, `/settings/*`) and `OrgSettingsLayout.tsx`
 (`/settings/org/:orgSlug/*`) are separate components, not one shell
-parameterized by scope. Each renders its own `SidebarNav` and its own set of
+parameterized by scope. Each renders its own nav and its own set of
 page components (`AuditLogSettings` vs `OrgAuditLogSettings`,
 `ExperimentsSettings` vs `OrgExperimentsSettings`, and so on) that share
 presentation components (`AuditLogView`, `SectionHeader`) but are otherwise
@@ -46,8 +46,38 @@ independent route trees. `SettingsRedirect` sends bare `/settings` to
   the URL. This is what makes `role`-gated nav items (`isOrgAdmin(role)`)
   correct for the org actually being viewed, not whichever org the session
   last had active.
-- Gates Usage/Billing/Secrets/Data Sources/Audit Log/Experiments nav items on
-  `isAdmin`; General and Members are visible to every member.
+- Gates Usage/Billing/Secrets/Data Sources/OAuth Apps/Audit Log/Experiments
+  nav items on `isAdmin`; Account (the `general` route) and Members are
+  visible to every member.
+
+## One sidebar, two scopes (`SettingsSidebar`)
+
+Both shells render the same `components/settings/SettingsSidebar.tsx`: a
+"Settings" heading, an account scope selector, then whatever grouped nav the
+shell passes as children. The selector is the only way to reach org settings
+from the UI; the Organizations page lists orgs and offers "Leave", it does
+not link into org settings.
+
+Picking an account navigates to the same section in the target scope via
+`settingsScopePath` (`lib/settings-paths.ts`). Sections that exist in both
+scopes are preserved, the personal Account page and the org General route
+stand in for each other, and anything with no counterpart (Connectors,
+Organizations, Members) falls back to that scope's landing section. The
+current section comes from the URL (`settingsSectionFromPath`), so the
+selector needs no state of its own.
+
+The selector navigates; it does not call `setActiveAccount`. Settings scope
+is URL-derived, and the org shell already owns the WorkOS `switchOrg` for the
+org in the URL, so the app-wide active account (agents list, deploy targets)
+is deliberately left alone.
+
+Nav items are grouped by `SidebarNavGroup` (Manage, Access, Integrations)
+with `SidebarNavDivider` separating the trailing Experiments item. A group
+renders `display: contents` below `md` so its children still flow into the
+mobile pill row and dropdown as if ungrouped, and only the desktop column
+shows the group label. `SidebarNavPlaceholder` renders a section that isn't
+built yet as a non-navigable row with a "Coming soon" note; org Connectors is
+the only current use.
 
 ## Profile, avatar, and username (`ProfileEditor`, `AvatarUploadDialog`, `ChangeUsernameDialog`)
 
@@ -102,7 +132,9 @@ non-admins).
   `useUpdateMemberRole` to promote a replacement) against the *members* API,
   not the account-delete endpoint. It blocks leaving if the caller is the
   sole member (must delete instead) and, if the caller is the last admin,
-  requires picking another member to promote to admin first.
+  requires picking another member to promote to admin first. It is mounted
+  twice: from `OrgGeneralSettings`' danger zone, and from each row of
+  `OrganizationsSettings`.
 
 ## `OrgMembersSettings` and the invite flow
 
@@ -227,6 +259,11 @@ switch still needs a home.
 - No architecture doc for the Slack connector/identity system
   (`api/queries/slack.ts`, `internal/slackidentity`) comparable to
   `github-connection.md` or `supabase-knowledge-store.md`.
+- The settings design calls for a Groups section under Access in both scopes.
+  The server has full access-group CRUD (`handlers/access_groups.go`) but the
+  client has no page and no query hooks, so the nav item is not rendered yet.
+- Org Connectors is a `SidebarNavPlaceholder` ("Coming soon"): the personal
+  connector flows in `ConnectorsSettings` have no org-scoped equivalent.
 - Test coverage is thin around exactly the flows this doc leans on hardest:
   `AccountSettings.tsx`, `AuditLogSettings.tsx`/`OrgAuditLogSettings.tsx`,
   `ExperimentsSettings.tsx`, `ChangeUsernameDialog.tsx`, `DangerZoneItem.tsx`,
@@ -237,4 +274,5 @@ switch still needs a home.
 
 ## Verify
 
-- `cd apps/astro-client && bun x vitest run src/pages/settings src/components/settings`: runs everything with a `.test.tsx` in scope (`ConnectorsSettings`, `OrgExperimentsSettings`, `OrgGeneralSettings`, `OrgMembersSettings`, `OrgSettingsLayout`, `SettingsLayout`, `AuditLogView`, `AvatarUploadDialog`, `ConnectorRow`, `LeaveOrganizationDialog`, `ProfileEditor`), plus the billing/secrets tests that also live in these directories. It silently skips the untested files listed above rather than failing; a green run here is not full coverage of this doc.
+- `cd apps/astro-client && bun x vitest run src/pages/settings src/components/settings`: runs everything with a `.test.tsx` in scope (`ConnectorsSettings`, `OrgExperimentsSettings`, `OrgGeneralSettings`, `OrgMembersSettings`, `OrgSettingsLayout`, `SettingsLayout`, `SettingsSidebar`, `AuditLogView`, `AvatarUploadDialog`, `ConnectorRow`, `LeaveOrganizationDialog`, `ProfileEditor`), plus the billing/secrets tests that also live in these directories. It silently skips the untested files listed above rather than failing; a green run here is not full coverage of this doc.
+- `cd apps/astro-client && bun x vitest run src/lib/settings-paths.test.ts`: the scope-selector path mapping (`settingsScopePath`, `settingsSectionFromPath`).

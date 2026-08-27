@@ -39,4 +39,27 @@ describe('SettingsLayout', () => {
     expect(screen.getAllByText('Organizations').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Experiments').length).toBeGreaterThan(0);
   });
+
+  it('groups nav items under section labels', async () => {
+    renderLayout();
+    await waitFor(() => expect(screen.getAllByText('Manage').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('Access').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Integrations').length).toBeGreaterThan(0);
+  });
+
+  it('offers the scope selector for the personal account', async () => {
+    renderLayout();
+    await waitFor(() => expect(screen.getByLabelText('Settings scope')).toBeInTheDocument());
+    expect(screen.getByLabelText('Settings scope')).toHaveTextContent('testuser');
+  });
+
+  it('links personal Connectors rather than marking it coming soon', async () => {
+    renderLayout();
+    await waitFor(() => expect(screen.getAllByText('Connectors').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('Connectors')[0].closest('a')).toHaveAttribute(
+      'href',
+      '/settings/connectors',
+    );
+    expect(screen.queryAllByText('Coming soon')).toHaveLength(0);
+  });
 });

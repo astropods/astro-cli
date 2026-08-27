@@ -156,27 +156,78 @@ function getActiveLabel(
   pathname: string,
 ): React.ReactNode | null {
   let active: React.ReactNode = null;
-  React.Children.forEach(children, (child) => {
-    if (!React.isValidElement(child)) return;
-    const props = child.props as Record<string, unknown>;
-    // NavLink item
-    if (typeof props.to === "string" && pathname.startsWith(props.to)) {
-      active = props.children as React.ReactNode;
-    }
-    // Button item
-    if (props.active) {
-      active = props.children as React.ReactNode;
-    }
-  });
+  function walk(nodes: React.ReactNode) {
+    React.Children.forEach(nodes, (child) => {
+      if (!React.isValidElement(child)) return;
+      const props = child.props as Record<string, unknown>;
+      // NavLink item
+      if (typeof props.to === "string") {
+        if (pathname.startsWith(props.to)) active = props.children as React.ReactNode;
+        return;
+      }
+      // Button item
+      if (props.active) {
+        active = props.children as React.ReactNode;
+        return;
+      }
+      // Group, fragment, or any other wrapper
+      walk(props.children as React.ReactNode);
+    });
+  }
+  walk(children);
   return active;
+}
+
+/* ── Nav section: a labelled group of items ── */
+
+export function SidebarNavGroup({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("contents md:flex md:flex-col md:gap-0.5 md:pt-4 md:first:pt-0", className)}>
+      <span className="hidden md:block text-body-sm text-faint-foreground px-3 pb-1">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+export function SidebarNavDivider() {
+  return <div aria-hidden="true" className="hidden md:block md:my-3 border-t border-border" />;
+}
+
+/** A nav row for a section that isn't built yet: shown, never navigable. */
+export function SidebarNavPlaceholder({
+  note,
+  children,
+}: {
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span
+      aria-disabled="true"
+      className={cn(navItemBase, "flex cursor-default items-center gap-2 text-faint-foreground")}
+    >
+      {children}
+      <span className="font-mono text-mono-xs text-faint-foreground">{note}</span>
+    </span>
+  );
 }
 
 /* ── Individual nav item ── */
 
 const navItemBase =
   "whitespace-nowrap rounded-sm px-3 py-1.5 text-left text-[13px] transition-colors cursor-pointer";
-const navItemActive = "bg-slate-200 dark:bg-slate-700 text-foreground font-medium";
-const navItemInactive = "text-muted-foreground font-normal hover:bg-muted/50 hover:text-foreground";
+const navItemActive = "bg-secondary text-foreground font-medium";
+const navItemInactive = "text-foreground font-normal hover:bg-muted/50";
 
 type SidebarNavLinkProps = {
   to: string;
