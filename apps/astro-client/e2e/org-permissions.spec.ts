@@ -35,10 +35,10 @@ test.describe("admin permissions", () => {
     await expect(page.getByRole("button", { name: /invite members/i })).toBeVisible();
   });
 
-  test("admin sees Secrets & Variables nav", async ({ page }) => {
+  test("admin sees Variables & Secrets nav", async ({ page }) => {
     await page.goto("/settings/org/test-org/general", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Danger Zone")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Secrets & Variables" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Variables & Secrets" })).toBeVisible();
   });
 });
 
@@ -63,10 +63,10 @@ test.describe("member permissions", () => {
     await expect(page.getByRole("button", { name: /invite members/i })).toBeHidden();
   });
 
-  test("member cannot see Secrets & Variables nav", async ({ page }) => {
+  test("member cannot see Variables & Secrets nav", async ({ page }) => {
     await page.goto("/settings/org/test-org/general", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Danger Zone")).toBeVisible();
-    await expect(page.getByText("Secrets & Variables")).toBeHidden();
+    await expect(page.getByText("Variables & Secrets")).toBeHidden();
   });
 
   test("member can see leave button", async ({ page }) => {
