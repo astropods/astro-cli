@@ -413,7 +413,7 @@ func TestCreateAccount_InvitationsRequireOrganization(t *testing.T) {
 				c.Set(string(auth.UserContextKey), &auth.User{ID: "user-1"})
 				c.Next()
 			})
-			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil))
+			router.POST("/api/v1/accounts", CreateAccount(log, store, nil, nil, nil, nil, nil, nil, AuthorizationResourceLifecycleDeps{}))
 
 			body := fmt.Sprintf(
 				`{"name":"valid-name","type":%q,"invitations":[{"kind":"email","value":"someone@example.com"}]}`,

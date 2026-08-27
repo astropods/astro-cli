@@ -52,21 +52,6 @@ func accountDisplayNameLengthError(accountType string, maxLength int) string {
 	return "display names cannot exceed " + strconv.Itoa(maxLength) + " characters"
 }
 
-func compensateAccountCreation(ctx context.Context, log *logger.Logger, accountStore *account.AccountStore, orgClient *org.Client, accountID, organizationID string) {
-	if organizationID != "" && orgClient != nil {
-		if err := orgClient.DeleteOrganization(ctx, organizationID); err != nil {
-			log.Warn("accounts: compensating WorkOS organization deletion failed",
-				"error", err,
-				"account_id", accountID,
-				"organization_id", organizationID,
-			)
-		}
-	}
-	if err := accountStore.DeleteByID(accountID); err != nil {
-		log.Warn("accounts: compensating local account deletion failed", "error", err, "account_id", accountID)
-	}
-}
-
 // AccountOwner represents the owner's public profile in account responses
 type AccountOwner struct {
 	FirstName         string `json:"first_name,omitempty"`
