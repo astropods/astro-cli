@@ -204,3 +204,7 @@ func errUnknownUsageMetric(metric string) error {
 func msgUsageControlsSaved(metric string) string {
 	return fmt.Sprintf("Usage controls saved for %s", metric)
 }
+
+func errGrantNeedsAdapterOnRedeploy() error {
+	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
+}

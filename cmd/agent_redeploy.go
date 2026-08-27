@@ -24,6 +24,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
+	grants, _ := cmd.Flags().GetStringArray("grant")
 	build, _ := cmd.Flags().GetString("build")
 	clusterID, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
@@ -40,10 +41,12 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	// Slack. Sending nil leaves the stored adapters untouched.
 	var iface *deployTemplateInterfaces
 	if len(adapters) > 0 {
-		iface, err = buildDeployInterfaces(adapters)
+		iface, err = buildDeployInterfaces(adapters, grants)
 		if err != nil {
 			return err
 		}
+	} else if len(grants) > 0 {
+		return errGrantNeedsAdapterOnRedeploy()
 	}
 
 	vars, err := parseDeployVarsFromCmd(cmd)
