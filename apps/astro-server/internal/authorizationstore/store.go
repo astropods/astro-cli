@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/lib/pq"
 )
@@ -263,6 +264,31 @@ func ReplaceGrantsTx(tx *sql.Tx, deploymentID string, grants []Grant) error {
 	`, deploymentID); err != nil {
 		return fmt.Errorf("delete existing grants: %w", err)
 	}
+	return insertGrantsTx(tx, deploymentID, grants)
+}
+
+// ReplaceGrantsForAdaptersTx swaps the grants for the named adapters and
+// leaves every other adapter's rows in place.
+func ReplaceGrantsForAdaptersTx(tx *sql.Tx, deploymentID string, grants []Grant, adapters []string) error {
+	if len(adapters) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM deployment_authorization_grants
+		WHERE deployment_id = $1 AND adapter = ANY($2)
+	`, deploymentID, pq.Array(adapters)); err != nil {
+		return fmt.Errorf("delete existing grants: %w", err)
+	}
+	scoped := make([]Grant, 0, len(grants))
+	for _, g := range grants {
+		if slices.Contains(adapters, g.Adapter) {
+			scoped = append(scoped, g)
+		}
+	}
+	return insertGrantsTx(tx, deploymentID, scoped)
+}
+
+func insertGrantsTx(tx *sql.Tx, deploymentID string, grants []Grant) error {
 	for _, g := range grants {
 		if _, err := tx.Exec(`
 			INSERT INTO deployment_authorization_grants

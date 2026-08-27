@@ -1019,11 +1019,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		// same tx prevents the failure mode where the deployment row commits
 		// but the grants write rolls back, leaving the deployment exposed to
 		// the no-grants owner-fallback path.
-		//
-		// E11 semantics still hold: when the spec's auth block is omitted
-		// entirely, we leave grants untouched. When present (even with
-		// grants:[]), we atomically replace.
-		applyAuth := authzStore != nil && submittedSpec.Interfaces != nil && submittedSpec.Interfaces.Auth != nil
+		grantAdapters := adaptersWithGrants(submittedSpec)
 		ingressCfg, ingressErr := clustercfg.Resolve(c.Request.Context(), k8sReg, cfg.Deployment, submittedSpec.Target.ClusterID)
 		if ingressErr != nil {
 			log.Error("deploy: resolve cluster ingress config failed", "error", ingressErr, "cluster_id", submittedSpec.Target.ClusterID)
@@ -1048,9 +1044,11 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 					return err
 				}
 			}
-			if applyAuth {
+			if authzStore != nil && len(grantAdapters) > 0 {
 				grants := buildAuthorizationGrants(deploymentID, submittedSpec)
-				if err := authorizationstore.ReplaceGrantsTx(tx, deploymentID, grants); err != nil {
+				if err := authorizationstore.ReplaceGrantsForAdaptersTx(
+					tx, deploymentID, grants, grantAdapters,
+				); err != nil {
 					return fmt.Errorf("replace grants: %w", err)
 				}
 			}
@@ -4360,6 +4358,20 @@ func shapeOptsWithConfiguredInlineSecrets(opts *deployment.ShapeOptions, stored 
 	}
 	opts.ConfiguredInlineSecrets = names
 	return opts
+}
+
+func adaptersWithGrants(ds *deployment.AstroDeploymentSpec) []string {
+	if ds == nil || ds.Interfaces == nil || ds.Interfaces.Auth == nil {
+		return nil
+	}
+	var adapters []string
+	if w := ds.Interfaces.Auth.Web; w != nil && w.Grants != nil {
+		adapters = append(adapters, authorizationstore.AdapterWeb)
+	}
+	if sl := ds.Interfaces.Auth.Slack; sl != nil && sl.Grants != nil {
+		adapters = append(adapters, authorizationstore.AdapterSlack)
+	}
+	return adapters
 }
 
 // buildAuthorizationGrants flattens the spec's web and slack grant blocks

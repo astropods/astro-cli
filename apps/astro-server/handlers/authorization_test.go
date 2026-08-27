@@ -524,3 +524,73 @@ func TestMergeAuthorizationFromStore_Custom(t *testing.T) {
 		t.Fatalf("expected one custom org grant, got %+v", template.Interfaces.Auth.Custom.Grants)
 	}
 }
+
+func TestAdaptersWithGrants(t *testing.T) {
+	webGrants := []deployment.DeploymentAuthorizationGrant{{Anyone: true}}
+
+	cases := []struct {
+		name string
+		auth *deployment.DeploymentInterfacesAuth
+		want []string
+	}{
+		{"no auth block touches nothing", nil, nil},
+		{
+			"an oidc-only web block is not a grant instruction",
+			&deployment.DeploymentInterfacesAuth{Web: &deployment.DeploymentWebAuth{Type: "oidc"}},
+			nil,
+		},
+		{
+			"web grants replace web only",
+			&deployment.DeploymentInterfacesAuth{
+				Web: &deployment.DeploymentWebAuth{Type: "oidc", Grants: webGrants},
+			},
+			[]string{"web"},
+		},
+		{
+			"slack grants replace slack only",
+			&deployment.DeploymentInterfacesAuth{
+				Web:   &deployment.DeploymentWebAuth{Type: "oidc"},
+				Slack: &deployment.DeploymentSlackAuth{Grants: webGrants},
+			},
+			[]string{"slack"},
+		},
+		{
+			"an empty list is a deliberate revoke, not silence",
+			&deployment.DeploymentInterfacesAuth{
+				Web: &deployment.DeploymentWebAuth{Grants: []deployment.DeploymentAuthorizationGrant{}},
+			},
+			[]string{"web"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ds := &deployment.AstroDeploymentSpec{
+				Interfaces: &deployment.DeploymentInterfaces{Auth: tc.auth},
+			}
+			got := adaptersWithGrants(ds)
+			if len(got) != len(tc.want) {
+				t.Fatalf("adaptersWithGrants = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("adaptersWithGrants = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestAdaptersWithGrants_SeededSlackIsStillWritten(t *testing.T) {
+	ds := &deployment.AstroDeploymentSpec{
+		Interfaces: &deployment.DeploymentInterfaces{
+			Adapters: []string{"web", "slack"},
+			Auth:     &deployment.DeploymentInterfacesAuth{Web: &deployment.DeploymentWebAuth{Type: "oidc"}},
+		},
+	}
+	ensureSlackAnyoneGrant(ds)
+
+	got := adaptersWithGrants(ds)
+	if len(got) != 1 || got[0] != "slack" {
+		t.Fatalf("adaptersWithGrants = %v, want [slack] so the seeded grant lands and web is left alone", got)
+	}
+}
