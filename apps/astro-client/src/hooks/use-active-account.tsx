@@ -1,13 +1,10 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useTransition, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRevalidator, useRouteLoaderData } from "react-router";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { setOrgSwitchTarget } from "@/lib/org-switch-progress";
-import {
-  ACTIVE_ACCOUNT_COOKIE,
-  LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY,
-  readCookieValue,
-} from "@/lib/active-account";
+import { ACTIVE_ACCOUNT_COOKIE } from "@/lib/active-account";
 
 interface ActiveAccountContextValue {
   activeAccount: string;
@@ -32,11 +29,6 @@ function clearActiveAccountCookie() {
   document.cookie = `${ACTIVE_ACCOUNT_COOKIE}=;path=/;max-age=0;SameSite=Lax${secureFlag()}`;
 }
 
-function readActiveAccountCookie(): string | null {
-  if (typeof document === "undefined") return null;
-  return readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE);
-}
-
 export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   const { accounts, personalAccount, organizationId, switchOrg } = useAuth();
   const revalidator = useRevalidator();
@@ -58,11 +50,9 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
   const persistActiveAccount = useCallback((accountName: string) => {
     if (accountName === personalAccount?.name) {
       clearActiveAccountCookie();
-      try { localStorage.removeItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
       return;
     }
     writeActiveAccountCookie(accountName);
-    try { localStorage.setItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY, accountName); } catch { /* ignore */ }
   }, [personalAccount?.name]);
 
   const setActiveAccount = useCallback((accountName: string) => {
@@ -94,6 +84,7 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
         if (accountSwitchTargetRef.current !== accountName) return;
         accountSwitchTargetRef.current = null;
         setOrgSwitchTarget(null);
+        toast.error(`Couldn't switch to ${target.display_name || target.name}. Try again.`);
       },
     );
   }, [accounts, activeAccount, organizationId, persistActiveAccount, revalidator, switchOrg]);
@@ -150,24 +141,6 @@ export function ActiveAccountProvider({ children }: { children: ReactNode }) {
     accountSwitchTargetRef.current = null;
     setOrgSwitchTarget(null);
   }, []);
-
-  // One-time migration for users from before the cookie existed: if
-  // localStorage has a valid stored account but the cookie isn't set yet,
-  // sync the cookie and revalidate so subsequent renders match.
-  useEffect(() => {
-    if (accounts.length === 0) return;
-    // readCookieValue can throw URIError on malformed percent-encoding —
-    // swallow it so a stale/broken cookie can't break the migration effect.
-    let existing: string | null = null;
-    try { existing = readActiveAccountCookie(); } catch { /* malformed cookie — treat as absent */ }
-    if (existing) return;
-    let stored: string | null = null;
-    try { stored = localStorage.getItem(LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY); } catch { /* ignore */ }
-    if (stored && accounts.some((a) => a.name === stored)) {
-      writeActiveAccountCookie(stored);
-      revalidator.revalidate();
-    }
-  }, [accounts, revalidator]);
 
   return (
     <ActiveAccountContext.Provider value={{ activeAccount, setActiveAccount }}>

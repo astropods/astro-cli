@@ -50,12 +50,20 @@ land on the right organization instead of a page-local filter. SSR resolves the
 same account through `loadOrgScoped`, so the primed query matches what the client
 adopts.
 
+A switch that cannot re-scope the session says so, naming the account it failed
+to reach, and the switcher returns to the account still in scope.
+
 **Removed.** The multi-account filter (`AccountFilter`), its URL and
 localStorage plumbing (`use-account-filter-param`,
 `use-persistent-page-filter-path`), the page-local Insights scope hook, and the
 orphaned `OrgSwitcher`. Header nav links no longer carry a persisted account
 filter. The `/me/*` list endpoints keep their multi-account contract; the client
 only ever asks for one account.
+
+The `astro:default-account` localStorage key goes too. It predates the
+active-account cookie, and the migration that copied it into the cookie has run
+on every load since the cookie shipped, so the cookie is now the only record of
+which account is active.
 
 ## Migration
 

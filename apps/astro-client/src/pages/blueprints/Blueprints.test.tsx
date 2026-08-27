@@ -5,6 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from '@/test/msw/server';
 import { mockBlueprints } from '@/test/msw/handlers';
 import { renderRoute, mockAuthContext } from '@/test/test-utils';
+import { ACTIVE_ACCOUNT_COOKIE, readCookieValue } from '@/lib/active-account';
 import Blueprints from './Blueprints';
 import type { Blueprint, UserResourcePage } from '@/lib/api';
 
@@ -26,6 +27,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  document.cookie = `${ACTIVE_ACCOUNT_COOKIE}=;path=/;max-age=0`;
 });
 
 function renderBlueprintsPage({
@@ -58,7 +60,7 @@ describe('Blueprints – ?account= deep links', () => {
     });
 
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Scope by account' })).toHaveTextContent('orgaccount'));
-    await waitFor(() => expect(localStorage.getItem('astro:default-account')).toBe('orgaccount'));
+    await waitFor(() => expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBe('orgaccount'));
   });
 
   it('re-scopes the session and reloads the list when the org switcher changes', async () => {
@@ -139,7 +141,7 @@ describe('Blueprints – ?account= deep links', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(localStorage.getItem('astro:default-account')).toBeNull();
+    expect(readCookieValue(document.cookie, ACTIVE_ACCOUNT_COOKIE)).toBeNull();
   });
 });
 

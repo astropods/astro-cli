@@ -7,10 +7,6 @@
 
 export const ACTIVE_ACCOUNT_COOKIE = "astro:active-account";
 
-// Legacy localStorage key kept for one-time migration of users who already
-// had a stored default before the cookie existed.
-export const LEGACY_ACTIVE_ACCOUNT_STORAGE_KEY = "astro:default-account";
-
 /**
  * Parse a single cookie value from a raw `Cookie` header (server) or the
  * `document.cookie` string (client). Returns the decoded value or null if
