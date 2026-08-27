@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/fatih/color"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -284,4 +286,86 @@ func TestLoginWaitLine(t *testing.T) {
 			tt.assert(t, out)
 		})
 	}
+}
+
+// fatih/color writes to color.Output, which captured the real stdout at init, so
+// swapping os.Stdout alone loses every colored write.
+func captureColoredStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStdout(t, func() {
+		prior := color.Output
+		color.Output = os.Stdout
+		defer func() { color.Output = prior }()
+		fn()
+	})
+}
+
+func TestPrintVerificationCode(t *testing.T) {
+	const boxWidth = 44
+
+	tests := []struct {
+		name   string
+		width  int
+		assert func(t *testing.T, out string)
+	}{
+		{
+			name:  "a wide terminal gets the box",
+			width: boxWidth,
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, "┌")
+				assert.Contains(t, out, "│")
+				assert.Contains(t, out, "└")
+				assert.Contains(t, out, "HGBR-XXXX")
+			},
+		},
+		{
+			// The borders are fixed-width, so drawing them one column too wide
+			// wraps every row and splits the code off mid-word.
+			name:  "a terminal one column too narrow drops the box",
+			width: boxWidth - 1,
+			assert: func(t *testing.T, out string) {
+				assert.NotContains(t, out, "┌")
+				assert.NotContains(t, out, "│")
+				assert.NotContains(t, out, "└")
+				assert.Contains(t, out, "Your verification code is: HGBR-XXXX")
+			},
+		},
+		{
+			name:  "an unmeasurable stdout keeps the box",
+			width: 0,
+			assert: func(t *testing.T, out string) {
+				assert.Contains(t, out, "┌")
+				assert.Contains(t, out, "HGBR-XXXX")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prior := stdoutWidth
+			stdoutWidth = func() int { return tt.width }
+			t.Cleanup(func() { stdoutWidth = prior })
+
+			out := captureColoredStdout(t, func() {
+				printVerificationCode("HGBR-XXXX", color.New(color.FgYellow))
+			})
+			tt.assert(t, out)
+		})
+	}
+}
+
+func TestVerificationBoxWidthMatchesItsBorders(t *testing.T) {
+	out := captureColoredStdout(t, func() {
+		prior := stdoutWidth
+		stdoutWidth = func() int { return 200 }
+		t.Cleanup(func() { stdoutWidth = prior })
+		printVerificationCode("HGBR-XXXX", color.New(color.FgYellow))
+	})
+
+	widths := map[int]bool{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		widths[utf8.RuneCountInString(line)] = true
+	}
+	assert.Len(t, widths, 1,
+		"every row must be the same width or the box is already crooked: %q", out)
 }

@@ -62,6 +62,26 @@ func init() {
 	loginCmd.Flags().String("account", "", "Switch to this account after login")
 }
 
+// A terminal narrower than the fixed-width box wraps every row and lands the
+// borders mid-word. Width 0 means stdout is not a terminal, so there is no fit.
+func printVerificationCode(code string, highlight *color.Color) {
+	const (
+		boxTop    = "  ┌────────────────────────────────────────┐"
+		boxBottom = "  └────────────────────────────────────────┘"
+		label     = "Your verification code is: "
+	)
+	if w := stdoutWidth(); w > 0 && w < utf8.RuneCountInString(boxTop) {
+		fmt.Print("  " + label)
+		highlight.Println(code) //nolint:errcheck,gosec
+		return
+	}
+	fmt.Println(boxTop)
+	fmt.Print("  │  " + label)
+	highlight.Printf("%-11s", code) //nolint:errcheck,gosec
+	fmt.Println("│")
+	fmt.Println(boxBottom)
+}
+
 func runLogin(cmd *cobra.Command, args []string) error {
 	noBrowser := flagBool(cmd, "no-browser")
 	loginAccount := flagString(cmd, "account")
@@ -102,11 +122,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Display the user code prominently
 	fmt.Println()
-	fmt.Println("  ┌────────────────────────────────────────┐")
-	fmt.Print("  │  Your verification code is: ")
-	yellow.Printf("%-11s", authResp.UserCode) //nolint:errcheck,gosec
-	fmt.Println("│")
-	fmt.Println("  └────────────────────────────────────────┘")
+	printVerificationCode(authResp.UserCode, yellow)
 	fmt.Println()
 
 	// Determine verification URL to display/open
