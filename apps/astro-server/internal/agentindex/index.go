@@ -250,7 +250,8 @@ func (idx *Index) Exists(accountID, name string) (bool, error) {
 	return exists, nil
 }
 
-// Get retrieves an agent by account ID and name
+// Get retrieves an agent by account ID and name. Versions is left empty; use
+// GetWithVersions when the caller renders build history.
 func (idx *Index) Get(accountID, name string) (*Agent, error) {
 	var agent Agent
 	err := idx.db.QueryRow(`
@@ -266,7 +267,17 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 		return nil, fmt.Errorf("failed to query agent: %w", err)
 	}
 
-	// Load versions ordered newest first
+	return &agent, nil
+}
+
+// GetWithVersions retrieves an agent along with every published build, newest
+// first. Each version carries its full spec, readme, and agent card.
+func (idx *Index) GetWithVersions(accountID, name string) (*Agent, error) {
+	agent, err := idx.Get(accountID, name)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := idx.db.Query(`
 		SELECT build_id, ecr_namespace, spec_json, readme, agent_card_json, validation_warnings, published_at, updated_at
 		FROM agent_versions
@@ -292,8 +303,11 @@ func (idx *Index) Get(accountID, name string) (*Agent, error) {
 
 		agent.Versions = append(agent.Versions, &v)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate versions: %w", err)
+	}
 
-	return &agent, nil
+	return agent, nil
 }
 
 // ResourceID returns the immutable WorkOS external id for a Blueprint.
@@ -340,28 +354,29 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 
 // ValidateLineage reports whether (accountID, name, buildID) refers to a real
 // published agent version. Returns nil when the row exists, otherwise the same
-// error GetVersion would produce ("build not found: …" for the missing case,
+// error GetVersion produces ("build not found: …" for the missing case,
 // "failed to query version: …" for operational DB failures).
 //
-// This lets *Index implicitly satisfy deploymentstore.LineageValidator without
-// the deploymentstore package having to import this one. The error-only
-// signature is deliberate: the Store only needs to know whether the tuple
-// resolves, not what the version contains, so the method discards the
-// loaded *AgentVersion. If validation ever shows up on a hot path, swap the
-// body for a dedicated `SELECT 1 ... LIMIT 1` query that skips the spec
-// unmarshal — semantics are unchanged.
-//
-// Note on lifecycle: this check is about row existence, not lifecycle state.
-// It does NOT filter on agents.archived_at, so a version published before the
-// agent was archived still passes — by design. Existing deployments must
-// remain redeployable after their source agent is archived; the Store would
-// otherwise reject every redeploy of a legacy deployment as a side effect of
-// archive. Tightening this to exclude archived agents would break that path
-// and should only be done with an explicit policy decision (and a migration
-// for already-deployed rows).
+// The check is about row existence, not lifecycle state. It does NOT filter on
+// agents.archived_at, so a version published before the agent was archived
+// still passes: existing deployments must remain redeployable after their
+// source agent is archived.
 func (idx *Index) ValidateLineage(accountID, name, buildID string) error {
-	_, err := idx.GetVersion(accountID, name, buildID)
-	return err
+	var exists int
+	err := idx.db.QueryRow(`
+		SELECT 1
+		FROM agent_versions
+		WHERE account_id = $1 AND name = $2 AND build_id = $3
+		LIMIT 1
+	`, accountID, name, buildID).Scan(&exists)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("build not found: %s", buildID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to query version: %w", err)
+	}
+	return nil
 }
 
 // AgentNames returns the names of all non-archived agents for an account.

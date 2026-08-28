@@ -287,6 +287,103 @@ func emptyVersionRows() *sqlmock.Rows {
 	})
 }
 
+// Get reads the agents row only; build payloads stay unfetched.
+func TestGet_DoesNotQueryVersions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+
+	mock.ExpectQuery(`SELECT account_id, name, registry, visibility, archived_at, name_reserved`).
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(agentRows("acct-1", "my-agent", "", "public", nil, false, time.Now()))
+
+	agent, err := idx.Get("acct-1", "my-agent")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(agent.Versions) != 0 {
+		t.Errorf("expected no versions loaded, got %d", len(agent.Versions))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+func TestGetWithVersions_LoadsVersions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	idx := NewIndexWithDB(db)
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT account_id, name, registry, visibility, archived_at, name_reserved`).
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(agentRows("acct-1", "my-agent", "", "public", nil, false, now))
+	mock.ExpectQuery(`SELECT build_id, ecr_namespace, spec_json, readme, agent_card_json`).
+		WithArgs("acct-1", "my-agent").
+		WillReturnRows(emptyVersionRows().AddRow(
+			"build-1", "ecr/ns", `{"meta":{"name":"a"}}`, "readme", []byte(`{}`), "", now, now,
+		))
+
+	agent, err := idx.GetWithVersions("acct-1", "my-agent")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(agent.Versions) != 1 {
+		t.Fatalf("expected 1 version, got %d", len(agent.Versions))
+	}
+	if agent.Versions[0].BuildID != "build-1" {
+		t.Errorf("expected build-1, got %q", agent.Versions[0].BuildID)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled expectations: %v", err)
+	}
+}
+
+// ValidateLineage checks row existence without fetching build payloads.
+func TestValidateLineage(t *testing.T) {
+	tests := []struct {
+		name    string
+		rows    *sqlmock.Rows
+		wantErr string
+	}{
+		{"exists", sqlmock.NewRows([]string{"?column?"}).AddRow(1), ""},
+		{"missing", sqlmock.NewRows([]string{"?column?"}), "build not found: build-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("failed to create sqlmock: %v", err)
+			}
+			defer db.Close()
+
+			mock.ExpectQuery(`SELECT 1\s+FROM agent_versions`).
+				WithArgs("acct-1", "my-agent", "build-1").
+				WillReturnRows(tt.rows)
+
+			err = NewIndexWithDB(db).ValidateLineage("acct-1", "my-agent", "build-1")
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if tt.wantErr != "" && (err == nil || err.Error() != tt.wantErr) {
+				t.Fatalf("expected error %q, got %v", tt.wantErr, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unfulfilled expectations: %v", err)
+			}
+		})
+	}
+}
+
 // Get returns NameReserved=true when the DB row has name_reserved=true.
 func TestGet_ReturnsNameReservedTrue(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -301,10 +398,6 @@ func TestGet_ReturnsNameReservedTrue(t *testing.T) {
 	mock.ExpectQuery(`SELECT account_id, name, registry, visibility, archived_at, name_reserved`).
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(agentRows("acct-1", "my-agent", "registry.example.com", "public", nil, true, now))
-	mock.ExpectQuery(`SELECT build_id`).
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(emptyVersionRows())
-
 	agent, err := idx.Get("acct-1", "my-agent")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -334,10 +427,6 @@ func TestGet_ReturnsNameReservedFalse(t *testing.T) {
 	mock.ExpectQuery(`SELECT account_id, name, registry, visibility, archived_at, name_reserved`).
 		WithArgs("acct-1", "my-agent").
 		WillReturnRows(agentRows("acct-1", "my-agent", "", "private", nil, false, now))
-	mock.ExpectQuery(`SELECT build_id`).
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(emptyVersionRows())
-
 	agent, err := idx.Get("acct-1", "my-agent")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -678,10 +767,6 @@ func TestGet_ArchivedButReservedNameReturnsNameReservedTrue(t *testing.T) {
 	mock.ExpectQuery(`SELECT account_id, name, registry, visibility, archived_at, name_reserved`).
 		WithArgs("acct-1", "old-agent").
 		WillReturnRows(agentRows("acct-1", "old-agent", "", "private", archivedAt, true, now))
-	mock.ExpectQuery(`SELECT build_id`).
-		WithArgs("acct-1", "old-agent").
-		WillReturnRows(emptyVersionRows())
-
 	agent, err := idx.Get("acct-1", "old-agent")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)

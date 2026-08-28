@@ -1961,11 +1961,6 @@ func TestDeploy_PrivateSourceAgent_CrossAccount_Rejected(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow("src-acct", "secret-agent", "r.io", "private", nil, false, nil, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("src-acct", "secret-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "testaccount", `{"name":"secret-agent"}`, "", "", "[]", now, now))
 
 	req := httptest.NewRequest(http.MethodPost, "/deploy/validate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -2005,11 +2000,6 @@ func TestDeploy_PublicSourceAgent_CrossAccount_Allowed(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow("src-acct", "public-agent", "r.io", "public", nil, false, nil, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("src-acct", "public-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "source-org", storedSpec, "", "", "[]", now, now))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("src-acct", "public-agent", "build-1").
@@ -2279,11 +2269,6 @@ func expectDeployPrepWithCluster(accountMock, indexMock sqlmock.Sqlmock, cluster
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 
 	// agentIndex.GetVersion (exact build lookup)
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
@@ -3424,11 +3409,6 @@ func expectDeployPrepWithIngestion(accountMock, indexMock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow("acct-1", "my-agent", "r.io", "public", nil, false, nil, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", specJSON, "", "", "[]", now, now))
 
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent", "build-1").
@@ -4764,11 +4744,6 @@ func expectAgentLookup(mock sqlmock.Sqlmock, visibility string) {
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow("acct-1", "my-agent", "registry.io", visibility, nil, false, nil, nil, now, now))
-	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent","agent":{"image":"123456789.dkr.ecr.us-east-1.amazonaws.com/test-tenant-myorg/my-agent:build-1"}}`, "", "", "[]", now, now))
 }
 
 // ===== POST /agents/:account/:name/deployment-template =====
@@ -5459,11 +5434,6 @@ func TestPostTemplate_BuildNotFound_TaggedErrorCode(t *testing.T) {
 	// for the build resolution; this one returns no rows for the requested
 	// build id, mirroring `--build deadbeef` against an unknown build.
 	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs("acct-1", "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-1", "myorg", `{"name":"my-agent"}`, "", "", "[]", now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
 		WithArgs("acct-1", "my-agent", "deadbeef").
 		WillReturnRows(sqlmock.NewRows([]string{"build_id"}))
 
@@ -5584,9 +5554,9 @@ func expectAccountLookupFor(mock sqlmock.Sqlmock, arg, id, name string) {
 			AddRow(account.SQLMockScanRow(id, name, "organization", nil, nil, now, now)...))
 }
 
-// expectAgentLookupFor stubs the two queries inside Index.Get (agents row +
-// versions list) for a specific (accountID, agentName) pair with the given
-// visibility. Used when the source account differs from the URL account.
+// expectAgentLookupFor stubs Index.Get for a specific (accountID, agentName)
+// pair with the given visibility. Used when the source account differs from
+// the URL account.
 func expectAgentLookupFor(mock sqlmock.Sqlmock, accountID, agentName, visibility string) {
 	now := time.Now()
 	mock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
@@ -5594,11 +5564,6 @@ func expectAgentLookupFor(mock sqlmock.Sqlmock, accountID, agentName, visibility
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow(accountID, agentName, "registry.io", visibility, nil, false, nil, nil, now, now))
-	mock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs(accountID, agentName).
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-old", accountID, `{"name":"my-agent","agent":{"image":"example:build-old"}}`, "", "", "[]", now, now))
 }
 
 // expectPinnedVersionFor stubs Index.GetVersion for a specific (accountID,
@@ -5615,15 +5580,23 @@ func expectPinnedVersionFor(mock sqlmock.Sqlmock, accountID, agentName, buildID 
 			AddRow(buildID, accountID, specJSON, "", "", "[]", now, now))
 }
 
+// expectLineageValidated stubs Index.ValidateLineage, which probes for the
+// (accountID, agentName, buildID) row without reading build payloads.
+func expectLineageValidated(mock sqlmock.Sqlmock, accountID, agentName, buildID string) {
+	mock.ExpectQuery(`SELECT 1\s+FROM agent_versions`).
+		WithArgs(accountID, agentName, buildID).
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+}
+
 // expectPrefillLineageValidated arms sqlmock with the publisher resolution
 // queries issued before generateTemplate runs: resolveSourceAccountName validates
-// the deployment tuple via Index.GetVersion, materializes account names via
+// the deployment tuple via Index.ValidateLineage, materializes account names via
 // AccountStore lookups, then resolveAgentForTemplate performs a fresh
 // source-account name lookup — generating multiple GetByName calls for the same
 // publisher name before generateTemplate issues its own resolver query.
 func expectPrefillLineageValidated(indexMock, accountMock sqlmock.Sqlmock, sourceAccountName, sourceAcctID, agentName, buildID string) {
 	expectAccountLookupFor(accountMock, sourceAccountName, sourceAcctID, sourceAccountName)
-	expectPinnedVersionFor(indexMock, sourceAcctID, agentName, buildID)
+	expectLineageValidated(indexMock, sourceAcctID, agentName, buildID)
 	expectAccountLookupFor(accountMock, sourceAcctID, sourceAcctID, sourceAccountName)
 	expectAccountLookupFor(accountMock, sourceAccountName, sourceAcctID, sourceAccountName)
 }
@@ -5632,7 +5605,7 @@ func expectPrefillLineageValidated(indexMock, accountMock sqlmock.Sqlmock, sourc
 // omits source: validatedLineagePublisher falls back to the deployment's
 // account_id tuple check before resolving the publisher name via GetByID.
 func expectPrefillLineageFromOwningAccountValidated(indexMock, accountMock sqlmock.Sqlmock, acctID, accountName, agentName, buildID string) {
-	expectPinnedVersionFor(indexMock, acctID, agentName, buildID)
+	expectLineageValidated(indexMock, acctID, agentName, buildID)
 	expectAccountLookupFor(accountMock, acctID, acctID, accountName)
 }
 
@@ -5894,20 +5867,11 @@ func TestPostTemplate_CrossAccountPrefill_PinsDeployedBuild(t *testing.T) {
 	expectAccountLookupFor(accountMock, targetAcctID, targetAcctID, "myorg")
 	expectPrefillLineageValidated(indexMock, accountMock, "publisher", sourceAcctID, "my-agent", pinnedBuild)
 
-	// The source account has two builds — "build-new" (latest) and
-	// "build-old" (deployed). Index.Get lists them newest-first; the
-	// handler then asks for the pinned one, not the latest.
 	indexMock.ExpectQuery("SELECT .+ FROM agents WHERE account_id").
 		WithArgs(sourceAcctID, "my-agent").
 		WillReturnRows(sqlmock.NewRows(
 			[]string{"account_id", "name", "registry", "visibility", "archived_at", "name_reserved", "avatar_colors", "avatar_updated_at", "created_at", "updated_at"}).
 			AddRow(sourceAcctID, "my-agent", "registry.io", "public", nil, false, nil, nil, now, now))
-	indexMock.ExpectQuery("SELECT .+ FROM agent_versions WHERE account_id").
-		WithArgs(sourceAcctID, "my-agent").
-		WillReturnRows(sqlmock.NewRows(
-			[]string{"build_id", "ecr_namespace", "spec_json", "readme", "agent_card_json", "validation_warnings", "published_at", "updated_at"}).
-			AddRow("build-new", sourceAcctID, `{"name":"my-agent","agent":{"image":"example:build-new"}}`, "", "", "[]", now.Add(time.Hour), now.Add(time.Hour)).
-			AddRow(pinnedBuild, sourceAcctID, `{"name":"my-agent","agent":{"image":"example:build-old"}}`, "", "", "[]", now, now))
 	// Pinned lookup — only the deployed build is mocked. A GetLatestVersion
 	// (2-arg) call would not match any expectation and fail the test.
 	expectPinnedVersionFor(indexMock, sourceAcctID, "my-agent", pinnedBuild)

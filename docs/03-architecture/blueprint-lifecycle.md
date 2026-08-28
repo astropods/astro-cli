@@ -179,12 +179,20 @@ and target account IDs).
 
 ### Reads
 
-- **`Get(accountID, name) (*Agent, error)`** — one agent plus all its
-  versions, newest first.
+- **`Get(accountID, name) (*Agent, error)`** — the `agents` row only.
+  `Versions` comes back empty: every caller but the detail endpoint reads
+  visibility, name, or avatar colors, and loading build payloads for them
+  shipped whole specs and readmes that were then discarded.
+- **`GetWithVersions(accountID, name) (*Agent, error)`** — the agent plus all
+  its versions, newest first, each with its full `spec_json`, `readme`, and
+  `agent_card_json`. Only `GET /agents/:account/:name` needs this, because it
+  renders build history.
 - **`GetVersion(accountID, name, buildID)`**, **`GetLatestVersion(accountID, name)`**.
-- **`ValidateLineage(accountID, name, buildID) error`** — thin wrapper over
-  `GetVersion` that discards the loaded version and returns only whether the
-  row exists. Exists so `*Index` implicitly satisfies
+- **`ValidateLineage(accountID, name, buildID) error`** — a
+  `SELECT 1 ... LIMIT 1` existence probe (index-only against
+  `agent_versions_pkey`), returning only whether the row exists. It reads no
+  payload columns and unmarshals nothing, because it runs on the deploy path
+  and during template prefill. Exists so `*Index` implicitly satisfies
   `deploymentstore.LineageValidator` without that package importing
   `agentindex`. **Deliberately does not filter on `agents.archived_at`** — a
   version published before its agent was archived still validates. This is

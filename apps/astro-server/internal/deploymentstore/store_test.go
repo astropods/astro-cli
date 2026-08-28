@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -689,6 +690,61 @@ func TestGetDeploymentByNamespace(t *testing.T) {
 	}
 	if d != nil {
 		t.Errorf("expected nil for undeployed namespace, got %+v", d)
+	}
+}
+
+func TestNamespaceLookupsUseIndex(t *testing.T) {
+	db := testDB(t)
+
+	tests := []struct {
+		name  string
+		where string
+	}{
+		{"latest_any_status", `WHERE namespace = $1`},
+		{"visible_only", `WHERE namespace = $1 AND status != 'undeployed'`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx, err := db.Begin()
+			if err != nil {
+				t.Fatalf("begin failed: %v", err)
+			}
+			defer tx.Rollback() //nolint:errcheck
+
+			if _, err := tx.Exec("SET LOCAL enable_seqscan = off"); err != nil {
+				t.Fatalf("disable seqscan failed: %v", err)
+			}
+
+			rows, err := tx.Query(`EXPLAIN SELECT `+deploymentColumns+`
+				FROM deployments `+tt.where+`
+				ORDER BY deployed_at DESC
+				LIMIT 1`, "astro-index-probe-0")
+			if err != nil {
+				t.Fatalf("EXPLAIN failed: %v", err)
+			}
+			defer rows.Close() //nolint:errcheck
+
+			var plan strings.Builder
+			for rows.Next() {
+				var line string
+				if err := rows.Scan(&line); err != nil {
+					t.Fatalf("scan plan row failed: %v", err)
+				}
+				plan.WriteString(line)
+				plan.WriteString("\n")
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatalf("plan rows failed: %v", err)
+			}
+
+			if !strings.Contains(plan.String(), "idx_deployments_namespace_latest") {
+				t.Errorf("namespace lookup does not use idx_deployments_namespace_latest:\n%s", plan.String())
+			}
+			if strings.Contains(plan.String(), "Sort") {
+				t.Errorf("namespace lookup sorts instead of reading deployed_at in index order:\n%s", plan.String())
+			}
+		})
 	}
 }
 

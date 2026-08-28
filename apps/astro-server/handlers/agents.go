@@ -574,7 +574,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 			return
 		}
 
-		agent, err := index.Get(acct.ID, name)
+		agent, err := index.GetWithVersions(acct.ID, name)
 		if err != nil {
 			log.Error("agents: get agent failed", "error", err)
 			c.JSON(http.StatusNotFound, gin.H{

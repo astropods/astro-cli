@@ -426,6 +426,8 @@ CREATE TABLE public.deployments (
 
 CREATE INDEX idx_deployments_account_agent ON public.deployments(account_id, agent_name);
 
+CREATE INDEX idx_deployments_namespace_latest ON public.deployments(namespace, deployed_at DESC);
+
 -- Supports membership-scoped global keyset pages without walking each account
 -- independently. The unique id is the stable deployed_at tiebreaker.
 CREATE INDEX idx_deployments_visible_account_cursor
