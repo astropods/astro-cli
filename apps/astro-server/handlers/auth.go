@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,7 @@ import (
 
 // orgSyncer is satisfied by *org.Sync; extracted for unit testing.
 type orgSyncer interface {
-	SyncMembershipsForUser(ctx context.Context, userID string) error
+	SyncMembershipsForUser(ctx context.Context, userID string) ([]string, error)
 	GetMembershipRoles(ctx context.Context, userID string) map[string]string
 }
 
@@ -290,10 +291,13 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		}
 
 		// Best-effort: sync org memberships from WorkOS to local store
+		var rolesRepairedFor []string
 		if h.orgSync != nil {
-			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), result.User.ID); err != nil {
+			repaired, err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), result.User.ID)
+			if err != nil {
 				h.log.Warn("auth: sync memberships on login failed", "error", err, "user_id", result.User.ID)
 			}
+			rolesRepairedFor = repaired
 		}
 
 		// Best-effort: ingest OAuth profile picture into our CDN
@@ -327,6 +331,15 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 		if organizationID == "" {
 			if scoped, personalOrgID := h.personalOrgTokens(c.Request.Context(), result.User.ID, result.RefreshToken); scoped != nil {
 				accessToken, refreshToken, organizationID = scoped.AccessToken, scoped.RefreshToken, personalOrgID
+			}
+		}
+		// WorkOS issued this token before the repair, so its role claim is stale.
+		if h.orgRefresher != nil && slices.Contains(rolesRepairedFor, organizationID) {
+			if scoped, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(c.Request.Context(), refreshToken, organizationID); err != nil {
+				h.log.Warn("auth: re-issue token after owner role repair failed",
+					"error", err, "user_id", result.User.ID, "workos_org_id", organizationID)
+			} else {
+				accessToken, refreshToken = scoped.AccessToken, scoped.RefreshToken
 			}
 		}
 
@@ -674,7 +687,7 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 		// WorkOS membership listing this sync costs is only worth paying when
 		// the id is actually missing.
 		if newSession.WorkOSMembershipID == "" && h.orgSync != nil {
-			if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+			if _, err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
 				h.log.Warn("auth: sync memberships on org switch failed", "error", err, "user_id", sessionData.Session.UserID)
 			} else {
 				h.populateSessionMembership(newSession, claims)
@@ -823,7 +836,7 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 
 	// Best-effort: sync org memberships on token refresh
 	if h.orgSync != nil {
-		if err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+		if _, err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
 			h.log.Warn("auth: sync memberships on refresh failed", "error", err, "user_id", sessionData.Session.UserID)
 		}
 	}

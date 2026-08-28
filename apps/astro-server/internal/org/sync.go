@@ -301,20 +301,22 @@ func (s *Sync) GetMembershipRoles(ctx context.Context, userID string) map[string
 // for a specific user. Called on login as a fallback sync mechanism.
 // Users with no personal account are skipped: member listings name them from
 // that account. Handlers call this again once onboarding creates it.
-func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error {
+// Returns the WorkOS organization ids whose owner role it repaired.
+func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) ([]string, error) {
 	hasIdentity, err := s.accountStore.HasPersonalAccount(userID)
 	if err != nil {
-		return fmt.Errorf("failed to check personal account: %w", err)
+		return nil, fmt.Errorf("failed to check personal account: %w", err)
 	}
 	if !hasIdentity {
-		return nil
+		return nil, nil
 	}
 
 	memberships, err := s.client.ListMembershipsForUser(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("failed to list WorkOS memberships: %w", err)
+		return nil, fmt.Errorf("failed to list WorkOS memberships: %w", err)
 	}
 
+	var repaired []string
 	for _, m := range memberships {
 		if m.Status != "active" {
 			continue
@@ -331,11 +333,38 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) error 
 		if err := s.accountStore.UpsertMemberByWorkosMembershipID(
 			acct.ID, m.UserID, m.ID,
 		); err != nil {
-			return fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
+			return nil, fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
+		}
+
+		if s.repairOwnerRole(ctx, acct.ID, m) {
+			repaired = append(repaired, m.OrganizationID)
 		}
 	}
 
-	return nil
+	return repaired, nil
+}
+
+// WorkOS defines admin only, so owner is listed to keep such a membership intact.
+var adminRoleSlugs = map[string]bool{workosAdminRole: true, "owner": true}
+
+// Owners can hold a role below admin, which fails writes on their own account.
+func (s *Sync) repairOwnerRole(ctx context.Context, accountID string, m Membership) bool {
+	if adminRoleSlugs[m.RoleSlug] {
+		return false
+	}
+	owner, err := s.accountStore.OwnerUserID(accountID)
+	if err != nil || owner != m.UserID {
+		return false
+	}
+	if _, err := s.client.UpdateMembershipRole(ctx, m.ID, workosAdminRole); err != nil {
+		s.warn("org sync: repair owner role failed", accountID, err)
+		return false
+	}
+	if s.log != nil {
+		s.log.Info("org sync: repaired owner role",
+			"account_id", accountID, "user_id", m.UserID, "previous_role", m.RoleSlug)
+	}
+	return true
 }
 
 // SendBulkInvitations resolves each InviteRequest to an email and sends a

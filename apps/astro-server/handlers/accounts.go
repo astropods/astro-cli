@@ -218,7 +218,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 
 		// Login skips this sync until a personal account exists; it retries there.
 		if req.Type == "personal" && orgSync != nil {
-			if err := orgSync.SyncMembershipsForUser(c.Request.Context(), user.ID); err != nil {
+			if _, err := orgSync.SyncMembershipsForUser(c.Request.Context(), user.ID); err != nil {
 				log.Warn("accounts: sync memberships after personal account create failed", "error", err, "user_id", user.ID)
 			}
 		}

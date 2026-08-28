@@ -36,10 +36,10 @@ func (s *stubOrgSyncer) GetMembershipRoles(_ context.Context, _ string) map[stri
 	return s.roles
 }
 
-func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, userID string) error {
+func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, userID string) ([]string, error) {
 	s.syncCalls++
 	s.syncUserID = userID
-	return nil
+	return nil, nil
 }
 
 type stubAccountGetter struct {
