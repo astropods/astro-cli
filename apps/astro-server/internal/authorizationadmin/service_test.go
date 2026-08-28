@@ -205,7 +205,6 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.ResourceRef{Type: authz.ResourceAccount, ExternalID: "acct_123"}, Name: "Astro Spaceship"},
-			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123"), Name: "Insights"},
 			{ID: "workos_blueprint", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.BlueprintResource("blueprint_123"), Name: "Support blueprint"},
 			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
 		},
@@ -214,7 +213,6 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 	expectLocalAuthorizationResources(mock,
 		[]authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}},
 		[]authzbackfill.Resource{
-			{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
 			{AccountID: "acct_123", Ref: authz.BlueprintResource("blueprint_123"), Name: "Support blueprint"},
 		},
 	)
@@ -224,7 +222,7 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 	if err != nil {
 		t.Fatalf("Inventory() error = %v", err)
 	}
-	if len(inventory.Resources) != 4 {
+	if len(inventory.Resources) != 3 {
 		t.Fatalf("resources = %+v", inventory.Resources)
 	}
 	if blueprint := inventory.Resources[1]; blueprint.Type != "blueprint" || blueprint.SyncState != "registered" {
@@ -258,14 +256,12 @@ func TestInventoryMarksActiveAstroResourceMissingFromWorkOS(t *testing.T) {
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.AccountResource("acct_123"), Name: "Astro Spaceship"},
-			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123"), Name: "Insights"},
 		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
 	expectLocalAuthorizationResources(mock,
 		[]authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}},
 		[]authzbackfill.Resource{
-			{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
 			{AccountID: "acct_123", Ref: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
 		},
 	)
@@ -306,14 +302,12 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.AccountResource("acct_123")},
-			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123")},
 			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_123")},
 		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
 	accounts := []authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}}
 	resources := []authzbackfill.Resource{
-		{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
 		{AccountID: "acct_123", Ref: authz.DeploymentResource("dep_123"), Name: "Support agent"},
 	}
 	expectLocalAuthorizationResources(mock, accounts, resources)

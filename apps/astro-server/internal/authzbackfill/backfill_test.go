@@ -73,7 +73,6 @@ func TestBackfillerCreatesMissingHierarchyAndAssignsOwner(t *testing.T) {
 		blueprintIDs: 2,
 		accounts:     []Account{account},
 		resources: map[string][]Resource{account.ID: {
-			{AccountID: account.ID, Ref: authz.InsightsResource(account.ID), Name: "Insights"},
 			{AccountID: account.ID, Ref: authz.BlueprintResource("blueprint_123"), Name: "Support agent"},
 			{AccountID: account.ID, Ref: authz.DeploymentResource("dep_123"), Name: "Support production"},
 		}},
@@ -84,12 +83,11 @@ func TestBackfillerCreatesMissingHierarchyAndAssignsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v, failures = %+v", err, summary.Failures)
 	}
-	if summary.BlueprintIDsBackfilled != 2 || summary.ResourcesMissing != 4 || summary.ResourcesCreated != 4 || summary.AdminsAssigned != 1 {
+	if summary.BlueprintIDsBackfilled != 2 || summary.ResourcesMissing != 3 || summary.ResourcesCreated != 3 || summary.AdminsAssigned != 1 {
 		t.Fatalf("summary = %+v", summary)
 	}
 	want := []registration{
 		{"org_123", authz.AccountResource("account_123"), authz.OrganizationResource("org_123"), "Support"},
-		{"org_123", authz.InsightsResource("account_123"), authz.AccountResource("account_123"), "Insights"},
 		{"org_123", authz.BlueprintResource("blueprint_123"), authz.AccountResource("account_123"), "Support agent"},
 		{"org_123", authz.DeploymentResource("dep_123"), authz.AccountResource("account_123"), "Support production"},
 	}
@@ -106,9 +104,9 @@ func TestBackfillerKeepsExistingResourcesAndAdmin(t *testing.T) {
 
 	account := Account{ID: "account_123", OrganizationID: "org_123", Name: "Support", OwnerMembershipID: "om_owner"}
 	accountResource := authz.AuthorizationResource{ID: "workos_account", Resource: authz.AccountResource(account.ID)}
-	insightsResource := authz.AuthorizationResource{ID: "workos_insights", ParentResourceID: "workos_account", Resource: authz.InsightsResource(account.ID)}
-	workos := &fakeWorkOS{resources: []authz.AuthorizationResource{accountResource, insightsResource}, assignErr: authz.ErrRoleAssignmentExists}
-	source := &fakeSource{accounts: []Account{account}, resources: map[string][]Resource{account.ID: {{AccountID: account.ID, Ref: authz.InsightsResource(account.ID), Name: "Insights"}}}}
+	deploymentResource := authz.AuthorizationResource{ID: "workos_dep", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_123")}
+	workos := &fakeWorkOS{resources: []authz.AuthorizationResource{accountResource, deploymentResource}, assignErr: authz.ErrRoleAssignmentExists}
+	source := &fakeSource{accounts: []Account{account}, resources: map[string][]Resource{account.ID: {{AccountID: account.ID, Ref: authz.DeploymentResource("dep_123"), Name: "Support production"}}}}
 
 	summary, err := New(source, workos, 10, false).Run(context.Background())
 	if err != nil {
@@ -140,7 +138,7 @@ func TestBackfillerDryRunDoesNotWrite(t *testing.T) {
 
 	account := Account{ID: "account_123", OrganizationID: "org_123", Name: "Support", OwnerMembershipID: "om_owner"}
 	workos := &fakeWorkOS{}
-	source := &fakeSource{accounts: []Account{account}, resources: map[string][]Resource{account.ID: {{AccountID: account.ID, Ref: authz.InsightsResource(account.ID), Name: "Insights"}}}}
+	source := &fakeSource{accounts: []Account{account}, resources: map[string][]Resource{account.ID: {{AccountID: account.ID, Ref: authz.DeploymentResource("dep_123"), Name: "Support production"}}}}
 
 	summary, err := New(source, workos, 10, true).Run(context.Background())
 	if err != nil || summary.ResourcesMissing != 2 || len(workos.registrations) != 0 || len(workos.assignments) != 0 {

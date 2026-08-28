@@ -97,11 +97,7 @@ func (s *Store) ListResources(ctx context.Context, accountIDs []string) (map[str
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT account_id::text, resource_type, external_id, name
 		FROM (
-			SELECT a.id AS account_id, 'insights'::text AS resource_type, a.id::text AS external_id, 'Insights'::text AS name
-			FROM accounts a
-			WHERE a.id = ANY($1::uuid[])
-			UNION ALL
-			SELECT account_id, 'blueprint', uid::text, name
+			SELECT account_id, 'blueprint'::text AS resource_type, uid::text AS external_id, name
 			FROM agents
 			WHERE account_id = ANY($1::uuid[]) AND archived_at IS NULL AND uid IS NOT NULL
 			UNION ALL
