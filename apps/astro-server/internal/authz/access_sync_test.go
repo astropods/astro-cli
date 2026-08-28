@@ -16,25 +16,6 @@ var accessIntentColumns = []string{
 	"last_error", "next_attempt_at", "synced_at", "updated_at",
 }
 
-func TestResourceAccessSyncStoreMigratesLegacyBuilderIntent(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	mock.ExpectExec(`UPDATE resource_access_fga_sync`).
-		WithArgs(RoleDeploymentMaintainer, ResourceDeployment, roleDeploymentBuilderLegacy).
-		WillReturnResult(sqlmock.NewResult(0, 2))
-	migrated, err := NewResourceAccessSyncStore(db).MigrateLegacyDeploymentBuilder(context.Background())
-	if err != nil || migrated != 2 {
-		t.Fatalf("MigrateLegacyDeploymentBuilder() = %d, %v", migrated, err)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestResourceAccessSyncStoreRecordsDesiredRole(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

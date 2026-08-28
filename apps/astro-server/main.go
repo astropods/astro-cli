@@ -140,14 +140,6 @@ func main() {
 	var accessReconciler *authz.AccessReconciler
 	if accessAssignments != nil {
 		resourceAccessSync = authz.NewResourceAccessSyncStore(db)
-		migrationCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		migrated, migrationErr := resourceAccessSync.MigrateLegacyDeploymentBuilder(migrationCtx)
-		cancel()
-		if migrationErr != nil {
-			log.Warn("authorization: migrate deployment builder intents failed", "error", migrationErr)
-		} else if migrated > 0 {
-			log.Info("authorization: migrated deployment builder intents", "count", migrated)
-		}
 		accessReconciler = authz.NewAccessReconciler(accessAssignments, resourceAccessSync)
 	}
 	authorizationAdminStore := authorizationadmin.NewStore(db)

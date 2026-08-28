@@ -138,7 +138,7 @@ func TestAccessReconcilerRemovalKeepsDerivedAndCustomRoles(t *testing.T) {
 	fga := &authz.FakeFGA{
 		ListRoleAssignmentsFunc: func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) {
 			return []authz.RoleAssignment{
-				{Subject: subject, Role: authz.RoleSlug("deployment-builder"), Source: authz.AssignmentSourceDirect, Resource: resource},
+				{Subject: subject, Role: authz.RoleDeploymentMaintainer, Source: authz.AssignmentSourceDirect, Resource: resource},
 				{Subject: subject, Role: authz.RoleDeploymentViewer, Source: authz.AssignmentSourceGroup, Resource: resource},
 				{Subject: subject, Role: authz.RoleSlug("custom-support"), Source: authz.AssignmentSourceDirect, Resource: resource},
 			}, nil
@@ -150,7 +150,7 @@ func TestAccessReconcilerRemovalKeepsDerivedAndCustomRoles(t *testing.T) {
 	}
 
 	synced, err := authz.NewAccessReconciler(fga, store).ReconcileResource(context.Background(), store.intent.OrganizationID, store.intent.Resource)
-	if err != nil || !synced || len(removed) != 1 || removed[0] != authz.RoleSlug("deployment-builder") {
+	if err != nil || !synced || len(removed) != 1 || removed[0] != authz.RoleDeploymentMaintainer {
 		t.Fatalf("Reconcile() synced=%t error=%v removed=%v", synced, err, removed)
 	}
 }

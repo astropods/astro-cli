@@ -8,8 +8,8 @@ Deployment access now uses the WorkOS role ladder defined by the private-by-defa
 
 Writer grants `deployment:read` and `deployment:edit`. Maintainer adds `deployment:operate`. Admin adds `deployment:delete` and `deployment:manage_access`. Astro APIs expose those four levels and send their matching external role slugs to WorkOS.
 
-The Preview reset deleted WorkOS assignments but not Astro's durable access-intent ledger. At startup, existing `deployment-builder` intent is moved to `deployment-maintainer`, the closest least-privileged replacement. Reconciliation removes any old direct Builder assignment and applies Maintainer without changing group-derived or custom roles.
+Builder is removed outright rather than aliased. The role no longer exists in WorkOS, `scripts/workos-fga/model.json` no longer defines it, and no `deployment-builder` rows remain in the `resource_access_fga_sync` ledger in any environment. Nothing can produce the slug either: the only path into `desired_role` is `RoleForAccessLevel`, which reads the catalog in `access_catalog.go`. A compatibility alias would therefore be unreachable code, so the codebase carries no legacy Builder handling.
 
 ## Migration
 
-Apply the WorkOS permissions and roles from `scripts/workos-fga/model.json` before deploying. API callers must replace `builder` with `writer` or `maintainer`; existing durable Builder intent migrates to Maintainer automatically.
+Apply the WorkOS permissions and roles from `scripts/workos-fga/model.json` before deploying. API callers must replace `builder` with `writer` or `maintainer`. No data migration is required; verify with `SELECT count(*) FROM resource_access_fga_sync WHERE desired_role = 'deployment-builder'`, which returns zero.

@@ -196,7 +196,7 @@ The deployment access API is protected by `deployment:manage_access`:
 | Operation | Endpoint |
 | --- | --- |
 | List roles, effective assignments, and pending intent | `GET /api/v1/deployments/:id/access` |
-| Set Viewer, Builder, or Admin | `PUT /api/v1/deployments/:id/access` |
+| Set Viewer, Writer, Maintainer, or Admin | `PUT /api/v1/deployments/:id/access` |
 | Revoke a direct built-in role | `DELETE /api/v1/deployments/:id/access/:subject_type/:subject_id` |
 
 Mutation requests validate the deployment organization and the target membership or group, record a versioned desired role, emit an audit event only when state changed, enqueue reconciliation, and return `202 Accepted`.
@@ -209,7 +209,7 @@ sequenceDiagram
     participant Worker
     participant WorkOS
 
-    Client->>API: Assign Builder to member or group
+    Client->>API: Assign Maintainer to member or group
     API->>API: Validate tenant and manage_access
     API->>Ledger: Record newest desired role version
     API-->>Client: 202 pending or synced
@@ -263,7 +263,7 @@ Every path preserves these invariants:
 
 ## Operations and rollback
 
-Before enabling an environment, configure WorkOS with the deployment resource type, all five permission slugs, Viewer/Builder/Admin resource roles, and inherited deployment permissions on organization owner/admin. Organization member must have no deployment permissions for private-by-default behavior.
+Before enabling an environment, configure WorkOS with the deployment resource type, all five permission slugs, Viewer/Writer/Maintainer/Admin resource roles, and inherited deployment permissions on organization owner/admin. Organization member must have no deployment permissions for private-by-default behavior.
 
 Recommended rollout:
 

@@ -10,8 +10,6 @@ const (
 	RoleDeploymentWriter     RoleSlug = "deployment-writer"
 	RoleDeploymentMaintainer RoleSlug = "deployment-maintainer"
 	RoleDeploymentAdmin      RoleSlug = "deployment-admin"
-
-	roleDeploymentBuilderLegacy RoleSlug = "deployment-builder"
 )
 
 // AssignmentSubjectType identifies who receives a resource-scoped role.

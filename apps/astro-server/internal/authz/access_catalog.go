@@ -60,9 +60,6 @@ func RoleForAccessLevel(resourceType ResourceType, level AccessLevel) (RoleSlug,
 }
 
 func AccessLevelForRole(resourceType ResourceType, slug RoleSlug) (AccessLevel, bool) {
-	if resourceType == ResourceDeployment && slug == roleDeploymentBuilderLegacy {
-		return AccessLevelMaintainer, true
-	}
 	for _, role := range resourceRoleCatalog[resourceType] {
 		if role.Slug == slug {
 			return role.Level, true

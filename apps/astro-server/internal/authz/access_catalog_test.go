@@ -30,15 +30,6 @@ func TestDeploymentAccessCatalog(t *testing.T) {
 	}
 }
 
-func TestLegacyDeploymentBuilderReadsAsMaintainer(t *testing.T) {
-	t.Parallel()
-
-	level, ok := authz.AccessLevelForRole(authz.ResourceDeployment, authz.RoleSlug("deployment-builder"))
-	if !ok || level != authz.AccessLevelMaintainer {
-		t.Fatalf("AccessLevelForRole() = %q, %t", level, ok)
-	}
-}
-
 func TestDeploymentAccessCatalogRejectsUnknownValues(t *testing.T) {
 	t.Parallel()
 
