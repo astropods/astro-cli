@@ -13,7 +13,6 @@ Read [Runbook](#runbook) before applying to an environment.
 | `account` | WorkOS-required root | An Astro account. The root of product authorization. |
 | `blueprint` | `account` | A packaged agent that can be deployed. |
 | `deployment` | `account` | A running agent. |
-| `variable` | `account` | An account vault variable. |
 | `audience` | `account` | A named list of people who may talk to an agent. |
 | `knowledge_store` | `account` | A connected or managed data store an agent reads. |
 
@@ -32,6 +31,8 @@ Read [Runbook](#runbook) before applying to an environment.
 | `group:manage` | Manage groups | Create, rename, and delete groups, and change their membership. |
 | `app:read` | Read apps | View machine apps and their scopes. |
 | `app:manage` | Manage apps | Create and delete machine apps, their scopes, and their secrets. |
+| `variable:read` | Read variables | View the account vault's variables. A secret's value is never returned. |
+| `variable:manage` | Manage variables | Create, change, and delete the account vault's variables. |
 | `data_source:read` | Read data sources | View data sources and their exclusion lists. |
 | `data_source:manage` | Manage data sources | Create, rename, and revoke data sources, and edit their exclusion lists. |
 | `insights:read_summary` | Read Insights summary | View the account's aggregate coding-tool activity and your own. |
@@ -44,7 +45,6 @@ Read [Runbook](#runbook) before applying to an environment.
 | `cluster:read` | Read clusters | View the clusters assigned to the account. |
 | `blueprint:create` | Create blueprints | Create blueprints in the account. |
 | `deployment:create` | Create deployments | Deploy agents in the account. |
-| `variable:create` | Create variables | Create account variables. |
 | `audience:create` | Create audiences | Create audiences. |
 | `knowledge_store:create` | Create knowledge stores | Connect or provision knowledge stores. |
 
@@ -68,15 +68,6 @@ Read [Runbook](#runbook) before applying to an environment.
 | `deployment:operate` | Operate deployment | Redeploy, roll back, restart, stop, resume, cancel, and trigger ingestion. |
 | `deployment:delete` | Delete deployment | Undeploy the deployment. |
 | `deployment:manage_access` | Manage deployment access | Grant and revoke access to the deployment. |
-
-### `variable`
-
-| Slug | Name | Description |
-| --- | --- | --- |
-| `variable:read` | Read variable | View the variable's name, description, and plaintext value. A secret's value is never returned. |
-| `variable:edit` | Edit variable | Change the variable's value and description. |
-| `variable:delete` | Delete variable | Delete the variable. |
-| `variable:manage_access` | Manage variable access | Grant and revoke access to the variable. |
 
 ### `audience`
 
@@ -117,6 +108,7 @@ account:read
 member:read
 group:read
 cluster:read
+variable:read
 insights:read_summary
 ```
 
@@ -131,6 +123,8 @@ group:read
 group:manage
 app:read
 app:manage
+variable:read
+variable:manage
 data_source:read
 data_source:manage
 insights:read_summary
@@ -154,6 +148,8 @@ group:read
 group:manage
 app:read
 app:manage
+variable:read
+variable:manage
 data_source:read
 data_source:manage
 insights:read_summary
@@ -166,7 +162,6 @@ integration:manage
 cluster:read
 blueprint:create
 deployment:create
-variable:create
 audience:create
 knowledge_store:create
 blueprint:read
@@ -180,10 +175,6 @@ deployment:edit
 deployment:operate
 deployment:delete
 deployment:manage_access
-variable:read
-variable:edit
-variable:delete
-variable:manage_access
 audience:read
 audience:edit
 audience:manage_members
@@ -213,14 +204,6 @@ knowledge_store:manage_access
 | `deployment-writer` | Writer | Reads and changes the deployment. | `deployment:read`, `deployment:edit` |
 | `deployment-maintainer` | Maintainer | Also redeploys, rolls back, restarts, and stops it. | `deployment:read`, `deployment:edit`, `deployment:operate` |
 | `deployment-admin` | Admin | Full control, including deletion and access. | `deployment:read`, `deployment:edit`, `deployment:operate`, `deployment:delete`, `deployment:manage_access` |
-
-### `variable`
-
-| Slug | Name | Description | Permissions |
-| --- | --- | --- | --- |
-| `variable-viewer` | Viewer | Reads the variable. | `variable:read` |
-| `variable-writer` | Writer | Reads and changes the variable. | `variable:read`, `variable:edit` |
-| `variable-admin` | Admin | Full control, including deletion and access. | `variable:read`, `variable:edit`, `variable:delete`, `variable:manage_access` |
 
 ### `audience`
 
@@ -259,8 +242,8 @@ Add before you deploy the code that checks a permission, remove only after that 
 
 | Check | Expectation |
 | --- | --- |
-| Permission count | 49 across 6 resource types (`jq '.permissions \| length' scripts/workos-fga/model.json`) |
-| Role count | 22 |
+| Permission count | 46 across 5 resource types (`jq '.permissions \| length' scripts/workos-fga/model.json`) |
+| Role count | 19 |
 | `account-member` | No child-resource permission. This is what makes resources private by default |
 | Root organization role | No product permission at all |
 

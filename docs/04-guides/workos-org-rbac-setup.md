@@ -23,11 +23,11 @@ Steps:
 3. Verify `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are set for the
    environment.
 
-Do not add `variable:read` or `variable:write` here. The FGA model
-(`scripts/workos-fga/model.json`) owns `variable:read` on the `variable`
-resource type, and WorkOS permission slugs are global. The vault checks
-`deployments:read` for reads and `org:manage` for writes instead, so the
-five rows above are all an org role needs.
+Do not add `variable:read` or `variable:manage` here. The FGA model
+(`scripts/workos-fga/model.json`) owns both on the `account` resource type,
+and WorkOS permission slugs are global. The vault checks `deployments:read`
+for reads and `org:manage` for writes instead, so the five rows above are all
+an org role needs.
 
 ## 2. Add the FGA membership-id claim to the JWT template
 

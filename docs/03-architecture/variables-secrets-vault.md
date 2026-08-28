@@ -139,12 +139,17 @@ Authorization for both is the same middleware chain
   routes) or `"org:manage"` (write routes) enforces the permission.
 
 The dedicated `variable:read` and `variable:write` slugs the vault used to
-check no longer exist as org role permissions in WorkOS: the FGA model
-(`scripts/workos-fga/model.json`) claims `variable:read` for the `variable`
-resource type, and `variable:write` was dropped. Both route groups borrow an
-existing org role permission until the dedicated slugs are reinstated, so vault
-read now follows the same gate as viewing a deployment. See
-[`04-guides/workos-org-rbac-setup.md`](../04-guides/workos-org-rbac-setup.md).
+check are not org role permissions in WorkOS. The FGA model
+(`scripts/workos-fga/model.json`) defines `variable:read` and `variable:manage`
+as account permissions, but nothing enforces them yet. Both route groups borrow
+an existing org role permission until FGA does, so vault read follows the same
+gate as viewing a deployment. See
+[`04-guides/workos-org-rbac-setup.md`](../04-guides/workos-org-rbac-setup.md)
+and [`01-spec/private-by-default-fgac-rollout.md`](../01-spec/private-by-default-fgac-rollout.md).
+
+A variable is not an FGA resource. The vault is one account-scoped keyspace,
+so access is an account permission and no `authz` resource is registered when a
+variable is created or deleted.
 
 `RequireAccountPermission` (`internal/middleware/account.go`) branches on
 account type:

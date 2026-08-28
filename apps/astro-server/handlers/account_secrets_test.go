@@ -33,7 +33,7 @@ func setupVarRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmock) {
 		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "testacct"})
 		c.Next()
 	})
-	router.POST("/variables", CreateAccountVariable(log, store, testVault(t), nil))
+	router.POST("/variables", CreateAccountVariable(log, store, testVault(t)))
 	return router, mock
 }
 

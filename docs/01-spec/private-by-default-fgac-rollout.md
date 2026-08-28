@@ -22,7 +22,6 @@ WorkOS-required root
 └── Account
     ├── Blueprint
     ├── Deployment
-    ├── Variable
     ├── Audience
     └── Knowledge store
 ```
@@ -44,17 +43,18 @@ Roles are in [Role contract](#role-contract).
 | Account | `account` | WorkOS-required root | V1 |
 | Blueprint | `blueprint` | `account` | V1 |
 | Deployment | `deployment` | `account` | V1 |
-| Variable | `variable` | `account` | Registration |
 | Audience | `audience` | `account` | Registration after the Audience create API lands |
 | Knowledge store | `knowledge_store` | `account` | Registration |
 
-Insights is not a resource type. Nothing creates it, there is one per account, and it has no instance to assign a role on, so it is a pair of Account permissions instead. Registering a singleton child per account buys a resource whose only possible assignment is the account itself.
+A type earns its place when instances are created, named, deleted, and granted roles one at a time. Insights and Variables both fail that test and are Account permissions instead:
+
+- Insights has one view per account and no instance to assign a role on. Registering a singleton child per account buys a resource whose only possible assignment is the account itself.
+- The vault is one account-scoped keyspace, not a set of independently governed things. No surface grants access to a single variable, and per-variable roles would let a member hold half a deployment's configuration. A deployment's own env is `deployment_build_env`, covered by `deployment:read` and `deployment:edit`. A secret's value is never returned by any API.
 
 Sub-surfaces stay with their parent and get no type of their own: datasets, evaluations, files, logs, traces, chat history, watchers, and ingestion under Deployment; versions, builds, GitHub links, avatars, and README assets under Blueprint.
 
 | Type | Notes |
 | --- | --- |
-| `variable` | The account vault, `account_variables`. A deployment's own env is `deployment_build_env`, covered by `deployment:read` and `deployment:edit`. A secret's value is never returned by any API. |
 | `audience` | Defined in [Access audiences](access-audiences-spec.md). `audience:manage_members` is separate from `audience:edit` so a governance connector cannot rename. Membership still grants only agent access, never a platform permission. |
 
 Creating a child resource is an Account permission. The creator receives `<type>-admin`.
@@ -63,7 +63,6 @@ Creating a child resource is an Account permission. The creator receives `<type>
 | --- | --- |
 | Blueprint | `blueprint:create` |
 | Deployment | `deployment:create` |
-| Variable | `variable:create` |
 | Audience | `audience:create` |
 | Knowledge store | `knowledge_store:create` |
 
@@ -78,6 +77,7 @@ Each slug is a permission on the `account` resource type. [Role contract](#role-
 | Members | Members, invitations, roles | `member:read`, `member:manage` |
 | Groups | Groups and their membership | `group:read`, `group:manage` |
 | Machine apps | Apps and their secrets | `app:read`, `app:manage` |
+| Variables | The account vault, `account_variables` | `variable:read`, `variable:manage` |
 | Data sources | Ingest keys for external tools, and their exclusions | `data_source:read`, `data_source:manage` |
 | Insights | Coding-tool activity for the account | `insights:read_summary`, `insights:read_members` |
 | Billing | Usage, invoices, balances, thresholds, payment methods, quota requests | `billing:read`, `billing:manage` |
@@ -103,7 +103,6 @@ Every resource type uses the same four-rung ladder. Each rung adds to the one be
 | --- | --- | --- | --- | --- |
 | `deployment` | `read` | `edit` | `operate` | `delete`, `manage_access` |
 | `blueprint` | `read` | `edit` | `operate` | `delete`, `manage_access`, `transfer` |
-| `variable` | `read` | `edit` | skipped | `delete`, `manage_access` |
 | `audience` | `read` | `edit` | `manage_members` | `delete`, `manage_access` |
 | `knowledge_store` | `read` | `edit` | `operate` | `delete`, `manage_access` |
 
@@ -113,11 +112,13 @@ Account has three roles instead of the ladder. Only Admin inherits child permiss
 
 | Role | Adds | Inherits child permissions |
 | --- | --- | --- |
-| `account-member` | `account:read`, `member:read`, `group:read`, `cluster:read`, `insights:read_summary` | No |
-| `account-maintainer` | `account:edit`, `member:manage`, `group:manage`, `app:read`, `app:manage`, `data_source:read`, `data_source:manage`, `insights:read_members`, `integration:read`, `integration:manage`, `audit_log:read`, `billing:read` | No |
+| `account-member` | `account:read`, `member:read`, `group:read`, `cluster:read`, `variable:read`, `insights:read_summary` | No |
+| `account-maintainer` | `account:edit`, `member:manage`, `group:manage`, `app:read`, `app:manage`, `variable:manage`, `data_source:read`, `data_source:manage`, `insights:read_members`, `integration:read`, `integration:manage`, `audit_log:read`, `billing:read` | No |
 | `account-admin` | `account:delete`, `billing:manage` | Yes, all |
 
 Admin is the only role that can delete the account or change the payment method, and the only one with recovery access to a resource whose admins have all left. A finance-only role that holds `billing:manage` and nothing else comes later if needed.
+
+Every member holds `variable:read`, which matches the shipped vault gate: reads ride on `deployments:read`, which every org role carries. `variable:manage` sits with `app:manage` on maintainer, since both surfaces hold account credentials and both writes are gated on `org:manage` today. Narrowing vault reads to maintainer is a separate decision, taken after enforcement is stable, not folded into a modelling change.
 
 Every member holds `insights:read_summary`, which is the account aggregate plus the caller's own rows. `insights:read_members` is the per-developer breakdown, and it sits with `audit_log:read` and `data_source:manage`: whoever governs the ingest keys and reads the audit log reads the breakdown they produce. The per-source breakdown is a view of the same telemetry and needs no permission of its own.
 
@@ -132,7 +133,6 @@ Astro IDs are the canonical WorkOS `external_id`. Registration does not store Wo
 | Account | `accounts` | `accounts.id` | `display_name`, then `name` | `accounts.owner_user_id` | `type = 'organization' AND deleted_at IS NULL` |
 | Blueprint | `agents` | New immutable `agents.uid` | `agents.name` | Earliest trustworthy `agent.register` audit actor | `archived_at IS NULL` in an active account |
 | Deployment | `deployments` | `deployments.id` | `display_name`, then `agent_name` | `deployments.deployed_by` | `status <> 'undeployed'` in an active account |
-| Variable | `account_variables` | `account_id:name` | `name` | None in registration | Every current row in an active Account |
 | Audience | `audiences` | `audiences.id` | `audiences.name` | `audiences.created_by` | Every current row after the Audience API lands |
 | Knowledge store | `knowledge_stores` | `knowledge_stores.id` | `knowledge_stores.name` | None in registration | Every current row in an active Account |
 
@@ -205,7 +205,7 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 - Configure the resource types and roles in WorkOS.
 - Add nullable `agents.uid`; every new Blueprint write supplies its stable external ID.
 - Use one WorkOS SDK contract to create, read, and delete authorization resources.
-- Register each organization Account under the WorkOS-required root. Register its Blueprint, Deployment, Variable, and Knowledge Store children under that Account. The Audience create handler in PR #2145 uses the same lifecycle contract when it lands.
+- Register each organization Account under the WorkOS-required root. Register its Blueprint, Deployment, and Knowledge Store children under that Account. The Audience create handler in PR #2145 uses the same lifecycle contract when it lands.
 - Delete resources from WorkOS when the matching Astro resource is removed. WorkOS names are creation-time labels only; immutable Astro external IDs identify resources for authorization.
 - A WorkOS failure is logged and does not roll back the Astro object. PR4 repairs missed creates.
 - Add no generic sync table, River worker, role assignment, or enforcement. Remove the Deployment-specific lifecycle ledger and River worker.

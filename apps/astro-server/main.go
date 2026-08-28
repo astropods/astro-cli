@@ -1797,9 +1797,9 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				)
 			}
 
-			// Account variables (vault). The dedicated variable:read / variable:write
-			// slugs no longer exist as org role permissions, so reads ride on
-			// deployments:read and writes on org:manage until they are reinstated.
+			// Account variables (vault). The FGA model's variable:read and
+			// variable:manage are not org role permissions yet, so reads ride on
+			// deployments:read and writes on org:manage until FGA enforces them.
 			accountVarsRead := protected.Group("/accounts/:account")
 			accountVarsRead.Use(middleware.ResolveAccount(accountStore))
 			accountVarsRead.Use(middleware.RequireAccountPermission(accountStore, "deployments:read"))
@@ -1822,7 +1822,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			accountVarsWrite.Use(middleware.ResolveAccount(accountStore))
 			accountVarsWrite.Use(middleware.RequireAccountPermission(accountStore, "org:manage"))
 			{
-				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, deps.Vault, resourceLifecycle),
+				api.POST(accountVarsWrite, "/variables", "Create account variables", handlers.CreateAccountVariable(log, accountVarsStore, deps.Vault),
 					oapispec.Tags("Variables"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -1837,7 +1837,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.UpdateAccountVariableRequest{}),
 					oapispec.Response(200, nil),
 				)
-				api.DELETE(accountVarsWrite, "/variables/:varName", "Delete account variable", handlers.DeleteAccountVariable(log, accountVarsStore, resourceLifecycle),
+				api.DELETE(accountVarsWrite, "/variables/:varName", "Delete account variable", handlers.DeleteAccountVariable(log, accountVarsStore),
 					oapispec.Tags("Variables"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

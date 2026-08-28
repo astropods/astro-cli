@@ -125,8 +125,8 @@ Permission slugs map to actions:
 | `org:manage`        | Manage members, invitations, account settings, billing, and org account vault variables |
 
 The vault rides on `deployments:read` and `org:manage` because the dedicated
-`variable:read` and `variable:write` slugs no longer exist as org role
-permissions in WorkOS. See
+`variable:read` and `variable:manage` slugs are FGA account permissions, not
+org role permissions. See
 [`variables-secrets-vault.md`](variables-secrets-vault.md) for the detail.
 
 WorkOS organization roles separately inherit resource-scoped permissions across child deployments:

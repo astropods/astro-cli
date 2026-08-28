@@ -20,7 +20,6 @@ func TestAuthorizationResourceRefs(t *testing.T) {
 		{"deployment", authz.DeploymentResource("dep_123"), authz.ResourceRef{Type: authz.ResourceDeployment, ExternalID: "dep_123"}},
 		{"knowledge store", authz.KnowledgeStoreResource("ks_123"), authz.ResourceRef{Type: authz.ResourceKnowledge, ExternalID: "ks_123"}},
 		{"organization", authz.OrganizationResource("org_123"), authz.ResourceRef{Type: authz.ResourceOrganization, ExternalID: "org_123"}},
-		{"variable", authz.VariableResource("account_123", "API_KEY"), authz.ResourceRef{Type: authz.ResourceVariable, ExternalID: "account_123:API_KEY"}},
 	}
 
 	for _, test := range tests {

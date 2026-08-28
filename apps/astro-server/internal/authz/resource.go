@@ -10,7 +10,6 @@ const (
 	ResourceBlueprint    ResourceType = "blueprint"
 	ResourceDeployment   ResourceType = "deployment"
 	ResourceKnowledge    ResourceType = "knowledge_store"
-	ResourceVariable     ResourceType = "variable"
 )
 
 // ResourceRef identifies one resource instance. ExternalID is the Astro id
@@ -42,8 +41,4 @@ func KnowledgeStoreResource(id string) ResourceRef {
 
 func OrganizationResource(id string) ResourceRef {
 	return ResourceRef{Type: ResourceOrganization, ExternalID: id}
-}
-
-func VariableResource(accountID, name string) ResourceRef {
-	return ResourceRef{Type: ResourceVariable, ExternalID: accountID + ":" + name}
 }

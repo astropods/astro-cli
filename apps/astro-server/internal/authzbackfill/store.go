@@ -105,10 +105,6 @@ func (s *Store) ListResources(ctx context.Context, accountIDs []string) (map[str
 			FROM deployments
 			WHERE account_id = ANY($1::uuid[]) AND status <> 'undeployed'
 			UNION ALL
-			SELECT account_id, 'variable', account_id::text || ':' || name, name
-			FROM account_variables
-			WHERE account_id = ANY($1::uuid[])
-			UNION ALL
 			SELECT account_id, 'knowledge_store', id, name
 			FROM knowledge_stores
 			WHERE account_id = ANY($1::uuid[])
