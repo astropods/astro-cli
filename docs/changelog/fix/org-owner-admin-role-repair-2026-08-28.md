@@ -52,26 +52,27 @@ A failed exchange keeps the token in hand and logs. The claims are then stale un
 
 ## Migration
 
-The historical set needs one pass per environment, which is an operator step rather than shipped code. For each account in
-
-```sql
-SELECT a.id, ao.workos_org_id, a.owner_user_id
-FROM accounts a
-JOIN account_organizations ao ON ao.account_id = a.id
-WHERE a.deleted_at IS NULL AND a.owner_user_id IS NOT NULL;
-```
-
-read the owner's membership and promote it when the slug is neither `admin` nor `owner`:
+The historical set needs one pass per environment, which is an operator step rather than shipped code. Each promotion must name both the owner and the organization they own, because a listing filtered by `user_id` alone also returns the organizations where that person is only a member, and promoting those would hand out admin the account owner never had.
 
 ```sh
-curl -s -H "Authorization: Bearer $WORKOS_API_KEY" \
-  "https://api.workos.com/user_management/organization_memberships?user_id=$OWNER" \
-  | jq -r '.data[] | select(.role.slug != "admin" and .role.slug != "owner") | .id' \
-  | xargs -I{} curl -s -X PUT -H "Authorization: Bearer $WORKOS_API_KEY" \
-      -H "Content-Type: application/json" -d '{"role_slug":"admin"}' \
-      "https://api.workos.com/user_management/organization_memberships/{}"
+psql "$DATABASE_URL" -At -F' ' -c "
+  SELECT a.owner_user_id, ao.workos_org_id
+  FROM accounts a
+  JOIN account_organizations ao ON ao.account_id = a.id
+  WHERE a.deleted_at IS NULL AND a.owner_user_id IS NOT NULL" |
+while read -r owner org; do
+  curl -s -H "Authorization: Bearer $WORKOS_API_KEY" \
+    "https://api.workos.com/user_management/organization_memberships?user_id=$owner&organization_id=$org" |
+  jq -r '.data[] | select(.role.slug != "admin" and .role.slug != "owner") | .id' |
+  xargs -r -I{} curl -s -o /dev/null -X PUT \
+    -H "Authorization: Bearer $WORKOS_API_KEY" -H "Content-Type: application/json" \
+    -d '{"role_slug":"admin"}' \
+    "https://api.workos.com/user_management/organization_memberships/{}"
+done
 ```
 
-One listing per distinct owner covers all of their accounts. Preview holds 63 linked accounts with owners across 2026-08-28.
+Both filters together return at most one membership, the owner's own, so the pass costs one listing per account rather than per owner. Preview holds 63 linked accounts with owners as of 2026-08-28. Drop the `xargs` line to see what would change first.
+
+`repairOwnerRole` pairs the same two values for the same reason: it resolves the account from the membership's organization, then promotes only when that account's `owner_user_id` is the member in hand.
 
 Anyone the pass misses is repaired when they next sign in, so the pass is a convenience, not a prerequisite.
