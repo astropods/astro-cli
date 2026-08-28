@@ -30,10 +30,42 @@ func TestDeploymentAccessCatalog(t *testing.T) {
 	}
 }
 
+func TestAccessCatalogRegistersAssignableRoles(t *testing.T) {
+	t.Parallel()
+
+	// Reconciliation removes a stale direct role only for a registered slug, so
+	// every role Astro assigns resolves both ways.
+	assignable := map[authz.ResourceType][]authz.RoleSlug{
+		authz.ResourceAccount: {
+			authz.RoleAccountMember, authz.RoleAccountMaintainer, authz.RoleAccountAdmin,
+		},
+		authz.ResourceBlueprint: {
+			authz.RoleBlueprintViewer, authz.RoleBlueprintWriter,
+			authz.RoleBlueprintMaintainer, authz.RoleBlueprintAdmin,
+		},
+		authz.ResourceDeployment: {
+			authz.RoleDeploymentViewer, authz.RoleDeploymentWriter,
+			authz.RoleDeploymentMaintainer, authz.RoleDeploymentAdmin,
+		},
+	}
+	for resourceType, slugs := range assignable {
+		for _, slug := range slugs {
+			level, ok := authz.AccessLevelForRole(resourceType, slug)
+			if !ok {
+				t.Fatalf("AccessLevelForRole(%q, %q) not registered", resourceType, slug)
+			}
+			role, err := authz.RoleForAccessLevel(resourceType, level)
+			if err != nil || role != slug {
+				t.Fatalf("RoleForAccessLevel(%q, %q) = %q, %v", resourceType, level, role, err)
+			}
+		}
+	}
+}
+
 func TestDeploymentAccessCatalogRejectsUnknownValues(t *testing.T) {
 	t.Parallel()
 
-	if roles := authz.ResourceRoles(authz.ResourceType("blueprint")); roles != nil {
+	if roles := authz.ResourceRoles(authz.ResourceKnowledge); roles != nil {
 		t.Fatalf("unsupported resource roles = %#v", roles)
 	}
 	if _, err := authz.RoleForAccessLevel(authz.ResourceDeployment, authz.AccessLevel("operator")); err == nil {

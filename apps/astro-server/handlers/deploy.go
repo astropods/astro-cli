@@ -834,7 +834,7 @@ func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, qu
 	return nil
 }
 
-func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, resources authz.ResourceLifecycle, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache) gin.HandlerFunc {
+func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore *account.AccountStore, cfg *config.Config, vault *envelope.Vault, deployStore *deploymentstore.Store, varsStore *accountvars.Store, clusterStore *clusterstore.Store, k8sReg *k8s.Registry, entCheck EntitlementChecker, quotaCheck quota.Checker, queue DeployQueue, avatarStore *avatar.Store, resources authz.ResourceLifecycle, auditStore *auditlog.Store, ksStore *knowledgestore.Store, authzStore *authorizationstore.Store, imagePreflighter *k8s.ImagePreflighter, tmplCache *TemplateCache, cache k8scache.Cache, roleProjector *authz.RoleProjector) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		submittedSpec, err := parseDeploySpec(c)
 		if err != nil {
@@ -1048,6 +1048,7 @@ func DeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStore 
 		}
 		if !dctx.isUpdate {
 			registerAuthorizationResource(c.Request.Context(), log, resources, dctx.acct, authz.DeploymentResource(dctx.deploymentID), resourceName)
+			grantResourceCreatorAccess(c.Request.Context(), log, roleProjector, dctx.acct, authz.DeploymentResource(dctx.deploymentID), user)
 		}
 
 		tmplCache.DeleteByDeploymentID(dctx.deploymentID)

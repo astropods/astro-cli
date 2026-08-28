@@ -363,7 +363,7 @@ func TestRedeployEmitsDeploymentOperateObservation(t *testing.T) {
 		cfg,
 		testVault(t),
 		deploymentstore.NewStore(deployDB),
-		nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)) //nolint:staticcheck // dependencies after observation are unnecessary; the unmatched account lookup rejects safely.
 
 	deploymentID := deployid.New()
@@ -2145,7 +2145,7 @@ func setupDeployRouterWithPreflighter(t *testing.T, userID string, preflighter *
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, preflighter, nil, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, quota.Checker, avatarStore, registrar, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, nil, nil, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, preflighter, nil, nil, nil)) //nolint:staticcheck // nil varsStore, clusterStore, k8sReg, EntitlementChecker, quota.Checker, avatarStore, registrar, auditStore, ksStore, authzStore, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, cfg
 }
@@ -5864,7 +5864,7 @@ func setupDeployRouterWithClusterStoreClients(t *testing.T, userID string, cache
 			c.Next()
 		})
 	}
-	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, clusterStore, k8sReg, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, quota.Checker, avatarStore, registrar, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
+	router.POST("/deploy", DeployAgent(log, index, accountStore, cfg, testVault(t), deployStore, nil, clusterStore, k8sReg, nil, nil, &mockQueue{}, nil, nil, nil, nil, nil, nil, nil, nil, nil)) //nolint:staticcheck // nil varsStore, EntitlementChecker, quota.Checker, avatarStore, registrar, auditStore, ksStore, authzStore, preflighter, and tmplCache skip checks in tests
 
 	return router, indexMock, accountMock, deployMock, clusterMock
 }

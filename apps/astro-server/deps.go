@@ -98,6 +98,9 @@ type Clients struct {
 	Queue      *riverqueue.Queue
 	FGA        authz.FGA
 	Resources  authz.ResourceLifecycle
+	// RoleProjector records the role intent Astro derives: a resource creator's
+	// admin role, and each member's account role. Nil without WorkOS.
+	RoleProjector *authz.RoleProjector
 	// ConnectApps is nil when no WorkOS API key is configured; handlers then
 	// report apps unavailable.
 	ConnectApps connectapps.Client

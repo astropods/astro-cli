@@ -6,7 +6,14 @@ import "context"
 type RoleSlug string
 
 const (
-	RoleAccountAdmin RoleSlug = "account-admin"
+	RoleAccountMember     RoleSlug = "account-member"
+	RoleAccountMaintainer RoleSlug = "account-maintainer"
+	RoleAccountAdmin      RoleSlug = "account-admin"
+
+	RoleBlueprintViewer     RoleSlug = "blueprint-viewer"
+	RoleBlueprintWriter     RoleSlug = "blueprint-writer"
+	RoleBlueprintMaintainer RoleSlug = "blueprint-maintainer"
+	RoleBlueprintAdmin      RoleSlug = "blueprint-admin"
 
 	RoleDeploymentViewer     RoleSlug = "deployment-viewer"
 	RoleDeploymentWriter     RoleSlug = "deployment-writer"

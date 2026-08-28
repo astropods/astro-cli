@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -20,9 +21,10 @@ type directory interface {
 }
 
 type Provisioner struct {
-	directory directory
-	accounts  *account.AccountStore
-	log       *logger.Logger
+	directory    directory
+	accounts     *account.AccountStore
+	log          *logger.Logger
+	accountRoles *authz.RoleProjector
 }
 
 func NewProvisioner(client *Client, accounts *account.AccountStore, log *logger.Logger) *Provisioner {
@@ -88,6 +90,13 @@ func (p *Provisioner) resolveOrganization(ctx context.Context, acct *account.Acc
 	return created.ID, nil
 }
 
+// SetAccountRoles wires the projector that records the owner's account role.
+// Both the create path and the hourly sweep run through here, so a first
+// attempt that failed to reach WorkOS is repaired on the next sweep.
+func (p *Provisioner) SetAccountRoles(projector *authz.RoleProjector) {
+	p.accountRoles = projector
+}
+
 func (p *Provisioner) ensureOwnerMembership(ctx context.Context, acct *account.Account, orgID string) error {
 	owner, err := p.accounts.OwnerUserID(acct.ID)
 	if err != nil {
@@ -116,6 +125,12 @@ func (p *Provisioner) ensureOwnerMembership(ctx context.Context, acct *account.A
 	if err := p.accounts.UpsertMemberByWorkosMembershipID(acct.ID, owner, membershipID); err != nil {
 		p.log.Warn("org provision: record owner membership failed, healed at next login",
 			"account_id", acct.ID, "workos_membership_id", membershipID, "error", err)
+	}
+	if acct.Type == "organization" {
+		if err := p.accountRoles.ProjectAccountRole(ctx, acct.ID, orgID, owner, membershipID, workosAdminRole); err != nil {
+			p.log.Warn("org provision: project owner account role failed",
+				"account_id", acct.ID, "workos_membership_id", membershipID, "error", err)
+		}
 	}
 	return nil
 }

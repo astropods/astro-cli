@@ -12,6 +12,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/workos/workos-go/v6/pkg/usermanagement"
 )
@@ -197,5 +198,110 @@ func TestRepairOwnerRole_LeavesNonOwnersAlone(t *testing.T) {
 	})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+type fakeRoleIntents struct {
+	recorded []authz.AccessIntent
+}
+
+func (f *fakeRoleIntents) Record(_ context.Context, intent authz.AccessIntent) (authz.AccessIntent, bool, error) {
+	f.recorded = append(f.recorded, intent)
+	intent.DesiredVersion = 1
+	return intent, true, nil
+}
+
+type fakeRoleMembers struct{}
+
+func (fakeRoleMembers) GetMemberContext(context.Context, string, string) (*account.AccountMember, error) {
+	return nil, nil
+}
+
+type fakeRoleQueue struct{}
+
+func (fakeRoleQueue) InsertResourceAccessFGAReconcileJob(context.Context, authz.AccessIntentKey) error {
+	return nil
+}
+
+// Login is where an invited member's membership first appears locally, so it is
+// also where their account role has to be projected.
+func TestSyncMembershipsForUser_ProjectsAccountRole(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		membershipRole string
+		ownerUserID    string
+		want           authz.RoleSlug
+	}{
+		{"ordinary member", "member", "user-2", authz.RoleAccountMember},
+		{"owner repaired to admin", "member", "user-1", authz.RoleAccountAdmin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			defer db.Close() //nolint:errcheck
+
+			mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM accounts a").
+				WithArgs("user-1").
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			mock.ExpectQuery("SELECT .+ FROM accounts a").
+				WithArgs("org_1").
+				WillReturnRows(sqlmock.NewRows(account.SQLMockScanColumns).AddRow(
+					"acct-1", "myorg", "organization", "org_1", nil, time.Now(), time.Now(),
+					"My Org", nil, nil,
+					nil, nil, nil, nil, nil, nil,
+					"{}", "{}",
+				))
+			mock.ExpectExec("INSERT INTO account_members").
+				WithArgs("acct-1", "user-1").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("INSERT INTO account_member_workos").
+				WithArgs("acct-1", "user-1", "om_1").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+				WithArgs("acct-1").
+				WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow(tc.ownerUserID))
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodPut {
+					fmt.Fprint(w, `{"id":"om_1","user_id":"user-1","organization_id":"org_1","role":{"slug":"admin"},"status":"active"}`)
+					return
+				}
+				fmt.Fprintf(w, `{"data":[{"id":"om_1","user_id":"user-1","organization_id":"org_1","role":{"slug":%q},"status":"active"}],"list_metadata":{"before":"","after":""}}`, tc.membershipRole)
+			}))
+			defer srv.Close()
+
+			client := &Client{um: &usermanagement.Client{
+				APIKey:     "sk_test",
+				Endpoint:   srv.URL,
+				HTTPClient: srv.Client(),
+				JSONEncode: json.Marshal,
+			}}
+			intents := &fakeRoleIntents{}
+			sync := NewSync(client, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
+			sync.SetAccountRoles(authz.NewRoleProjector(intents, fakeRoleMembers{}, fakeRoleQueue{}))
+
+			if _, err := sync.SyncMembershipsForUser(context.Background(), "user-1"); err != nil {
+				t.Fatalf("SyncMembershipsForUser: %v", err)
+			}
+			if len(intents.recorded) != 1 {
+				t.Fatalf("recorded intents = %+v", intents.recorded)
+			}
+			intent := intents.recorded[0]
+			if intent.DesiredRole != tc.want {
+				t.Fatalf("desired role = %q, want %q", intent.DesiredRole, tc.want)
+			}
+			if intent.Resource != authz.AccountResource("acct-1") {
+				t.Fatalf("resource = %+v, want the Account resource", intent.Resource)
+			}
+			if intent.Subject != authz.MembershipAssignmentSubject("om_1") || intent.SubjectID != "user-1" {
+				t.Fatalf("subject = %+v/%q", intent.Subject, intent.SubjectID)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations: %v", err)
+			}
+		})
 	}
 }

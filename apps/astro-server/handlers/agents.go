@@ -671,7 +671,7 @@ func GetAgent(log *logger.Logger, index *agentindex.Index, accountStore *account
 // aiGatewayEnabled toggles the validator's astro-gateway provider gate — pushed
 // from cfg.Deployment.AIGatewayURL != "" at the main.go wiring site so a spec
 // using provider:astro-gateway in a gateway-less env fails at admission.
-func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, resources authz.ResourceLifecycle) gin.HandlerFunc {
+func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion string, db *sql.DB, auditStore *auditlog.Store, avatarStore *avatar.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, aiGatewayEnabled bool, resources authz.ResourceLifecycle, roleProjector *authz.RoleProjector) gin.HandlerFunc {
 	// Pre-parse the minimum version at startup so we don't parse on every request.
 	var minVer *semver.Version
 	if minCLIVersion != "" {
@@ -822,6 +822,8 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 			return
 		}
 		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID), agentName)
+		creator, _ := middleware.GetUser(c)
+		grantResourceCreatorAccess(c.Request.Context(), log, roleProjector, acct, authz.BlueprintResource(resourceID), creator)
 
 		// Publishing a new build shifts `latest_build_id` for every downstream
 		// deployment whose lineage points at this agent. Bust their per-account
@@ -904,7 +906,7 @@ type CreateBlueprintResponse struct {
 
 // CreateBlueprint handles POST /api/v1/agents/:account.
 // Creates an agent shell with no builds so users can connect a GitHub repo before pushing.
-func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, resources authz.ResourceLifecycle) gin.HandlerFunc {
+func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, auditStore *auditlog.Store, avatarStore *avatar.Store, db *sql.DB, resources authz.ResourceLifecycle, roleProjector *authz.RoleProjector) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		accountName := c.Param("account")
 
@@ -947,6 +949,8 @@ func CreateBlueprint(log *logger.Logger, index *agentindex.Index, accountStore *
 			return
 		}
 		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID), req.Name)
+		creator, _ := middleware.GetUser(c)
+		grantResourceCreatorAccess(c.Request.Context(), log, roleProjector, acct, authz.BlueprintResource(resourceID), creator)
 
 		if req.Visibility == "public" || req.Visibility == "private" {
 			if err := index.SetVisibility(acct.ID, req.Name, req.Visibility); err != nil {

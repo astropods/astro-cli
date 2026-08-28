@@ -34,7 +34,7 @@ Permissions do not imply one another. The initial WorkOS roles bundle them as fo
 | `deployment-maintainer` | `read`, `edit`, `operate` |
 | `deployment-admin` | `read`, `edit`, `operate`, `delete`, `manage_access` |
 
-Organization owner and admin roles inherit all deployment permissions from the organization resource. The generic organization member role has no deployment permissions. New deployment creators receive `deployment-admin` directly on the deployment.
+Organization owner and admin roles inherit all deployment permissions from the organization resource. The generic organization member role has no deployment permissions. New deployment creators receive `deployment-admin` directly on the deployment, as described in [Derived roles](#derived-roles).
 
 ```mermaid
 flowchart LR
@@ -163,6 +163,31 @@ flowchart LR
 - WorkOS names are creation-time labels; immutable Astro external IDs drive authorization.
 - Delete removes the WorkOS resource; WorkOS cascades its assignments.
 - When WorkOS is disabled, Astro skips lifecycle calls.
+
+## Derived roles
+
+Two roles follow from what Astro already knows rather than from someone choosing
+them. Both are recorded as access intent, so the reconciler converges them and a
+WorkOS failure retries.
+
+| Derived role | Subject | Source |
+| --- | --- | --- |
+| `<type>-admin` on a new deployment or blueprint | The creator | The authenticated caller who created it, resolved to their organization membership |
+| `account-admin` or `account-member` on the Account | Every organization member | The member's WorkOS organization role: owner and admin become admin, every other role becomes member |
+
+Five paths project the account role, because none of them sees every member:
+member add, member role change, member removal, organization provisioning for
+the account owner, and login-time reconciliation for everyone else. Login
+matters most, because an invited member's membership first appears there rather
+than through a member-add call. `account-maintainer` is never derived, so a
+maintainer is always deliberate.
+
+Blueprint roles are assigned but not yet checked; assigning them now means an
+account's access is already correct when blueprint enforcement lands.
+
+Derivation ignores the rollout gates below on purpose. The ledger and WorkOS
+converge while enforcement is off, so enabling an organization's experiment
+changes what is enforced, not who has access.
 
 ## Read visibility and discovery
 

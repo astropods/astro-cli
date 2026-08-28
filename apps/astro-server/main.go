@@ -575,6 +575,17 @@ func runAPI(
 		os.Exit(1)
 	}
 
+	// Roles Astro derives rather than a user choosing them: a resource
+	// creator's admin role, and each member's account role. They ride the same
+	// ledger as the access API, so they converge before enforcement turns on.
+	var roleProjector *authz.RoleProjector
+	if resourceAccessSync != nil {
+		roleProjector = authz.NewRoleProjector(resourceAccessSync, accountStore, rq)
+		if orgSync != nil {
+			orgSync.SetAccountRoles(roleProjector)
+		}
+	}
+
 	// Create audit log store. The watcher observer rides the audit trail so that
 	// any handler auditing a deployment mutation enrolls its actor as a watcher
 	// without a second call site to keep in sync.
@@ -629,22 +640,23 @@ func runAPI(
 			BillingStatus:      billingStatus,
 		},
 		Clients: Clients{
-			AgentIndex:  agentIndex,
-			K8s:         k8sClient,
-			Registry:    registry,
-			Loki:        lokiClient,
-			Org:         orgClient,
-			OrgSync:     orgSync,
-			Billing:     billingProvider,
-			Payment:     paymentProvider,
-			Pipes:       pipesClient,
-			Prom:        promClient,
-			K8sCache:    k8sCache,
-			Preflight:   imagePreflighter,
-			Queue:       rq,
-			FGA:         deploymentFGA,
-			Resources:   resourceLifecycle,
-			ConnectApps: connectAppsClient,
+			AgentIndex:    agentIndex,
+			K8s:           k8sClient,
+			Registry:      registry,
+			Loki:          lokiClient,
+			Org:           orgClient,
+			OrgSync:       orgSync,
+			Billing:       billingProvider,
+			Payment:       paymentProvider,
+			Pipes:         pipesClient,
+			Prom:          promClient,
+			K8sCache:      k8sCache,
+			Preflight:     imagePreflighter,
+			Queue:         rq,
+			FGA:           deploymentFGA,
+			Resources:     resourceLifecycle,
+			RoleProjector: roleProjector,
+			ConnectApps:   connectAppsClient,
 		},
 	}
 	setupRoutes(router, deps)
@@ -1005,6 +1017,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	k8sCache := deps.Clients.K8sCache
 	imagePreflighter := deps.Clients.Preflight
 	queue := deps.Clients.Queue
+	roleProjector := deps.Clients.RoleProjector
 	deploymentFGA := deps.Clients.FGA
 	resourceLifecycle := deps.Clients.Resources
 	resourceAccessSync := deps.Stores.ResourceAccessSync
@@ -1024,6 +1037,9 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	// Signup provisions the account's WorkOS organization inline; the worker's
 	// hourly sweep covers whatever that attempt fails to link.
 	orgProvisioner := org.NewProvisioner(orgClient, accountStore, log)
+	if orgProvisioner != nil {
+		orgProvisioner.SetAccountRoles(roleProjector)
+	}
 	resourceAccounts := authz.NewDeploymentAccountResolver(db)
 	fgaExperiment := experiment.NewGate(experimentStore, experiment.FineGrainedAccess)
 	classificationExperiment := experiment.NewGate(experimentStore, experiment.PromptClassificationStats)
@@ -2062,7 +2078,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			createBlueprintRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(createBlueprintRoutes, "", "Create a blueprint",
-					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db, resourceLifecycle), quota.ResourceBlueprints),
+					quotaChecker.Wrap(handlers.CreateBlueprint(log, agentIndex, accountStore, auditStore, avatarStore, db, resourceLifecycle, roleProjector), quota.ResourceBlueprints),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2098,7 +2114,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			agentWriteRoutes.Use(middleware.RequireAccountPermission(accountStore, "agents:write"))
 			{
 				api.POST(agentWriteRoutes, "/register", "Register an agent build",
-					quotaChecker.WrapRegister(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != "", resourceLifecycle)),
+					quotaChecker.WrapRegister(handlers.RegisterAgent(log, agentIndex, cfg.Server.MinCLIVersion, db, auditStore, avatarStore, deploymentStore, k8sCache, cfg.Deployment.AIGatewayURL != "", resourceLifecycle, roleProjector)),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
@@ -2124,7 +2140,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache, queue, resourceLifecycle),
+				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache, queue, resourceLifecycle, roleProjector),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Source account name"),
@@ -2166,7 +2182,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			}
 
 			// clusterStore validates optional `target.cluster_id` on deploy specs.
-			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deps.Vault, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, resourceLifecycle, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache),
+			api.POST(protected, "/deploy", "Deploy an agent", handlers.DeployAgent(log, agentIndex, accountStore, cfg, deps.Vault, deploymentStore, accountVarsStore, clusterStore, k8sReg, ent, quotaChecker, queue, avatarStore, resourceLifecycle, auditStore, ksStore, authzStore, imagePreflighter, tmplCache, k8sCache, roleProjector),
 				oapispec.Tags("Deployments"),
 				oapispec.BearerAuth(),
 				oapispec.Desc("Accepts a fulfilled deployment spec (YAML or JSON) and schedules async deployment to Kubernetes."),

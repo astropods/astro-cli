@@ -9,6 +9,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/auth"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -27,11 +28,33 @@ type Sync struct {
 	workos       *auth.WorkOSClient
 	db           *sql.DB
 	log          *logger.Logger
+	accountRoles *authz.RoleProjector
 }
 
 // NewSync creates a new Sync instance.
 func NewSync(client *Client, accountStore *account.AccountStore, workos *auth.WorkOSClient, db *sql.DB, log *logger.Logger) *Sync {
 	return &Sync{client: client, accountStore: accountStore, workos: workos, db: db, log: log}
+}
+
+// SetAccountRoles wires the projector that mirrors each member's organization
+// role onto the Account authorization resource. The reconciliation queue only
+// exists after the API's River client is built, so this is set rather than
+// passed to NewSync.
+func (s *Sync) SetAccountRoles(projector *authz.RoleProjector) {
+	s.accountRoles = projector
+}
+
+// projectAccountRole mirrors one member's organization role. A failure leaves
+// the member without the role until the next login repairs it, so it is logged
+// rather than returned: the membership write itself already succeeded.
+func (s *Sync) projectAccountRole(ctx context.Context, acct *account.Account, userID, membershipID, organizationRole string) {
+	if s.accountRoles == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+		return
+	}
+	err := s.accountRoles.ProjectAccountRole(ctx, acct.ID, acct.WorkOSOrganizationID, userID, membershipID, organizationRole)
+	if err != nil {
+		s.warn("org sync: project account role failed", acct.ID, err)
+	}
 }
 
 func ownerGuardLockKey(workosOrgID string) int64 {
@@ -91,6 +114,7 @@ func (s *Sync) AddMember(ctx context.Context, accountID, userID, role string) (*
 		_ = s.client.DeleteMembership(ctx, m.ID)
 		return nil, fmt.Errorf("failed to add local member: %w", err)
 	}
+	s.projectAccountRole(ctx, acct, userID, m.ID, role)
 
 	return &account.AccountMember{
 		AccountID:          accountID,
@@ -160,6 +184,9 @@ func (s *Sync) ChangeMemberRole(ctx context.Context, accountID, userID, newRole,
 		}
 		return nil
 	})
+	if err == nil {
+		s.projectAccountRole(ctx, acct, userID, member.WorkOSMembershipID, newRole)
+	}
 	return previousRole, err
 }
 
@@ -196,6 +223,18 @@ func (s *Sync) transferOwnership(ctx context.Context, accountID, userID, previou
 	return nil
 }
 
+// revokeAccountRole drops a removed member's account role. WorkOS discards a
+// deleted membership's own assignments; the intent also clears the ledger row
+// so a rebuilt membership does not inherit the old role.
+func (s *Sync) revokeAccountRole(ctx context.Context, acct *account.Account, userID, membershipID string) {
+	if s.accountRoles == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+		return
+	}
+	if err := s.accountRoles.RevokeAccountRole(ctx, acct.ID, acct.WorkOSOrganizationID, userID, membershipID); err != nil {
+		s.warn("org sync: revoke account role failed", acct.ID, err)
+	}
+}
+
 // RemoveMember removes a member from an org account, deleting from WorkOS first
 // then locally. The account's owner cannot be removed: ownership transfers
 // first, so the account is never left without one.
@@ -225,6 +264,7 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 		if membership.Status == "pending" {
 			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
 		}
+		s.revokeAccountRole(ctx, acct, userID, membership.ID)
 		return nil
 	}
 	if member.WorkOSMembershipID == "" {
@@ -270,7 +310,11 @@ func (s *Sync) RemoveMember(ctx context.Context, accountID, userID string) error
 			s.revokeInvitationsForUser(ctx, acct.WorkOSOrganizationID, userID)
 		}
 
-		return s.accountStore.RemoveMember(accountID, userID)
+		if err := s.accountStore.RemoveMember(accountID, userID); err != nil {
+			return err
+		}
+		s.revokeAccountRole(ctx, acct, userID, member.WorkOSMembershipID)
+		return nil
 	})
 }
 
@@ -336,9 +380,12 @@ func (s *Sync) SyncMembershipsForUser(ctx context.Context, userID string) ([]str
 			return nil, fmt.Errorf("failed to upsert member for account %s: %w", acct.ID, err)
 		}
 
+		role := m.RoleSlug
 		if s.repairOwnerRole(ctx, acct.ID, m) {
 			repaired = append(repaired, m.OrganizationID)
+			role = workosAdminRole
 		}
+		s.projectAccountRole(ctx, acct, m.UserID, m.ID, role)
 	}
 
 	return repaired, nil

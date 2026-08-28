@@ -154,3 +154,53 @@ func TestAccessIntentStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestResourceAccessSyncStoreConfirmsDeletionPerResourceType(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		resource ResourceRef
+		query    string
+	}{
+		{"deployment", DeploymentResource("dep_1"), "FROM deployments"},
+		{"blueprint", BlueprintResource("bp_1"), "FROM agents"},
+		{"account", AccountResource("acct_1"), "FROM accounts"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatalf("sqlmock: %v", err)
+			}
+			defer db.Close() //nolint:errcheck
+
+			mock.ExpectQuery(tc.query).
+				WithArgs(tc.resource.ExternalID).
+				WillReturnRows(sqlmock.NewRows([]string{"deleted"}).AddRow(true))
+
+			deleted, err := NewResourceAccessSyncStore(db).ResourceDeleted(context.Background(), tc.resource)
+			if err != nil || !deleted {
+				t.Fatalf("ResourceDeleted() = %v, %v", deleted, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations: %v", err)
+			}
+		})
+	}
+}
+
+// An unmodelled type reaches no query, so reconciliation keeps retrying rather
+// than discarding intent it cannot prove is stale.
+func TestResourceAccessSyncStoreLeavesUnmodelledTypeAlone(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	deleted, err := NewResourceAccessSyncStore(db).ResourceDeleted(context.Background(), KnowledgeStoreResource("ks_1"))
+	if err != nil || deleted {
+		t.Fatalf("ResourceDeleted() = %v, %v", deleted, err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}

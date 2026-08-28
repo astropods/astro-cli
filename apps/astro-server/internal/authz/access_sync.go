@@ -251,19 +251,23 @@ func (s *ResourceAccessSyncStore) ResourceDeleted(ctx context.Context, resource 
 	if s == nil || s.db == nil {
 		return false, errors.New("resource access sync store is not configured")
 	}
-	if resource.Type != ResourceDeployment || resource.ExternalID == "" {
+	if resource.ExternalID == "" {
+		return false, nil
+	}
+	var query string
+	switch resource.Type {
+	case ResourceDeployment:
+		query = `SELECT NOT EXISTS (SELECT 1 FROM deployments WHERE id = $1 AND status <> 'undeployed')`
+	case ResourceBlueprint:
+		query = `SELECT NOT EXISTS (SELECT 1 FROM agents WHERE uid = $1 AND archived_at IS NULL)`
+	case ResourceAccount:
+		query = `SELECT NOT EXISTS (SELECT 1 FROM accounts WHERE id = $1 AND deleted_at IS NULL)`
+	default:
 		return false, nil
 	}
 	var deleted bool
-	err := s.db.QueryRowContext(ctx, `
-		SELECT NOT EXISTS (
-			SELECT 1
-			FROM deployments
-			WHERE id = $1 AND status <> 'undeployed'
-		)
-	`, resource.ExternalID).Scan(&deleted)
-	if err != nil {
-		return false, fmt.Errorf("confirm deployment deletion: %w", err)
+	if err := s.db.QueryRowContext(ctx, query, resource.ExternalID).Scan(&deleted); err != nil {
+		return false, fmt.Errorf("confirm %s deletion: %w", resource.Type, err)
 	}
 	return deleted, nil
 }

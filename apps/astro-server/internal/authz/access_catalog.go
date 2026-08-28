@@ -6,6 +6,7 @@ import "fmt"
 type AccessLevel string
 
 const (
+	AccessLevelMember     AccessLevel = "member"
 	AccessLevelViewer     AccessLevel = "viewer"
 	AccessLevelWriter     AccessLevel = "writer"
 	AccessLevelMaintainer AccessLevel = "maintainer"
@@ -14,6 +15,8 @@ const (
 
 // ResourceRole describes one built-in role. Permission checks continue to use
 // actions; WorkOS remains authoritative for the configured role bundle.
+// Actions is empty for a resource type Astro registers and assigns but does not
+// yet check.
 type ResourceRole struct {
 	Level   AccessLevel
 	Slug    RoleSlug
@@ -21,7 +24,20 @@ type ResourceRole struct {
 }
 
 // resourceRoleCatalog is the registration point for each FGA-managed resource.
+// Reconciliation removes a stale direct role only for a slug listed here, so a
+// role Astro assigns belongs in this catalog even before its checks land.
 var resourceRoleCatalog = map[ResourceType][]ResourceRole{
+	ResourceAccount: {
+		{Level: AccessLevelMember, Slug: RoleAccountMember},
+		{Level: AccessLevelMaintainer, Slug: RoleAccountMaintainer},
+		{Level: AccessLevelAdmin, Slug: RoleAccountAdmin},
+	},
+	ResourceBlueprint: {
+		{Level: AccessLevelViewer, Slug: RoleBlueprintViewer},
+		{Level: AccessLevelWriter, Slug: RoleBlueprintWriter},
+		{Level: AccessLevelMaintainer, Slug: RoleBlueprintMaintainer},
+		{Level: AccessLevelAdmin, Slug: RoleBlueprintAdmin},
+	},
 	ResourceDeployment: {
 		{Level: AccessLevelViewer, Slug: RoleDeploymentViewer, Actions: []Action{ActionDeploymentRead}},
 		{Level: AccessLevelWriter, Slug: RoleDeploymentWriter, Actions: []Action{

@@ -26,7 +26,7 @@ type TransferAgentRequest struct {
 // Moves an agent and all its versions from the source account to the target account.
 // The caller must be a member of both accounts. The agent's ECR namespace is preserved
 // so existing images continue to resolve correctly.
-func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, queue notifyQueue, resources authz.ResourceLifecycle) gin.HandlerFunc {
+func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *account.AccountStore, avatarStore *avatar.Store, auditStore *auditlog.Store, deployStore *deploymentstore.Store, cache k8scache.Cache, queue notifyQueue, resources authz.ResourceLifecycle, roleProjector *authz.RoleProjector) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sourceAccountName := c.Param("account")
 		agentName := c.Param("name")
@@ -104,6 +104,7 @@ func TransferAgent(log *logger.Logger, index *agentindex.Index, accountStore *ac
 		if resourceID != "" {
 			deleteAuthorizationResource(c.Request.Context(), log, resources, sourceAcct, authz.BlueprintResource(resourceID))
 			registerAuthorizationResource(c.Request.Context(), log, resources, targetAcct, authz.BlueprintResource(resourceID), agentName)
+			grantResourceCreatorAccess(c.Request.Context(), log, roleProjector, targetAcct, authz.BlueprintResource(resourceID), user)
 		}
 
 		// Transfer mutates `source_account_id` on every cross-account

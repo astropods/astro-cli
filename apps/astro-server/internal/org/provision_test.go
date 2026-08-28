@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -199,5 +200,64 @@ func TestDiscardOrganizationDeletesTheAdoptableOrganization(t *testing.T) {
 	p.DiscardOrganization(context.Background(), "acct-1")
 	if len(dir.deleted) != 1 || dir.deleted[0] != "org_orphan" {
 		t.Errorf("deleted = %v, want [org_orphan]", dir.deleted)
+	}
+}
+
+// An organization account's owner is provisioned here, not through AddMember,
+// so this is the only write path that can give them their account role.
+func TestEnsureOrganizationProjectsOwnerAccountRole(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		accountType string
+		want        int
+	}{
+		{"organization account", "organization", 1},
+		{"personal account", "personal", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := &fakeDirectory{}
+			p, mock := provisionerFor(t, dir)
+			intents := &fakeRoleIntents{}
+			p.SetAccountRoles(authz.NewRoleProjector(intents, fakeRoleMembers{}, fakeRoleQueue{}))
+
+			expectAccount(mock, "acct-1", "saswat", tc.accountType, nil)
+			mock.ExpectExec("INSERT INTO account_organizations").
+				WithArgs("acct-1", "org_new").
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			expectOwnerMembershipWrites(mock, "acct-1", "user-1")
+
+			if _, err := p.EnsureOrganization(context.Background(), "acct-1"); err != nil {
+				t.Fatalf("EnsureOrganization: %v", err)
+			}
+			if len(intents.recorded) != tc.want {
+				t.Fatalf("recorded intents = %+v, want %d", intents.recorded, tc.want)
+			}
+			if tc.want == 0 {
+				return
+			}
+			intent := intents.recorded[0]
+			if intent.DesiredRole != authz.RoleAccountAdmin || intent.Resource != authz.AccountResource("acct-1") {
+				t.Fatalf("intent = %+v, want account-admin on the Account resource", intent)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations: %v", err)
+			}
+		})
+	}
+}
+
+// A provisioner without the projector still provisions.
+func TestEnsureOrganizationWithoutAccountRoles(t *testing.T) {
+	dir := &fakeDirectory{}
+	p, mock := provisionerFor(t, dir)
+
+	expectAccount(mock, "acct-1", "saswat", "organization", nil)
+	mock.ExpectExec("INSERT INTO account_organizations").
+		WithArgs("acct-1", "org_new").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectOwnerMembershipWrites(mock, "acct-1", "user-1")
+
+	if _, err := p.EnsureOrganization(context.Background(), "acct-1"); err != nil {
+		t.Fatalf("EnsureOrganization: %v", err)
 	}
 }

@@ -229,11 +229,19 @@ Memberships are kept in sync between Astro's `account_members` table and WorkOS 
 
 All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 
-| Method             | WorkOS Action          | Local Action                  | Compensating Action      |
-| ------------------ | ---------------------- | ----------------------------- | ------------------------ |
-| `AddMember`        | Create membership      | Insert `account_members`      | Delete WorkOS membership |
-| `ChangeMemberRole` | Update membership role | (none — role lives in WorkOS) | (none needed)            |
-| `RemoveMember`     | Delete membership      | Delete local row              | (none needed)            |
+| Method             | WorkOS Action          | Local Action                  | Compensating Action      | Account role intent |
+| ------------------ | ---------------------- | ----------------------------- | ------------------------ | ------------------- |
+| `AddMember`        | Create membership      | Insert `account_members`      | Delete WorkOS membership | Record the new role |
+| `ChangeMemberRole` | Update membership role | (none — role lives in WorkOS) | (none needed)            | Record the new role |
+| `RemoveMember`     | Delete membership      | Delete local row              | (none needed)            | Record a removal    |
+
+The account role is the member's organization role projected onto the account's
+authorization resource: owner and admin become `account-admin`, every other
+organization role becomes `account-member`. `account-maintainer` is never
+derived, so a maintainer is always someone a person chose. The projection writes
+the same intent ledger as the access API, so a WorkOS failure retries instead of
+leaving the member without a role. See
+[Fine-grained access control](fine-grained-access-control.md#derived-roles).
 
 **Safety guards** built into the write path:
 - `ChangeMemberRole` prevents demoting the last owner
@@ -244,6 +252,8 @@ All member mutations flow through `org.Sync` to ensure WorkOS is updated first:
 There is no background events consumer. The read path is `org.Sync.SyncMembershipsForUser`, which runs on every login and token refresh: it lists the user's active WorkOS memberships and upserts each one whose org maps to a known local account.
 
 - **Idempotent**: `INSERT ON CONFLICT` upserts, so repeated logins are safe
+- **Projects the account role**: login is where an invited member's membership
+  first appears locally, so it is also where their account role is recorded
 - **No cursor**: nothing is persisted between runs — each login re-lists from WorkOS, which is why no `workos_event_cursor` table exists
 - **Best-effort**: reconciles any membership drift since the user's last login
 

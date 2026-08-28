@@ -564,6 +564,11 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 
 	var orgProvisionSweep *AccountOrgProvisionSweepWorker
 	if provisioner := org.NewProvisioner(cfg.OrgClient, cfg.AccountStore, log); provisioner != nil {
+		// The sweep repairs an owner's account role too. Reconciliation is left
+		// to the one-minute due-work sweep rather than an enqueue per account.
+		if cfg.ResourceAccessSync != nil {
+			provisioner.SetAccountRoles(authz.NewRoleProjector(cfg.ResourceAccessSync, cfg.AccountStore, nil))
+		}
 		addWorkerWithCatalogCheck(log, workers, &AccountOrgProvisionWorker{
 			provisioner: provisioner,
 			log:         log,

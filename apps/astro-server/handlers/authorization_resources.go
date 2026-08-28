@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
+	"github.com/astropods/astro/apps/astro-server/internal/auth"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
@@ -62,6 +63,38 @@ func deleteAuthorizationResource(
 			"resource_id", resource.ExternalID,
 			"error", err,
 		)
+	}
+}
+
+// grantResourceCreatorAccess records the creator's admin role on a resource the
+// caller just created. The intent is durable, so it converges even when the
+// registration call above failed and the backfill creates the resource later.
+func grantResourceCreatorAccess(
+	ctx context.Context,
+	log *logger.Logger,
+	projector *authz.RoleProjector,
+	acct *account.Account,
+	resource authz.ResourceRef,
+	creator *auth.User,
+) {
+	if projector == nil || acct == nil || creator == nil || acct.Type != "organization" || acct.WorkOSOrganizationID == "" {
+		return
+	}
+	grantCtx, cancel := context.WithTimeout(ctx, authorizationResourceRegistrationTimeout)
+	defer cancel()
+	err := projector.GrantCreatorAdmin(grantCtx, acct.ID, acct.WorkOSOrganizationID, creator.ID, resource)
+	attrs := []any{
+		"account_id", acct.ID,
+		"resource_type", resource.Type,
+		"resource_id", resource.ExternalID,
+		"user_id", creator.ID,
+	}
+	switch {
+	case err == nil:
+	case errors.Is(err, authz.ErrAccessSubjectNotProvisioned):
+		log.Debug("authorization resource: creator has no WorkOS membership mirror", attrs...)
+	default:
+		log.Warn("authorization resource: grant creator access failed", append(attrs, "error", err)...)
 	}
 }
 
