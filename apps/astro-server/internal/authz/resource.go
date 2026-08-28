@@ -9,7 +9,6 @@ const (
 	ResourceAudience     ResourceType = "audience"
 	ResourceBlueprint    ResourceType = "blueprint"
 	ResourceDeployment   ResourceType = "deployment"
-	ResourceInsights     ResourceType = "insights"
 	ResourceKnowledge    ResourceType = "knowledge_store"
 	ResourceVariable     ResourceType = "variable"
 )
@@ -35,10 +34,6 @@ func AudienceResource(id string) ResourceRef {
 
 func BlueprintResource(id string) ResourceRef {
 	return ResourceRef{Type: ResourceBlueprint, ExternalID: id}
-}
-
-func InsightsResource(accountID string) ResourceRef {
-	return ResourceRef{Type: ResourceInsights, ExternalID: accountID}
 }
 
 func KnowledgeStoreResource(id string) ResourceRef {

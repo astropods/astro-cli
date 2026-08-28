@@ -5,7 +5,6 @@
     { "slug": "deployment", "parent": "account", "description": "A running agent." },
     { "slug": "variable", "parent": "account", "description": "An account vault variable." },
     { "slug": "audience", "parent": "account", "description": "A named list of people who may talk to an agent." },
-    { "slug": "insights", "parent": "account", "description": "The account's coding-tool activity. One per account." },
     { "slug": "knowledge_store", "parent": "account", "description": "A connected or managed data store an agent reads." }
   ],
   "permissions": [
@@ -20,6 +19,8 @@
     { "slug": "app:manage", "resourceType": "account", "name": "Manage apps", "description": "Create and delete machine apps, their scopes, and their secrets." },
     { "slug": "data_source:read", "resourceType": "account", "name": "Read data sources", "description": "View data sources and their exclusion lists." },
     { "slug": "data_source:manage", "resourceType": "account", "name": "Manage data sources", "description": "Create, rename, and revoke data sources, and edit their exclusion lists." },
+    { "slug": "insights:read_summary", "resourceType": "account", "name": "Read Insights summary", "description": "View the account's aggregate coding-tool activity and your own." },
+    { "slug": "insights:read_members", "resourceType": "account", "name": "Read member Insights", "description": "View each member's coding-tool activity." },
     { "slug": "billing:read", "resourceType": "account", "name": "Read billing", "description": "View usage, invoices, balances, and spend thresholds." },
     { "slug": "billing:manage", "resourceType": "account", "name": "Manage billing", "description": "Set spend thresholds and manage the payment method." },
     { "slug": "audit_log:read", "resourceType": "account", "name": "Read audit log", "description": "View the account audit log." },
@@ -56,10 +57,6 @@
     { "slug": "audience:delete", "resourceType": "audience", "name": "Delete audience", "description": "Delete the audience." },
     { "slug": "audience:manage_access", "resourceType": "audience", "name": "Manage audience access", "description": "Grant and revoke access to the audience." },
 
-    { "slug": "insights:read", "resourceType": "insights", "name": "Read Insights", "description": "View the account's aggregate coding-tool activity and your own." },
-    { "slug": "insights:read_members", "resourceType": "insights", "name": "Read member Insights", "description": "View each member's coding-tool activity." },
-    { "slug": "insights:manage_access", "resourceType": "insights", "name": "Manage Insights access", "description": "Grant and revoke access to Insights." },
-
     { "slug": "knowledge_store:read", "resourceType": "knowledge_store", "name": "Read knowledge store", "description": "View the knowledge store and its connection details." },
     { "slug": "knowledge_store:edit", "resourceType": "knowledge_store", "name": "Edit knowledge store", "description": "Change the knowledge store's credentials and settings." },
     { "slug": "knowledge_store:operate", "resourceType": "knowledge_store", "name": "Operate knowledge store", "description": "Recheck the knowledge store's connection and repair its host." },
@@ -72,7 +69,7 @@
       "resourceType": "account",
       "name": "Member",
       "description": "Belongs to the account. Sees no resource unless granted one directly.",
-      "permissions": ["account:read", "member:read", "group:read", "cluster:read"]
+      "permissions": ["account:read", "member:read", "group:read", "cluster:read", "insights:read_summary"]
     },
     {
       "slug": "account-maintainer",
@@ -85,6 +82,7 @@
         "group:read", "group:manage",
         "app:read", "app:manage",
         "data_source:read", "data_source:manage",
+        "insights:read_summary", "insights:read_members",
         "integration:read", "integration:manage",
         "audit_log:read", "billing:read", "cluster:read"
       ]
@@ -100,6 +98,7 @@
         "group:read", "group:manage",
         "app:read", "app:manage",
         "data_source:read", "data_source:manage",
+        "insights:read_summary", "insights:read_members",
         "billing:read", "billing:manage",
         "audit_log:read",
         "integration:read", "integration:manage",
@@ -109,7 +108,6 @@
         "deployment:read", "deployment:edit", "deployment:operate", "deployment:delete", "deployment:manage_access",
         "variable:read", "variable:edit", "variable:delete", "variable:manage_access",
         "audience:read", "audience:edit", "audience:manage_members", "audience:delete", "audience:manage_access",
-        "insights:read", "insights:read_members", "insights:manage_access",
         "knowledge_store:read", "knowledge_store:edit", "knowledge_store:operate", "knowledge_store:delete", "knowledge_store:manage_access"
       ]
     },
@@ -132,9 +130,6 @@
     { "slug": "audience-writer", "resourceType": "audience", "name": "Writer", "description": "Also renames the audience.", "permissions": ["audience:read", "audience:edit"] },
     { "slug": "audience-maintainer", "resourceType": "audience", "name": "Maintainer", "description": "Also adds and removes members.", "permissions": ["audience:read", "audience:edit", "audience:manage_members"] },
     { "slug": "audience-admin", "resourceType": "audience", "name": "Admin", "description": "Full control, including deletion and access.", "permissions": ["audience:read", "audience:edit", "audience:manage_members", "audience:delete", "audience:manage_access"] },
-
-    { "slug": "insights-viewer", "resourceType": "insights", "name": "Viewer", "description": "Reads the account aggregate and their own activity.", "permissions": ["insights:read"] },
-    { "slug": "insights-admin", "resourceType": "insights", "name": "Admin", "description": "Also reads every member's activity and grants access.", "permissions": ["insights:read", "insights:read_members", "insights:manage_access"] },
 
     { "slug": "knowledge_store-viewer", "resourceType": "knowledge_store", "name": "Viewer", "description": "Reads the knowledge store.", "permissions": ["knowledge_store:read"] },
     { "slug": "knowledge_store-writer", "resourceType": "knowledge_store", "name": "Writer", "description": "Reads and changes the knowledge store.", "permissions": ["knowledge_store:read", "knowledge_store:edit"] },

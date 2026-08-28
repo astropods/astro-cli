@@ -229,7 +229,7 @@ func CreateAccount(log *logger.Logger, accountStore *account.AccountStore, orgPr
 			switch {
 			case err == nil:
 				acct.WorkOSOrganizationID = workosOrgID
-				registerAccountAuthorizationResources(ctx, log, resources, acct)
+				registerAccountAuthorizationResource(ctx, log, resources, acct)
 			case req.Type == "organization":
 				log.Error("accounts: provision WorkOS organization failed", "error", err, "account_id", acct.ID)
 				orgProvisioner.DiscardOrganization(ctx, acct.ID)

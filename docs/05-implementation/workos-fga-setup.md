@@ -15,7 +15,6 @@ Read [Runbook](#runbook) before applying to an environment.
 | `deployment` | `account` | A running agent. |
 | `variable` | `account` | An account vault variable. |
 | `audience` | `account` | A named list of people who may talk to an agent. |
-| `insights` | `account` | The account's coding-tool activity. One per account. |
 | `knowledge_store` | `account` | A connected or managed data store an agent reads. |
 
 ## Permissions
@@ -35,6 +34,8 @@ Read [Runbook](#runbook) before applying to an environment.
 | `app:manage` | Manage apps | Create and delete machine apps, their scopes, and their secrets. |
 | `data_source:read` | Read data sources | View data sources and their exclusion lists. |
 | `data_source:manage` | Manage data sources | Create, rename, and revoke data sources, and edit their exclusion lists. |
+| `insights:read_summary` | Read Insights summary | View the account's aggregate coding-tool activity and your own. |
+| `insights:read_members` | Read member Insights | View each member's coding-tool activity. |
 | `billing:read` | Read billing | View usage, invoices, balances, and spend thresholds. |
 | `billing:manage` | Manage billing | Set spend thresholds and manage the payment method. |
 | `audit_log:read` | Read audit log | View the account audit log. |
@@ -87,14 +88,6 @@ Read [Runbook](#runbook) before applying to an environment.
 | `audience:delete` | Delete audience | Delete the audience. |
 | `audience:manage_access` | Manage audience access | Grant and revoke access to the audience. |
 
-### `insights`
-
-| Slug | Name | Description |
-| --- | --- | --- |
-| `insights:read` | Read Insights | View the account's aggregate coding-tool activity and your own. |
-| `insights:read_members` | Read member Insights | View each member's coding-tool activity. |
-| `insights:manage_access` | Manage Insights access | Grant and revoke access to Insights. |
-
 ### `knowledge_store`
 
 | Slug | Name | Description |
@@ -124,6 +117,7 @@ account:read
 member:read
 group:read
 cluster:read
+insights:read_summary
 ```
 
 `account-maintainer`
@@ -139,6 +133,8 @@ app:read
 app:manage
 data_source:read
 data_source:manage
+insights:read_summary
+insights:read_members
 integration:read
 integration:manage
 audit_log:read
@@ -160,6 +156,8 @@ app:read
 app:manage
 data_source:read
 data_source:manage
+insights:read_summary
+insights:read_members
 billing:read
 billing:manage
 audit_log:read
@@ -191,9 +189,6 @@ audience:edit
 audience:manage_members
 audience:delete
 audience:manage_access
-insights:read
-insights:read_members
-insights:manage_access
 knowledge_store:read
 knowledge_store:edit
 knowledge_store:operate
@@ -236,13 +231,6 @@ knowledge_store:manage_access
 | `audience-maintainer` | Maintainer | Also adds and removes members. | `audience:read`, `audience:edit`, `audience:manage_members` |
 | `audience-admin` | Admin | Full control, including deletion and access. | `audience:read`, `audience:edit`, `audience:manage_members`, `audience:delete`, `audience:manage_access` |
 
-### `insights`
-
-| Slug | Name | Description | Permissions |
-| --- | --- | --- | --- |
-| `insights-viewer` | Viewer | Reads the account aggregate and their own activity. | `insights:read` |
-| `insights-admin` | Admin | Also reads every member's activity and grants access. | `insights:read`, `insights:read_members`, `insights:manage_access` |
-
 ### `knowledge_store`
 
 | Slug | Name | Description | Permissions |
@@ -271,8 +259,8 @@ Add before you deploy the code that checks a permission, remove only after that 
 
 | Check | Expectation |
 | --- | --- |
-| Permission count | 50 across 7 resource types |
-| Role count | 24 |
+| Permission count | 49 across 6 resource types (`jq '.permissions \| length' scripts/workos-fga/model.json`) |
+| Role count | 22 |
 | `account-member` | No child-resource permission. This is what makes resources private by default |
 | Root organization role | No product permission at all |
 

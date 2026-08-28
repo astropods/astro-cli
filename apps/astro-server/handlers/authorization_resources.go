@@ -65,7 +65,7 @@ func deleteAuthorizationResource(
 	}
 }
 
-func registerAccountAuthorizationResources(
+func registerAccountAuthorizationResource(
 	ctx context.Context,
 	log *logger.Logger,
 	resources authz.ResourceLifecycle,
@@ -93,7 +93,5 @@ func registerAccountAuthorizationResources(
 			"resource_id", acct.ID,
 			"error", err,
 		)
-		return
 	}
-	registerAuthorizationResource(ctx, log, resources, acct, authz.InsightsResource(acct.ID), "Insights")
 }

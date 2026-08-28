@@ -46,7 +46,7 @@ func (r *recordingResourceLifecycle) DeleteResource(_ context.Context, organizat
 	return nil
 }
 
-func TestRegisterAccountAuthorizationResources(t *testing.T) {
+func TestRegisterAccountAuthorizationResource(t *testing.T) {
 	t.Parallel()
 
 	registrar := &recordingResourceLifecycle{}
@@ -58,7 +58,7 @@ func TestRegisterAccountAuthorizationResources(t *testing.T) {
 		WorkOSOrganizationID: "org_123",
 	}
 
-	registerAccountAuthorizationResources(context.Background(), logger.New("error", "json"), registrar, acct)
+	registerAccountAuthorizationResource(context.Background(), logger.New("error", "json"), registrar, acct)
 
 	want := []resourceRegistration{
 		{
@@ -66,12 +66,6 @@ func TestRegisterAccountAuthorizationResources(t *testing.T) {
 			resource:       authz.AccountResource("account_123"),
 			parent:         authz.OrganizationResource("org_123"),
 			name:           "Support",
-		},
-		{
-			organizationID: "org_123",
-			resource:       authz.InsightsResource("account_123"),
-			parent:         authz.AccountResource("account_123"),
-			name:           "Insights",
 		},
 	}
 	if !reflect.DeepEqual(registrar.registrations, want) {
