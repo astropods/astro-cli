@@ -693,7 +693,35 @@ func TestGetDeploymentByNamespace(t *testing.T) {
 	}
 }
 
-func TestNamespaceLookupsUseIndex(t *testing.T) {
+// The by-namespace lookups in this file are point reads on a column with no
+// other index. They need idx_deployments_namespace_latest to exist and to lead
+// with (namespace, deployed_at DESC), so equality on namespace returns rows in
+// the ORDER BY's order and LIMIT 1 stops at the first one. Which index the
+// planner picks is not asserted: on a test-sized table any index beats a scan,
+// so that choice says nothing about production.
+func TestNamespaceIndexShape(t *testing.T) {
+	db := testDB(t)
+
+	var indexDef string
+	err := db.QueryRow(`
+		SELECT indexdef FROM pg_indexes
+		WHERE schemaname = 'public' AND tablename = 'deployments'
+		  AND indexname = 'idx_deployments_namespace_latest'
+	`).Scan(&indexDef)
+	if errors.Is(err, sql.ErrNoRows) {
+		t.Fatal("idx_deployments_namespace_latest is missing; by-namespace lookups fall back to a sequential scan")
+	}
+	if err != nil {
+		t.Fatalf("read index definition failed: %v", err)
+	}
+	if !strings.Contains(indexDef, "(namespace, deployed_at DESC)") {
+		t.Errorf("index must lead with (namespace, deployed_at DESC) or the ORDER BY still sorts; got %s", indexDef)
+	}
+}
+
+// With sequential scans disabled the planner must satisfy both namespace
+// lookups from an index alone, with no Sort node above it.
+func TestNamespaceLookupsNeedNoSort(t *testing.T) {
 	db := testDB(t)
 
 	tests := []struct {
@@ -738,11 +766,11 @@ func TestNamespaceLookupsUseIndex(t *testing.T) {
 				t.Fatalf("plan rows failed: %v", err)
 			}
 
-			if !strings.Contains(plan.String(), "idx_deployments_namespace_latest") {
-				t.Errorf("namespace lookup does not use idx_deployments_namespace_latest:\n%s", plan.String())
-			}
 			if strings.Contains(plan.String(), "Sort") {
 				t.Errorf("namespace lookup sorts instead of reading deployed_at in index order:\n%s", plan.String())
+			}
+			if !strings.Contains(plan.String(), "Index Scan") && !strings.Contains(plan.String(), "Index Only Scan") {
+				t.Errorf("namespace lookup does not read through an index:\n%s", plan.String())
 			}
 		})
 	}

@@ -12,7 +12,7 @@ import (
 
 // TestArchive_HidesFromListings verifies that after Archive, the agent
 // disappears from List, ListForAccount, and ListPublicAgents but is still
-// retrievable via Get (so existing deployments keep working).
+// retrievable with its versions (so existing deployments keep working).
 func TestArchive_HidesFromListings(t *testing.T) {
 	db := testDB(t)
 	index := agentindex.NewIndexWithDB(db)
@@ -48,10 +48,9 @@ func TestArchive_HidesFromListings(t *testing.T) {
 	assertAgentInAccountList(t, index, accountID, agentName, false)
 	assertAgentInPublicList(t, index, agentName, false)
 
-	// But still accessible via direct Get (for existing deployments)
-	agent, err := index.Get(accountID, agentName)
+	agent, err := index.GetWithVersions(accountID, agentName)
 	if err != nil {
-		t.Fatalf("Get should still return archived agent: %v", err)
+		t.Fatalf("GetWithVersions should still return archived agent: %v", err)
 	}
 	if agent.ArchivedAt == nil {
 		t.Error("ArchivedAt should be set after archiving")
