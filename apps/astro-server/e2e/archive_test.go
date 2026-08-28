@@ -36,7 +36,6 @@ func TestArchive_HidesFromListings(t *testing.T) {
 	}
 
 	// Before archive — agent appears in all listings
-	assertAgentInList(t, index, accountID, agentName, true)
 	assertAgentInAccountList(t, index, accountID, agentName, true)
 	assertAgentInPublicList(t, index, agentName, true)
 
@@ -46,7 +45,6 @@ func TestArchive_HidesFromListings(t *testing.T) {
 	}
 
 	// After archive — agent is hidden from listings
-	assertAgentInList(t, index, accountID, agentName, false)
 	assertAgentInAccountList(t, index, accountID, agentName, false)
 	assertAgentInPublicList(t, index, agentName, false)
 
@@ -137,24 +135,6 @@ func TestArchive_RegisterAfterArchive(t *testing.T) {
 }
 
 // --- helpers ---
-
-func assertAgentInList(t *testing.T, index *agentindex.Index, accountID, name string, want bool) {
-	t.Helper()
-	agents, err := index.List()
-	if err != nil {
-		t.Fatalf("List: %v", err)
-	}
-	found := false
-	for _, a := range agents {
-		if a.AccountID == accountID && a.Name == name {
-			found = true
-			break
-		}
-	}
-	if found != want {
-		t.Errorf("List: agent %q found=%v, want=%v", name, found, want)
-	}
-}
 
 func assertAgentInAccountList(t *testing.T, index *agentindex.Index, accountID, name string, want bool) {
 	t.Helper()

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
+
+const databasePingTimeout = 2 * time.Second
 
 // ProbeHandler manages Kubernetes-style health probes
 type ProbeHandler struct {
@@ -49,21 +52,15 @@ func (h *ProbeHandler) Livez() gin.HandlerFunc {
 // Readyz returns a handler for readiness probes
 // Readiness indicates if the application is ready to serve traffic
 // If this fails, Kubernetes will stop sending traffic to this pod
+//
+// A database check here fails every replica at once and empties the Service.
+// Startup already exits when the database is unreachable.
 func (h *ProbeHandler) Readyz() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Check if manually marked as not ready (e.g., during shutdown)
 		if !h.ready.Load() {
 			c.String(http.StatusServiceUnavailable, "not ready: shutting down")
 			return
-		}
-
-		// Check agent index database connectivity
-		if h.agentIndex != nil {
-			if _, err := h.agentIndex.List(); err != nil {
-				h.log.Error("probes: readiness check failed, agent index unavailable", "error", err)
-				c.String(http.StatusServiceUnavailable, "not ready: database unavailable")
-				return
-			}
 		}
 
 		c.String(http.StatusOK, "ok")
@@ -82,7 +79,10 @@ func (h *ProbeHandler) Healthz() gin.HandlerFunc {
 
 		// Check 2: Agent index database
 		if h.agentIndex != nil {
-			if _, err := h.agentIndex.List(); err != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), databasePingTimeout)
+			err := h.agentIndex.PingContext(ctx)
+			cancel()
+			if err != nil {
 				checks["database"] = "failed: " + err.Error()
 				allHealthy = false
 			} else {

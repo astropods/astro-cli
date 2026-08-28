@@ -91,6 +91,11 @@ func NewIndex(databaseURL string) (*Index, error) {
 	return &Index{db: db}, nil
 }
 
+// PingContext reports database reachability without List's per-agent fan-out.
+func (idx *Index) PingContext(ctx context.Context) error {
+	return idx.db.PingContext(ctx)
+}
+
 // Close closes the database connection
 func (idx *Index) Close() error {
 	return idx.db.Close()
@@ -357,59 +362,6 @@ func (idx *Index) GetVersion(accountID, name, buildID string) (*AgentVersion, er
 func (idx *Index) ValidateLineage(accountID, name, buildID string) error {
 	_, err := idx.GetVersion(accountID, name, buildID)
 	return err
-}
-
-// List returns all agents in the index (global browse), excluding archived
-func (idx *Index) List() ([]*Agent, error) {
-	rows, err := idx.db.Query(`
-		SELECT account_id, name, registry, visibility, avatar_colors, avatar_updated_at, created_at, updated_at
-		FROM agents
-		WHERE archived_at IS NULL
-		ORDER BY name
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query agents: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var agents []*Agent
-	for rows.Next() {
-		var agent Agent
-		if err := rows.Scan(&agent.AccountID, &agent.Name, &agent.Registry, &agent.Visibility, &agent.AvatarColors, &agent.AvatarUpdatedAt, &agent.CreatedAt, &agent.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("failed to scan agent: %w", err)
-		}
-
-		// Load versions ordered newest first
-		versionRows, err := idx.db.Query(`
-			SELECT build_id, ecr_namespace, spec_json, readme, agent_card_json, validation_warnings, published_at, updated_at
-			FROM agent_versions
-			WHERE account_id = $1 AND name = $2
-			ORDER BY published_at DESC
-		`, agent.AccountID, agent.Name)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query versions: %w", err)
-		}
-
-		for versionRows.Next() {
-			var v AgentVersion
-			var specJSON, warningsJSON string
-			if err := versionRows.Scan(&v.BuildID, &v.ECRNamespace, &specJSON, &v.Readme, &v.AgentCardJSON, &warningsJSON, &v.PublishedAt, &v.UpdatedAt); err != nil {
-				_ = versionRows.Close()
-				return nil, fmt.Errorf("failed to scan version: %w", err)
-			}
-			if err := json.Unmarshal([]byte(specJSON), &v.Spec); err != nil {
-				_ = versionRows.Close()
-				return nil, fmt.Errorf("failed to unmarshal spec: %w", err)
-			}
-			v.ValidationWarnings = parseValidationWarnings(warningsJSON)
-			agent.Versions = append(agent.Versions, &v)
-		}
-		_ = versionRows.Close()
-
-		agents = append(agents, &agent)
-	}
-
-	return agents, nil
 }
 
 // AgentNames returns the names of all non-archived agents for an account.

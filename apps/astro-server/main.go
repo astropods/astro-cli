@@ -48,6 +48,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/clusterstore"
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/connectapps"
+	"github.com/astropods/astro/apps/astro-server/internal/dbhealth"
 	"github.com/astropods/astro/apps/astro-server/internal/deploycontroller"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deployeval"
@@ -299,10 +300,15 @@ func main() {
 		}()
 	}
 
+	dbHealthCtx, dbHealthCancel := context.WithCancel(context.Background())
+	go dbhealth.New(db, log, dbhealth.DefaultInterval).Run(dbHealthCtx)
+
 	// Wait for interrupt signal for graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+
+	dbHealthCancel()
 
 	log.Info("server: shutting down")
 
