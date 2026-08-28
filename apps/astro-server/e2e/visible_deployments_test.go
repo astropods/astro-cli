@@ -110,7 +110,7 @@ func TestGetVisibleDeploymentsByAccount_FailedHasError(t *testing.T) {
 		t.Fatalf("GetVisibleDeploymentsByAccount: %v", err)
 	}
 
-	var found *ds.Deployment
+	var found *ds.DeploymentMeta
 	for _, d := range visible {
 		if d.ID == dep.ID {
 			found = d
@@ -126,8 +126,15 @@ func TestGetVisibleDeploymentsByAccount_FailedHasError(t *testing.T) {
 	if found.ErrorMessage == nil || *found.ErrorMessage != "partial failure" {
 		t.Errorf("error_message: got %v, want 'partial failure'", found.ErrorMessage)
 	}
-	if len(found.ErrorDetails) == 0 {
-		t.Error("error_details should be populated")
+
+	// error_details is deliberately absent from the list projection; nothing in
+	// the list path reads it. The single-row read still carries it.
+	full, err := store.GetDeploymentByID(dep.ID)
+	if err != nil {
+		t.Fatalf("GetDeploymentByID: %v", err)
+	}
+	if len(full.ErrorDetails) == 0 {
+		t.Error("error_details should be populated on the single-row read")
 	}
 }
 
@@ -190,7 +197,7 @@ func TestGetVisibleDeploymentsByAccount_StorePreservesAgentNameVerbatim(t *testi
 				t.Fatalf("GetVisibleDeploymentsByAccount: %v", err)
 			}
 
-			var found *ds.Deployment
+			var found *ds.DeploymentMeta
 			for _, d := range visible {
 				if d.ID == dep.ID {
 					found = d

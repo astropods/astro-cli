@@ -194,7 +194,7 @@ func ComputeAccountSummary(
 	// Scope all Langfuse queries to currently-live deployments. Deleted
 	// (undeployed) deployments' historical traces are NOT surfaced — same
 	// contract as the deployment-detail page.
-	var deps []*deploymentstore.Deployment
+	var deps []*deploymentstore.DeploymentMeta
 	if deploymentStore != nil {
 		deps, err = deploymentStore.GetVisibleDeploymentsByAccount(acct.ID)
 		if err != nil {
@@ -1105,7 +1105,7 @@ type deploymentMetrics struct {
 // populated so the row renders with zeros (per-row fail-open). The error is
 // also returned so the compute path can tally whether every Langfuse call
 // failed and surface MetricsUnavailable.
-func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.Deployment, from, to string) (deploymentMetrics, error) {
+func fetchDeploymentDaily(ctx context.Context, client *langfuse.Client, dep *deploymentstore.DeploymentMeta, from, to string) (deploymentMetrics, error) {
 	result := deploymentMetrics{DeploymentID: dep.ID, AgentName: dep.AgentName}
 	daily, err := client.GetDailyMetrics(ctx, dep.ID, from, to)
 	if err != nil {
@@ -1217,7 +1217,7 @@ func buildDeploymentUserRows(tagsRows []map[string]any) map[string][]UserSummary
 func buildDeploymentSummary(
 	metrics []deploymentMetrics,
 	tagsRows []map[string]any,
-	deployments []*deploymentstore.Deployment,
+	deployments []*deploymentstore.DeploymentMeta,
 	archivedIDs map[string]struct{},
 ) []DeploymentSummaryEntry {
 	return buildDeploymentSummaryWithUsers(
@@ -1231,7 +1231,7 @@ func buildDeploymentSummary(
 func buildDeploymentSummaryWithUsers(
 	metrics []deploymentMetrics,
 	usersByDep map[string][]UserSummaryEntry,
-	deployments []*deploymentstore.Deployment,
+	deployments []*deploymentstore.DeploymentMeta,
 	archivedIDs map[string]struct{},
 ) []DeploymentSummaryEntry {
 	// Sidecar: deployment_id → display metadata. Walk the deployments slice
@@ -1391,7 +1391,7 @@ func buildDeploymentSummaryWithUsers(
 // deployments with spend in the window, which Insights renders as tombstoned
 // rows. Live deployments are looked up by ID; the Q_tags row's `tags` field is
 // either a single string or a JSON array (tagStrings normalises both shapes).
-func discoverTombstoneIDs(tagsRows []map[string]any, live []*deploymentstore.Deployment) []string {
+func discoverTombstoneIDs(tagsRows []map[string]any, live []*deploymentstore.DeploymentMeta) []string {
 	liveSet := make(map[string]struct{}, len(live))
 	for _, d := range live {
 		liveSet[d.ID] = struct{}{}

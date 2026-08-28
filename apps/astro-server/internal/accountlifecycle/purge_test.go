@@ -81,8 +81,8 @@ func TestPurge_RefusesWhileDeploymentsRemain(t *testing.T) {
 	rev := 1
 	deployMock.ExpectQuery("SELECT").
 		WillReturnRows(sqlmock.NewRows(deploymentColumns).AddRow(
-			"dep-1", "acct-1", nil, "agent", "b1", "ns-1", "Agent", `{}`, nil, nil, nil,
-			"active", nil, nil, now, &rev, now, nil, nil, nil,
+			"dep-1", "acct-1", nil, "agent", "b1", "ns-1", "Agent", nil,
+			"active", nil, now, &rev, now, nil, nil, nil, nil,
 		))
 
 	err := p.Purge(context.Background(), "acct-1")

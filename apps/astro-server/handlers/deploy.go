@@ -821,15 +821,14 @@ func resolveUpdatePlacement(isUpdate bool, priorClusterID, targetClusterID strin
 
 // EnqueueUndeploy transitions a deployment to "undeploying" and inserts an
 // async undeploy job. Used by both UndeployAgent and DeleteAccount.
-func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, dep *deploymentstore.Deployment) error {
-	if dep == nil {
+func EnqueueUndeploy(ctx context.Context, deployStore *deploymentstore.Store, queue DeployQueue, deploymentID, clusterID string) error {
+	if deploymentID == "" {
 		return fmt.Errorf("nil deployment")
 	}
-	cid := dep.EffectiveClusterID()
-	if err := deployStore.UpdateStatus(dep.ID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
+	if err := deployStore.UpdateStatus(deploymentID, deploymentstore.StatusUpdate{Status: deploymentstore.StatusUndeploying}); err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}
-	if err := queue.InsertUndeployJob(ctx, dep.ID, cid); err != nil {
+	if err := queue.InsertUndeployJob(ctx, deploymentID, clusterID); err != nil {
 		return fmt.Errorf("insert undeploy job: %w", err)
 	}
 	return nil
@@ -1205,7 +1204,7 @@ func UndeployAgent(log *logger.Logger, agentIndex *agentindex.Index, accountStor
 		)
 
 		// Set status to undeploying and enqueue async undeploy job
-		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep); err != nil {
+		if err := EnqueueUndeploy(c.Request.Context(), deployStore, queue, dep.ID, dep.EffectiveClusterID()); err != nil {
 			log.Error("deploy: enqueue undeploy job failed", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to schedule undeploy"})
 			return
@@ -1836,7 +1835,7 @@ func enrichDeploymentsForAccount(
 	buildIDs []string,
 ) ([]AgentDeploymentSummary, error) {
 	var (
-		dbDeps []*deploymentstore.Deployment
+		dbDeps []*deploymentstore.DeploymentMeta
 		err    error
 	)
 	if len(buildIDs) > 0 {
@@ -1860,7 +1859,7 @@ func enrichDeploymentRows(
 	ctx context.Context,
 	dependencies deploymentListDependencies,
 	scope deploymentListScope,
-	dbDeps []*deploymentstore.Deployment,
+	dbDeps []*deploymentstore.DeploymentMeta,
 ) ([]AgentDeploymentSummary, error) {
 	allDeployments := make([]AgentDeployment, len(dbDeps))
 	depIDs := make([]string, len(dbDeps))
@@ -2259,7 +2258,7 @@ func ListDeployments(
 //
 // Quietly leaves LatestBuildID empty on lookup failure rather than failing the
 // whole list response: this is a UX hint, not load-bearing data.
-func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, accountStore *account.AccountStore, dbDeps []*deploymentstore.Deployment, deps []AgentDeployment) {
+func populateLatestBuildIDs(log *logger.Logger, agentIdx *agentindex.Index, accountStore *account.AccountStore, dbDeps []*deploymentstore.DeploymentMeta, deps []AgentDeployment) {
 	if agentIdx == nil || len(dbDeps) == 0 || len(deps) == 0 {
 		return
 	}
@@ -2410,7 +2409,7 @@ func GetDeployment(log *logger.Logger, accountStore *account.AccountStore, cfg *
 		// throwaway AgentDeployment slice (the helper writes back into it)
 		// and copy the resolved ID onto the record.
 		tmp := []AgentDeployment{{ID: record.ID, Name: record.Name, BuildID: record.BuildID}}
-		populateLatestBuildIDs(log, agentIdx, accountStore, []*deploymentstore.Deployment{dbDep}, tmp)
+		populateLatestBuildIDs(log, agentIdx, accountStore, []*deploymentstore.DeploymentMeta{dbDep.Meta()}, tmp)
 		record.LatestBuildID = tmp[0].LatestBuildID
 
 		// Intent-shaped fields (workload list, components, desired replicas,
@@ -2977,7 +2976,7 @@ func deploymentRecordFromDB(dep *deploymentstore.Deployment, sourceAccount strin
 
 // agentDeploymentFromDB builds an AgentDeployment entry from a DB record alone,
 // used when K8s resources are unavailable (failed, pending, or missing namespace).
-func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.Deployment) AgentDeployment {
+func agentDeploymentFromDB(log *logger.Logger, dep *deploymentstore.DeploymentMeta) AgentDeployment {
 	ad := AgentDeployment{
 		ID:          dep.ID,
 		Name:        dep.AgentName,
@@ -3686,7 +3685,7 @@ func StreamDeploymentLogs(log *logger.Logger, accountStore *account.AccountStore
 // attribution is suppressed. Returns "" when neither source is available;
 // callers treat that as "same account" and use the URL account.
 func resolveSourceAccountName(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, d *deploymentstore.Deployment) string {
-	_, name := validatedLineagePublisher(log, accountStore, v, d)
+	_, name := validatedLineagePublisher(log, accountStore, v, d.Meta())
 	return name
 }
 
@@ -3694,7 +3693,7 @@ func resolveSourceAccountName(log *logger.Logger, accountStore *account.AccountS
 // name when lineage can be attributed. When `v` is nil or agent_name/build_id
 // are incomplete, tuple checks are skipped so older tests and sparse rows keep
 // pre-PR5 semantics.
-func validatedLineagePublisher(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, dep *deploymentstore.Deployment) (pubID string, pubName string) {
+func validatedLineagePublisher(log *logger.Logger, accountStore *account.AccountStore, v deploymentstore.LineageValidator, dep *deploymentstore.DeploymentMeta) (pubID string, pubName string) {
 	v = deploymentstore.EffectiveLineageValidator(v)
 	if accountStore == nil {
 		return "", ""
@@ -3730,9 +3729,8 @@ func validatedLineagePublisher(log *logger.Logger, accountStore *account.Account
 		if acct != nil {
 			return acct.ID, acct.Name
 		}
-		specName := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON)
-		if specName != "" {
-			return candidateID, specName
+		if dep.SpecSourceAccount != "" {
+			return candidateID, dep.SpecSourceAccount
 		}
 		return candidateID, ""
 	}
@@ -3751,7 +3749,7 @@ func validatedLineagePublisher(log *logger.Logger, accountStore *account.Account
 		}
 	}
 
-	if srcName := deploymentstore.SourceAccountFromSpec(dep.DeploymentSpecJSON); srcName != "" {
+	if srcName := dep.SpecSourceAccount; srcName != "" {
 		acct, err := accountStore.GetByName(srcName)
 		if err != nil {
 			log.Debug("deploy: legacy spec source.account lookup failed",

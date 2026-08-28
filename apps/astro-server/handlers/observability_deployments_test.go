@@ -44,7 +44,7 @@ func TestBuildDeploymentSummary_SingleDeployment(t *testing.T) {
 			P95LatencyMs: 800,
 		},
 	}
-	deployments := []*deploymentstore.Deployment{
+	deployments := []*deploymentstore.DeploymentMeta{
 		{ID: "dep-1", AgentName: "code-reviewer", DisplayName: "Code Reviewer", Namespace: "us-east-1"},
 	}
 
@@ -112,7 +112,7 @@ func TestBuildDeploymentSummary_MultipleDeploymentsSameAgentName(t *testing.T) {
 			P95LatencyMs: 500,
 		},
 	}
-	deployments := []*deploymentstore.Deployment{
+	deployments := []*deploymentstore.DeploymentMeta{
 		{ID: "dep-east", AgentName: "summarizer", Namespace: "us-east-1"},
 		{ID: "dep-west", AgentName: "summarizer", Namespace: "us-west-2"},
 	}
@@ -361,7 +361,7 @@ func TestBuildDeploymentSummary_SameUserAcrossDeployments(t *testing.T) {
 // ── discoverTombstoneIDs ──────────────────────────────────────────────────────
 
 func TestDiscoverTombstoneIDs(t *testing.T) {
-	live := []*deploymentstore.Deployment{
+	live := []*deploymentstore.DeploymentMeta{
 		{ID: "dep-live-1"},
 		{ID: "dep-live-2"},
 	}
@@ -392,7 +392,7 @@ func TestBuildDeploymentSummary_ArchivedIDsMarksEntries(t *testing.T) {
 		{DeploymentID: "dep-live", AgentName: "agent-a", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 10, TotalCost: 5.0}}},
 		{DeploymentID: "dep-arch", AgentName: "agent-b", DailyMetrics: []langfuse.DailyMetric{{CountTraces: 4, TotalCost: 2.0}}},
 	}
-	deployments := []*deploymentstore.Deployment{
+	deployments := []*deploymentstore.DeploymentMeta{
 		{ID: "dep-live", AgentName: "agent-a"},
 		{ID: "dep-arch", AgentName: "agent-b", UndeployedAt: &undeployed},
 	}
@@ -596,17 +596,10 @@ func TestGetAccountDeploymentsSummary_HappyPath(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "langfuse_project_id", "langfuse_public_key", "langfuse_secret_key", "created_at"}).
 			AddRow("acct-1", "proj-1", "pk", "sk", now))
 
-	depCols := []string{
-		"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
-		"deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
-		"status", "error_message", "error_details", "status_changed_at", "current_revision",
-		"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
-	}
 	depMock.ExpectQuery("SELECT .+ FROM deployments").
 		WithArgs("acct-1").
-		WillReturnRows(sqlmock.NewRows(depCols).
-			AddRow("dep-1", "acct-1", nil, "code-reviewer", "b1", "ns-1", "Code Reviewer",
-				"{}", nil, nil, nil, "Running", nil, nil, now, nil, now, nil, nil, nil))
+		WillReturnRows(metaRow(sqlmock.NewRows(deploymentMetaColumns),
+			"dep-1", "acct-1", "code-reviewer", "b1", "ns-1", "Code Reviewer", "Running", nil, now))
 
 	cfg := &config.Config{}
 	cfg.Deployment.LangfuseBaseURL = langfuseSrv.URL

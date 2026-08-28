@@ -203,9 +203,9 @@ func expectAccountList(mock sqlmock.Sqlmock) {
 func expectDeploymentRows(mock sqlmock.Sqlmock, query string) {
 	now := time.Now()
 	mock.ExpectQuery(query).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id", "status", "error_message", "error_details", "status_changed_at", "current_revision", "deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at"}).
-			AddRow("dep-readable", "acct-1", nil, "agent", "build-1", "ns", "Readable", `{}`, nil, nil, nil, "active", nil, nil, now, 1, now, nil, nil, nil).
-			AddRow("dep-hidden", "acct-1", nil, "agent", "build-1", "ns", "Hidden", `{}`, nil, nil, nil, "active", nil, nil, now, 1, now, nil, nil, nil),
+		metaRow(metaRow(sqlmock.NewRows(deploymentMetaColumns),
+			"dep-readable", "acct-1", "agent", "build-1", "ns", "Readable", "active", nil, now),
+			"dep-hidden", "acct-1", "agent", "build-1", "ns", "Hidden", "active", nil, now),
 	)
 }
 

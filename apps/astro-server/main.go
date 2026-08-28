@@ -1395,8 +1395,8 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				Log:         log,
 				Accounts:    accountStore,
 				Deployments: deploymentStore,
-				Undeploy: func(ctx context.Context, dep *deploymentstore.Deployment) error {
-					return handlers.EnqueueUndeploy(ctx, deploymentStore, queue, dep)
+				Undeploy: func(ctx context.Context, deploymentID, clusterID string) error {
+					return handlers.EnqueueUndeploy(ctx, deploymentStore, queue, deploymentID, clusterID)
 				},
 				Org:            orgClient,
 				Resources:      resourceLifecycle,

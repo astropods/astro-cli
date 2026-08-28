@@ -489,12 +489,7 @@ func TestCreateAccount_InvalidName(t *testing.T) {
 // --- DeleteAccount handler tests ---
 
 // deleteAccountDeploymentColumns matches deploymentstore.deploymentColumns for sqlmock.
-var deleteAccountDeploymentColumns = []string{
-	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
-	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
-}
+var deleteAccountDeploymentColumns = deploymentMetaColumns
 
 // deleteAccountMockQueue tracks calls to InsertUndeployJob.
 type deleteAccountMockQueue struct {
@@ -541,8 +536,8 @@ func setupDeleteAccountTestWithJudgeKeys(t *testing.T, provisioner *aigateway.Pr
 		Log:         log,
 		Accounts:    accountStore,
 		Deployments: deployStore,
-		Undeploy: func(ctx context.Context, dep *deploymentstore.Deployment) error {
-			return EnqueueUndeploy(ctx, deployStore, queue, dep)
+		Undeploy: func(ctx context.Context, deploymentID, clusterID string) error {
+			return EnqueueUndeploy(ctx, deployStore, queue, deploymentID, clusterID)
 		},
 		AIGateway: provisioner,
 		JudgeKeys: judgeStore,
@@ -661,9 +656,8 @@ func TestDeleteAccount_Success(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns).AddRow(
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
-			"My Agent", `{}`, nil, nil, nil,
-			"active", nil, nil, now, &rev,
-			now, nil, nil, nil,
+			"My Agent", nil, "active", nil, now, &rev,
+			now, nil, nil, nil, nil,
 		))
 
 	// EnqueueUndeploy: UpdateStatus + InsertUndeployJob
@@ -1042,9 +1036,8 @@ func TestDeleteAccount_UndeployFailureContinues(t *testing.T) {
 	deployMock.ExpectQuery(`SELECT`).
 		WillReturnRows(sqlmock.NewRows(deleteAccountDeploymentColumns).AddRow(
 			"dep-1", "acct-1", nil, "my-agent", "build-1", "astro-abc-0",
-			"My Agent", `{}`, nil, nil, nil,
-			"active", nil, nil, now, &rev,
-			now, nil, nil, nil,
+			"My Agent", nil, "active", nil, now, &rev,
+			now, nil, nil, nil, nil,
 		))
 
 	deployMock.ExpectBegin()

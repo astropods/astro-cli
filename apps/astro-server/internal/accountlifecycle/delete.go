@@ -30,7 +30,7 @@ type Deleter struct {
 	// Undeploy moves one deployment to undeploying and enqueues its teardown
 	// job. Injected so this package and the public undeploy route share a
 	// single implementation (handlers.EnqueueUndeploy).
-	Undeploy func(ctx context.Context, dep *deploymentstore.Deployment) error
+	Undeploy func(ctx context.Context, deploymentID, clusterID string) error
 
 	Org            *org.Client
 	Resources      authz.ResourceLifecycle
@@ -92,7 +92,7 @@ func (d *Deleter) Delete(ctx context.Context, acct *account.Account) (Result, er
 		d.Log.Error("account delete: list deployments failed", "error", err, "account_id", acct.ID)
 	}
 	for _, dep := range deps {
-		if err := d.Undeploy(ctx, dep); err != nil {
+		if err := d.Undeploy(ctx, dep.ID, dep.EffectiveClusterID()); err != nil {
 			d.Log.Error("account delete: enqueue undeploy failed", "error", err, "deployment_id", dep.ID, "account_id", acct.ID)
 			continue
 		}

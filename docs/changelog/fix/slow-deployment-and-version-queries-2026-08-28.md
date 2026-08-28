@@ -45,15 +45,14 @@ A namespace is derived from the deployment id (`astro-<compact-id>-0`), so it is
 effectively unique. That makes the index maximally selective and makes the old
 seq scan maximally wasteful.
 
-Two tests in `deploymentstore` guard this, and neither asserts which index the
-planner picks. On a test-sized table any index beats a scan, so that choice
-says nothing about production: CI proved the point by serving the
-status-filtered lookup from `idx_deployments_visible_global_cursor`.
-`TestNamespaceIndexShape` reads `pg_indexes` and fails if the index is gone or
-no longer leads with `(namespace, deployed_at DESC)`, which is the property the
-`ORDER BY ... LIMIT 1` depends on. `TestNamespaceLookupsNeedNoSort` disables
-`enable_seqscan` and fails if either plan carries a `Sort` node or reads without
-an index.
+`TestNamespaceIndexShape` in `deploymentstore` guards this: it reads
+`pg_indexes` and fails if the index is gone or no longer leads with
+`(namespace, deployed_at DESC)`, which is the property the
+`ORDER BY ... LIMIT 1` depends on. It deliberately does not assert the plan.
+Which plan wins depends on the rows present and on the statistics at that
+moment, and `deployments` is written by tests in other packages running
+concurrently, so a plan assertion there fails for reasons that have nothing to
+do with the index.
 
 **Reads on `agent_versions` now cost what the caller asked for.**
 

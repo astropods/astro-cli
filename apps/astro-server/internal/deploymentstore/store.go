@@ -173,6 +173,82 @@ func scanDeployment(row interface{ Scan(dest ...any) error }) (*Deployment, erro
 	return &d, nil
 }
 
+// DeploymentMeta carries every deployments column except
+// deployment_spec_json, error_details, and the envelope key material. Multi-row
+// reads return it so a page of deployments detoasts no specs.
+type DeploymentMeta struct {
+	ID              string           `json:"id"`
+	AccountID       string           `json:"account_id"`
+	SourceAccountID *string          `json:"source_account_id,omitempty"`
+	AgentName       string           `json:"agent_name"`
+	BuildID         string           `json:"build_id"`
+	Namespace       string           `json:"namespace"`
+	DisplayName     string           `json:"display_name,omitempty"`
+	Status          string           `json:"status"`
+	ErrorMessage    *string          `json:"error_message,omitempty"`
+	StatusChangedAt time.Time        `json:"status_changed_at"`
+	CurrentRevision *int             `json:"current_revision,omitempty"`
+	DeployedAt      time.Time        `json:"deployed_at"`
+	UndeployedAt    *time.Time       `json:"undeployed_at,omitempty"`
+	AvatarColors    *json.RawMessage `json:"avatar_colors,omitempty"`
+	AvatarUpdatedAt *time.Time       `json:"avatar_updated_at,omitempty"`
+	ClusterID       *string          `json:"cluster_id,omitempty"`
+	// SpecSourceAccount is spec.source.account, read only for rows whose
+	// source_account_id is NULL. Lineage resolution needs it just for those
+	// legacy rows, and the CASE keeps every other row from detoasting a spec.
+	SpecSourceAccount string `json:"-"`
+}
+
+// deploymentMetaColumns is the SELECT column list for multi-row reads.
+const deploymentMetaColumns = `id, account_id, source_account_id, agent_name, build_id, namespace, display_name,
+       cluster_id, status, error_message, status_changed_at, current_revision,
+       deployed_at, undeployed_at, avatar_colors, avatar_updated_at,
+       CASE WHEN source_account_id IS NULL
+            THEN deployment_spec_json::jsonb #>> '{source,account}' END`
+
+func scanDeploymentMeta(row interface{ Scan(dest ...any) error }) (*DeploymentMeta, error) {
+	var d DeploymentMeta
+	var clusterID, specSourceAccount sql.NullString
+	if err := row.Scan(
+		&d.ID, &d.AccountID, &d.SourceAccountID, &d.AgentName, &d.BuildID, &d.Namespace, &d.DisplayName,
+		&clusterID, &d.Status, &d.ErrorMessage, &d.StatusChangedAt, &d.CurrentRevision,
+		&d.DeployedAt, &d.UndeployedAt, &d.AvatarColors, &d.AvatarUpdatedAt, &specSourceAccount,
+	); err != nil {
+		return nil, err
+	}
+	d.SpecSourceAccount = specSourceAccount.String
+	if clusterID.Valid && clusterID.String != "" {
+		d.ClusterID = &clusterID.String
+	}
+	return &d, nil
+}
+
+// EffectiveClusterID returns the additional-cluster registry id, or empty
+// string when the deployment uses the primary cluster (NULL column).
+func (d *DeploymentMeta) EffectiveClusterID() string {
+	if d == nil || d.ClusterID == nil {
+		return ""
+	}
+	return *d.ClusterID
+}
+
+// Meta projects a full deployment onto the list-safe shape, for callers that
+// hold a Deployment but feed code shared with the list paths.
+func (d *Deployment) Meta() *DeploymentMeta {
+	if d == nil {
+		return nil
+	}
+	return &DeploymentMeta{
+		ID: d.ID, AccountID: d.AccountID, SourceAccountID: d.SourceAccountID,
+		AgentName: d.AgentName, BuildID: d.BuildID, Namespace: d.Namespace,
+		DisplayName: d.DisplayName, Status: d.Status, ErrorMessage: d.ErrorMessage,
+		StatusChangedAt: d.StatusChangedAt, CurrentRevision: d.CurrentRevision,
+		DeployedAt: d.DeployedAt, UndeployedAt: d.UndeployedAt,
+		AvatarColors: d.AvatarColors, AvatarUpdatedAt: d.AvatarUpdatedAt,
+		ClusterID: d.ClusterID, SpecSourceAccount: SourceAccountFromSpec(d.DeploymentSpecJSON),
+	}
+}
+
 // EffectiveClusterID returns the additional-cluster registry id, or empty
 // string when the deployment uses the primary cluster (NULL column).
 func (d *Deployment) EffectiveClusterID() string {
@@ -436,9 +512,9 @@ func (s *Store) CountVisibleDeploymentsByAccount(accountID string) (int, error) 
 	return count, nil
 }
 
-func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment, error) {
+func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*DeploymentMeta, error) {
 	rows, err := s.db.Query(`
-		SELECT `+deploymentColumns+`
+		SELECT `+deploymentMetaColumns+`
 		FROM deployments
 		WHERE account_id = $1 AND status != 'undeployed'
 		ORDER BY deployed_at DESC, id DESC
@@ -448,9 +524,9 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var deployments []*Deployment
+	var deployments []*DeploymentMeta
 	for rows.Next() {
-		d, err := scanDeployment(rows)
+		d, err := scanDeploymentMeta(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan deployment: %w", err)
 		}
@@ -468,12 +544,12 @@ func (s *Store) GetVisibleDeploymentsByAccount(accountID string) ([]*Deployment,
 // pushing the filter into SQL avoids fetching/enriching rows the caller
 // would discard. Empty buildIDs is treated as "no rows match" rather than
 // "no filter" so callers can't accidentally fall back to the full list.
-func (s *Store) GetVisibleDeploymentsByAccountAndBuilds(accountID string, buildIDs []string) ([]*Deployment, error) {
+func (s *Store) GetVisibleDeploymentsByAccountAndBuilds(accountID string, buildIDs []string) ([]*DeploymentMeta, error) {
 	if len(buildIDs) == 0 {
 		return nil, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT `+deploymentColumns+`
+		SELECT `+deploymentMetaColumns+`
 		FROM deployments
 		WHERE account_id = $1 AND status != 'undeployed' AND build_id = ANY($2)
 		ORDER BY deployed_at DESC
@@ -483,9 +559,9 @@ func (s *Store) GetVisibleDeploymentsByAccountAndBuilds(accountID string, buildI
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var deployments []*Deployment
+	var deployments []*DeploymentMeta
 	for rows.Next() {
-		d, err := scanDeployment(rows)
+		d, err := scanDeploymentMeta(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan deployment: %w", err)
 		}
@@ -502,12 +578,12 @@ func (s *Store) GetVisibleDeploymentsByAccountAndBuilds(accountID string, buildI
 // even though IDs are globally unique). Used by the Insights tombstone path:
 // after a Langfuse probe discovers which tombstoned deployment_ids had spend
 // in the window, this method loads their metadata for rendering.
-func (s *Store) GetDeploymentsByIDsForAccount(accountID string, ids []string) ([]*Deployment, error) {
+func (s *Store) GetDeploymentsByIDsForAccount(accountID string, ids []string) ([]*DeploymentMeta, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	rows, err := s.db.Query(`
-		SELECT `+deploymentColumns+`
+		SELECT `+deploymentMetaColumns+`
 		FROM deployments
 		WHERE account_id = $1 AND id = ANY($2)
 	`, accountID, pq.Array(ids))
@@ -516,9 +592,9 @@ func (s *Store) GetDeploymentsByIDsForAccount(accountID string, ids []string) ([
 	}
 	defer rows.Close() //nolint:errcheck
 
-	var deployments []*Deployment
+	var deployments []*DeploymentMeta
 	for rows.Next() {
-		d, err := scanDeployment(rows)
+		d, err := scanDeploymentMeta(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan deployment: %w", err)
 		}

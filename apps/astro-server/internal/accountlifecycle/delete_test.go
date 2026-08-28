@@ -29,10 +29,9 @@ func (s *stubBilling) DeleteCustomer(_ context.Context, customerID string) error
 }
 
 var deploymentColumns = []string{
-	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace",
-	"display_name", "deployment_spec_json", "encrypted_data_key", "kms_key_arn", "cluster_id",
-	"status", "error_message", "error_details", "status_changed_at", "current_revision",
-	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at",
+	"id", "account_id", "source_account_id", "agent_name", "build_id", "namespace", "display_name",
+	"cluster_id", "status", "error_message", "status_changed_at", "current_revision",
+	"deployed_at", "undeployed_at", "avatar_colors", "avatar_updated_at", "spec_source_account",
 }
 
 func newDeleter(t *testing.T, bill billing.BillingProvider) (*Deleter, sqlmock.Sqlmock, sqlmock.Sqlmock, *[]string) {
@@ -53,8 +52,8 @@ func newDeleter(t *testing.T, bill billing.BillingProvider) (*Deleter, sqlmock.S
 		Log:         logger.New("error", "json"),
 		Accounts:    account.NewAccountStore(accountDB),
 		Deployments: deploymentstore.NewStore(deployDB),
-		Undeploy: func(_ context.Context, dep *deploymentstore.Deployment) error {
-			*undeployed = append(*undeployed, dep.ID)
+		Undeploy: func(_ context.Context, deploymentID, _ string) error {
+			*undeployed = append(*undeployed, deploymentID)
 			return nil
 		},
 		Billing:        bill,
@@ -93,11 +92,11 @@ func TestDelete_LeavesTheAccountAliveWhenBillingArchiveFails(t *testing.T) {
 // worker retries the stragglers, but only if the account is already deleted.
 func TestDelete_CountsOnlyTheDeploymentsItQueued(t *testing.T) {
 	d, accountMock, deployMock, undeployed := newDeleter(t, nil)
-	d.Undeploy = func(_ context.Context, dep *deploymentstore.Deployment) error {
-		if dep.ID == "dep-1" {
+	d.Undeploy = func(_ context.Context, deploymentID, _ string) error {
+		if deploymentID == "dep-1" {
 			return errors.New("queue unavailable")
 		}
-		*undeployed = append(*undeployed, dep.ID)
+		*undeployed = append(*undeployed, deploymentID)
 		return nil
 	}
 
@@ -107,8 +106,8 @@ func TestDelete_CountsOnlyTheDeploymentsItQueued(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	deployMock.ExpectQuery("SELECT").
 		WillReturnRows(sqlmock.NewRows(deploymentColumns).
-			AddRow("dep-1", "acct-1", nil, "a", "b1", "ns-1", "A", `{}`, nil, nil, nil, "active", nil, nil, now, &rev, now, nil, nil, nil).
-			AddRow("dep-2", "acct-1", nil, "b", "b2", "ns-2", "B", `{}`, nil, nil, nil, "active", nil, nil, now, &rev, now, nil, nil, nil))
+			AddRow("dep-1", "acct-1", nil, "a", "b1", "ns-1", "A", nil, "active", nil, now, &rev, now, nil, nil, nil, nil).
+			AddRow("dep-2", "acct-1", nil, "b", "b2", "ns-2", "B", nil, "active", nil, now, &rev, now, nil, nil, nil, nil))
 
 	result, err := d.Delete(context.Background(), &account.Account{ID: "acct-1", Name: "defunct"})
 	if err != nil {

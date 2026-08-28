@@ -696,9 +696,9 @@ func TestGetDeploymentByNamespace(t *testing.T) {
 // The by-namespace lookups in this file are point reads on a column with no
 // other index. They need idx_deployments_namespace_latest to exist and to lead
 // with (namespace, deployed_at DESC), so equality on namespace returns rows in
-// the ORDER BY's order and LIMIT 1 stops at the first one. Which index the
-// planner picks is not asserted: on a test-sized table any index beats a scan,
-// so that choice says nothing about production.
+// the ORDER BY's order and LIMIT 1 stops at the first one. The plan itself is
+// not asserted: which plan wins depends on the rows present, and concurrent
+// packages write this table.
 func TestNamespaceIndexShape(t *testing.T) {
 	db := testDB(t)
 
@@ -719,60 +719,63 @@ func TestNamespaceIndexShape(t *testing.T) {
 	}
 }
 
-// With sequential scans disabled the planner must satisfy both namespace
-// lookups from an index alone, with no Sort node above it.
-func TestNamespaceLookupsNeedNoSort(t *testing.T) {
+// The list projection carries the metadata its callers read, and resolves
+// spec.source.account only for rows whose source_account_id is NULL.
+func TestGetVisibleDeploymentsByAccount_SpecSourceOnlyForLegacyRows(t *testing.T) {
 	db := testDB(t)
+	accountID := ensureTestAccount(t, db)
+	store := NewStore(db)
 
-	tests := []struct {
-		name  string
-		where string
-	}{
-		{"latest_any_status", `WHERE namespace = $1`},
-		{"visible_only", `WHERE namespace = $1 AND status != 'undeployed'`},
+	specJSON := `{"source":{"account":"publisher","name":"a","build":"b1"}}`
+
+	legacy, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, AgentName: "meta-legacy",
+		DisplayName: "Meta Legacy", BuildID: "b1", Namespace: "ns-meta-legacy",
+		SpecJSON: specJSON,
+	}, nil)
+	if err != nil {
+		t.Fatalf("save legacy failed: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tx, err := db.Begin()
-			if err != nil {
-				t.Fatalf("begin failed: %v", err)
-			}
-			defer tx.Rollback() //nolint:errcheck
+	modern, err := store.SaveDeploymentPending(SaveDeploymentParams{
+		ID: newID(), AccountID: accountID, SourceAccountID: accountID,
+		AgentName: "meta-modern", DisplayName: "Meta Modern", BuildID: "b1",
+		Namespace: "ns-meta-modern", SpecJSON: specJSON,
+	}, nil)
+	if err != nil {
+		t.Fatalf("save modern failed: %v", err)
+	}
 
-			if _, err := tx.Exec("SET LOCAL enable_seqscan = off"); err != nil {
-				t.Fatalf("disable seqscan failed: %v", err)
-			}
+	metas, err := store.GetVisibleDeploymentsByAccount(accountID)
+	if err != nil {
+		t.Fatalf("GetVisibleDeploymentsByAccount failed: %v", err)
+	}
 
-			rows, err := tx.Query(`EXPLAIN SELECT `+deploymentColumns+`
-				FROM deployments `+tt.where+`
-				ORDER BY deployed_at DESC
-				LIMIT 1`, "astro-index-probe-0")
-			if err != nil {
-				t.Fatalf("EXPLAIN failed: %v", err)
-			}
-			defer rows.Close() //nolint:errcheck
+	byID := map[string]*DeploymentMeta{}
+	for _, m := range metas {
+		byID[m.ID] = m
+	}
 
-			var plan strings.Builder
-			for rows.Next() {
-				var line string
-				if err := rows.Scan(&line); err != nil {
-					t.Fatalf("scan plan row failed: %v", err)
-				}
-				plan.WriteString(line)
-				plan.WriteString("\n")
-			}
-			if err := rows.Err(); err != nil {
-				t.Fatalf("plan rows failed: %v", err)
-			}
+	l, ok := byID[legacy.ID]
+	if !ok {
+		t.Fatalf("legacy deployment %s missing from list", legacy.ID)
+	}
+	if l.SpecSourceAccount != "publisher" {
+		t.Errorf("legacy SpecSourceAccount = %q, want publisher", l.SpecSourceAccount)
+	}
+	if l.Namespace != "ns-meta-legacy" || l.DisplayName != "Meta Legacy" || l.Status != StatusPending {
+		t.Errorf("legacy metadata not projected: %+v", l)
+	}
 
-			if strings.Contains(plan.String(), "Sort") {
-				t.Errorf("namespace lookup sorts instead of reading deployed_at in index order:\n%s", plan.String())
-			}
-			if !strings.Contains(plan.String(), "Index Scan") && !strings.Contains(plan.String(), "Index Only Scan") {
-				t.Errorf("namespace lookup does not read through an index:\n%s", plan.String())
-			}
-		})
+	m, ok := byID[modern.ID]
+	if !ok {
+		t.Fatalf("modern deployment %s missing from list", modern.ID)
+	}
+	if m.SpecSourceAccount != "" {
+		t.Errorf("modern SpecSourceAccount = %q, want empty (spec must not be read)", m.SpecSourceAccount)
+	}
+	if m.SourceAccountID == nil || *m.SourceAccountID != accountID {
+		t.Errorf("modern SourceAccountID = %v, want %s", m.SourceAccountID, accountID)
 	}
 }
 

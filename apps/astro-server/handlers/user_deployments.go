@@ -348,7 +348,7 @@ func enrichUserDeploymentRows(
 	result := make([]AgentDeploymentSummary, 0, len(rows))
 	for _, row := range rows {
 		deployment := row.Deployment
-		base := agentDeploymentFromDB(dependencies.log, deployment)
+		base := agentDeploymentFromDB(dependencies.log, deployment.Meta())
 		if url, ok := messagingURLs[deployment.ID]; ok {
 			base.ExternalURLs = []ServiceEndpointInfo{{
 				Name: "messaging", Type: "messaging", URL: url, Ready: true,
