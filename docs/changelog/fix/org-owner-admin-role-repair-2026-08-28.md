@@ -34,14 +34,35 @@ The write is best-effort. A failure is logged and retried on the owner's next sy
 
 ### The token in hand is older than the write
 
-WorkOS mints the access token before any of this runs, so its `role` and `permissions` claims still name the role the repair replaced. `session.ExpiresAt` comes from `AUTH_SESSION_MAX_AGE`, 30 days by default, so nothing would force a refresh for a month.
+WorkOS mints the access token before any of this runs, so its `role` and `permissions` claims still name the role the repair replaced. `session.ExpiresAt` comes from `AUTH_SESSION_MAX_AGE`, 30 days by default, so nothing forces a refresh in between. Repairing WorkOS alone would leave the caller on `member` for up to a month, and a session that refreshed at the same moment would carry the stale claims for a second cycle.
 
-`SyncMembershipsForUser` therefore returns the organization ids it repaired. When the session being built is scoped to one of them, the login callback exchanges the refresh token again and takes the claims from the newer token. That is the same re-mint the callback already performs to scope a session to a personal organization, so a repaired owner is an administrator on their first page load.
+`SyncMembershipsForUser` therefore returns the organization ids it repaired. Both paths that build a session act on it:
 
-An org switch mints fresh claims for the organization being entered, so switching into a repaired account is correct without help. A long-lived session scoped elsewhere picks the change up at its next login.
+| Path | Without the re-issue | With it |
+| --- | --- | --- |
+| Login callback | The token minted by AuthKit names the old role | Administrator on the first page load |
+| Session refresh | The refreshed token predates the write by microseconds | Administrator in the same response |
+| Org switch | Already correct: the switch mints claims for the org being entered | Unchanged |
+
+The re-issue is scoped to the organization the session records, because role claims are per organization. Re-issuing for an org the repair did not touch would change nothing. It reuses the exchange the login callback already performs to scope a session to a personal organization, so the extra WorkOS call is paid once per stale owner and never again.
+
+A failed exchange keeps the token in hand and logs. The claims are then stale until the next login, which is where this started.
+
+### Backfill
+
+`cmd/backfill-owner-roles` repairs owners who are not coming back soon:
+
+```
+DATABASE_URL=postgres://... WORKOS_API_KEY=sk_... go run ./cmd/backfill-owner-roles
+DRY_RUN=true ...   # report only
+```
+
+It groups accounts by owner, so it costs one WorkOS membership listing per owner rather than per account, and it delegates every decision to the same repair the login sync uses. Both account types are covered: personal accounts were linked to organizations an hour before the slug fix landed, so their owners can hold `member` too.
+
+Re-running is safe. An owner already holding `admin` costs one read and no write. The command exits non-zero when any repair failed.
+
+`ListMembershipsForUser` asks for 100 memberships and does not paginate, so an owner of more than 100 accounts would be partly skipped. No account is near that.
 
 ## Migration
 
-Nothing to do. Each affected owner is repaired on their next login.
-
-Owners who do not log in stay on `member`, and other members keep seeing them that way. A one-off backfill over `accounts.owner_user_id` would close that gap if it matters before the next release.
+Run `cmd/backfill-owner-roles` once per environment after deploy. Owners who log in first are repaired by the login sync, and the backfill then reports them as unchanged.

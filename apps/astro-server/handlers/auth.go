@@ -49,6 +49,7 @@ type AuthHandler struct {
 	log                *logger.Logger
 	cfg                *config.Config
 	workos             *auth.WorkOSClient
+	userFetcher        workosUserFetcher
 	orgRefresher       orgTokenRefresher
 	sessionManager     *auth.SessionManager
 	jwtValidator       *auth.JWTValidator
@@ -113,6 +114,7 @@ func NewAuthHandler(log *logger.Logger, cfg *config.Config, accountStore *accoun
 		log:                log,
 		cfg:                cfg,
 		workos:             workos,
+		userFetcher:        workos,
 		orgRefresher:       workos,
 		sessionManager:     sessionManager,
 		jwtValidator:       jwtValidator,
@@ -333,14 +335,8 @@ func (h *AuthHandler) Callback() gin.HandlerFunc {
 				accessToken, refreshToken, organizationID = scoped.AccessToken, scoped.RefreshToken, personalOrgID
 			}
 		}
-		// WorkOS issued this token before the repair, so its role claim is stale.
-		if h.orgRefresher != nil && slices.Contains(rolesRepairedFor, organizationID) {
-			if scoped, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(c.Request.Context(), refreshToken, organizationID); err != nil {
-				h.log.Warn("auth: re-issue token after owner role repair failed",
-					"error", err, "user_id", result.User.ID, "workos_org_id", organizationID)
-			} else {
-				accessToken, refreshToken = scoped.AccessToken, scoped.RefreshToken
-			}
+		if reissued := h.reissueAfterRoleRepair(c.Request.Context(), result.User.ID, refreshToken, organizationID, rolesRepairedFor); reissued != nil {
+			accessToken, refreshToken = reissued.AccessToken, reissued.RefreshToken
 		}
 
 		session := h.sessionManager.CreateSession(
@@ -742,6 +738,21 @@ func (h *AuthHandler) SwitchOrg() gin.HandlerFunc {
 // organization. AuthKit leaves a session unscoped when it does not pick an
 // organization itself, and an unscoped session carries no permission claims, so
 // the account's own routes would fall back to a membership check.
+// WorkOS issued the token in hand before the repair, so its claims name the
+// role the repair replaced.
+func (h *AuthHandler) reissueAfterRoleRepair(ctx context.Context, userID, refreshToken, organizationID string, repairedOrgIDs []string) *auth.RefreshResult {
+	if h.orgRefresher == nil || organizationID == "" || !slices.Contains(repairedOrgIDs, organizationID) {
+		return nil
+	}
+	reissued, err := h.orgRefresher.AuthenticateWithRefreshTokenForOrg(ctx, refreshToken, organizationID)
+	if err != nil {
+		h.log.Warn("auth: re-issue token after owner role repair failed",
+			"error", err, "user_id", userID, "workos_org_id", organizationID)
+		return nil
+	}
+	return reissued
+}
+
 func (h *AuthHandler) personalOrgTokens(ctx context.Context, userID, refreshToken string) (*auth.RefreshResult, string) {
 	if h.orgRefresher == nil || h.accountStore == nil || refreshToken == "" {
 		return nil, ""
@@ -831,13 +842,18 @@ func (h *AuthHandler) refreshSession(c *gin.Context, sessionData *auth.SessionDa
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		freshUser, userErr = h.workos.GetUser(c.Request.Context(), sessionData.Session.UserID)
+		freshUser, userErr = h.userFetcher.GetUser(c.Request.Context(), sessionData.Session.UserID)
 	}()
 
 	// Best-effort: sync org memberships on token refresh
 	if h.orgSync != nil {
-		if _, err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID); err != nil {
+		repaired, err := h.orgSync.SyncMembershipsForUser(c.Request.Context(), sessionData.Session.UserID)
+		if err != nil {
 			h.log.Warn("auth: sync memberships on refresh failed", "error", err, "user_id", sessionData.Session.UserID)
+		}
+		if reissued := h.reissueAfterRoleRepair(c.Request.Context(), sessionData.Session.UserID,
+			result.RefreshToken, sessionData.Session.OrganizationID, repaired); reissued != nil {
+			result = reissued
 		}
 	}
 

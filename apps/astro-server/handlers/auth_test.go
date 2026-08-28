@@ -30,6 +30,8 @@ type stubOrgSyncer struct {
 	roles      map[string]string
 	syncCalls  int
 	syncUserID string
+
+	repairedOrgIDs []string
 }
 
 func (s *stubOrgSyncer) GetMembershipRoles(_ context.Context, _ string) map[string]string {
@@ -39,7 +41,7 @@ func (s *stubOrgSyncer) GetMembershipRoles(_ context.Context, _ string) map[stri
 func (s *stubOrgSyncer) SyncMembershipsForUser(_ context.Context, userID string) ([]string, error) {
 	s.syncCalls++
 	s.syncUserID = userID
-	return nil, nil
+	return s.repairedOrgIDs, nil
 }
 
 type stubAccountGetter struct {
@@ -550,13 +552,30 @@ func TestMe_ReturnsEmptyPermissions(t *testing.T) {
 	}
 }
 
+type stubUserFetcher struct {
+	user *auth.User
+	err  error
+}
+
+func (s *stubUserFetcher) GetUser(_ context.Context, _ string) (*auth.User, error) {
+	return s.user, s.err
+}
+
 // stubOrgRefresher implements orgTokenRefresher for SwitchOrg tests.
 type stubOrgRefresher struct {
-	result *auth.RefreshResult
-	err    error
+	result  *auth.RefreshResult
+	results []*auth.RefreshResult
+	err     error
+	calls   int
 }
 
 func (s *stubOrgRefresher) AuthenticateWithRefreshTokenForOrg(_ context.Context, _, _ string) (*auth.RefreshResult, error) {
+	s.calls++
+	if len(s.results) > 0 {
+		next := s.results[0]
+		s.results = s.results[1:]
+		return next, s.err
+	}
 	return s.result, s.err
 }
 
@@ -905,4 +924,68 @@ func TestPersonalOrgTokens_RefreshFailureLeavesTheSessionUnscoped(t *testing.T) 
 	scoped, organizationID := handler.personalOrgTokens(context.Background(), "user-1", "refresh-token")
 	require.Nil(t, scoped)
 	require.Empty(t, organizationID)
+}
+
+func TestRefresh_RepairedOwnerRoleReachesTheSession(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.userFetcher = &stubUserFetcher{user: &auth.User{ID: "user-1"}}
+	handler.orgSync = &stubOrgSyncer{repairedOrgIDs: []string{"org-1"}}
+	refresher := &stubOrgRefresher{results: []*auth.RefreshResult{
+		{
+			AccessToken:  testAccessTokenWithClaims(t, map[string]any{"sid": "session_1", "role": "member"}),
+			RefreshToken: "refresh-token-new",
+		},
+		{
+			AccessToken:  testAccessTokenWithClaims(t, map[string]any{"sid": "session_1", "role": "admin"}),
+			RefreshToken: "refresh-token-reissued",
+		},
+	}}
+	handler.orgRefresher = refresher
+
+	router := gin.New()
+	router.POST("/auth/refresh", handler.Refresh())
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 2, refresher.calls)
+	sessionData, err := handler.sessionManager.UnsealSession(rec.Result().Cookies()[0].Value)
+	require.NoError(t, err)
+	assert.Equal(t, "admin", sessionData.Session.Role)
+	assert.Equal(t, "refresh-token-reissued", sessionData.Session.RefreshToken)
+}
+
+func TestRefresh_UnrepairedSessionIsNotReissued(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.userFetcher = &stubUserFetcher{user: &auth.User{ID: "user-1"}}
+	handler.orgSync = &stubOrgSyncer{repairedOrgIDs: []string{"org-2"}}
+	refresher := &stubOrgRefresher{result: &auth.RefreshResult{
+		AccessToken:  testAccessTokenWithClaims(t, map[string]any{"sid": "session_1", "role": "member"}),
+		RefreshToken: "refresh-token-new",
+	}}
+	handler.orgRefresher = refresher
+
+	router := gin.New()
+	router.POST("/auth/refresh", handler.Refresh())
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	req.AddCookie(&http.Cookie{Name: handler.cfg.Auth.CookieName, Value: sealedSessionCookie(t, handler)})
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 1, refresher.calls)
+}
+
+func TestReissueAfterRoleRepair_RefreshFailureKeepsTheTokenInHand(t *testing.T) {
+	handler := createTestAuthHandler("Lax")
+	handler.orgRefresher = &stubOrgRefresher{err: fmt.Errorf("workos down")}
+
+	reissued := handler.reissueAfterRoleRepair(context.Background(), "user-1", "refresh-token", "org-1", []string{"org-1"})
+	require.Nil(t, reissued)
 }

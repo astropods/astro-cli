@@ -199,3 +199,106 @@ func TestRepairOwnerRole_LeavesNonOwnersAlone(t *testing.T) {
 		t.Errorf("unmet expectations: %v", err)
 	}
 }
+
+func TestBackfillOwnerRoles_RepairsOwnersAndLeavesOthers(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("SELECT a.id, ao.workos_org_id, a.owner_user_id").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workos_org_id", "owner_user_id"}).
+			AddRow("acct-1", "org_1", "user-1").
+			AddRow("acct-2", "org_2", "user-1").
+			AddRow("acct-3", "org_3", "user-2"))
+	// Only the membership below admin reaches the owner lookup.
+	mock.ExpectQuery("SELECT owner_user_id FROM accounts").
+		WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id"}).AddRow("user-1"))
+
+	var updated []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			updated = append(updated, r.URL.Path)
+			fmt.Fprint(w, `{"id":"om_1","user_id":"user-1","organization_id":"org_1","role":{"slug":"admin"},"status":"active"}`)
+			return
+		}
+		switch r.URL.Query().Get("user_id") {
+		case "user-1":
+			fmt.Fprint(w, `{"data":[
+				{"id":"om_1","user_id":"user-1","organization_id":"org_1","role":{"slug":"member"},"status":"active"},
+				{"id":"om_2","user_id":"user-1","organization_id":"org_2","role":{"slug":"admin"},"status":"active"}
+			],"list_metadata":{"before":"","after":""}}`)
+		default:
+			fmt.Fprint(w, `{"data":[],"list_metadata":{"before":"","after":""}}`)
+		}
+	}))
+	defer srv.Close()
+
+	client := &Client{um: &usermanagement.Client{
+		APIKey:     "sk_test",
+		Endpoint:   srv.URL,
+		HTTPClient: srv.Client(),
+		JSONEncode: json.Marshal,
+	}}
+	sync := NewSync(client, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
+
+	result, err := sync.BackfillOwnerRoles(context.Background(), false)
+	if err != nil {
+		t.Fatalf("BackfillOwnerRoles: %v", err)
+	}
+	if result.Accounts != 3 || result.Owners != 2 {
+		t.Fatalf("result = %+v, want 3 accounts across 2 owners", result)
+	}
+	if result.Repaired != 1 || result.Unchanged != 1 || result.NoMembership != 1 || result.Failed != 0 {
+		t.Fatalf("result = %+v, want one repair, one already-admin, one missing membership", result)
+	}
+	if len(updated) != 1 || updated[0] != "/user_management/organization_memberships/om_1" {
+		t.Fatalf("role updates = %v, want only the membership below admin", updated)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestBackfillOwnerRoles_DryRunWritesNothing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close() //nolint:errcheck
+
+	mock.ExpectQuery("SELECT a.id, ao.workos_org_id, a.owner_user_id").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "workos_org_id", "owner_user_id"}).
+			AddRow("acct-1", "org_1", "user-1"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("dry run sent a %s to %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"id":"om_1","user_id":"user-1","organization_id":"org_1","role":{"slug":"member"},"status":"active"}],"list_metadata":{"before":"","after":""}}`)
+	}))
+	defer srv.Close()
+
+	client := &Client{um: &usermanagement.Client{
+		APIKey:     "sk_test",
+		Endpoint:   srv.URL,
+		HTTPClient: srv.Client(),
+		JSONEncode: json.Marshal,
+	}}
+	sync := NewSync(client, account.NewAccountStore(db), nil, db, logger.New("error", "json"))
+
+	result, err := sync.BackfillOwnerRoles(context.Background(), true)
+	if err != nil {
+		t.Fatalf("BackfillOwnerRoles: %v", err)
+	}
+	if result.Repaired != 1 {
+		t.Fatalf("result = %+v, want the repair counted without a write", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
