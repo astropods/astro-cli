@@ -19,13 +19,17 @@ type authorizationAdminService interface {
 
 type authorizationAdminStore interface {
 	CreateReset(context.Context, string, bool, *int) (*authorizationadmin.Operation, error)
+	CreateBackfill(context.Context, bool) (*authorizationadmin.Operation, error)
 	AttachJob(context.Context, string, int64) error
 	List(context.Context, int) ([]authorizationadmin.Operation, error)
 	Fail(context.Context, string, int, int, int, int, []authorizationadmin.ReportEntry, error) error
 }
 
-// SetAuthorizationAdmin wires Queen's read-only WorkOS resource inventory and
-// the separately guarded reset workflow.
+type authorizationAdminJob interface {
+	Kind() string
+}
+
+// SetAuthorizationAdmin wires Queen's WorkOS resource inventory and jobs.
 func (s *Server) SetAuthorizationAdmin(service *authorizationadmin.Service, store *authorizationadmin.Store, resetEnabled bool) {
 	if service == nil {
 		s.authorizationAdmin = nil
@@ -69,8 +73,9 @@ func (s *Server) ListAuthorizationResources(ctx context.Context, _ *adminv1.List
 		})
 	}
 	return &adminv1.ListAuthorizationResourcesResponse{
-		Resources:    resources,
-		ResetEnabled: s.authorizationAdminResetEnabled,
+		Resources:       resources,
+		ResetEnabled:    s.authorizationAdminResetEnabled,
+		BackfillEnabled: s.authorizationAdminStore != nil && s.queue != nil,
 	}, nil
 }
 
@@ -111,25 +116,44 @@ func (s *Server) StartAuthorizationResourceReset(ctx context.Context, req *admin
 	if err != nil {
 		return nil, authorizationAdminError(err)
 	}
-	args, err := json.Marshal(riverqueue.AuthorizationResourceResetArgs{OperationID: operation.ID})
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "encode authorization reset job: %v", err)
-	}
-	jobID, err := s.queue.TriggerJob(ctx, (riverqueue.AuthorizationResourceResetArgs{}).Kind(), args)
-	if err != nil {
-		_ = s.authorizationAdminStore.Fail(ctx, operation.ID, 0, 0, 0, 1, nil, err)
-		return nil, status.Errorf(codes.Internal, "enqueue authorization reset: %v", err)
-	}
-	if err := s.authorizationAdminStore.AttachJob(ctx, operation.ID, jobID); err != nil {
-		if s.log != nil {
-			s.log.Warn("authorization reset: attach River job id failed",
-				"operation_id", operation.ID,
-				"job_id", jobID,
-				"error", err,
-			)
-		}
+	if err := s.enqueueAuthorizationOperation(ctx, operation, riverqueue.AuthorizationResourceResetArgs{OperationID: operation.ID}); err != nil {
+		return nil, err
 	}
 	return &adminv1.StartAuthorizationResourceResetResponse{Operation: authorizationOperationProto(operation)}, nil
+}
+
+func (s *Server) StartAuthorizationResourceBackfill(ctx context.Context, req *adminv1.StartAuthorizationResourceBackfillRequest) (*adminv1.StartAuthorizationResourceBackfillResponse, error) {
+	if s.authorizationAdmin == nil || s.authorizationAdminStore == nil || s.queue == nil {
+		return nil, status.Error(codes.FailedPrecondition, "authorization resource backfill is not configured")
+	}
+	operation, err := s.authorizationAdminStore.CreateBackfill(ctx, req.DryRun)
+	if err != nil {
+		return nil, authorizationAdminError(err)
+	}
+	if err := s.enqueueAuthorizationOperation(ctx, operation, riverqueue.AuthorizationResourceBackfillArgs{OperationID: operation.ID}); err != nil {
+		return nil, err
+	}
+	return &adminv1.StartAuthorizationResourceBackfillResponse{Operation: authorizationOperationProto(operation)}, nil
+}
+
+func (s *Server) enqueueAuthorizationOperation(ctx context.Context, operation *authorizationadmin.Operation, job authorizationAdminJob) error {
+	args, err := json.Marshal(job)
+	if err != nil {
+		return status.Errorf(codes.Internal, "encode authorization operation job: %v", err)
+	}
+	jobID, err := s.queue.TriggerJob(ctx, job.Kind(), args)
+	if err != nil {
+		_ = s.authorizationAdminStore.Fail(ctx, operation.ID, 0, 0, 0, 1, nil, err)
+		return status.Errorf(codes.Internal, "enqueue authorization operation: %v", err)
+	}
+	if err := s.authorizationAdminStore.AttachJob(ctx, operation.ID, jobID); err != nil && s.log != nil {
+		s.log.Warn("authorization operation: attach River job id failed",
+			"operation_id", operation.ID,
+			"job_id", jobID,
+			"error", err,
+		)
+	}
+	return nil
 }
 
 func authorizationAdminError(err error) error {
@@ -155,6 +179,7 @@ func authorizationOperationProto(operation *authorizationadmin.Operation) *admin
 	}
 	result := &adminv1.AuthorizationOperation{
 		ID:             operation.ID,
+		Kind:           operation.Kind,
 		AccountID:      operation.AccountID,
 		DryRun:         operation.DryRun,
 		Status:         operation.Status,

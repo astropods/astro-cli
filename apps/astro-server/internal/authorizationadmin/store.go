@@ -11,6 +11,7 @@ import (
 )
 
 const activeOperationConstraint = "idx_authorization_admin_operations_active_account"
+const activeBackfillConstraint = "idx_authorization_admin_operations_active_backfill"
 
 type Store struct {
 	db *sql.DB
@@ -45,6 +46,27 @@ func (s *Store) CreateReset(ctx context.Context, accountID string, dryRun bool, 
 	return &operation, nil
 }
 
+func (s *Store) CreateBackfill(ctx context.Context, dryRun bool) (*Operation, error) {
+	if s == nil || s.db == nil {
+		return nil, ErrNotConfigured
+	}
+	var operation Operation
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO authorization_admin_operations (account_id, kind, dry_run)
+		VALUES (NULL, 'resource_backfill', $1)
+		RETURNING `+operationColumns,
+		dryRun,
+	).Scan(operationScan(&operation)...)
+	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && string(pqErr.Code) == "23505" && pqErr.Constraint == activeBackfillConstraint {
+			return nil, ErrOperationInProgress
+		}
+		return nil, fmt.Errorf("create authorization backfill operation: %w", err)
+	}
+	return &operation, nil
+}
+
 func (s *Store) AttachJob(ctx context.Context, operationID string, jobID int64) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE authorization_admin_operations
@@ -52,9 +74,9 @@ func (s *Store) AttachJob(ctx context.Context, operationID string, jobID int64) 
 		WHERE id = $1
 	`, operationID, jobID)
 	if err != nil {
-		return fmt.Errorf("attach authorization reset job: %w", err)
+		return fmt.Errorf("attach authorization job: %w", err)
 	}
-	return requireChanged(result, "attach authorization reset job")
+	return requireChanged(result, "attach authorization job")
 }
 
 func (s *Store) List(ctx context.Context, limit int) ([]Operation, error) {
@@ -167,12 +189,13 @@ func (s *Store) Fail(ctx context.Context, operationID string, target, processed,
 }
 
 const operationColumns = `
-	id, account_id, dry_run, status, confirmed_count, target_count, processed_count,
+	id, kind, COALESCE(account_id::text, ''), dry_run, status, confirmed_count, target_count, processed_count,
 	succeeded_count, failed_count, attempt_count, COALESCE(last_error, ''), created_at`
 
 func operationScan(operation *Operation) []any {
 	return []any{
 		&operation.ID,
+		&operation.Kind,
 		&operation.AccountID,
 		&operation.DryRun,
 		&operation.Status,

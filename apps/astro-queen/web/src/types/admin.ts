@@ -136,10 +136,12 @@ export interface AuthorizationAssignment {
 export interface ListAuthorizationResourcesResponse {
   resources?: AuthorizationResource[];
   reset_enabled: boolean;
+  backfill_enabled: boolean;
 }
 
 export interface AuthorizationOperation {
   id: string;
+  kind: "resource_reset" | "resource_backfill";
   account_id: string;
   dry_run: boolean;
   status: "queued" | "running" | "succeeded" | "failed";
@@ -156,6 +158,10 @@ export interface ListAuthorizationOperationsResponse {
 }
 
 export interface StartAuthorizationResourceResetResponse {
+  operation: AuthorizationOperation;
+}
+
+export interface StartAuthorizationResourceBackfillResponse {
   operation: AuthorizationOperation;
 }
 

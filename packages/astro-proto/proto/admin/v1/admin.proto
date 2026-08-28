@@ -10,6 +10,7 @@ service AdminService {
   rpc ListAuthorizationResources(ListAuthorizationResourcesRequest) returns (ListAuthorizationResourcesResponse);
   rpc ListAuthorizationOperations(ListAuthorizationOperationsRequest) returns (ListAuthorizationOperationsResponse);
   rpc StartAuthorizationResourceReset(StartAuthorizationResourceResetRequest) returns (StartAuthorizationResourceResetResponse);
+  rpc StartAuthorizationResourceBackfill(StartAuthorizationResourceBackfillRequest) returns (StartAuthorizationResourceBackfillResponse);
   rpc GetClusterStatus(GetClusterStatusRequest) returns (GetClusterStatusResponse);
   rpc ListImages(ListImagesRequest) returns (ListImagesResponse);
   rpc DeleteDeployment(DeleteDeploymentRequest) returns (DeleteDeploymentResponse);
@@ -158,6 +159,7 @@ message AuthorizationAssignment {
 message ListAuthorizationResourcesResponse {
   repeated AuthorizationResource resources = 1;
   bool reset_enabled = 3;
+  bool backfill_enabled = 4;
 }
 
 message AuthorizationOperation {
@@ -171,6 +173,7 @@ message AuthorizationOperation {
   string last_error = 10;
   string created_at = 11;
   string account_id = 12;
+  string kind = 13;
 }
 
 message ListAuthorizationOperationsRequest {
@@ -188,6 +191,14 @@ message StartAuthorizationResourceResetRequest {
 }
 
 message StartAuthorizationResourceResetResponse {
+  AuthorizationOperation operation = 1;
+}
+
+message StartAuthorizationResourceBackfillRequest {
+  bool dry_run = 1;
+}
+
+message StartAuthorizationResourceBackfillResponse {
   AuthorizationOperation operation = 1;
 }
 

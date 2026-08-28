@@ -9,6 +9,7 @@ import type {
   ListAuthorizationResourcesResponse,
   ListAuthorizationOperationsResponse,
   StartAuthorizationResourceResetResponse,
+  StartAuthorizationResourceBackfillResponse,
   ListAccountsResponse,
   GetAccountResponse,
   MetronomeAliasStatus,
@@ -124,6 +125,18 @@ export function useStartAuthorizationResourceReset() {
   return useMutation({
     mutationFn: (body: { account_id: string; dry_run: boolean; confirmed_count?: number }) =>
       api.post<StartAuthorizationResourceResetResponse>("/api/admin/authorization/reset", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
+      qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });
+    },
+  });
+}
+
+export function useStartAuthorizationResourceBackfill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { dry_run: boolean }) =>
+      api.post<StartAuthorizationResourceBackfillResponse>("/api/admin/authorization/backfill", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: adminKeys.authorizationOperations() });
       qc.invalidateQueries({ queryKey: adminKeys.authorizationResources() });

@@ -215,11 +215,13 @@ Queen also provides separate views for groups, assignments, shadow comparisons, 
 ### PR4: Backfill existing resources and account owners
 
 - Fill null `agents.uid` values in bounded batches ordered by the existing `(account_id, name)` key.
-- Build the unique `agents.uid` index concurrently. Add a `uid IS NOT NULL` check as `NOT VALID`, validate it separately, then set `DEFAULT gen_random_uuid()` and `NOT NULL` without rewriting existing rows; remove the temporary check afterward.
 - Scan active Accounts and their supported child tables using the exact source columns above.
 - List WorkOS resources for each linked Account, compare by type and external ID, and create only missing resources in bounded, restartable batches.
 - Resolve `accounts.owner_user_id` through `account_member_workos` and assign `account-admin` to each Account owner.
 - Report missing WorkOS memberships and failed resources without enabling enforcement.
+- In Queen Resources, use **Connect WorkOS** to preview and then run the idempotent backfill. The job never deletes resources and is safe to rerun.
+- Audience is excluded until its table and create API land. Archived Blueprints, undeployed Deployments, deleted Accounts, and personal Accounts remain excluded.
+- Add the unique `agents.uid` constraint and database default only after Preview and production report zero null IDs, so schema deployment cannot race the data backfill.
 
 **Queen proof:** Preview shows every eligible supported resource; counts match Astro; every row has the correct Account parent; and every Account shows its owner as a direct admin.
 

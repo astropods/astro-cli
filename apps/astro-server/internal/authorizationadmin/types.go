@@ -8,7 +8,7 @@ import (
 var (
 	ErrNotConfigured       = errors.New("authorization administration is not configured")
 	ErrOperationNotFound   = errors.New("authorization administration operation not found")
-	ErrOperationInProgress = errors.New("authorization reset already in progress for account")
+	ErrOperationInProgress = errors.New("authorization operation already in progress")
 	ErrAccountNotFound     = errors.New("authorization reset account not found")
 	ErrAccountNotLinked    = errors.New("authorization reset account has no WorkOS organization")
 )
@@ -42,6 +42,7 @@ type Inventory struct {
 
 type Operation struct {
 	ID             string
+	Kind           string
 	AccountID      string
 	DryRun         bool
 	Status         string

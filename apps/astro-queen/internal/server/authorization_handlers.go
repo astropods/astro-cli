@@ -47,3 +47,19 @@ func (s *Server) handleStartAuthorizationResourceReset(w http.ResponseWriter, r 
 	}
 	writeJSON(w, http.StatusAccepted, response)
 }
+
+func (s *Server) handleStartAuthorizationResourceBackfill(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DryRun bool `json:"dry_run"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	response, err := s.admin.StartAuthorizationResourceBackfill(r.Context(), &adminv1.StartAuthorizationResourceBackfillRequest{DryRun: body.DryRun})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, response)
+}

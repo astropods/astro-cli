@@ -33,6 +33,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/authorization/resources", s.handleListAuthorizationResources)
 	mux.HandleFunc("GET /api/admin/authorization/operations", s.handleListAuthorizationOperations)
 	mux.HandleFunc("POST /api/admin/authorization/reset", s.handleStartAuthorizationResourceReset)
+	mux.HandleFunc("POST /api/admin/authorization/backfill", s.handleStartAuthorizationResourceBackfill)
 	mux.HandleFunc("DELETE /api/admin/deployments/{id}", s.handleDeleteDeployment)
 	mux.HandleFunc("POST /api/admin/deployments/{id}/restart", s.handleRestartDeployment)
 	mux.HandleFunc("GET /api/admin/cluster-status", s.handleGetClusterStatus)

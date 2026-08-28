@@ -42,7 +42,14 @@ func (f *fakeAuthorizationAdminStore) CreateReset(_ context.Context, accountID s
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
-	f.operation = &authorizationadmin.Operation{ID: "op_123", AccountID: accountID, DryRun: dryRun, ConfirmedCount: confirmedCount, Status: "queued", CreatedAt: time.Now()}
+	f.operation = &authorizationadmin.Operation{ID: "op_123", Kind: "resource_reset", AccountID: accountID, DryRun: dryRun, ConfirmedCount: confirmedCount, Status: "queued", CreatedAt: time.Now()}
+	return f.operation, nil
+}
+func (f *fakeAuthorizationAdminStore) CreateBackfill(_ context.Context, dryRun bool) (*authorizationadmin.Operation, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	f.operation = &authorizationadmin.Operation{ID: "op_123", Kind: "resource_backfill", DryRun: dryRun, Status: "queued", CreatedAt: time.Now()}
 	return f.operation, nil
 }
 func (f *fakeAuthorizationAdminStore) AttachJob(_ context.Context, _ string, jobID int64) error {
@@ -145,5 +152,21 @@ func TestAuthorizationResetIgnoresJobAttachmentFailure(t *testing.T) {
 	}
 	if response.Operation == nil || response.Operation.ID != "op_123" || !store.attached {
 		t.Fatalf("response = %+v, attached = %t", response, store.attached)
+	}
+}
+
+func TestAuthorizationBackfillQueuesGlobalJob(t *testing.T) {
+	store := &fakeAuthorizationAdminStore{}
+	server := &Server{
+		authorizationAdmin:      &fakeAuthorizationAdminService{},
+		authorizationAdminStore: store,
+		queue:                   &mockAdminJobQueue{},
+	}
+	response, err := server.StartAuthorizationResourceBackfill(context.Background(), &adminv1.StartAuthorizationResourceBackfillRequest{DryRun: true})
+	if err != nil {
+		t.Fatalf("StartAuthorizationResourceBackfill() error = %v", err)
+	}
+	if response.Operation == nil || response.Operation.Kind != "resource_backfill" || !response.Operation.DryRun || response.Operation.AccountID != "" {
+		t.Fatalf("operation = %+v", response.Operation)
 	}
 }

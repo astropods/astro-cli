@@ -10,6 +10,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
+	"github.com/astropods/astro/apps/astro-server/internal/authzbackfill"
 )
 
 type fakeWorkOS struct {
@@ -74,6 +75,51 @@ func expectLinkedOrganizations(mock sqlmock.Sqlmock, organizationIDs ...string) 
 	mock.ExpectQuery(`SELECT DISTINCT ao.workos_org_id`).WillReturnRows(rows)
 }
 
+func expectLocalAuthorizationResources(
+	mock sqlmock.Sqlmock,
+	accounts []authzbackfill.Account,
+	resources []authzbackfill.Resource,
+) {
+	accountRows := sqlmock.NewRows([]string{"id", "organization_id", "name", "owner_membership_id"})
+	for _, account := range accounts {
+		accountRows.AddRow(account.ID, account.OrganizationID, account.Name, account.OwnerMembershipID)
+	}
+	mock.ExpectQuery(`SELECT a.id::text`).WillReturnRows(accountRows)
+	if len(accounts) != 0 {
+		resourceRows := sqlmock.NewRows([]string{"account_id", "resource_type", "external_id", "name"})
+		for _, resource := range resources {
+			resourceRows.AddRow(resource.AccountID, resource.Ref.Type, resource.Ref.ExternalID, resource.Name)
+		}
+		mock.ExpectQuery(`SELECT account_id::text, resource_type, external_id, name`).WillReturnRows(resourceRows)
+		mock.ExpectQuery(`SELECT a.id::text`).WillReturnRows(
+			sqlmock.NewRows([]string{"id", "organization_id", "name", "owner_membership_id"}),
+		)
+	}
+}
+
+func TestRunBackfillCompletesDryRun(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery(`SELECT count\(\*\) FROM agents WHERE uid IS NULL`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`SELECT a.id::text`).WillReturnRows(sqlmock.NewRows([]string{"id", "organization_id", "name", "owner_membership_id"}))
+	store := &fakeOperationStore{operation: &Operation{ID: "op_123", Kind: "resource_backfill", DryRun: true}}
+	service := newService(db, &fakeWorkOS{FakeFGA: &authz.FakeFGA{}, FakeGroups: &authz.FakeGroups{}}, store)
+
+	if err := service.RunBackfill(context.Background(), "op_123"); err != nil {
+		t.Fatalf("RunBackfill() error = %v", err)
+	}
+	if store.completedTarget != 2 {
+		t.Fatalf("completed target = %d, want 2 missing Blueprint resources", store.completedTarget)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -84,7 +130,10 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 	resource := authz.DeploymentResource("dep_123")
 	workos := &fakeWorkOS{
 		FakeFGA: &authz.FakeFGA{
-			ListRoleAssignmentsFunc: func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) {
+			ListRoleAssignmentsFunc: func(_ context.Context, _ string, current authz.ResourceRef) ([]authz.RoleAssignment, error) {
+				if current != resource {
+					return nil, nil
+				}
 				return []authz.RoleAssignment{{
 					Subject: authz.MembershipAssignmentSubject("om_admin"), Role: authz.RoleDeploymentAdmin,
 					Source: authz.AssignmentSourceDirect, Resource: resource,
@@ -104,22 +153,25 @@ func TestInventoryUsesGenericResourcesAndKeepsDeploymentAccessSeparate(t *testin
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "root", OrganizationID: "org_123", Resource: authz.ResourceRef{Type: authz.ResourceOrganization, ExternalID: "org_123"}},
-			{ID: "workos_dep", OrganizationID: "org_123", Resource: resource, Name: "Support agent", CreatedAt: "2026-08-25T12:00:00Z"},
+			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.AccountResource("acct_123"), Name: "Astro Spaceship"},
+			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: resource, Name: "Support agent", CreatedAt: "2026-08-25T12:00:00Z"},
 		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
 	mock.ExpectQuery(`SELECT mw.workos_membership_id`).WillReturnRows(sqlmock.NewRows([]string{"workos_membership_id", "label"}).
 		AddRow("om_admin", "jessye@example.com"))
-	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}).
-		AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
+	expectLocalAuthorizationResources(mock,
+		[]authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}},
+		[]authzbackfill.Resource{{AccountID: "acct_123", Ref: resource, Name: "Support agent"}},
+	)
 	store := &fakeOperationStore{}
 	service := newService(db, workos, store)
 
 	inventory, err := service.Inventory(context.Background())
-	if err != nil || len(inventory.Resources) != 1 {
+	if err != nil || len(inventory.Resources) != 2 {
 		t.Fatalf("Inventory() = (%+v, %v)", inventory, err)
 	}
-	got := inventory.Resources[0]
+	got := inventory.Resources[1]
 	if got.Type != "deployment" || got.AccountID != "acct_123" || got.AssignmentCount != 2 || !reflect.DeepEqual(got.DirectAdmins, []string{"jessye@example.com"}) {
 		t.Fatalf("resource = %+v", got)
 	}
@@ -153,19 +205,26 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 		},
 		resources: []authz.AuthorizationResource{
 			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.ResourceRef{Type: authz.ResourceAccount, ExternalID: "acct_123"}, Name: "Astro Spaceship"},
+			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123"), Name: "Insights"},
 			{ID: "workos_blueprint", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.BlueprintResource("blueprint_123"), Name: "Support blueprint"},
 			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
 		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
-	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
+	expectLocalAuthorizationResources(mock,
+		[]authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}},
+		[]authzbackfill.Resource{
+			{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
+			{AccountID: "acct_123", Ref: authz.BlueprintResource("blueprint_123"), Name: "Support blueprint"},
+		},
+	)
 	service := newService(db, workos, &fakeOperationStore{})
 
 	inventory, err := service.Inventory(context.Background())
 	if err != nil {
 		t.Fatalf("Inventory() error = %v", err)
 	}
-	if len(inventory.Resources) != 3 {
+	if len(inventory.Resources) != 4 {
 		t.Fatalf("resources = %+v", inventory.Resources)
 	}
 	if blueprint := inventory.Resources[1]; blueprint.Type != "blueprint" || blueprint.SyncState != "registered" {
@@ -178,6 +237,52 @@ func TestInventoryMarksParentedDeploymentMissingFromDBAsWorkOSOnly(t *testing.T)
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestInventoryMarksActiveAstroResourceMissingFromWorkOS(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	workos := &fakeWorkOS{
+		FakeFGA: &authz.FakeFGA{
+			ListRoleAssignmentsFunc:      func(context.Context, string, authz.ResourceRef) ([]authz.RoleAssignment, error) { return nil, nil },
+			ListGroupRoleAssignmentsFunc: func(context.Context, string) ([]authz.RoleAssignment, error) { return nil, nil },
+		},
+		FakeGroups: &authz.FakeGroups{
+			ListGroupsFunc: func(context.Context, string, authz.PageRequest) (authz.GroupPage, error) {
+				return authz.GroupPage{}, nil
+			},
+		},
+		resources: []authz.AuthorizationResource{
+			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.AccountResource("acct_123"), Name: "Astro Spaceship"},
+			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123"), Name: "Insights"},
+		},
+	}
+	expectLinkedOrganizations(mock, "org_123")
+	expectLocalAuthorizationResources(mock,
+		[]authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}},
+		[]authzbackfill.Resource{
+			{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
+			{AccountID: "acct_123", Ref: authz.DeploymentResource("dep_missing"), Name: "Missing deployment"},
+		},
+	)
+
+	inventory, err := newService(db, workos, &fakeOperationStore{}).Inventory(context.Background())
+	if err != nil {
+		t.Fatalf("Inventory() error = %v", err)
+	}
+	for _, resource := range inventory.Resources {
+		if resource.ExternalID == "dep_missing" {
+			if resource.SyncState != "missing_in_workos" || resource.WorkOSResourceID != "" || resource.AccountID != "acct_123" {
+				t.Fatalf("missing resource = %+v", resource)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing resource not found in inventory: %+v", inventory.Resources)
 }
 
 func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
@@ -199,14 +304,20 @@ func TestInventoryCachesOnlyWorkOSSnapshot(t *testing.T) {
 				return authz.GroupPage{}, nil
 			},
 		},
-		resources: []authz.AuthorizationResource{{
-			ID: "workos_dep", OrganizationID: "org_123", Resource: authz.DeploymentResource("dep_123"),
-		}},
+		resources: []authz.AuthorizationResource{
+			{ID: "workos_account", OrganizationID: "org_123", Resource: authz.AccountResource("acct_123")},
+			{ID: "workos_insights", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.InsightsResource("acct_123")},
+			{ID: "workos_dep", OrganizationID: "org_123", ParentResourceID: "workos_account", Resource: authz.DeploymentResource("dep_123")},
+		},
 	}
 	expectLinkedOrganizations(mock, "org_123")
-	rows := []string{"id", "account_id", "account_name", "sync_state", "last_error"}
-	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
-	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows(rows).AddRow("dep_123", "acct_123", "Astro Spaceship", "synced", ""))
+	accounts := []authzbackfill.Account{{ID: "acct_123", OrganizationID: "org_123", Name: "Astro Spaceship"}}
+	resources := []authzbackfill.Resource{
+		{AccountID: "acct_123", Ref: authz.InsightsResource("acct_123"), Name: "Insights"},
+		{AccountID: "acct_123", Ref: authz.DeploymentResource("dep_123"), Name: "Support agent"},
+	}
+	expectLocalAuthorizationResources(mock, accounts, resources)
+	expectLocalAuthorizationResources(mock, accounts, resources)
 	service := newService(db, workos, &fakeOperationStore{})
 
 	if _, err := service.Inventory(context.Background()); err != nil {
@@ -246,7 +357,7 @@ func TestInventoryListsResourcesByLinkedOrganization(t *testing.T) {
 		},
 	}
 	expectLinkedOrganizations(mock, "org_a", "org_b")
-	mock.ExpectQuery(`SELECT d.id`).WillReturnRows(sqlmock.NewRows([]string{"id", "account_id", "account_name", "sync_state", "last_error"}))
+	expectLocalAuthorizationResources(mock, nil, nil)
 
 	inventory, err := newService(db, workos, &fakeOperationStore{}).Inventory(context.Background())
 	if err != nil {

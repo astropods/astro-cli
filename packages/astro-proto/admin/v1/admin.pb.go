@@ -103,12 +103,14 @@ type AuthorizationAssignment struct {
 }
 
 type ListAuthorizationResourcesResponse struct {
-	Resources    []*AuthorizationResource `json:"resources,omitempty"`
-	ResetEnabled bool                     `json:"reset_enabled,omitempty"`
+	Resources       []*AuthorizationResource `json:"resources,omitempty"`
+	ResetEnabled    bool                     `json:"reset_enabled,omitempty"`
+	BackfillEnabled bool                     `json:"backfill_enabled,omitempty"`
 }
 
 type AuthorizationOperation struct {
 	ID             string `json:"id,omitempty"`
+	Kind           string `json:"kind,omitempty"`
 	AccountID      string `json:"account_id,omitempty"`
 	DryRun         bool   `json:"dry_run,omitempty"`
 	Status         string `json:"status,omitempty"`
@@ -135,6 +137,14 @@ type StartAuthorizationResourceResetRequest struct {
 }
 
 type StartAuthorizationResourceResetResponse struct {
+	Operation *AuthorizationOperation `json:"operation,omitempty"`
+}
+
+type StartAuthorizationResourceBackfillRequest struct {
+	DryRun bool `json:"dry_run,omitempty"`
+}
+
+type StartAuthorizationResourceBackfillResponse struct {
 	Operation *AuthorizationOperation `json:"operation,omitempty"`
 }
 

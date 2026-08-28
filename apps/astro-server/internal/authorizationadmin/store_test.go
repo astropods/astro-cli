@@ -26,3 +26,21 @@ func TestCreateResetRejectsActiveOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCreateBackfillRejectsActiveOperation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mock.ExpectQuery(`INSERT INTO authorization_admin_operations`).
+		WillReturnError(&pq.Error{Code: "23505", Constraint: activeBackfillConstraint})
+	_, err = NewStore(db).CreateBackfill(context.Background(), true)
+	if !errors.Is(err, ErrOperationInProgress) {
+		t.Fatalf("CreateBackfill() error = %v, want ErrOperationInProgress", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

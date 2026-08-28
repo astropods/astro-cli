@@ -15,10 +15,12 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/astropods/astro/apps/astro-server/internal/authz"
+	"github.com/astropods/astro/apps/astro-server/internal/authzbackfill"
 )
 
 const (
 	assignmentConcurrency   = 5
+	inventoryAccountBatch   = 500
 	workOSInventoryCacheTTL = 30 * time.Second
 	workOSInventoryTimeout  = 10 * time.Second
 )
@@ -27,6 +29,7 @@ type workOSAdmin interface {
 	authz.AuthorizationResourceCatalog
 	authz.AccessAssignments
 	authz.Groups
+	authz.ResourceLifecycle
 }
 
 type operationStore interface {
@@ -72,7 +75,7 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 	if err != nil {
 		return nil, err
 	}
-	local, err := s.localDeploymentMetadata(ctx)
+	local, err := s.localAuthorizationResources(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -83,11 +86,14 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 		}
 	}
 
-	result := make([]Resource, 0, len(resources))
+	result := make([]Resource, 0, max(len(resources), len(local)))
+	registered := make(map[string]struct{}, len(resources))
 	for _, resource := range resources {
 		if resource.Resource.Type == authz.ResourceOrganization {
 			continue
 		}
+		key := resourceKey(resource.Resource)
+		registered[key] = struct{}{}
 		row := Resource{
 			Type:             string(resource.Resource.Type),
 			Name:             resource.Name,
@@ -103,14 +109,12 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 			row.AccountID = accountResource.Resource.ExternalID
 			row.AccountName = accountResource.Name
 		}
-		if metadata, ok := local[resource.Resource.ExternalID]; ok {
+		if metadata, ok := local[key]; ok {
 			if row.AccountID == "" {
 				row.AccountID = metadata.AccountID
 				row.AccountName = metadata.AccountName
 			}
-			row.SyncState = metadata.SyncState
-			row.LastError = metadata.LastError
-		} else if resource.Resource.Type == authz.ResourceDeployment {
+		} else {
 			row.SyncState = "workos_only"
 		}
 		for _, assignment := range assignments[resourceKey(resource.Resource)] {
@@ -140,6 +144,19 @@ func (s *Service) Inventory(ctx context.Context) (*Inventory, error) {
 		sort.Strings(row.DirectAdmins)
 		result = append(result, row)
 	}
+	for key, resource := range local {
+		if _, ok := registered[key]; ok {
+			continue
+		}
+		result = append(result, Resource{
+			Type:        string(resource.Resource.Type),
+			Name:        resource.Name,
+			ExternalID:  resource.Resource.ExternalID,
+			AccountID:   resource.AccountID,
+			AccountName: resource.AccountName,
+			SyncState:   "missing_in_workos",
+		})
+	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].Type != result[j].Type {
 			return result[i].Type < result[j].Type
@@ -160,6 +177,7 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 	if err != nil {
 		return err
 	}
+	defer s.invalidateWorkOSInventory()
 	resources, assignments, err := s.loadAccount(ctx, operation.AccountID)
 	if err != nil {
 		_ = s.store.Fail(
@@ -214,6 +232,63 @@ func (s *Service) RunReset(ctx context.Context, operationID string) error {
 		return resetErr
 	}
 	return s.store.Complete(ctx, operationID, targetCount, processed, succeeded, report)
+}
+
+func (s *Service) RunBackfill(ctx context.Context, operationID string) error {
+	if s == nil || s.db == nil || s.workos == nil || s.store == nil {
+		return ErrNotConfigured
+	}
+	operation, err := s.store.Start(ctx, operationID)
+	if err != nil {
+		return err
+	}
+	if operation.Kind != "resource_backfill" {
+		return fmt.Errorf("authorization operation %s is not a resource backfill", operationID)
+	}
+	defer s.invalidateWorkOSInventory()
+
+	summary, runErr := authzbackfill.New(
+		authzbackfill.NewStore(s.db),
+		s.workos,
+		100,
+		operation.DryRun,
+	).Run(ctx)
+	target, processed, succeeded, failed := backfillCounts(summary, operation.DryRun)
+	report := backfillReport(summary.Failures)
+	if runErr != nil {
+		if err := s.store.Fail(ctx, operationID, target, processed, succeeded, failed, report, runErr); err != nil {
+			return errors.Join(runErr, err)
+		}
+		return runErr
+	}
+	return s.store.Complete(ctx, operationID, target, processed, succeeded, report)
+}
+
+func backfillCounts(summary authzbackfill.Summary, dryRun bool) (target, processed, succeeded, failed int) {
+	target = summary.ResourcesMissing + summary.ResourcesExisting
+	if dryRun {
+		target += summary.BlueprintIDsBackfilled
+	}
+	processed = target
+	if !dryRun {
+		succeeded = summary.ResourcesCreated
+	}
+	failed = len(summary.Failures)
+	return target, processed, succeeded, failed
+}
+
+func backfillReport(failures []authzbackfill.Failure) []ReportEntry {
+	report := make([]ReportEntry, 0, len(failures))
+	for _, failure := range failures {
+		report = append(report, ReportEntry{
+			ResourceID: failure.Resource.ExternalID,
+			Type:       string(failure.Resource.Type),
+			ExternalID: failure.Resource.ExternalID,
+			Status:     failure.Operation,
+			Error:      failure.Err.Error(),
+		})
+	}
+	return report
 }
 
 func (s *Service) loadAccount(ctx context.Context, accountID string) ([]authz.AuthorizationResource, map[string][]authz.RoleAssignment, error) {
@@ -356,6 +431,12 @@ func (s *Service) cachedWorkOSInventory() *workOSInventorySnapshot {
 	return s.workOSCache
 }
 
+func (s *Service) invalidateWorkOSInventory() {
+	s.workOSCacheMu.Lock()
+	s.workOSCache = nil
+	s.workOSCacheMu.Unlock()
+}
+
 func (s *Service) directAssignments(ctx context.Context, resources []authz.AuthorizationResource) (map[string][]authz.RoleAssignment, map[string]string, error) {
 	result := make(map[string][]authz.RoleAssignment)
 	groupNames := make(map[string]string)
@@ -496,40 +577,46 @@ func (s *Service) deleteResource(ctx context.Context, resource authz.Authorizati
 	return nil
 }
 
-type deploymentMetadata struct {
+type localResourceMetadata struct {
+	Resource    authz.ResourceRef
+	Name        string
 	AccountID   string
 	AccountName string
-	SyncState   string
-	LastError   string
 }
 
-func (s *Service) localDeploymentMetadata(ctx context.Context) (map[string]deploymentMetadata, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id,
-		       d.account_id,
-		       COALESCE(NULLIF(a.display_name, ''), a.name),
-		       'registered',
-		       ''
-		FROM deployments d
-		JOIN accounts a ON a.id = d.account_id
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("load authorization inventory deployment metadata: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-	metadata := make(map[string]deploymentMetadata)
-	for rows.Next() {
-		var id string
-		var current deploymentMetadata
-		if err := rows.Scan(&id, &current.AccountID, &current.AccountName, &current.SyncState, &current.LastError); err != nil {
-			return nil, fmt.Errorf("scan authorization inventory deployment metadata: %w", err)
+func (s *Service) localAuthorizationResources(ctx context.Context) (map[string]localResourceMetadata, error) {
+	source := authzbackfill.NewStore(s.db)
+	result := make(map[string]localResourceMetadata)
+	var after string
+	for {
+		accounts, err := source.ListAccounts(ctx, after, inventoryAccountBatch)
+		if err != nil {
+			return nil, err
 		}
-		metadata[id] = current
+		if len(accounts) == 0 {
+			return result, nil
+		}
+		accountIDs := make([]string, 0, len(accounts))
+		for _, account := range accounts {
+			accountIDs = append(accountIDs, account.ID)
+			ref := authz.AccountResource(account.ID)
+			result[resourceKey(ref)] = localResourceMetadata{
+				Resource: ref, Name: account.Name, AccountID: account.ID, AccountName: account.Name,
+			}
+		}
+		resources, err := source.ListResources(ctx, accountIDs)
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts {
+			for _, resource := range resources[account.ID] {
+				result[resourceKey(resource.Ref)] = localResourceMetadata{
+					Resource: resource.Ref, Name: resource.Name, AccountID: account.ID, AccountName: account.Name,
+				}
+			}
+		}
+		after = accounts[len(accounts)-1].ID
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate authorization inventory deployment metadata: %w", err)
-	}
-	return metadata, nil
 }
 
 func productResources(resources []authz.AuthorizationResource) []authz.AuthorizationResource {

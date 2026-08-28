@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Boxes,
   ChevronDown,
   CircleAlert,
   ExternalLink,
+  Link2,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -16,6 +17,7 @@ import {
 import {
   useAuthorizationOperations,
   useAuthorizationResources,
+  useStartAuthorizationResourceBackfill,
   useStartAuthorizationResourceReset,
 } from "@/api/admin";
 import {
@@ -39,6 +41,7 @@ type AccountOption = { id: string; name: string };
 export function ResourcesPage() {
   const resourcesQuery = useAuthorizationResources();
   const operationsQuery = useAuthorizationOperations();
+  const startBackfill = useStartAuthorizationResourceBackfill();
   const startReset = useStartAuthorizationResourceReset();
   const [search, setSearch] = useState("");
   const [account, setAccount] = useState("all");
@@ -48,6 +51,16 @@ export function ResourcesPage() {
 
   const resources = resourcesQuery.data?.resources ?? [];
   const operations = operationsQuery.data?.operations ?? [];
+  const refreshedOperation = useRef("");
+  const latestTerminalOperation = operations.find(
+    (operation) => operation.status === "succeeded" || operation.status === "failed",
+  )?.id;
+  useEffect(() => {
+    if (latestTerminalOperation && refreshedOperation.current !== latestTerminalOperation) {
+      refreshedOperation.current = latestTerminalOperation;
+      void resourcesQuery.refetch();
+    }
+  }, [latestTerminalOperation, resourcesQuery]);
   const accounts = useMemo(
     () => [...resources.reduce((result, resource) => {
       if (resource.account_id) {
@@ -118,6 +131,11 @@ export function ResourcesPage() {
             <RefreshCw className={cn("size-3.5", resourcesQuery.isFetching && "animate-spin")} />
             Refresh
           </Button>
+          <ConnectWorkOSDialog
+            enabled={resourcesQuery.data?.backfill_enabled ?? false}
+            operations={operations}
+            startBackfill={startBackfill}
+          />
           <ResetDialog
             enabled={resourcesQuery.data?.reset_enabled ?? false}
             accounts={accounts}
@@ -172,6 +190,84 @@ export function ResourcesPage() {
 
       <Operations operations={operations} accounts={accounts} />
     </div>
+  );
+}
+
+function ConnectWorkOSDialog({
+  enabled,
+  operations,
+  startBackfill,
+}: {
+  enabled: boolean;
+  operations: AuthorizationOperation[];
+  startBackfill: ReturnType<typeof useStartAuthorizationResourceBackfill>;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeOperation = operations.find(
+    (operation) => operation.kind === "resource_backfill" && (operation.status === "queued" || operation.status === "running"),
+  );
+  const latestPreview = operations.find(
+    (operation) => operation.kind === "resource_backfill" && operation.dry_run && operation.status === "succeeded",
+  );
+  const run = (dryRun: boolean) => {
+    startBackfill.mutate(
+      { dry_run: dryRun },
+      { onSuccess: () => {
+        if (!dryRun) setOpen(false);
+      } },
+    );
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="sm"
+          disabled={!enabled}
+          title={!enabled ? "WorkOS connection is not configured" : undefined}
+        >
+          <Link2 className="size-3.5" /> Connect WorkOS
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Connect active resources to WorkOS?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Queen finds active Astro resources that are missing from WorkOS and creates only those resources. Existing WorkOS resources are left unchanged.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-md border bg-muted/30 p-3 text-xs">
+            {latestPreview ? (
+              <p>The latest preview inspected <strong>{latestPreview.target_count}</strong> resources. Run it again after new data is added.</p>
+            ) : (
+              <p>Preview the connection first to inspect the current resource set without changing WorkOS.</p>
+            )}
+            <Button
+              className="mt-2"
+              variant="outline"
+              size="xs"
+              disabled={startBackfill.isPending || !!activeOperation}
+              onClick={() => run(true)}
+            >
+              Preview connection
+            </Button>
+          </div>
+          {activeOperation && (
+            <p className="text-xs text-muted-foreground" role="status">
+              A WorkOS connection job is already {activeOperation.status}.
+            </p>
+          )}
+          {startBackfill.error && <p className="text-xs text-destructive">{mutationErrorMessage(startBackfill.error)}</p>}
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button disabled={startBackfill.isPending || !!activeOperation} onClick={() => run(false)}>
+            Connect WorkOS
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -398,16 +494,20 @@ function Operations({ operations, accounts }: { operations: AuthorizationOperati
   if (operations.length === 0) return null;
   return (
     <div className="rounded-lg glass p-3">
-      <h3 className="text-xs font-semibold">Recent reset operations</h3>
+      <h3 className="text-xs font-semibold">Recent authorization jobs</h3>
       <div className="mt-2 space-y-1.5">
         {operations.slice(0, 5).map((operation) => (
           <div key={operation.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
             <span className="font-mono text-muted-foreground">{truncateUUID(operation.id)}</span>
-            <span>{operation.dry_run ? "Dry run" : "Reset"}</span>
-            <span>{accountName(accounts, operation.account_id)}</span>
+            <span>{operationLabel(operation)}</span>
+            {operation.kind === "resource_reset" && <span>{accountName(accounts, operation.account_id)}</span>}
             <span className="font-medium">{operation.status}</span>
-            <span className="text-muted-foreground">{operation.processed_count}/{operation.target_count} processed</span>
-            {!operation.dry_run && <span className="text-muted-foreground">{operation.succeeded_count} deleted · {operation.failed_count} failed</span>}
+            <span className="text-muted-foreground">{operation.processed_count}/{operation.target_count} inspected</span>
+            {!operation.dry_run && (
+              <span className="text-muted-foreground">
+                {operation.succeeded_count} {operation.kind === "resource_backfill" ? "created" : "deleted"} · {operation.failed_count} failed
+              </span>
+            )}
             {operation.last_error && <span className="text-destructive">{operation.last_error}</span>}
             <span className="ml-auto text-muted-foreground">{formatDateTime(operation.created_at)}</span>
           </div>
@@ -415,6 +515,13 @@ function Operations({ operations, accounts }: { operations: AuthorizationOperati
       </div>
     </div>
   );
+}
+
+function operationLabel(operation: AuthorizationOperation) {
+  if (operation.kind === "resource_backfill") {
+    return operation.dry_run ? "Connection preview" : "Connect WorkOS";
+  }
+  return operation.dry_run ? "Reset preview" : "Reset";
 }
 
 function Filter({ value, onChange, label, options }: { value: string; onChange: (value: string) => void; label: string; options: Array<{ value: string; label: string }> }) {
