@@ -14,6 +14,8 @@ WHERE ao.account_id IS NULL AND a.deleted_at IS NULL
 
 The member-role endpoint cannot repair them either. Changing the owner to `admin` returns `ErrOwnerRequired`, and changing them to `owner` routes into `transferOwnership`, which returns immediately when the target already owns the account. There was no path back.
 
+That set is closed. Provisioning writes `admin` now, so no new account joins it. One path still produces the same state, though: `transferOwnership` moves `accounts.owner_user_id` first and then promotes the new owner in WorkOS, and it reports a failed promotion as a warning rather than an error. The transfer stands and the new owner holds whatever role they had. So the repair below is a permanent backstop for that path, not only a sweep of the historical set.
+
 ## Design
 
 `SyncMembershipsForUser` already lists the caller's WorkOS memberships on login, on session refresh, and on an org switch that finds no membership id. Each membership arrives with its role slug, so the check costs nothing:
@@ -48,21 +50,28 @@ The re-issue is scoped to the organization the session records, because role cla
 
 A failed exchange keeps the token in hand and logs. The claims are then stale until the next login, which is where this started.
 
-### Backfill
-
-`cmd/backfill-owner-roles` repairs owners who are not coming back soon:
-
-```
-DATABASE_URL=postgres://... WORKOS_API_KEY=sk_... go run ./cmd/backfill-owner-roles
-DRY_RUN=true ...   # report only
-```
-
-It groups accounts by owner, so it costs one WorkOS membership listing per owner rather than per account, and it delegates every decision to the same repair the login sync uses. Both account types are covered: personal accounts were linked to organizations an hour before the slug fix landed, so their owners can hold `member` too.
-
-Re-running is safe. An owner already holding `admin` costs one read and no write. The command exits non-zero when any repair failed.
-
-`ListMembershipsForUser` asks for 100 memberships and does not paginate, so an owner of more than 100 accounts would be partly skipped. No account is near that.
-
 ## Migration
 
-Run `cmd/backfill-owner-roles` once per environment after deploy. Owners who log in first are repaired by the login sync, and the backfill then reports them as unchanged.
+The historical set needs one pass per environment, which is an operator step rather than shipped code. For each account in
+
+```sql
+SELECT a.id, ao.workos_org_id, a.owner_user_id
+FROM accounts a
+JOIN account_organizations ao ON ao.account_id = a.id
+WHERE a.deleted_at IS NULL AND a.owner_user_id IS NOT NULL;
+```
+
+read the owner's membership and promote it when the slug is neither `admin` nor `owner`:
+
+```sh
+curl -s -H "Authorization: Bearer $WORKOS_API_KEY" \
+  "https://api.workos.com/user_management/organization_memberships?user_id=$OWNER" \
+  | jq -r '.data[] | select(.role.slug != "admin" and .role.slug != "owner") | .id' \
+  | xargs -I{} curl -s -X PUT -H "Authorization: Bearer $WORKOS_API_KEY" \
+      -H "Content-Type: application/json" -d '{"role_slug":"admin"}' \
+      "https://api.workos.com/user_management/organization_memberships/{}"
+```
+
+One listing per distinct owner covers all of their accounts. Preview holds 63 linked accounts with owners across 2026-08-28.
+
+Anyone the pass misses is repaired when they next sign in, so the pass is a convenience, not a prerequisite.

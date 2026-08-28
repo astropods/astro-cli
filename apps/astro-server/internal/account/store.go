@@ -1006,37 +1006,6 @@ func (s *AccountStore) GetAccountsPendingBillingProvision(limit int) ([]Account,
 	return accounts, rows.Err()
 }
 
-// OwnedOrganizationLink pairs a WorkOS organization with the account's owner.
-type OwnedOrganizationLink struct {
-	AccountID            string
-	WorkOSOrganizationID string
-	OwnerUserID          string
-}
-
-// OwnedOrganizationLinks returns live linked accounts with an owner, oldest first.
-func (s *AccountStore) OwnedOrganizationLinks() ([]OwnedOrganizationLink, error) {
-	rows, err := s.db.Query(`
-		SELECT a.id, ao.workos_org_id, a.owner_user_id
-		FROM accounts a
-		JOIN account_organizations ao ON ao.account_id = a.id
-		WHERE a.deleted_at IS NULL AND a.owner_user_id IS NOT NULL
-		ORDER BY a.created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query owned organization links: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var links []OwnedOrganizationLink
-	for rows.Next() {
-		var l OwnedOrganizationLink
-		if err := rows.Scan(&l.AccountID, &l.WorkOSOrganizationID, &l.OwnerUserID); err != nil {
-			return nil, fmt.Errorf("failed to scan owned organization link: %w", err)
-		}
-		links = append(links, l)
-	}
-	return links, rows.Err()
-}
-
 // GetAccountsPendingOrgProvision returns live accounts with no WorkOS
 // organization linked yet, oldest first.
 func (s *AccountStore) GetAccountsPendingOrgProvision(limit int) ([]Account, error) {
@@ -1210,6 +1179,7 @@ func (s *AccountStore) GetOwnerEmail(accountID string) (string, error) {
 	}
 	return email, nil
 }
+
 
 // SetStripeCustomerID stores the Stripe customer ID for an account.
 func (s *AccountStore) SetStripeCustomerID(accountID, customerID string) error {
