@@ -347,8 +347,8 @@ CREATE TABLE public.member_email_reconcile_attempts (
 
 CREATE TABLE public.agents (
     account_id uuid NOT NULL,
-    -- Stable WorkOS external ID; new writes populate it and PR4 backfills existing rows.
-    uid uuid,
+    -- Immutable external ID for the blueprint's WorkOS authorization resource.
+    uid uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
     name text NOT NULL,
     registry text NOT NULL,
     visibility varchar(10) NOT NULL DEFAULT 'private',

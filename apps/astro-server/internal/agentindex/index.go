@@ -147,7 +147,7 @@ func (idx *Index) RegisterWithResourceID(accountID, name, buildID, registry, ecr
 	var persistedResourceID string
 	err = tx.QueryRow(`
 		INSERT INTO agents (account_id, uid, name, registry, created_at, updated_at)
-		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6)
+		VALUES ($1, COALESCE(NULLIF($2, '')::uuid, gen_random_uuid()), $3, $4, $5, $6)
 		ON CONFLICT (account_id, name) DO UPDATE SET
 			uid = COALESCE(agents.uid, EXCLUDED.uid),
 			registry = EXCLUDED.registry,
@@ -204,7 +204,7 @@ func (idx *Index) CreateWithResourceID(accountID, name, resourceID string) (stri
 	var persistedResourceID string
 	err = tx.QueryRow(`
 		INSERT INTO agents (account_id, uid, name, registry, created_at, updated_at)
-		VALUES ($1, NULLIF($2, '')::uuid, $3, '', $4, $5)
+		VALUES ($1, COALESCE(NULLIF($2, '')::uuid, gen_random_uuid()), $3, '', $4, $5)
 		ON CONFLICT (account_id, name) DO UPDATE SET
 		  uid          = COALESCE(agents.uid, EXCLUDED.uid),
 		  archived_at = NULL,

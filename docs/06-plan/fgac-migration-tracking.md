@@ -40,8 +40,8 @@ Nothing else matters until a real user keeps their access across the flip.
 
 ## Phase 2: blueprint identity
 
-- [ ] `agents.uid` backfilled to zero nulls in Preview and production (`sql/astro-server/schema.sql:351`)
-- [ ] Add the `agents.uid` default, `NOT NULL`, and unique constraint
+- [x] Add the `agents.uid` default, `NOT NULL`, and unique constraint
+- [ ] Confirm `SELECT count(*) FROM agents WHERE uid IS NULL` is zero in Preview and production before the schema applies. A dry-run backfill also records `succeeded`, so the operation log does not answer this; the count does
 
 ## Phase 3: extend the model past deployments
 
