@@ -1040,7 +1040,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 	if orgProvisioner != nil {
 		orgProvisioner.SetAccountRoles(roleProjector)
 	}
-	resourceAccounts := authz.NewDeploymentAccountResolver(db)
+	resourceAccounts := authz.NewResourceAccountResolver(db)
 	fgaExperiment := experiment.NewGate(experimentStore, experiment.FineGrainedAccess)
 	classificationExperiment := experiment.NewGate(experimentStore, experiment.PromptClassificationStats)
 	// Shared so the TTL holds across requests. Left nil without WorkOS: a typed

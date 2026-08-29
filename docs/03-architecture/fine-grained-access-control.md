@@ -36,6 +36,12 @@ Permissions do not imply one another. The initial WorkOS roles bundle them as fo
 
 Organization owner and admin roles inherit all deployment permissions from the organization resource. The generic organization member role has no deployment permissions. New deployment creators receive `deployment-admin` directly on the deployment, as described in [Derived roles](#derived-roles).
 
+The account and blueprint vocabularies are defined in code too, with their role
+bundles, but nothing checks them yet. All three are pinned to
+`scripts/workos-fga/model.json` by a contract test
+(`internal/authz/model_contract_test.go`), because a permission Astro names that
+WorkOS does not have fails closed.
+
 ```mermaid
 flowchart LR
     Membership["Organization membership"] --> Direct["Direct deployment role"]

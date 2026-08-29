@@ -45,9 +45,9 @@ Nothing else matters until a real user keeps their access across the flip.
 
 ## Phase 3: extend the model past deployments
 
-- [ ] Add `account` and `blueprint` actions (`internal/authz/actions.go` holds deployment slugs only)
-- [ ] Fill in the action bundles for the account and blueprint roles. `internal/authz/access_catalog.go` registers their slugs already, with empty actions, because assignment needs the slug and checking needs the actions
-- [ ] Add account and organization resolvers per resource type (`deployment_account_resolver.go:45` rejects every non-deployment type)
+- [x] Add `account` and `blueprint` actions. All 46 WorkOS permissions now have a constant, pinned to `scripts/workos-fga/model.json` by `internal/authz/model_contract_test.go`
+- [x] Fill in the action bundles for the account and blueprint roles
+- [x] Add account and organization resolvers per resource type (`internal/authz/resource_account_resolver.go`)
 - [ ] Catalog and classify the account and blueprint routes, with the same startup validation the deployment catalog has
 - [ ] Add readable-resource discovery for blueprint lists
 
