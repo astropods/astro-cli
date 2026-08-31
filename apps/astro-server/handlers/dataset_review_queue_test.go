@@ -43,7 +43,7 @@ func TestGetDatasetReviewQueue_FiltersDatasetItems(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1", "trace-3")
+	expectEmptyReviewQueueState(f, "dataset-dep-1", "trace-3")
 	expectNoRuns(f.runMock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?limit=3", nil)
@@ -99,7 +99,7 @@ func TestGetDatasetReviewQueue_EvaluatedPagesLocallyThenFetchesTraces(t *testing
 		TraceID:        "trace-1",
 		TraceTimestamp: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
 	})
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectLatestRuns(f.runMock, map[string]string{"trace-1": "completed"})
 
 	req := httptest.NewRequest(
@@ -124,6 +124,72 @@ func TestGetDatasetReviewQueue_EvaluatedPagesLocallyThenFetchesTraces(t *testing
 	}
 }
 
+func TestGetDatasetReviewQueue_FiltersDismissedTraces(t *testing.T) {
+	traces := []langfuse.Trace{
+		{ID: "trace-2", CreatedAt: "2026-06-01T13:00:00Z", Timestamp: "2026-06-01T13:00:00Z", Input: "dismissed earlier"},
+		{ID: "trace-1", CreatedAt: "2026-06-01T12:00:00Z", Timestamp: "2026-06-01T12:00:00Z", Input: "how do I deploy?"},
+	}
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectAddedTraces(f.itemMock, "dataset-dep-1")
+	expectDismissedTraces(f.dismissalMock, "dataset-dep-1", "trace-2")
+	expectNoRuns(f.runMock)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetReviewQueueResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TraceID != "trace-1" {
+		t.Fatalf("items = %+v, want only trace-1", resp.Items)
+	}
+	if err := f.dismissalMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("dismissal expectations: %v", err)
+	}
+}
+
+func TestGetDatasetReviewQueue_EvaluatedFiltersDismissedTraces(t *testing.T) {
+	traces := []langfuse.Trace{
+		{ID: "trace-1", CreatedAt: "2026-07-27T12:00:00Z", Timestamp: "2026-07-27T12:00:00Z", Input: "evaluated then dismissed"},
+	}
+	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 1, "1", "", "*"))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectCompletedRunTraces(f.runMock, evalrunstore.RunTrace{
+		TraceID:        "trace-1",
+		TraceTimestamp: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
+	})
+	expectAddedTraces(f.itemMock, "dataset-dep-1")
+	expectDismissedTraces(f.dismissalMock, "dataset-dep-1", "trace-1")
+	expectLatestRuns(f.runMock, map[string]string{"trace-1": "completed"})
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/deployments/dep-1/dataset/review-queue?evaluation=evaluated",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetReviewQueueResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Items) != 0 {
+		t.Fatalf("items = %+v, want none", resp.Items)
+	}
+}
+
 func TestGetDatasetReviewQueue_NotEvaluatedDropsCompletedRuns(t *testing.T) {
 	traces := []langfuse.Trace{
 		{ID: "trace-open", CreatedAt: "2026-07-27T13:00:00Z", Timestamp: "2026-07-27T13:00:00Z", Input: "not evaluated yet"},
@@ -132,7 +198,7 @@ func TestGetDatasetReviewQueue_NotEvaluatedDropsCompletedRuns(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 2, "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectLatestRuns(f.runMock, map[string]string{"trace-done": "completed"})
 
 	req := httptest.NewRequest(
@@ -207,7 +273,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	firstReq := httptest.NewRequest(
 		http.MethodGet,
@@ -230,7 +296,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	secondReq := httptest.NewRequest(
 		http.MethodGet,
@@ -307,7 +373,7 @@ func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue", nil)
@@ -485,14 +551,29 @@ func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int
 	}
 }
 
-func expectEmptyReviewQueueState(mock sqlmock.Sqlmock, datasetID string, addedTraceIDs ...string) {
-	rows := sqlmock.NewRows([]string{"trace_id"})
-	for _, traceID := range addedTraceIDs {
-		rows.AddRow(traceID)
-	}
+func expectEmptyReviewQueueState(f *datasetFixture, datasetID string, addedTraceIDs ...string) {
+	expectAddedTraces(f.itemMock, datasetID, addedTraceIDs...)
+	expectDismissedTraces(f.dismissalMock, datasetID)
+}
+
+func expectAddedTraces(mock sqlmock.Sqlmock, datasetID string, traceIDs ...string) {
 	mock.ExpectQuery("FROM eval_dataset_items").
 		WithArgs(datasetID, sqlmock.AnyArg()).
-		WillReturnRows(rows)
+		WillReturnRows(traceIDRows(traceIDs))
+}
+
+func expectDismissedTraces(mock sqlmock.Sqlmock, datasetID string, traceIDs ...string) {
+	mock.ExpectQuery("FROM eval_dataset_dismissed_traces").
+		WithArgs(datasetID, sqlmock.AnyArg()).
+		WillReturnRows(traceIDRows(traceIDs))
+}
+
+func traceIDRows(traceIDs []string) *sqlmock.Rows {
+	rows := sqlmock.NewRows([]string{"trace_id"})
+	for _, traceID := range traceIDs {
+		rows.AddRow(traceID)
+	}
+	return rows
 }
 
 func expectLatestRuns(mock sqlmock.Sqlmock, runs map[string]string) {

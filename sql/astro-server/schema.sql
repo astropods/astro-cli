@@ -1363,6 +1363,14 @@ CREATE TABLE public.eval_dataset_item_evaluator_outputs (
     CONSTRAINT eval_dataset_item_evaluator_outputs_item_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_items(eval_dataset_id, trace_id) ON DELETE CASCADE
 );
 
+CREATE TABLE public.eval_dataset_dismissed_traces (
+    eval_dataset_id uuid        NOT NULL,
+    trace_id        text        NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT eval_dataset_dismissed_traces_pkey PRIMARY KEY (eval_dataset_id, trace_id),
+    CONSTRAINT eval_dataset_dismissed_traces_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE
+);
+
 -- Maps a Slack user (team_id, slack_user_id) to a WorkOS user_id. Populated
 -- when the user connects their Slack account via WorkOS Pipes — the link
 -- handler exchanges the Pipes-issued access token for the slack identity via

@@ -763,7 +763,7 @@ Restore a dismissed trace to the queue:
 DELETE /api/v1/deployments/:id/dataset/review-queue/:trace_id/dismiss
 ```
 
-These mutations only update `eval_dataset_dismissed_traces`. They do not modify Langfuse dataset items or evaluator results. **Not shipped**: `eval_dataset_dismissed_traces` doesn't exist in the current schema, and neither dismiss endpoint is registered.
+These mutations only update `eval_dataset_dismissed_traces`. They do not modify Langfuse dataset items or evaluator results. Both are idempotent and return 200; dismissing a dataset item returns 409.
 
 ---
 

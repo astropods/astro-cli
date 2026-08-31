@@ -400,6 +400,9 @@ func expectItemInsert(f *datasetFixture, runID any, affected int64, outputs any)
 			WithArgs("dataset-dep-1", "trace-1", outputs).
 			WillReturnResult(sqlmock.NewResult(0, 6))
 	}
+	f.itemMock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	f.itemMock.ExpectCommit()
 }
 
@@ -451,6 +454,9 @@ func expectItemRemoveQueries(f *datasetFixture, outputKeys []string, deleted *sq
 	f.itemMock.ExpectQuery("DELETE FROM eval_dataset_items").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnRows(deleted)
+	f.itemMock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 func deletedItemRows() *sqlmock.Rows {

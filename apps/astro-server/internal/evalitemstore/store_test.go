@@ -39,6 +39,9 @@ func TestAddWritesItemAndOutputs(t *testing.T) {
 		WithArgs("dataset-1", "trace-1",
 			`[{"key":"exposed_pii","value":false},{"key":"user_sentiment","value":"negative"}]`).
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	err := store.Add(context.Background(), item(), []Output{
@@ -57,6 +60,9 @@ func TestAddStoresTheSourceRun(t *testing.T) {
 		WithArgs("dataset-1", "trace-1", "preset/default-evaluation", runID, "user-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("INSERT INTO eval_dataset_item_evaluator_outputs").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-1", "trace-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -259,6 +265,12 @@ func expectRemove(mock sqlmock.Sqlmock, outputs *sqlmock.Rows, deleted *sqlmock.
 		WillReturnRows(deleted)
 }
 
+func expectRemoveClearsDismissal(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 func outputRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"evaluator_key", "value_json"})
 }
@@ -274,6 +286,7 @@ func TestRemoveReturnsTheDeletedItemAndOutputs(t *testing.T) {
 			AddRow("exposed_pii", []byte(`false`)).
 			AddRow("user_sentiment", []byte(`"negative"`)),
 		itemRows().AddRow("preset/default-evaluation", "run-1", "user-1"))
+	expectRemoveClearsDismissal(mock)
 	mock.ExpectCommit()
 
 	removed, outputs, err := store.Remove(context.Background(), "dataset-1", "trace-1")
@@ -293,6 +306,7 @@ func TestRemoveWithoutASourceRun(t *testing.T) {
 	store, mock := newStore(t)
 	expectRemove(mock, outputRows(),
 		itemRows().AddRow("preset/default-evaluation", nil, "user-1"))
+	expectRemoveClearsDismissal(mock)
 	mock.ExpectCommit()
 
 	removed, outputs, err := store.Remove(context.Background(), "dataset-1", "trace-1")

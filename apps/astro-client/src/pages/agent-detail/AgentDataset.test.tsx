@@ -16,6 +16,7 @@ import type {
   EvalDatasetResponse,
   EvaluationStatusCounts,
   TraceEvaluationResponse,
+  ReviewQueueDismissalResponse,
   ReviewQueueItem,
   ReviewQueueResponse,
   TraceDetailResponse,
@@ -125,6 +126,40 @@ function mockRunEvaluations(
       "/api/v1/deployments/:id/dataset/evaluations",
       async ({ request }) =>
         HttpResponse.json(await resolve(request), { status: 202 }),
+    ),
+  );
+}
+
+function mockDismissReviewQueueTrace(onDismiss?: (traceId: string) => void) {
+  server.use(
+    http.post(
+      "/api/v1/deployments/:id/dataset/review-queue/:traceId/dismiss",
+      ({ params }) => {
+        const traceId = String(params.traceId);
+        onDismiss?.(traceId);
+        return HttpResponse.json<ReviewQueueDismissalResponse>({
+          eval_dataset_id: "dataset-1",
+          trace_id: traceId,
+          dismissed: true,
+        });
+      },
+    ),
+  );
+}
+
+function mockRestoreReviewQueueTrace(onRestore?: (traceId: string) => void) {
+  server.use(
+    http.delete(
+      "/api/v1/deployments/:id/dataset/review-queue/:traceId/dismiss",
+      ({ params }) => {
+        const traceId = String(params.traceId);
+        onRestore?.(traceId);
+        return HttpResponse.json<ReviewQueueDismissalResponse>({
+          eval_dataset_id: "dataset-1",
+          trace_id: traceId,
+          dismissed: false,
+        });
+      },
     ),
   );
 }
@@ -2209,6 +2244,107 @@ describe("review queue view", () => {
     expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^previous$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^next$/i })).not.toBeInTheDocument();
+    expect(queueFetchCount).toBe(2);
+  });
+
+  it("removes a trace from the queue and advances the selection", async () => {
+    const first = queueItem({
+      trace_id: "trace_111111",
+      input: "Dismissable prompt",
+      output: "Dismissable response",
+      timestamp: "2026-06-01T13:00:00Z",
+    });
+    const second = queueItem({
+      trace_id: "trace_222222",
+      input: "Second prompt",
+      output: "Second response",
+      timestamp: "2026-06-01T12:00:00Z",
+    });
+    let dismissedTraceId = "";
+
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([first, second]),
+    );
+    mockDismissReviewQueueTrace((traceId) => {
+      dismissedTraceId = traceId;
+    });
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("Dismissable response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => {
+      expect(dismissedTraceId).toBe("trace_111111");
+    });
+    expect(await screen.findByText("Second response")).toBeInTheDocument();
+    expect(screen.queryByText("Dismissable response")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Removed from review queue"),
+    ).toBeInTheDocument();
+  });
+
+  it("restores a removed trace to its original position without refetching", async () => {
+    const firstPageTrace = queueItem({
+      trace_id: "trace_111111",
+      input: "First page prompt",
+      output: "First page response",
+      timestamp: "2026-06-01T13:00:00Z",
+    });
+    const secondPageTrace = queueItem({
+      trace_id: "trace_222222",
+      input: "Undoable prompt",
+      output: "Undoable response",
+      timestamp: "2026-06-01T12:00:00Z",
+    });
+    let restoredTraceId = "";
+    let queueFetchCount = 0;
+
+    setupDataset(makeDatasetResponse(), emptyItems());
+    server.use(
+      http.get("/api/v1/deployments/:id/dataset/review-queue", ({ request }) => {
+        queueFetchCount += 1;
+        const url = new URL(request.url);
+        return HttpResponse.json(
+          url.searchParams.get("cursor") === "cursor-1"
+            ? reviewQueueResponse([secondPageTrace])
+            : reviewQueueResponse([firstPageTrace], {
+                next_cursor: "cursor-1",
+              }),
+        );
+      }),
+    );
+    mockDismissReviewQueueTrace();
+    mockRestoreReviewQueueTrace((traceId) => {
+      restoredTraceId = traceId;
+    });
+
+    const user = userEvent.setup();
+    renderDataset({ tab: null });
+
+    expect(await screen.findByText("First page response")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /load more items/i }));
+    await user.click(
+      await screen.findByRole("option", { name: /undoable prompt/i }),
+    );
+
+    expect(screen.getByText("Undoable response")).toBeInTheDocument();
+    expect(queueFetchCount).toBe(2);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(
+      await screen.findByText("Removed from review queue"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^undo$/i }));
+
+    await waitFor(() => {
+      expect(restoredTraceId).toBe("trace_222222");
+    });
+    expect(await screen.findByText("Undoable response")).toBeInTheDocument();
+    expect(screen.getByLabelText("Trace 2 of 2")).toBeInTheDocument();
     expect(queueFetchCount).toBe(2);
   });
 

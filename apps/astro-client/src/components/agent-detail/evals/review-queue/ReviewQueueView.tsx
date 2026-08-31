@@ -15,8 +15,10 @@ import {
   useAddDatasetItem,
   useAgentEvaluationSet,
   useDatasetReviewQueue,
+  useDismissReviewQueueTrace,
   useRemoveDatasetItem,
   useRemoveReviewQueueItem,
+  useRestoreReviewQueueTrace,
   useReviewQueueEvaluationStatus,
   useTraceEvaluation,
 } from "@/api/queries/evals";
@@ -50,11 +52,23 @@ const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
 const EMPTY_EVALUATOR_RESULTS: TraceEvaluatorResult[] = [];
 
-type AddedItem = {
+type UndoAction = {
+  kind: "added" | "dismissed";
   traceId: string;
-  item?: ReviewQueueItem;
+  item: ReviewQueueItem;
   pageIndex?: number;
 };
+
+const UNDO_LABELS: Record<UndoAction["kind"], string> = {
+  added: "Added to dataset",
+  dismissed: "Removed from review queue",
+};
+
+function firstErrorMessage(
+  errors: Array<[isError: boolean, message: string]>,
+): string | undefined {
+  return errors.find(([isError]) => isError)?.[1];
+}
 
 type NextSelection = {
   traceId: string;
@@ -118,7 +132,7 @@ export function ReviewQueueView({
     traceId: string;
     open: boolean;
   } | null>(null);
-  const [addedItem, setAddedItem] = useState<AddedItem | null>(null);
+  const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [evaluationRun, setEvaluationRun] = useState<EvaluationRun | null>(null);
   // Mirrors selectedId for synchronous reads inside mutation callbacks.
   const selectedIdRef = useRef<string | null>(null);
@@ -271,15 +285,15 @@ export function ReviewQueueView({
     deploymentId,
     evaluationFilter,
   );
-  const commitAdd = useCallback(
-    (added: NextSelection) => {
-      removeQueueItem(added.traceId);
-      if (selectedIdRef.current !== added.traceId) {
+  const commitQueueExit = useCallback(
+    (exited: NextSelection) => {
+      removeQueueItem(exited.traceId);
+      if (selectedIdRef.current !== exited.traceId) {
         return;
       }
-      selectTraceId(added.nextTraceId ?? null);
-      if (added.nextReviewQueueItem) {
-        applyReviewQueueSelection(added.nextReviewQueueItem, "sync");
+      selectTraceId(exited.nextTraceId ?? null);
+      if (exited.nextReviewQueueItem) {
+        applyReviewQueueSelection(exited.nextReviewQueueItem, "sync");
       } else {
         clearSyncedTracePanel();
       }
@@ -294,6 +308,8 @@ export function ReviewQueueView({
 
   const addItem = useAddDatasetItem(deploymentId);
   const removeItem = useRemoveDatasetItem(deploymentId, evaluationFilter);
+  const dismissTrace = useDismissReviewQueueTrace(deploymentId);
+  const restoreTrace = useRestoreReviewQueueTrace(deploymentId, evaluationFilter);
   const { data: evaluationSet } = useAgentEvaluationSet(account, agentName);
   const resolvedAgentAvatarUrl =
     avatarBust ?? agentAvatarUrl ?? getDeploymentAvatarUrl(deploymentId);
@@ -354,12 +370,29 @@ export function ReviewQueueView({
   const handleSelectTrace = (traceId: string) => {
     addItem.reset();
     removeItem.reset();
+    dismissTrace.reset();
+    restoreTrace.reset();
     const item = items.find((candidate) => candidate.trace_id === traceId);
     if (item) {
       applyReviewQueueSelection(item, "sync");
     } else {
       selectTraceId(traceId);
     }
+  };
+
+  const snapshotQueuePosition = (traceId: string) => {
+    const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
+    const nextSelectedTraceId = nextTraceId ?? previousTraceId;
+    return {
+      pageIndex: getReviewQueuePageIndex(data?.pages, traceId),
+      nextSelection: {
+        traceId,
+        nextTraceId: nextSelectedTraceId,
+        nextReviewQueueItem: nextSelectedTraceId
+          ? items.find((item) => item.trace_id === nextSelectedTraceId)
+          : undefined,
+      } satisfies NextSelection,
+    };
   };
 
   const handleAdd = (
@@ -371,16 +404,7 @@ export function ReviewQueueView({
     }
 
     const traceId = selectedItem.trace_id;
-    const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
-    const nextSelectedTraceId = nextTraceId ?? previousTraceId;
-    const pageIndex = getReviewQueuePageIndex(data?.pages, traceId);
-    const nextSelection: NextSelection = {
-      traceId,
-      nextTraceId: nextSelectedTraceId,
-      nextReviewQueueItem: nextSelectedTraceId
-        ? items.find((item) => item.trace_id === nextSelectedTraceId)
-        : undefined,
-    };
+    const { pageIndex, nextSelection } = snapshotQueuePosition(traceId);
     const triggerRect = trigger?.getBoundingClientRect() ?? null;
 
     addItem.mutate(
@@ -392,32 +416,62 @@ export function ReviewQueueView({
       {
         onSuccess: () => {
           flyTraceToDataset(triggerRect, datasetTargetRef?.current);
-          commitAdd(nextSelection);
-          setAddedItem({ traceId, item: selectedItem, pageIndex });
+          commitQueueExit(nextSelection);
+          setUndoAction({
+            kind: "added",
+            traceId,
+            item: selectedItem,
+            pageIndex,
+          });
         },
       },
     );
   };
 
-  const handleUndo = () => {
-    if (!addedItem) {
+  const handleDismiss = () => {
+    if (!selectedItem) {
       return;
     }
 
-    const { traceId, item, pageIndex } = addedItem;
-    removeItem.reset();
-    removeItem.mutate(
-      { traceId, reviewQueueItem: item, reviewQueuePageIndex: pageIndex },
+    const traceId = selectedItem.trace_id;
+    const { pageIndex, nextSelection } = snapshotQueuePosition(traceId);
+
+    dismissTrace.mutate(
+      { traceId },
       {
         onSuccess: () => {
-          setAddedItem(null);
-          if (item) {
-            applyReviewQueueSelection(item, "sync");
-          } else {
-            selectTraceId(traceId);
-          }
+          commitQueueExit(nextSelection);
+          setUndoAction({
+            kind: "dismissed",
+            traceId,
+            item: selectedItem,
+            pageIndex,
+          });
         },
       },
+    );
+  };
+
+  const restoreSelection = (traceId: string, item?: ReviewQueueItem) => {
+    setUndoAction(null);
+    if (item) {
+      applyReviewQueueSelection(item, "sync");
+    } else {
+      selectTraceId(traceId);
+    }
+  };
+
+  const handleUndo = () => {
+    if (!undoAction) {
+      return;
+    }
+
+    const { kind, traceId, item, pageIndex } = undoAction;
+    const undoMutation = kind === "dismissed" ? restoreTrace : removeItem;
+    undoMutation.reset();
+    undoMutation.mutate(
+      { traceId, reviewQueueItem: item, reviewQueuePageIndex: pageIndex },
+      { onSuccess: () => restoreSelection(traceId, item) },
     );
   };
   const handleLoadMore = () => {
@@ -440,7 +494,8 @@ export function ReviewQueueView({
   };
 
   useReviewQueueNavigationShortcuts({
-    disabled: addItem.isPending,
+    disabled:
+      addItem.isPending || dismissTrace.isPending || restoreTrace.isPending,
     onPrevious: navigateFromOutsideList(goPrevious),
     onNext: navigateFromOutsideList(goNext),
   });
@@ -515,14 +570,17 @@ export function ReviewQueueView({
                 }
                 loading={selectedEvaluationPending}
                 isSaving={addItem.isPending}
-                addError={
-                  addItem.isError
-                    ? "Could not add to the dataset. Try again."
-                    : removeItem.isError
-                      ? "Could not update the review queue. Try again."
-                      : undefined
-                }
+                isRemoving={dismissTrace.isPending}
+                addError={firstErrorMessage([
+                  [addItem.isError, "Could not add to the dataset. Try again."],
+                  [dismissTrace.isError, "Could not remove the trace. Try again."],
+                  [
+                    removeItem.isError || restoreTrace.isError,
+                    "Could not update the review queue. Try again.",
+                  ],
+                ])}
                 onAdd={handleAdd}
+                onRemove={handleDismiss}
               />
             )}
             {isLoading ? (
@@ -551,7 +609,12 @@ export function ReviewQueueView({
               </>
             ) : (
               <ReviewQueueDetailEmpty
-                showActionError={addItem.isError || removeItem.isError}
+                showActionError={
+                  addItem.isError ||
+                  removeItem.isError ||
+                  dismissTrace.isError ||
+                  restoreTrace.isError
+                }
                 canLoadMore={canLoadMore}
                 isLoadingMore={isFetchingNextPage}
                 onLoadMore={handleLoadMore}
@@ -560,13 +623,13 @@ export function ReviewQueueView({
           </div>
         </EvalTabCardBody>
       </EvalTabCard>
-      {addedItem && (
+      {undoAction && (
         <QuickUndoToast
-          key={addedItem.traceId}
-          label="Added to dataset"
-          isUndoing={removeItem.isPending}
+          key={`${undoAction.kind}-${undoAction.traceId}`}
+          label={UNDO_LABELS[undoAction.kind]}
+          isUndoing={removeItem.isPending || restoreTrace.isPending}
           onUndo={handleUndo}
-          onDismiss={() => setAddedItem(null)}
+          onDismiss={() => setUndoAction(null)}
         />
       )}
     </>

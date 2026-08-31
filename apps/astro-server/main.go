@@ -57,6 +57,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldismissalstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
@@ -2620,6 +2621,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			judgmentStore := judgmentstore.NewStore(db)
 			evalItemStore := evalitemstore.NewStore(db)
 			evalRunStore := evalrunstore.NewStore(db)
+			evalDismissalStore := evaldismissalstore.NewStore(db)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, evalItemStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
@@ -2662,7 +2664,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, evalDismissalStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2678,13 +2680,27 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("trace_id", "Trace ID"),
 				oapispec.Response(200, &handlers.DatasetTraceEvaluationResponse{}),
 			)
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/review-queue/:trace_id/dismiss", "Dismiss a trace from the review queue", handlers.PostReviewQueueDismissal(log, accountStore, deploymentStore, datasetStore, evalDismissalStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Response(200, &handlers.ReviewQueueDismissalResponse{}),
+			)
+			deploymentRoutes.ModelDeferredDELETE("/deployments/:id/dataset/review-queue/:trace_id/dismiss", "Restore a dismissed trace to the review queue", handlers.DeleteReviewQueueDismissal(log, accountStore, deploymentStore, datasetStore, evalDismissalStore),
+				oapispec.Tags("Dataset"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("id", "Deployment ID"),
+				oapispec.PathParam("trace_id", "Trace ID"),
+				oapispec.Response(200, &handlers.ReviewQueueDismissalResponse{}),
+			)
 			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/evaluations/status", "Get dataset evaluation status", handlers.GetDatasetEvaluationStatus(log, accountStore, deploymentStore, datasetStore, evalRunStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetEvaluationStatusResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, queue, ent),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, evalDismissalStore, queue, ent),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

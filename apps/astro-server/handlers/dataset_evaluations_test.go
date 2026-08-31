@@ -156,6 +156,19 @@ func (f *fakeDatasetItemStore) AddedTraceIDs(
 	return f.added, f.addedErr
 }
 
+type fakeDismissalStore struct {
+	dismissed map[string]bool
+	err       error
+}
+
+func (f *fakeDismissalStore) DismissedTraceIDs(
+	_ context.Context,
+	_ string,
+	_ []string,
+) (map[string]bool, error) {
+	return f.dismissed, f.err
+}
+
 type fakeDatasetEvaluationQueue struct {
 	jobs   []evaluationJobCall
 	failAt int
@@ -193,6 +206,7 @@ type datasetEvaluationsFixture struct {
 	datasetMock sqlmock.Sqlmock
 	langfuse    *fakeDatasetEvaluationLangfuseAPI
 	credentials *fakeDatasetEvaluationLangfuseStore
+	dismissals  *fakeDismissalStore
 }
 
 func setupDatasetEvaluationsRouter(
@@ -211,6 +225,7 @@ func setupDatasetEvaluationsRouter(
 		langfuseAPI.ServeHTTP,
 	)
 	datasetMock, datasetStore := datasetstoretest.NewMock(t)
+	dismissals := &fakeDismissalStore{}
 	credentials := &fakeDatasetEvaluationLangfuseStore{
 		credentials: &langfuse.AccountLangfuse{
 			AccountID: "acct-1",
@@ -229,6 +244,7 @@ func setupDatasetEvaluationsRouter(
 			credentials,
 			store,
 			runStore,
+			dismissals,
 			queue,
 			fixtureEntCheck,
 		),
@@ -240,6 +256,7 @@ func setupDatasetEvaluationsRouter(
 		datasetMock:        datasetMock,
 		langfuse:           langfuseAPI,
 		credentials:        credentials,
+		dismissals:         dismissals,
 	}
 }
 
@@ -320,6 +337,25 @@ func TestPostDatasetEvaluationsQueuesMostRecentEligibleTraces(t *testing.T) {
 		queue.jobs[0] != (evaluationJobCall{datasetID: "dataset-dep-1", traceID: "trace-1"}) ||
 		queue.jobs[1] != (evaluationJobCall{datasetID: "dataset-dep-1", traceID: "trace-2"}) {
 		t.Fatalf("jobs = %+v", queue.jobs)
+	}
+}
+
+func TestPostDatasetEvaluationsSkipsDismissedTraces(t *testing.T) {
+	queue := &fakeDatasetEvaluationQueue{}
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), queue)
+	fixture.dismissals.dismissed = map[string]bool{"dismissed": true}
+	fixture.langfuse.traces = []langfuse.Trace{
+		evaluationTrace("dismissed"),
+		evaluationTrace("trace-1"),
+	}
+	fixture.expectAuthorized(true)
+	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
+
+	rec := evaluationRequest(t, fixture.router)
+
+	response := decodeDatasetEvaluationsResponse(t, rec)
+	if fmt.Sprint(response.EnqueuedTraceIDs) != "[trace-1]" {
+		t.Fatalf("response = %+v", response)
 	}
 }
 

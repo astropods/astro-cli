@@ -21,6 +21,7 @@ function renderSection(
   > = {},
 ) {
   const onAdd = vi.fn();
+  const onRemove = vi.fn();
   const onOpenChange = vi.fn();
   const view = render(
     <ReviewQueueEvaluationSection
@@ -30,11 +31,13 @@ function renderSection(
       open
       onOpenChange={onOpenChange}
       isSaving={false}
+      isRemoving={false}
       onAdd={onAdd}
+      onRemove={onRemove}
       {...props}
     />,
   );
-  return { ...view, onAdd, onOpenChange };
+  return { ...view, onAdd, onOpenChange, onRemove };
 }
 
 describe("ReviewQueueEvaluationSection", () => {
@@ -128,5 +131,25 @@ describe("ReviewQueueEvaluationSection", () => {
 
     expect(screen.getByText("Evaluation results")).toBeInTheDocument();
     expect(screen.getByText("No results")).toBeInTheDocument();
+  });
+
+  it("removes the trace without adding it", async () => {
+    const user = userEvent.setup();
+    const { onAdd, onRemove } = renderSection();
+
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("disables both actions while removing", () => {
+    renderSection({ isRemoving: true });
+
+    expect(screen.getByRole("button", { name: "Removing..." })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Add to dataset" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

@@ -1365,6 +1365,12 @@ export interface DatasetItemResponse {
   evaluation_ref: string;
 }
 
+export interface ReviewQueueDismissalResponse {
+  eval_dataset_id: string;
+  trace_id: string;
+  dismissed: boolean;
+}
+
 export interface DatasetItemOutputsResponse {
   eval_dataset_id: string;
   trace_id: string;
@@ -3533,6 +3539,26 @@ class ApiClient {
   ): Promise<DatasetItemResponse> {
     return this.request<DatasetItemResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items/${encodeURIComponent(traceId)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async dismissReviewQueueTrace(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<ReviewQueueDismissalResponse> {
+    return this.request<ReviewQueueDismissalResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue/${encodeURIComponent(traceId)}/dismiss`,
+      { method: "POST" },
+    );
+  }
+
+  async restoreReviewQueueTrace(
+    deploymentId: string,
+    traceId: string,
+  ): Promise<ReviewQueueDismissalResponse> {
+    return this.request<ReviewQueueDismissalResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/review-queue/${encodeURIComponent(traceId)}/dismiss`,
       { method: "DELETE" },
     );
   }

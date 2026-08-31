@@ -48,7 +48,8 @@ func NewStore(db *sql.DB) *Store {
 }
 
 // Add records dataset membership and its evaluator outputs together, so a trace
-// is never a dataset item without the values it was admitted on.
+// is never a dataset item without the values it was admitted on. Admission also
+// clears any dismissal for the trace.
 func (s *Store) Add(ctx context.Context, item Item, outputs []Output) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -76,6 +77,13 @@ func (s *Store) Add(ctx context.Context, item Item, outputs []Output) error {
 
 	if err := insertOutputs(ctx, tx, item.EvalDatasetID, item.TraceID, outputs); err != nil {
 		return fmt.Errorf("evalitemstore add outputs: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM eval_dataset_dismissed_traces
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+	`, item.EvalDatasetID, item.TraceID); err != nil {
+		return fmt.Errorf("evalitemstore add clear dismissal: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -317,6 +325,14 @@ func (s *Store) Remove(ctx context.Context, evalDatasetID, traceID string) (*Ite
 		item.SourceEvaluationRunID = &runID.String
 	}
 	item.VerifiedByUserID = verifiedBy.String
+
+	// Clears a dismissal a racing Dismiss may have left alongside the item.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM eval_dataset_dismissed_traces
+		WHERE eval_dataset_id = $1 AND trace_id = $2
+	`, evalDatasetID, traceID); err != nil {
+		return nil, nil, fmt.Errorf("evalitemstore remove clear dismissal: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, nil, fmt.Errorf("evalitemstore remove: commit: %w", err)

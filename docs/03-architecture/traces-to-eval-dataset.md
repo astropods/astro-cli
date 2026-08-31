@@ -55,7 +55,8 @@ The Eval page requests recent traces for the current deployment. `astro-server` 
 Before returning the queue, the server:
 
 1. Excludes traces that have already been reviewed.
-2. Excludes traces without an input.
+2. Excludes traces dismissed from the queue.
+3. Excludes traces without an input.
 
 There's no reaction-signal or sentiment-based prioritization in this path. A
 separate design ([Eval Dataset v2 — Judge Signal](../01-spec/eval-dataset-v2-judge-signal-spec.md))

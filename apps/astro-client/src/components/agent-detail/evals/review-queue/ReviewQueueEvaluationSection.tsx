@@ -3,6 +3,12 @@ import { ChevronRight, Loader2, Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InfoPanel } from "@/components/ui/status-panel";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type {
   EvaluationSetEvaluator,
   EvaluatorOutputValue,
@@ -21,8 +27,10 @@ interface ReviewQueueEvaluationSectionProps {
   onOpenChange: (open: boolean) => void;
   loading?: boolean;
   isSaving: boolean;
+  isRemoving: boolean;
   addError?: string;
   onAdd: (outputs: EvaluatorOutputValue[], trigger: HTMLElement | null) => void;
+  onRemove: () => void;
 }
 
 export function ReviewQueueEvaluationSection({
@@ -34,8 +42,10 @@ export function ReviewQueueEvaluationSection({
   onOpenChange,
   loading = false,
   isSaving,
+  isRemoving,
   addError,
   onAdd,
+  onRemove,
 }: ReviewQueueEvaluationSectionProps) {
   const rows = useMemo(
     () => evaluationRows(evaluators, results),
@@ -84,11 +94,27 @@ export function ReviewQueueEvaluationSection({
             </span>
           )}
         </div>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isSaving || isRemoving}
+                onClick={onRemove}
+              >
+                {isRemoving ? "Removing..." : "Remove"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Remove from review queue</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         <Button
           type="button"
           size="sm"
           aria-expanded={open}
-          disabled={isSaving}
+          disabled={isSaving || isRemoving}
           onClick={() => onOpenChange(!open)}
         >
           <ChevronRight
@@ -129,7 +155,7 @@ export function ReviewQueueEvaluationSection({
             <Button
               type="button"
               size="sm"
-              disabled={isSaving || awaitingFirstResult}
+              disabled={isSaving || isRemoving || awaitingFirstResult}
               onClick={(event) => onAdd(outputs, event.currentTarget)}
             >
               {isSaving ? "Saving..." : "Save"}

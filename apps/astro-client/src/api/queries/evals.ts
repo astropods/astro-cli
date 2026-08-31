@@ -18,6 +18,7 @@ import type {
   EvaluationSetResponse,
   EvaluationStatusCounts,
   EvaluatorOutputValue,
+  ReviewQueueDismissalResponse,
   ReviewQueueItem,
   ReviewQueueEvaluationFilter,
   TraceEvaluationResponse,
@@ -34,6 +35,16 @@ type AddDatasetItemVariables = {
 type RemoveDatasetItemVariables = {
   traceId: string;
   reviewQueueItem?: ReviewQueueItem;
+  reviewQueuePageIndex?: number;
+};
+
+type DismissReviewQueueTraceVariables = {
+  traceId: string;
+};
+
+type RestoreReviewQueueTraceVariables = {
+  traceId: string;
+  reviewQueueItem: ReviewQueueItem;
   reviewQueuePageIndex?: number;
 };
 
@@ -386,6 +397,49 @@ export function useRemoveDatasetItem(
       // Queue-originated removal stays optimistic because it already has the
       // full item. Dataset-originated removal reloads the server-owned queue.
       await Promise.all(invalidations);
+    },
+  });
+}
+
+export function useDismissReviewQueueTrace(deploymentId: string) {
+  const api = useApiClient();
+
+  return useMutation<
+    ReviewQueueDismissalResponse,
+    Error,
+    DismissReviewQueueTraceVariables
+  >({
+    // Queue removal is the caller's job (useRemoveReviewQueueItem) so a
+    // dismissed trace can stay visible until its undo window closes.
+    mutationFn: ({ traceId }) =>
+      api.dismissReviewQueueTrace(deploymentId, traceId),
+  });
+}
+
+export function useRestoreReviewQueueTrace(
+  deploymentId: string,
+  evaluation?: ReviewQueueEvaluationFilter,
+) {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    ReviewQueueDismissalResponse,
+    Error,
+    RestoreReviewQueueTraceVariables
+  >({
+    mutationFn: ({ traceId }) =>
+      api.restoreReviewQueueTrace(deploymentId, traceId),
+    onSuccess: (_data, variables) => {
+      queryClient.setQueryData<ReviewQueueInfiniteData>(
+        evalKeys.reviewQueue(deploymentId, evaluation),
+        (old) =>
+          insertReviewQueueItemPage(
+            old,
+            variables.reviewQueueItem,
+            variables.reviewQueuePageIndex,
+          ),
+      );
     },
   });
 }

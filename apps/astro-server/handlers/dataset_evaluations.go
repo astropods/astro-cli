@@ -109,6 +109,7 @@ func PostDatasetEvaluations(
 	langfuseStore datasetEvaluationLangfuseStore,
 	itemStore reviewQueueScanStore,
 	runStore datasetEvaluationRunStore,
+	dismissalStore reviewQueueDismissalStore,
 	queue datasetEvaluationQueue,
 	entCheck EntitlementChecker,
 ) gin.HandlerFunc {
@@ -130,6 +131,7 @@ func PostDatasetEvaluations(
 			langfuseStore == nil ||
 			itemStore == nil ||
 			runStore == nil ||
+			dismissalStore == nil ||
 			queue == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset evaluation is not configured"})
 			return
@@ -161,6 +163,7 @@ func PostDatasetEvaluations(
 			traceClient,
 			itemStore,
 			runStore,
+			dismissalStore,
 			dataset.ID,
 			deploymentID,
 			maxDatasetEvaluationTraceIDs,

@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldismissalstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -46,6 +47,10 @@ type reviewQueueEvaluationFilter string
 
 type reviewQueueScanStore interface {
 	AddedTraceIDs(context.Context, string, []string) (map[string]bool, error)
+}
+
+type reviewQueueDismissalStore interface {
+	DismissedTraceIDs(context.Context, string, []string) (map[string]bool, error)
 }
 
 type reviewQueueRunStore interface {
@@ -87,7 +92,7 @@ type reviewQueueCursor struct {
 }
 
 // GetDatasetReviewQueue returns one cursor-paginated batch of traces that are
-// not yet dataset items, preserving Langfuse's newest-first ordering.
+// neither dataset items nor dismissed, preserving Langfuse's newest-first ordering.
 // GET /api/v1/deployments/:id/dataset/review-queue?limit=&evaluation=&cursor=
 func GetDatasetReviewQueue(
 	log *logger.Logger,
@@ -98,6 +103,7 @@ func GetDatasetReviewQueue(
 	langfuseStore *langfuse.Store,
 	itemStore *evalitemstore.Store,
 	runStore *evalrunstore.Store,
+	dismissalStore *evaldismissalstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -127,6 +133,7 @@ func GetDatasetReviewQueue(
 			lctx.Client,
 			itemStore,
 			runStore,
+			dismissalStore,
 			ds.ID,
 			lctx.DeploymentID,
 			limit,
@@ -167,6 +174,7 @@ func getDatasetReviewQueuePage(
 	client *langfuse.Client,
 	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
+	dismissalStore reviewQueueDismissalStore,
 	evalDatasetID, deploymentID string,
 	limit int,
 	evaluationFilter reviewQueueEvaluationFilter,
@@ -187,6 +195,7 @@ func getDatasetReviewQueuePage(
 			client,
 			itemStore,
 			runStore,
+			dismissalStore,
 			evalDatasetID,
 			deploymentID,
 			limit,
@@ -198,6 +207,7 @@ func getDatasetReviewQueuePage(
 		client,
 		itemStore,
 		runStore,
+		dismissalStore,
 		evalDatasetID,
 		deploymentID,
 		limit,
@@ -229,6 +239,7 @@ func getEvaluatedReviewQueuePage(
 	client *langfuse.Client,
 	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
+	dismissalStore reviewQueueDismissalStore,
 	evalDatasetID, deploymentID string,
 	limit int,
 	cursor reviewQueueCursor,
@@ -297,6 +308,7 @@ func getEvaluatedReviewQueuePage(
 			ctx,
 			itemStore,
 			runStore,
+			dismissalStore,
 			evalDatasetID,
 			traces.Data,
 			0,
@@ -329,6 +341,7 @@ func scanLangfuseReviewQueuePages(
 	client *langfuse.Client,
 	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
+	dismissalStore reviewQueueDismissalStore,
 	evalDatasetID, deploymentID string,
 	limit int,
 	evaluationFilter reviewQueueEvaluationFilter,
@@ -364,6 +377,7 @@ func scanLangfuseReviewQueuePages(
 			ctx,
 			itemStore,
 			runStore,
+			dismissalStore,
 			evalDatasetID,
 			traces.Data,
 			startIndex,
@@ -420,6 +434,7 @@ func loadReviewQueueItems(
 	ctx context.Context,
 	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
+	dismissalStore reviewQueueDismissalStore,
 	evalDatasetID string,
 	traces []langfuse.Trace,
 	startIndex, limit int,
@@ -433,6 +448,10 @@ func loadReviewQueueItems(
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("%w: dataset items: %w", errReviewQueueLocalRead, err)
 	}
+	dismissed, err := dismissalStore.DismissedTraceIDs(ctx, evalDatasetID, traceIDs)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("%w: dismissals: %w", errReviewQueueLocalRead, err)
+	}
 	runs, err := runStore.LatestRuns(ctx, evalDatasetID, traceIDs)
 	if err != nil {
 		return nil, 0, false, fmt.Errorf("%w: runs: %w", errReviewQueueLocalRead, err)
@@ -441,7 +460,7 @@ func loadReviewQueueItems(
 	items := make([]DatasetReviewQueueItem, 0, limit)
 	for i := startIndex; i < len(traces); i++ {
 		trace := traces[i]
-		if added[trace.ID] || trace.Input == nil {
+		if added[trace.ID] || dismissed[trace.ID] || trace.Input == nil {
 			continue
 		}
 		run, hasRun := runs[trace.ID]
