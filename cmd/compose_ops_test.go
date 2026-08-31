@@ -62,6 +62,24 @@ func TestProjectForUp_WebhookIngestionIncluded(t *testing.T) {
 	}
 }
 
+func TestProjectForRun(t *testing.T) {
+	p := &types.Project{
+		Name: "test",
+		Services: types.Services{
+			"agent":              {Name: "agent"},
+			"neo4j":              {Name: "neo4j"},
+			"ingestion-startup":  {Name: "ingestion-startup", Profiles: []string{"ingestion"}},
+			"ingestion-schedule": {Name: "ingestion-schedule", Profiles: []string{"ingestion"}},
+		},
+	}
+
+	run := projectForRun(p, "ingestion-startup")
+
+	assert.ElementsMatch(t, []string{"agent", "neo4j", "ingestion-startup"}, allServiceNames(run),
+		"a run project carries the services up starts, plus the target ingestion only")
+	assert.Contains(t, allServiceNames(p), "ingestion-schedule", "the original project must not be mutated")
+}
+
 func TestAllServiceNames(t *testing.T) {
 	p := &types.Project{
 		Services: types.Services{
