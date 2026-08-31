@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/utils"
 )
 
 const evaluationFilename = "EVALUATION.yaml"
@@ -31,10 +32,10 @@ var evalsCmd = &cobra.Command{
 }
 
 var evalsPushCmd = &cobra.Command{
-	Use:   "push <name>",
+	Use:   "push [name]",
 	Short: "Activate the agent's EVALUATION.yaml as its evaluation set",
 	Long:  "Reads EVALUATION.yaml beside astropods.yml and activates it as the agent's evaluation set on the server. This does not build or push a container image.",
-	Args:  exactValidAgentName,
+	Args:  optionalValidAgentName,
 	RunE:  runEvalsPush,
 }
 
@@ -45,9 +46,12 @@ func init() {
 }
 
 func runEvalsPush(cmd *cobra.Command, args []string) error {
-	name := args[0]
-
 	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
+	if err != nil {
+		return err
+	}
+
+	name, err := resolveEvalsAgentName(specPath, args)
 	if err != nil {
 		return err
 	}
@@ -85,6 +89,33 @@ func runEvalsPush(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(w, "  %s✓%s activated %s%s%s\n", //nolint:errcheck,gosec
 		colorGreen, colorReset, colorDim, resp.EvaluationRef, colorReset)
 	return nil
+}
+
+// resolveEvalsAgentName returns args[0] if given, otherwise the name declared
+// in the spec's name field. Unlike resolveSpecAndName, this does not run the
+// spec's full schema/semantic validation — an unrelated problem in the spec
+// should not block an evaluation-only push.
+func resolveEvalsAgentName(specPath string, args []string) (string, error) {
+	if len(args) > 0 {
+		return args[0], nil
+	}
+
+	data, err := os.ReadFile(specPath) //nolint:gosec
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", filepath.Base(specPath), err)
+	}
+	var doc struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return "", fmt.Errorf("failed to parse %s: %w", filepath.Base(specPath), err)
+	}
+
+	_, name := utils.ParseAgentName(doc.Name)
+	if name == "" {
+		return "", fmt.Errorf("%s has no name field; pass the agent name explicitly", filepath.Base(specPath))
+	}
+	return name, nil
 }
 
 // loadEvaluationDocument reads EVALUATION.yaml from workingDir and resolves

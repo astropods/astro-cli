@@ -81,6 +81,60 @@ func TestEvalsPush_ActivatesFromFile(t *testing.T) {
 	assert.Contains(t, gotBody["evaluation_yaml"], "preset/exposed-pii")
 }
 
+func TestEvalsPush_DerivesNameFromSpec(t *testing.T) {
+	dir := writeEvalsProject(t, map[string]string{
+		"astropods.yml":   "name: spec-agent\nagent:\n  image: agent:latest\n",
+		"EVALUATION.yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n",
+	})
+
+	called := false
+	setupEvalsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		assert.True(t, strings.HasSuffix(r.URL.Path, "/agents/testaccount/spec-agent/evaluation-set"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"evaluation_ref": "agent/abc123"}) //nolint:errcheck
+	}))
+
+	err := runEvalsPush(evalsPushCmdWithSpecFile(t, dir), nil)
+	require.NoError(t, err)
+	require.True(t, called)
+}
+
+func TestEvalsPush_ArgOverridesSpecName(t *testing.T) {
+	dir := writeEvalsProject(t, map[string]string{
+		"astropods.yml":   "name: spec-agent\nagent:\n  image: agent:latest\n",
+		"EVALUATION.yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n",
+	})
+
+	called := false
+	setupEvalsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		assert.True(t, strings.HasSuffix(r.URL.Path, "/agents/testaccount/override-agent/evaluation-set"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"evaluation_ref": "agent/abc123"}) //nolint:errcheck
+	}))
+
+	err := runEvalsPush(evalsPushCmdWithSpecFile(t, dir), []string{"override-agent"})
+	require.NoError(t, err)
+	require.True(t, called)
+}
+
+func TestEvalsPush_NoNameNoArgFails(t *testing.T) {
+	dir := writeEvalsProject(t, map[string]string{
+		"astropods.yml":   "agent:\n  image: agent:latest\n",
+		"EVALUATION.yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n",
+	})
+
+	called := false
+	setupEvalsTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+
+	err := runEvalsPush(evalsPushCmdWithSpecFile(t, dir), nil)
+	require.Error(t, err)
+	assert.False(t, called)
+}
+
 func TestEvalsPush_MissingFile(t *testing.T) {
 	dir := writeEvalsProject(t, nil)
 
