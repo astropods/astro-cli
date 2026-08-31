@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { BlueprintsTab } from "./BlueprintsTab";
 import { AgentsTab } from "./AgentsTab";
 import { HeartsTab } from "./HeartsTab";
-import { TabButton } from "./TabToolbar";
+import { TabButton } from "@/components/TabButton";
 import type { VisibilityFilter, BlueprintSort, ReorderMode } from "./BlueprintsTab";
 import type { AgentSort } from "./AgentsTab";
 

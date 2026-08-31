@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { DatasetView } from "@/components/agent-detail/evals/dataset/DatasetView";
 import { ReviewQueueView } from "@/components/agent-detail/evals/review-queue/ReviewQueueView";
 import { TraceDetailPanel } from "@/components/agent-detail/traces/TraceDetailPanel";
-import { TabButton } from "@/pages/AccountProfile/TabToolbar";
+import { TabButton } from "@/components/TabButton";
 import { useContainerSize } from "@/hooks/use-container-size";
 import type { TraceEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";

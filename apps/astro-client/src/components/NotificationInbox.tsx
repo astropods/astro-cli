@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router'
-import { Archive, ArchiveRestore, Bell, Check, Circle, Loader2 } from 'lucide-react'
+import { useEffect, useState, type SyntheticEvent } from 'react'
+import { Link, useNavigate } from 'react-router'
+import {
+  Archive,
+  ArchiveRestore,
+  Bell,
+  CheckCheck,
+  Loader2,
+  Settings,
+  X,
+} from 'lucide-react'
 import {
   NovuProvider,
   useCounts,
@@ -8,12 +16,31 @@ import {
   type Notification,
 } from '@novu/react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { InlineBadge } from '@/components/InlineBadge'
+import { TabButton } from '@/components/TabButton'
+import {
+  resolveNotificationIcon,
+  type NotificationIconTone,
+} from '@/components/notification-inbox-icons'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
 import { formatRelativeTime } from '@/lib/deployment-utils'
 import { useNotificationInboxConfig } from '@/api/queries'
+import { useIsMobile } from '@/hooks/use-compact-layout'
 
 type Redirect = { url?: string; target?: string } | undefined
+
+const NOTIFICATION_ICON_TONE: Record<NotificationIconTone, string> = {
+  neutral: 'text-muted-foreground',
+  primary: 'text-foreground-accent',
+  info: 'text-info',
+  warning: 'text-warning',
+  critical: 'text-destructive',
+  success: 'text-success',
+}
 
 /**
  * In-app notification feed. Built fully headless on Novu's hooks (NovuProvider +
@@ -49,23 +76,48 @@ export function NotificationInbox() {
 function InboxBell() {
   const { counts } = useCounts({ filters: [{ read: false, archived: false }] })
   const unread = counts?.[0]?.count ?? 0
+  const isMobile = useIsMobile()
+  const [open, setOpen] = useState(false)
+
+  const trigger = (
+    <button
+      type="button"
+      aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
+      className="relative rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <Bell className="size-5" />
+      {unread > 0 && (
+        <InlineBadge
+          variant="soft"
+          className="absolute -right-0.5 -top-0.5 ml-0 h-4 min-w-4 justify-center rounded-full border-0 bg-primary px-1 font-sans text-[10px] font-medium tracking-normal text-primary-foreground"
+        >
+          {unread > 9 ? '9+' : unread}
+        </InlineBadge>
+      )}
+    </button>
+  )
+
+  if (isMobile) {
+    return (
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetTrigger asChild>{trigger}</SheetTrigger>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="h-[min(86dvh,760px)] max-h-[calc(100dvh-0.75rem)] gap-0 overflow-hidden rounded-t-2xl border-border bg-popover p-0 text-foreground shadow-2xl"
+        >
+          <SheetTitle className="sr-only">Notifications</SheetTitle>
+          <TooltipProvider delayDuration={200}>
+            <InboxList unread={unread} mobile onClose={() => setOpen(false)} />
+          </TooltipProvider>
+        </SheetContent>
+      </Sheet>
+    )
+  }
 
   return (
-    <PopoverPrimitive.Root>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
-          className="relative rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <Bell className="size-5" />
-          {unread > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground">
-              {unread > 9 ? '9+' : unread}
-            </span>
-          )}
-        </button>
-      </PopoverPrimitive.Trigger>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+      <PopoverPrimitive.Trigger asChild>{trigger}</PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
           align="end"
@@ -76,7 +128,9 @@ function InboxBell() {
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           )}
         >
-          <InboxList />
+          <TooltipProvider delayDuration={200}>
+            <InboxList unread={unread} onClose={() => setOpen(false)} />
+          </TooltipProvider>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -85,7 +139,15 @@ function InboxBell() {
 
 type Tab = 'inbox' | 'archived'
 
-function InboxList() {
+function InboxList({
+  unread,
+  mobile = false,
+  onClose,
+}: {
+  unread: number
+  mobile?: boolean
+  onClose?: () => void
+}) {
   const [tab, setTab] = useState<Tab>('inbox')
   const { notifications, isLoading, hasMore, fetchMore, readAll } = useNotifications({
     archived: tab === 'archived',
@@ -94,8 +156,7 @@ function InboxList() {
   const [loadingMore, setLoadingMore] = useState(false)
 
   const items = notifications ?? []
-  const hasUnread = items.some((n) => !n.isRead)
-
+  const canMarkAllAsRead = tab === 'inbox' && unread > 0
   const onLoadMore = async () => {
     setLoadingMore(true)
     try {
@@ -106,29 +167,90 @@ function InboxList() {
   }
 
   return (
-    <div className="flex max-h-[32rem] flex-col">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-1">
-          <TabButton active={tab === 'inbox'} onClick={() => setTab('inbox')}>
+    <div className={cn('flex flex-col', mobile ? 'h-full min-h-0' : 'max-h-[32rem]')}>
+      <div className="shrink-0 border-b border-border">
+        <div className="flex items-center justify-between px-4 pt-4">
+          <h2 className="text-heading-2 font-medium text-foreground">Notifications</h2>
+          <div className={cn('flex items-center', mobile ? 'gap-3' : 'gap-1')}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Mark all as read"
+                    disabled={!canMarkAllAsRead}
+                    onClick={() => readAll()}
+                  >
+                    <CheckCheck />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                {tab === 'archived'
+                  ? 'Mark all as read is only available in Inbox'
+                  : unread === 0
+                    ? 'No unread notifications'
+                    : 'Mark all as read'}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button asChild variant="ghost" size="icon-sm">
+                  <Link
+                    to="/settings/notifications"
+                    aria-label="Notification settings"
+                    onClick={onClose}
+                  >
+                    <Settings />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={4}>
+                Notification settings
+              </TooltipContent>
+            </Tooltip>
+            {mobile && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Close notifications"
+                    onClick={onClose}
+                  >
+                    <X />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={4}>
+                  Close notifications
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+        <div className="mt-4 flex items-end gap-5 px-4">
+          <TabButton padding="compact" active={tab === 'inbox'} onClick={() => setTab('inbox')}>
             Inbox
+            {unread > 0 && (
+              <InlineBadge
+                variant="soft"
+                shape="square"
+                className="ml-1 h-4 min-w-4 justify-center border-0 bg-secondary px-1 py-0 font-sans text-[10px] font-medium tracking-normal text-secondary-foreground"
+              >
+                {unread}
+              </InlineBadge>
+            )}
           </TabButton>
-          <TabButton active={tab === 'archived'} onClick={() => setTab('archived')}>
+          <TabButton padding="compact" active={tab === 'archived'} onClick={() => setTab('archived')}>
             Archived
           </TabButton>
         </div>
-        {tab === 'inbox' && hasUnread && (
-          <button
-            type="button"
-            onClick={() => readAll()}
-            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Check className="size-3.5" />
-            Mark all read
-          </button>
-        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -149,7 +271,13 @@ function InboxList() {
         ) : (
           <ul>
             {items.map((n) => (
-              <NotificationRow key={n.id} notification={n} tab={tab} />
+              <NotificationRow
+                key={n.id}
+                notification={n}
+                tab={tab}
+                mobile={mobile}
+                onClose={onClose}
+              />
             ))}
             {hasMore && (
               <li className="p-2">
@@ -171,30 +299,17 @@ function InboxList() {
   )
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
+export function NotificationRow({
+  notification,
+  tab,
+  mobile = false,
+  onClose,
 }: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
+  notification: Notification
+  tab: Tab
+  mobile?: boolean
+  onClose?: () => void
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded px-2 py-1 text-heading-4 transition-colors',
-        active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
-  )
-}
-
-function NotificationRow({ notification, tab }: { notification: Notification; tab: Tab }) {
   const navigate = useNavigate()
 
   const follow = (redirect: Redirect) => {
@@ -204,6 +319,7 @@ function NotificationRow({ notification, tab }: { notification: Notification; ta
       window.open(url, redirect?.target ?? '_blank', 'noopener,noreferrer')
     } else {
       navigate(url)
+      onClose?.()
     }
   }
 
@@ -212,77 +328,85 @@ function NotificationRow({ notification, tab }: { notification: Notification; ta
     follow(notification.redirect)
   }
 
+  const activatePrimaryAction = (event: SyntheticEvent) => {
+    event.stopPropagation()
+    notification.completePrimary()
+    follow(notification.primaryAction?.redirect)
+  }
+
+  const activateSecondaryAction = (event: SyntheticEvent) => {
+    event.stopPropagation()
+    notification.completeSecondary()
+    follow(notification.secondaryAction?.redirect)
+  }
+
   return (
     <li
       className={cn(
-        'group relative border-b border-border transition-colors last:border-b-0 hover:bg-muted/60',
+        'group relative border-b border-border px-4 py-3 transition-colors last:border-b-0 hover:bg-muted/60',
         !notification.isRead && 'bg-muted/30',
+        mobile && 'pr-12',
       )}
     >
-      <button type="button" onClick={onRowClick} className="flex w-full gap-3 px-4 py-3 text-left">
-        {notification.avatar ? (
-          <img src={notification.avatar} alt="" className="mt-0.5 size-7 shrink-0 rounded-full object-cover" />
-        ) : (
-          <span
-            className={cn('mt-1.5 size-2 shrink-0 rounded-full', notification.isRead ? 'bg-transparent' : 'bg-primary')}
-            aria-hidden
-          />
-        )}
+      <button
+        type="button"
+        onClick={onRowClick}
+        className="flex w-full cursor-pointer gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <NotificationTypeIcon notification={notification} />
         <span className="min-w-0 flex-1">
-          {notification.subject && (
-            <span className="block truncate text-body-sm font-medium text-foreground">{notification.subject}</span>
-          )}
-          <span className="block text-xs text-muted-foreground">{notification.body}</span>
-          <span className="mt-1 block text-[11px] text-faint-foreground">
-            {formatRelativeTime(notification.createdAt)}
+          <span className="flex min-w-0 items-baseline gap-3">
+            {notification.subject && (
+              <span className="min-w-0 flex-1 truncate text-body-sm font-medium text-foreground">
+                {notification.subject}
+              </span>
+            )}
+            {!mobile && (
+              <span className="ml-auto shrink-0 text-[11px] text-faint-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+                {formatRelativeTime(notification.createdAt)}
+              </span>
+            )}
           </span>
-
-          {(notification.primaryAction || notification.secondaryAction) && (
-            <span className="mt-2 flex gap-2">
-              {notification.primaryAction && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    notification.completePrimary()
-                    follow(notification.primaryAction?.redirect)
-                  }}
-                  className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90"
-                >
-                  {notification.primaryAction.label}
-                </span>
-              )}
-              {notification.secondaryAction && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    notification.completeSecondary()
-                    follow(notification.secondaryAction?.redirect)
-                  }}
-                  className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
-                >
-                  {notification.secondaryAction.label}
-                </span>
-              )}
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {notification.body}
+          </span>
+          {mobile && (
+            <span className="mt-1 block text-[11px] text-faint-foreground">
+              {formatRelativeTime(notification.createdAt)}
             </span>
           )}
+          {!notification.isRead && <span className="sr-only">Unread</span>}
         </span>
       </button>
 
-      {/* Hover actions: read/unread toggle + archive/unarchive */}
-      <div className="absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-        {notification.isRead ? (
-          <RowAction label="Mark as unread" onClick={() => notification.unread()}>
-            <Circle className="size-3.5" />
-          </RowAction>
-        ) : (
-          <RowAction label="Mark as read" onClick={() => notification.read()}>
-            <Check className="size-3.5" />
-          </RowAction>
+      {(notification.primaryAction || notification.secondaryAction) && (
+        <span className="relative z-10 ml-10 mt-2 flex gap-2">
+          {notification.primaryAction && (
+            <Button asChild size="xs">
+              <button type="button" onClick={activatePrimaryAction}>
+                {notification.primaryAction.label}
+              </button>
+            </Button>
+          )}
+          {notification.secondaryAction && (
+            <Button asChild variant="outline" size="xs">
+              <button type="button" onClick={activateSecondaryAction}>
+                {notification.secondaryAction.label}
+              </button>
+            </Button>
+          )}
+        </span>
+      )}
+
+      {/* Touch layouts keep row actions visible; pointer layouts reveal them on hover or focus. */}
+      <div
+        className={cn(
+          'absolute right-3 top-2 flex w-24 items-center justify-end transition-opacity',
+          mobile
+            ? 'opacity-100'
+            : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
         )}
+      >
         {tab === 'archived' ? (
           <RowAction label="Unarchive" onClick={() => notification.unarchive()}>
             <ArchiveRestore className="size-3.5" />
@@ -297,6 +421,31 @@ function NotificationRow({ notification, tab }: { notification: Notification; ta
   )
 }
 
+function NotificationTypeIcon({ notification }: { notification: Notification }) {
+  const config = resolveNotificationIcon(notification.workflow?.identifier)
+  const Icon = config.icon
+
+  return (
+    <span className="relative mt-0.5 size-7 shrink-0" aria-hidden>
+      {notification.avatar ? (
+        <img src={notification.avatar} alt="" className="size-7 rounded-full object-cover" />
+      ) : (
+        <span
+          className={cn(
+            'flex size-7 items-center justify-center rounded-sm border border-border bg-transparent',
+            NOTIFICATION_ICON_TONE[config.tone],
+          )}
+        >
+          <Icon className="size-3.5" />
+        </span>
+      )}
+      {!notification.isRead && (
+        <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-popover" />
+      )}
+    </span>
+  )
+}
+
 function RowAction({
   label,
   onClick,
@@ -307,17 +456,23 @@ function RowAction({
   children: React.ReactNode
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className="rounded bg-popover p-1 text-muted-foreground shadow-sm ring-1 ring-border transition-colors hover:text-foreground"
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          onClick={(e) => {
+            e.stopPropagation()
+            onClick()
+          }}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
   )
 }

@@ -407,6 +407,7 @@ body {
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-success: var(--success);
+  --color-info: var(--info);
   --color-warning: var(--warning);
   --color-error: var(--error);
   --color-chart-1: var(--chart-1);
