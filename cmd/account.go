@@ -53,8 +53,8 @@ var accountTokenCmd = &cobra.Command{
 	Short: "Print an API token scoped to the active account",
 	Long: `Print an access token scoped to the active account.
 
-For personal accounts this is your personal access token.
-For organization accounts this is an org-scoped access token.`,
+The token is scoped to that account's organization, so it carries the
+permissions you hold there.`,
 	Args: cobra.NoArgs,
 	RunE: runAccountToken,
 }
@@ -165,10 +165,6 @@ type AccountToken struct {
 	ExpiresAt time.Time
 }
 
-// getCurrentAccountToken returns the active account name and an API token scoped to it.
-// For organization accounts it returns an org-scoped token; for personal accounts it
-// returns the personal access token. Other commands use this as the single call to
-// obtain both the account and credentials without duplicating resolution logic.
 func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
 	account, err := accountNewStorage().GetCurrentAccount()
 	if err != nil {
@@ -182,17 +178,21 @@ func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
 	return AccountToken{Account: account, Token: token, ExpiresAt: expiresAt}, nil
 }
 
-// getAccountToken returns an API token scoped to the named account.
-// For organization accounts it returns an org-scoped token; for personal
-// accounts it returns the personal access token. Other commands use this to
-// obtain credentials without duplicating account and token resolution logic.
 func getAccountToken(ctx context.Context, account string) (string, error) {
 	return accountToken(ctx, account, false)
 }
 
-// forceAccountToken unconditionally refreshes credentials for account.
 func forceAccountToken(ctx context.Context, account string) (string, error) {
 	return accountToken(ctx, account, true)
+}
+
+func accountOrgID(accounts []auth.StoredAccount, account string) string {
+	for _, a := range accounts {
+		if strings.EqualFold(a.Name, account) {
+			return a.OrganizationID
+		}
+	}
+	return ""
 }
 
 func accountToken(ctx context.Context, account string, force bool) (string, error) {
@@ -204,17 +204,10 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
-	var orgID string
-	for _, a := range profile.Accounts {
-		if strings.EqualFold(a.Name, account) && a.Type == "organization" {
-			orgID = a.WorkOSOrganizationID
-			break
-		}
-	}
+	orgID := accountOrgID(profile.Accounts, account)
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	var token string
 	if orgID != "" {
-		// Org-scoped tokens are minted via the refresh endpoint on every call.
 		token, err = tokenManager.GetOrgScopedAccessToken(ctx, orgID)
 	} else if force {
 		token, err = tokenManager.ForceRefreshAccessToken(ctx)

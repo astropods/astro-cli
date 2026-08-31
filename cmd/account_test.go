@@ -47,8 +47,8 @@ func accountTestCreds(currentAccount string) *auth.Credentials {
 				},
 				Accounts: []auth.StoredAccount{
 					{ID: "acct_personal", Name: "alice", Type: "personal", Role: "owner"},
-					{ID: "acct_acme", Name: "acme-corp", Type: "organization", Role: "member", WorkOSOrganizationID: "org_acme"},
-					{ID: "acct_other", Name: "other-org", Type: "organization", Role: "owner", WorkOSOrganizationID: "org_other"},
+					{ID: "acct_acme", Name: "acme-corp", Type: "organization", Role: "member", OrganizationID: "org_acme"},
+					{ID: "acct_other", Name: "other-org", Type: "organization", Role: "owner", OrganizationID: "org_other"},
 				},
 			},
 		},
@@ -216,4 +216,30 @@ func TestAccountSwitch_SwitchBackToPersonal(t *testing.T) {
 	account, err := accountNewStorage().GetCurrentAccount()
 	require.NoError(t, err)
 	require.Equal(t, "alice", account)
+}
+
+func TestAccountOrgID(t *testing.T) {
+	accounts := []auth.StoredAccount{
+		{ID: "acct_personal", Name: "alice", Type: "personal", OrganizationID: "org_alice"},
+		{ID: "acct_acme", Name: "acme-corp", Type: "organization", OrganizationID: "org_acme"},
+		{ID: "acct_pending", Name: "pending", Type: "personal"},
+	}
+
+	tests := []struct {
+		name    string
+		account string
+		want    string
+	}{
+		{name: "personal account is scoped like any other", account: "alice", want: "org_alice"},
+		{name: "organization account", account: "acme-corp", want: "org_acme"},
+		{name: "name match ignores case", account: "ACME-Corp", want: "org_acme"},
+		{name: "account whose organization is not linked yet", account: "pending", want: ""},
+		{name: "account absent from the profile", account: "nope", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, accountOrgID(accounts, tt.account))
+		})
+	}
 }

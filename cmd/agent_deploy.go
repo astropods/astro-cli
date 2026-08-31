@@ -2,14 +2,18 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/tui"
 )
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
@@ -19,6 +23,7 @@ type deployTemplateRequest struct {
 	Interfaces   *deployTemplateInterfaces `json:"interfaces,omitempty"`
 	Variables    map[string]deployVarInput `json:"variables,omitempty"`
 	Finalize     bool                      `json:"finalize,omitempty"`
+	ClusterID    string                    `json:"cluster_id,omitempty"`
 }
 
 type deployTemplateInterfaces struct {
@@ -27,11 +32,26 @@ type deployTemplateInterfaces struct {
 }
 
 type deployInterfacesAuth struct {
-	Web *deployWebAuth `json:"web,omitempty"`
+	Web   *deployWebAuth   `json:"web,omitempty"`
+	Slack *deploySlackAuth `json:"slack,omitempty"`
 }
 
 type deployWebAuth struct {
 	Type string `json:"type,omitempty"`
+	// Grants is nil when --grant named no web subject. The server reads nil as
+	// "say nothing about web access" and leaves existing grants alone, so a
+	// redeploy that only selects OIDC does not revoke anyone.
+	Grants []deployAuthGrant `json:"grants,omitempty"`
+}
+
+type deploySlackAuth struct {
+	Grants []deployAuthGrant `json:"grants,omitempty"`
+}
+
+type deployAuthGrant struct {
+	Org    string `json:"org,omitempty"`
+	UserID string `json:"user_id,omitempty"`
+	Anyone bool   `json:"anyone,omitempty"`
 }
 
 type deployVarInput struct {
@@ -72,9 +92,11 @@ var blueprintDeployCmd = &cobra.Command{
 // registerDeployCommonFlags registers adapter/var/build/dry-run/json flags shared by deploy and redeploy.
 func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("adapter", nil, "Adapter to enable: web, insecure-web, slack (default: web; repeatable)")
+	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
+	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
 	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
 	cmd.Flags().Bool("json", false, "Print JSON output on success")
 	cmd.Flags().Bool("wait", false, "Wait until the public Launch URL is ready")
@@ -131,12 +153,21 @@ func parseDeployVars(varFlags []string) (map[string]deployVarInput, error) {
 // Both web and insecure-web send "web" to the server; the only difference is that
 // web enables OIDC auth while insecure-web does not.
 // When no adapters are given, defaults to web with OIDC auth.
-func buildDeployInterfaces(adapters []string) (*deployTemplateInterfaces, error) {
+func buildDeployInterfaces(adapters, grants []string) (*deployTemplateInterfaces, error) {
+	web, slack, err := parseGrants(grants)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(adapters) == 0 {
-		return &deployTemplateInterfaces{
+		iface := &deployTemplateInterfaces{
 			Adapters: []string{"web"},
-			Auth:     &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}},
-		}, nil
+			Auth:     &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc", Grants: web}},
+		}
+		if slack != nil {
+			return nil, fmt.Errorf("--grant slack:… requires --adapter slack")
+		}
+		return iface, nil
 	}
 
 	serverAdapters := make([]string, 0, len(adapters))
@@ -162,11 +193,66 @@ func buildDeployInterfaces(adapters []string) (*deployTemplateInterfaces, error)
 		return nil, fmt.Errorf("--adapter web and --adapter insecure-web are mutually exclusive")
 	}
 
+	if slack != nil && !slices.Contains(serverAdapters, "slack") {
+		return nil, fmt.Errorf("--grant slack:… requires --adapter slack")
+	}
+	if web != nil && webVariants == 0 {
+		return nil, fmt.Errorf("--grant web:… requires --adapter web or --adapter insecure-web")
+	}
+
 	iface := &deployTemplateInterfaces{Adapters: serverAdapters}
-	if secureWeb {
-		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}}
+	switch {
+	case secureWeb:
+		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc", Grants: web}}
+	case web != nil:
+		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Grants: web}}
+	}
+	if slack != nil {
+		if iface.Auth == nil {
+			iface.Auth = &deployInterfacesAuth{}
+		}
+		iface.Auth.Slack = &deploySlackAuth{Grants: slack}
 	}
 	return iface, nil
+}
+
+// parseGrants turns repeated --grant values into per-adapter grant lists.
+//
+// Form: <adapter>:<subject>, where subject is "anyone", "user=<workos id>", or
+// "org=<account>". A returned nil list means the flag named no subject for that
+// adapter, which the server reads as "leave those grants alone"; an empty list
+// is a deliberate revoke and is not reachable from this flag.
+func parseGrants(values []string) (web, slack []deployAuthGrant, err error) {
+	for _, raw := range values {
+		adapter, subject, ok := strings.Cut(strings.TrimSpace(raw), ":")
+		if !ok || adapter == "" || subject == "" {
+			return nil, nil, fmt.Errorf("invalid --grant %q: expected <adapter>:<subject>, e.g. web:anyone", raw)
+		}
+
+		var g deployAuthGrant
+		switch kind, value, hasValue := strings.Cut(subject, "="); {
+		case subject == "anyone":
+			g.Anyone = true
+		case hasValue && kind == "user" && value != "":
+			g.UserID = value
+		case hasValue && kind == "org" && value != "":
+			g.Org = value
+		default:
+			return nil, nil, fmt.Errorf(
+				"invalid --grant subject %q: expected anyone, user=<id>, or org=<account>", subject)
+		}
+
+		switch adapter {
+		case "web", "insecure-web":
+			web = append(web, g)
+		case "slack":
+			slack = append(slack, g)
+		default:
+			return nil, nil, fmt.Errorf(
+				"invalid --grant adapter %q: must be one of: web, insecure-web, slack", adapter)
+		}
+	}
+	return web, slack, nil
 }
 
 // parseDeployVarsFromCmd reads --var and --vars-file flags and merges them.
@@ -216,6 +302,7 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
+	grants, _ := cmd.Flags().GetStringArray("grant")
 	build, _ := cmd.Flags().GetString("build")
 	displayName, _ := cmd.Flags().GetString("name")
 	if displayName == "" {
@@ -228,12 +315,21 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	iface, err := buildDeployInterfaces(adapters)
+	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {
 		return err
 	}
 
-	req := deployTemplateRequest{Build: build, Interfaces: iface}
+	clusterID, err := resolveDeployCluster(cmd, at, verbose)
+	if err != nil {
+		if errors.Is(err, tui.ErrCancelled) {
+			printCancelled(cmd.OutOrStdout())
+			return nil
+		}
+		return err
+	}
+
+	req := deployTemplateRequest{Build: build, Interfaces: iface, ClusterID: clusterID}
 	if len(vars) > 0 {
 		req.Variables = vars
 	}
@@ -261,6 +357,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if status == http.StatusNotFound {
 			return notFoundFromTemplateErr(err, at.Account, name, req.Build)
+		}
+		if status == http.StatusForbidden {
+			if clusterErr := clusterNotAvailableFromErr(err); clusterErr != nil {
+				return clusterErr
+			}
 		}
 		return err
 	}
@@ -374,6 +475,12 @@ func apiErrorCodeAndBody(err error) (code, body string) {
 	if err == nil {
 		return "", ""
 	}
+	// A typed error carries the body already parsed, so the text split below is
+	// only for an error that did not come from the API helpers.
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		return errorCodeFromBody(apiErr.Body), apiErr.Body
+	}
 	msg := err.Error()
 	idx := strings.Index(msg, ": ")
 	if idx == -1 {
@@ -381,13 +488,19 @@ func apiErrorCodeAndBody(err error) (code, body string) {
 	} else {
 		body = msg[idx+2:]
 	}
+	return errorCodeFromBody(body), body
+}
+
+// errorCodeFromBody reads the typed error_code the deployment-template endpoint
+// tags its 404s with. An empty result means the server is too old to send one.
+func errorCodeFromBody(body string) string {
 	var parsed struct {
 		ErrorCode string `json:"error_code"`
 	}
-	if jerr := json.Unmarshal([]byte(body), &parsed); jerr == nil {
-		code = parsed.ErrorCode
+	if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+		return ""
 	}
-	return code, body
+	return parsed.ErrorCode
 }
 
 // patchTemplateDisplayName sets target.display_name in the deployment template JSON.

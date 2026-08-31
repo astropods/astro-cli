@@ -400,11 +400,7 @@ func printBlueprintNextSteps(w io.Writer) {
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  %s   %s", boldPrimary.Render(buildinfo.BinaryName+" blueprint push"), dim.Render("push your agent image")))
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(theme.Primary).
-		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
+	box := theme.Box(lines)
 
 	fmt.Fprintln(w)      //nolint:errcheck,gosec
 	fmt.Fprintln(w, box) //nolint:errcheck,gosec

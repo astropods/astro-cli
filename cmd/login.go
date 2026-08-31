@@ -13,11 +13,13 @@ import (
 	"syscall"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
@@ -42,10 +44,42 @@ otherwise in the CLI config directory with restricted permissions.`,
 	RunE: runLogin,
 }
 
+var stdoutIsTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdout.Fd())) //nolint:gosec
+}
+
+var stdoutWidth = func() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd())) //nolint:gosec
+	if err != nil {
+		return 0
+	}
+	return w
+}
+
 func init() {
 	rootCmd.AddCommand(loginCmd)
 	loginCmd.Flags().Bool("no-browser", false, "Don't automatically open browser")
 	loginCmd.Flags().String("account", "", "Switch to this account after login")
+}
+
+// A terminal narrower than the fixed-width box wraps every row and lands the
+// borders mid-word. Width 0 means stdout is not a terminal, so there is no fit.
+func printVerificationCode(code string, highlight *color.Color) {
+	const (
+		boxTop    = "  ┌────────────────────────────────────────┐"
+		boxBottom = "  └────────────────────────────────────────┘"
+		label     = "Your verification code is: "
+	)
+	if w := stdoutWidth(); w > 0 && w < utf8.RuneCountInString(boxTop) {
+		fmt.Print("  " + label)
+		highlight.Println(code) //nolint:errcheck,gosec
+		return
+	}
+	fmt.Println(boxTop)
+	fmt.Print("  │  " + label)
+	highlight.Printf("%-11s", code) //nolint:errcheck,gosec
+	fmt.Println("│")
+	fmt.Println(boxBottom)
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
@@ -88,11 +122,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Display the user code prominently
 	fmt.Println()
-	fmt.Println("  ┌────────────────────────────────────────┐")
-	fmt.Print("  │  Your verification code is: ")
-	yellow.Printf("%-11s", authResp.UserCode) //nolint:errcheck,gosec
-	fmt.Println("│")
-	fmt.Println("  └────────────────────────────────────────┘")
+	printVerificationCode(authResp.UserCode, yellow)
 	fmt.Println()
 
 	// Determine verification URL to display/open
@@ -117,30 +147,40 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	cyan.Print("→ ") //nolint:errcheck,gosec
-	fmt.Print("Waiting for authentication")
+	const arrow, waitText = "→ ", "Waiting for authentication"
+	waitLine := cyan.Sprint(arrow) + waitText
 
-	// Poll for tokens with a simple spinner
+	// Piped output repeats the line once per \r frame instead of redrawing, and
+	// \r rewinds only the current row, so a frame wider than the terminal stacks.
+	frameWidth := utf8.RuneCountInString(arrow+waitText) + len("...")
+	animate := stdoutIsTerminal() && stdoutWidth() >= frameWidth
 	done := make(chan struct{})
-	go func() {
-		dots := []string{"", ".", "..", "..."}
-		i := 0
-		for {
-			select {
-			case <-done:
-				return
-			case <-time.After(500 * time.Millisecond):
-				fmt.Printf("\r")
-				cyan.Print("→ ") //nolint:errcheck,gosec
-				fmt.Printf("Waiting for authentication%-4s", dots[i%len(dots)])
-				i++
+	stopped := make(chan struct{})
+	if animate {
+		fmt.Print(waitLine)
+		go func() {
+			defer close(stopped)
+			dots := []string{"", ".", "..", "..."}
+			for i := 0; ; i++ {
+				select {
+				case <-done:
+					return
+				case <-time.After(500 * time.Millisecond):
+					fmt.Printf("\r%s%-4s", waitLine, dots[i%len(dots)])
+				}
 			}
-		}
-	}()
+		}()
+	} else {
+		fmt.Println(waitLine + "...")
+		close(stopped)
+	}
 
 	tokenResp, err := client.PollForTokens(ctx, authResp.DeviceCode, authResp.Interval, authResp.ExpiresIn)
 	close(done)
-	fmt.Println()
+	<-stopped
+	if animate {
+		fmt.Println()
+	}
 
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
@@ -505,11 +545,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 
 	var result struct {
 		Accounts []struct {
-			ID                   string `json:"id"`
-			Name                 string `json:"name"`
-			Type                 string `json:"type"`
-			Role                 string `json:"role"`
-			WorkOSOrganizationID string `json:"workos_org_id"`
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			Type           string `json:"type"`
+			Role           string `json:"role"`
+			OrganizationID string `json:"workos_org_id"`
 		} `json:"accounts"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -519,11 +559,11 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 	var accounts []auth.StoredAccount
 	for _, a := range result.Accounts {
 		accounts = append(accounts, auth.StoredAccount{
-			ID:                   a.ID,
-			Name:                 a.Name,
-			Type:                 a.Type,
-			Role:                 a.Role,
-			WorkOSOrganizationID: a.WorkOSOrganizationID,
+			ID:             a.ID,
+			Name:           a.Name,
+			Type:           a.Type,
+			Role:           a.Role,
+			OrganizationID: a.OrganizationID,
 		})
 	}
 	return accounts, nil
@@ -554,7 +594,7 @@ func mergePriorAccountsOnFetchFailure(profile *auth.Profile, priorAccounts []aut
 // restorePriorLoginSelection reapplies the last active account after login.
 // When accountsFetched is false (transient /api/v1/me failure), the prior selection
 // is copied only if it exists in the stored account list (avoids orphan CurrentAccount
-// without WorkOS org metadata). When true, applyPriorLoginAccount validates against
+// without org metadata). When true, applyPriorLoginAccount validates against
 // the non-empty fresh list so removed org members fall back to personal.
 func restorePriorLoginSelection(profile *auth.Profile, priorCurrent, priorPrevious string, priorAccounts []auth.StoredAccount, accountsFetched bool) string {
 	if priorCurrent == "" {

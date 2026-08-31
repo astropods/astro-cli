@@ -19,7 +19,7 @@ func writeSpecFile(t *testing.T, content string) string {
 }
 
 func TestValidateSpecFile_Valid(t *testing.T) {
-	specPath := writeSpecFile(t, "spec: package/v1\nname: demo\nmeta: {}\nagent:\n  image: demo:latest\n")
+	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nmeta: {}\nagent:\n  image: demo:latest\n")
 
 	var (
 		gotErr error
@@ -46,7 +46,7 @@ func TestValidateSpecFile_Valid(t *testing.T) {
 
 func TestValidateSpecFile_MissingRequiredField(t *testing.T) {
 	// Missing top-level `agent` (required by schema)
-	specPath := writeSpecFile(t, "spec: package/v1\nname: demo\n")
+	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\n")
 
 	var gotErr error
 	out := captureStdout(t, func() {
@@ -63,7 +63,7 @@ func TestValidateSpecFile_MissingRequiredField(t *testing.T) {
 
 func TestValidateSpecFile_SemanticError(t *testing.T) {
 	// Agent with both image and build is semantically invalid (mutually exclusive)
-	specPath := writeSpecFile(t, `spec: package/v1
+	specPath := writeSpecFile(t, `spec: blueprint/v1
 name: demo
 meta: {}
 agent:
@@ -88,7 +88,7 @@ agent:
 
 func TestValidateSpecFile_YAMLSyntaxError(t *testing.T) {
 	// Unterminated flow sequence — YAML parse must fail.
-	specPath := writeSpecFile(t, "spec: package/v1\nname: demo\nmeta: {}\nagent:\n  image: [unclosed\n")
+	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nmeta: {}\nagent:\n  image: [unclosed\n")
 
 	var gotErr error
 	out := captureStdout(t, func() {

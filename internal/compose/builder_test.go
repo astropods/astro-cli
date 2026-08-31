@@ -45,6 +45,45 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 	}
 }
 
+// TestBuildProject_NoDeployOnlyEnvLocally pins which platform variables local dev
+// does NOT provide. `ast docs` tells agent authors to read ASTRO_AGENT_NAME /
+// ASTRO_AGENT_BUILD for OTel service metadata and OTEL_EXPORTER_OTLP_ENDPOINT to
+// decide whether to export at all — all three are deployed-only, and an agent that
+// reads them without a fallback degrades silently rather than failing loudly. If a
+// future change starts injecting one of these locally, the docs go stale with no
+// other signal, so assert their absence here.
+func TestBuildProject_NoDeployOnlyEnvLocally(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{Adapters: []string{"web"}},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+
+	agent := project.Services["agent"]
+	for _, key := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT",
+		"ASTRO_AGENT_NAME",
+		"ASTRO_AGENT_BUILD",
+		"ASTRO_AGENT_ID",
+	} {
+		if _, ok := agent.Environment[key]; ok {
+			t.Errorf("%s must not be injected locally — it is deployed-only per `ast docs`", key)
+		}
+	}
+
+	// The two platform variables local dev does inject, for contrast.
+	assert.Equal(t, "astro-messaging:9090", envVal(agent.Environment, "GRPC_SERVER_ADDR"))
+	assert.NotEmpty(t, envVal(agent.Environment, "AGENT_FILES_DIR"))
+}
+
 func TestBuildProject_ScopedName(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "@example/release-note-helper",

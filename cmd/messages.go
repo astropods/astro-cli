@@ -11,8 +11,10 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 func errNoSpecFile() error {
@@ -45,6 +47,20 @@ func errDeployNameConflict(displayName string) error {
 	return fmt.Errorf(
 		"deployment name %q is already in use — choose a different name:\n  %s deploy <blueprint> --name <new-name>",
 		displayName, buildinfo.BinaryName,
+	)
+}
+
+func msgSelectRegionDescription() string {
+	return "Where this agent runs. To move it later, redeploy with --cluster."
+}
+
+func errClusterNotAvailable(requested string, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("cluster %q is not available to this account", requested)
+	}
+	return fmt.Errorf(
+		"cluster %q is not available to this account (available: %s)",
+		requested, strings.Join(available, ", "),
 	)
 }
 
@@ -165,4 +181,60 @@ func errAgentCoreInvalidSecret(pair string) error {
 
 func errAgentCoreSecretsFileLine(line int) error {
 	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
+
+func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
+	return fmt.Errorf(`the agent never bound :%d, so no turn can be delivered
+
+The spec sets agent.annotations.runtime: agentcore, so the agent must serve
+POST /invocations and GET /ping on :%d. Nothing answered on localhost:%s
+within %s. Containers are still running — check the agent's log first:
+
+  %s project logs agent
+
+Common causes, most likely first:
+  1. @astropods/adapter-core in the image is too old to honor ASTRO_RUNTIME.
+     It needs 0.9.1 or newer. Check with:
+       docker exec <project>-agent-1 grep -m1 version node_modules/@astropods/adapter-core/package.json
+  2. A cached build layer installed an older adapter. Rebuild without cache:
+       %s project start --rebuild
+  3. The agent crashed on boot, which its log will show.`,
+		composeBuilder.AgentCorePort, composeBuilder.AgentCorePort, hostPort, wait,
+		buildinfo.BinaryName, buildinfo.BinaryName)
+}
+
+func msgBillingUnavailable() string {
+	return "Billing is not configured for this account"
+}
+
+func errBillingUnavailable() error {
+	return fmt.Errorf("billing is not configured for this account")
+}
+
+func msgNoInvoices() string {
+	return "No invoices yet"
+}
+
+func errBillingSetConflict(name string) error {
+	return fmt.Errorf("--%s and --clear-%s cannot be used together", name, name)
+}
+
+func errBillingSetNoChange() error {
+	return fmt.Errorf("specify --warning, --limit, --clear-warning, or --clear-limit")
+}
+
+func msgSpendControlsSaved() string {
+	return "Spend controls saved"
+}
+
+func errUnknownUsageMetric(metric string) error {
+	return fmt.Errorf("--metric %q is not a metered quantity; use compute or gateway", metric)
+}
+
+func msgUsageControlsSaved(metric string) string {
+	return fmt.Sprintf("Usage controls saved for %s", metric)
+}
+
+func errGrantNeedsAdapterOnRedeploy() error {
+	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
 }

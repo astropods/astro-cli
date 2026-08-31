@@ -412,15 +412,19 @@ func (p *PushPipeline) PrintSuccess() {
 	lines = append(lines, dim.Render("Blueprint is "+string(p.visibility)))
 	lines = append(lines, "")
 	lines = append(lines, "  "+bold.Render(p.cfg.AgentName)+"  "+dim.Render("tag "+p.tag))
-	lines = append(lines, "  "+dim.Render("View online → ")+link.Render(agentURL))
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
-		BorderForeground(theme.Primary).
-		Padding(0, 2).
-		Render(strings.Join(lines, "\n"))
+	urlLine := "  " + dim.Render("View online → ") + link.Render(agentURL)
+	urlBelowBox := ""
+	if limit := theme.BoxContentWidth(); limit > 0 && lipgloss.Width(urlLine) > limit {
+		urlLine = "  " + dim.Render("View online →")
+		urlBelowBox = link.Render(agentURL)
+	}
+	lines = append(lines, urlLine)
 
 	fmt.Println()
-	fmt.Println(box)
+	fmt.Println(theme.Box(lines))
+	if urlBelowBox != "" {
+		fmt.Println(urlBelowBox)
+	}
 	fmt.Println()
 }

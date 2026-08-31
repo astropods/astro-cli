@@ -4,8 +4,10 @@ import (
 	"sort"
 	"testing"
 
+	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestProjectForUp(t *testing.T) {
@@ -107,6 +109,61 @@ func TestComposeEventIcon(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("composeEventIcon(%q) = %q, want %q", tt.text, got, tt.want)
 			}
+		})
+	}
+}
+
+func TestGroupStartupServices(t *testing.T) {
+	astroSpec := &spec.AstroSpec{
+		Ingestion: map[string]spec.Ingestion{
+			"startup":  {Trigger: spec.IngestionTrigger{Type: "startup"}},
+			"schedule": {Trigger: spec.IngestionTrigger{Type: "schedule"}},
+			"webhook":  {Trigger: spec.IngestionTrigger{Type: "webhook"}},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		services      types.Services
+		wantServices  []string
+		wantIngestion []string
+	}{
+		{
+			name: "profiled ingestions are reported apart from started services",
+			services: types.Services{
+				"agent":              {Name: "agent"},
+				"knowledge-graph":    {Name: "knowledge-graph"},
+				"ingestion-startup":  {Name: "ingestion-startup", Profiles: []string{"ingestion"}},
+				"ingestion-schedule": {Name: "ingestion-schedule", Profiles: []string{"ingestion"}},
+			},
+			wantServices:  []string{"agent", "knowledge-graph"},
+			wantIngestion: []string{"ingestion-schedule (on demand)", "ingestion-startup (once at start)"},
+		},
+		{
+			name: "webhook ingestion is unprofiled, so it counts as a started service",
+			services: types.Services{
+				"agent":             {Name: "agent"},
+				"ingestion-webhook": {Name: "ingestion-webhook"},
+			},
+			wantServices:  []string{"agent", "ingestion-webhook"},
+			wantIngestion: nil,
+		},
+		{
+			name: "a profiled service with no matching spec entry falls back to on demand",
+			services: types.Services{
+				"agent":            {Name: "agent"},
+				"ingestion-absent": {Name: "ingestion-absent", Profiles: []string{"ingestion"}},
+			},
+			wantServices:  []string{"agent"},
+			wantIngestion: []string{"ingestion-absent (on demand)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			services, ingestion := groupStartupServices(&types.Project{Services: tt.services}, astroSpec)
+			assert.Equal(t, tt.wantServices, services)
+			assert.Equal(t, tt.wantIngestion, ingestion)
 		})
 	}
 }
