@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { type SavedCard } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useResolvedTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
 import {
@@ -63,6 +64,13 @@ function buildStripeAppearance(isDark: boolean): Appearance {
 function formatBrand(brand: string): string {
   if (!brand) return "Card";
   return brand.charAt(0).toUpperCase() + brand.slice(1);
+}
+
+// A card is good through the last day of its expiry month, in UTC, which is the
+// boundary the server gates on.
+function isCardExpired(card: SavedCard): boolean {
+  if (!card.exp_month || !card.exp_year) return false;
+  return Date.now() >= Date.UTC(card.exp_year, card.exp_month, 1);
 }
 
 // Maps Stripe's card.brand values to the icon library's canonical type names.
@@ -311,9 +319,10 @@ export function PaymentMethod({ account }: { account: string }) {
 
         <DetailRow label="Payment method">
           {card ? (
-            <span className="flex items-center gap-2">
+            <span className={cn("flex items-center gap-2", isCardExpired(card) && "text-destructive")}>
               <CardBrandIcon brand={card.brand} />
-              {formatBrand(card.brand)} •••• {card.last4} · Expires{" "}
+              {formatBrand(card.brand)} •••• {card.last4} ·{" "}
+              {isCardExpired(card) ? "Expired" : "Expires"}{" "}
               {String(card.exp_month).padStart(2, "0")}/{String(card.exp_year).slice(-2)}
             </span>
           ) : (

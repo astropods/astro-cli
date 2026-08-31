@@ -161,6 +161,9 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 	if wired.dunning != nil {
 		wired.dunning.queue = q
 	}
+	if wired.cardExpiry != nil {
+		wired.cardExpiry.queue = q
+	}
 	if wired.billingResume != nil {
 		wired.billingResume.queue = q
 	}

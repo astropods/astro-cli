@@ -212,7 +212,8 @@ CREATE TABLE public.account_billing_status (
     -- adding a card is what turns the account into pay-as-you-go. Metronome
     -- fires no recovery event, so this clears on our own credit grant.
     credits_exhausted  boolean NOT NULL DEFAULT false,
-    -- A card is vaulted in Stripe and linked to the billing provider.
+    -- A card is vaulted in Stripe, linked to the billing provider, and not
+    -- expired. Cleared by billing.card_expiry_sweep once the card expires.
     has_payment_method boolean NOT NULL DEFAULT false,
     -- A limit the account set for itself is crossed, on spend or on a metered
     -- quantity. Separate from alert_active, which is an operator's alert that

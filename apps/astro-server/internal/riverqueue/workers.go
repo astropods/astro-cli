@@ -135,6 +135,7 @@ type wiredWorkers struct {
 	classification    *ClassificationDiscoveryWorker
 	migrate           *MigrateDeploymentClusterWorker
 	dunning           *DunningSweepWorker
+	cardExpiry        *CardExpirySweepWorker
 	billingResume     *BillingResumeWorker
 	metronomeHook     *MetronomeWebhookWorker
 	stripeHook        *StripeWebhookWorker
@@ -168,6 +169,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	// dunning sweep ages past_due→suspended (pure timer), and the suspend/resume
 	// workers scale an account's deployments to zero and restore them.
 	var dunningWorker *DunningSweepWorker
+	var cardExpiryWorker *CardExpirySweepWorker
 	var billingStatusStore *billingpkg.StatusStore
 	var billingSuspendWorker *BillingSuspendWorker
 	var billingResumeWorker *BillingResumeWorker
@@ -212,6 +214,19 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		}
 		addWorkerWithCatalogCheck(log, workers, dunningWorker)
 		log.Info("river: registered worker", "worker", "DunningSweepWorker", "period", "1h")
+
+		// Registered whatever the payment configuration is, because the periodic
+		// job is.
+		cardExpiryWorker = &CardExpirySweepWorker{
+			status: statusStore,
+			cards:  paymentCards(cfg.PaymentProvider),
+			log:    log,
+		}
+		if cfg.AccountStore != nil {
+			cardExpiryWorker.accounts = cfg.AccountStore
+		}
+		addWorkerWithCatalogCheck(log, workers, cardExpiryWorker)
+		log.Info("river: registered worker", "worker", "CardExpirySweepWorker", "period", "24h")
 
 		// The AI gateway fields are filled in below, once the deployer that owns
 		// the provisioner exists.
@@ -682,6 +697,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		purge:           pw,
 		migrate:         migrateWorker,
 		dunning:         dunningWorker,
+		cardExpiry:      cardExpiryWorker,
 		billingResume:   billingResumeWorker,
 		metronomeHook:   metronomeHook,
 		stripeHook:      stripeHook,

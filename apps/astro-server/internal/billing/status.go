@@ -513,6 +513,40 @@ func (s *StatusStore) ListForRecompute(ctx context.Context, limit int) ([]string
 	return ids, rows.Err()
 }
 
+// firstAccountID seeds the keyset cursor below the smallest possible account id.
+const firstAccountID = "00000000-0000-0000-0000-000000000000"
+
+// ListCarded returns up to limit accounts recorded as holding a card, ordered by
+// account id and starting after afterID. The key is the id rather than
+// updated_at because a valid card writes nothing: ordering on a column that
+// never moves for a healthy account would return the same page forever and never
+// reach the rest.
+func (s *StatusStore) ListCarded(ctx context.Context, afterID string, limit int) ([]string, error) {
+	if afterID == "" {
+		afterID = firstAccountID
+	}
+	// Compared as uuid, not text: a cast on the column is not a range condition,
+	// so every page would walk the index from the start and discard what it
+	// already returned.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT account_id FROM account_billing_status
+		 WHERE has_payment_method AND account_id > $1::uuid
+		 ORDER BY account_id LIMIT $2`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list carded: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan account id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // Recompute reads the account's signals, applies the state machine, and
 // persists status and reason when either changes. The read takes a row lock and
 // the write shares its transaction, so concurrent signals for one account

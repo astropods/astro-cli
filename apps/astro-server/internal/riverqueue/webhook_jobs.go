@@ -461,7 +461,7 @@ func resolveCardSignal(ctx context.Context, cards cardReader, customerID string)
 	if err != nil {
 		return "", fmt.Errorf("stripe webhook: read default card: %w", err)
 	}
-	if card != nil {
+	if card != nil && !card.Expired(time.Now()) {
 		return billing.SignalCardAdded, nil
 	}
 	return billing.SignalCardRemoved, nil

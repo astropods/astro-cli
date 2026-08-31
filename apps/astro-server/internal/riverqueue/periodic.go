@@ -84,6 +84,20 @@ func periodicJobs(cfg Config) []*river.PeriodicJob {
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 
+		// Daily: a card expires on a month boundary, and each tick reads one
+		// card per carded account.
+		jobs = append(jobs, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return CardExpirySweepArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{
+						ByPeriod: 24 * time.Hour,
+					},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+
 		// AI gateway budget sweep: re-derives every account's gateway ceiling from
 		// its spend limit and card. Runs on a shorter period than the other
 		// billing sweeps because the ceiling is enforced in real time, so drift

@@ -29,6 +29,7 @@ func TestResolveCardSignal(t *testing.T) {
 	}{
 		{"card still on file after a detach", fakeCards{card: &payment.Card{Last4: "4242"}}, billing.SignalCardAdded},
 		{"no cards left", fakeCards{}, billing.SignalCardRemoved},
+		{"card on file but expired", fakeCards{card: &payment.Card{Last4: "4242", ExpMonth: 1, ExpYear: 2020}}, billing.SignalCardRemoved},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

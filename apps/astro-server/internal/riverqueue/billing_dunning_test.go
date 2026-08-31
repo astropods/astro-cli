@@ -118,7 +118,14 @@ type fakeDunningQueue struct {
 	resumed       []string
 	notified      []string
 	notifiedNames []string
+	budgets       []string
 	suspender     error
+	budgeter      error
+}
+
+func (f *fakeDunningQueue) InsertBillingGatewayBudget(_ context.Context, accountID string) error {
+	f.budgets = append(f.budgets, accountID)
+	return f.budgeter
 }
 
 func (f *fakeDunningQueue) InsertBillingResume(_ context.Context, accountID string) error {
@@ -212,8 +219,8 @@ func TestDunningSweep_NotifiesWhenTheNameIsUnavailable(t *testing.T) {
 	}
 
 	// A nil namer is the unconfigured path and must behave the same way.
-	if got := (&DunningSweepWorker{log: logger.New("error", "json")}).accountName("acct_1"); got != "" {
-		t.Errorf("accountName = %q, want empty with no namer", got)
+	if got := notifyAccountName(nil, logger.New("error", "json"), "acct_1"); got != "" {
+		t.Errorf("notifyAccountName = %q, want empty with no namer", got)
 	}
 }
 

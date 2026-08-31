@@ -183,9 +183,10 @@ flowchart TD
 
 Both gating latches are deliberate. Exhausted credit and a crossed spend limit
 stay set until something clears them, so resuming an account is an explicit event
-rather than a side effect of the next read. `DunningSweepWorker` re-evaluates the
-payment grace window hourly, which is the one transition no provider event
-announces.
+rather than a side effect of the next read. Two transitions have no provider event
+behind them, and a timer covers each: `DunningSweepWorker` re-evaluates the payment
+grace window hourly, and `CardExpirySweepWorker` re-reads vaulted cards daily and
+clears `has_payment_method` once one expires.
 
 ## Flow 5: Provider webhooks (inbound)
 

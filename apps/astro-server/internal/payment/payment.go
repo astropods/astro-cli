@@ -8,7 +8,10 @@
 // charging. astro-server never moves money.
 package payment
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Card is a saved payment method summarised for display. It carries no PAN —
 // only the network brand, last four digits, and expiry.
@@ -18,6 +21,18 @@ type Card struct {
 	Last4    string `json:"last4"`
 	ExpMonth int64  `json:"exp_month"`
 	ExpYear  int64  `json:"exp_year"`
+}
+
+// A method carrying no expiry is not a card, and is never expired.
+func (c *Card) Expired(now time.Time) bool {
+	if c == nil {
+		return true
+	}
+	if c.ExpMonth < 1 || c.ExpMonth > 12 || c.ExpYear < 1 {
+		return false
+	}
+	end := time.Date(int(c.ExpYear), time.Month(c.ExpMonth)+1, 1, 0, 0, 0, 0, time.UTC)
+	return !now.UTC().Before(end)
 }
 
 // Provider is the card-vault contract. Implemented by the Stripe backend; nil

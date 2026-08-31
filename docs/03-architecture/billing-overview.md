@@ -66,8 +66,10 @@ A suspended account cannot deploy, and its running agents are stopped.
 
 Two rules are worth knowing:
 
-- **Spent credit only suspends an account with no card on file.** With a card,
-  spending the credit is just the move to pay as you go.
+- **Spent credit only suspends an account with no chargeable card on file.** With
+  one, spending the credit is just the move to pay as you go. An expired card is
+  not a chargeable one: a daily sweep re-reads the vault and treats an expired
+  card as no card, so the account is gated the same way.
 - **`BILLING_GATE_ENFORCE` chooses enforce or observe.** In observe mode the
   server logs the block it would have made and allows the request.
 

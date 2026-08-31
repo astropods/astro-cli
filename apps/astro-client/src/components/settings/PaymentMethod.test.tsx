@@ -316,3 +316,19 @@ describe("PaymentMethod card confirmation", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith("Payment method saved");
   });
 });
+
+describe("PaymentMethod with an expired card", () => {
+  it("says the card expired rather than when it expires", () => {
+    mockPaymentMethod.mockReturnValue({
+      data: {
+        available: true,
+        card: { brand: "visa", last4: "4242", exp_month: 1, exp_year: 2020 },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderCard();
+
+    expect(screen.getByText(/Visa •••• 4242 · Expired 01\/20/)).toBeInTheDocument();
+  });
+});

@@ -135,7 +135,7 @@ Deploy lifecycle emits nothing. Deploy-time failures (failed schedule, image pul
 | `billing.action_required` | Stripe `invoice.payment_action_required` (3DS `HostedInvoiceURL`) | managers | email + in-app | Ready |
 | `billing.uncollectible` | Stripe `invoice.marked_uncollectible` | owner | email | Ready |
 | `billing.spend_threshold` | Metronome `alerts.spend_threshold_reached` | managers | email + in-app | Ready |
-| `billing.dunning_suspended` | `billing_dunning.go` grace-expired `past_due`→`suspended` | managers | email + in-app | Ready |
+| `billing.dunning_suspended` | `billing_dunning.go` grace-expired `past_due`→`suspended`, or `billing_card_expiry.go` clearing an expired card | managers | email + in-app | Ready |
 | `billing.recovered` | Stripe `invoice.paid` | managers | in-app | Ready |
 | `billing.card_expiring` | — | owner | email | New (poll Stripe PM expiry) |
 | `team.member_added` / `role_changed` / `removed` | `handlers/org.go` | subject + admins | email + in-app | Ready |

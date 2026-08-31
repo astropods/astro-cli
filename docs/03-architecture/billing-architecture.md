@@ -132,9 +132,9 @@ a failure leaves the anchor where it was, so the next tick re-emits the same
 windows, which Metronome recognises and ignores.
 
 River is the background-job system astro-server runs on, and every scheduled or
-deferred piece of billing work is a River job: provisioning, the dunning sweep,
-suspend and resume, webhook handling, and this metering tick. Two properties of it
-matter here.
+deferred piece of billing work is a River job: provisioning, the dunning and
+card-expiry sweeps, suspend and resume, webhook handling, and this metering tick.
+Two properties of it matter here.
 
 - **Jobs live in Postgres**, in the same database as the billing tables, and are
   claimed by whichever astro-server replica gets there first. There is no separate
@@ -219,7 +219,7 @@ path reads.
 | `alert_active` | The customer's spend limit is crossed and uncleared. |
 | `force_suspended` | Stripe wrote the invoice off. Bypasses the grace window. |
 | `credits_exhausted` | Signup credit is spent. |
-| `has_payment_method` | A card is vaulted. |
+| `has_payment_method` | A chargeable card is vaulted: on file and not expired. |
 
 The four booleans and the timestamp are **latches**. Signals set and clear them.
 `status` and `reason` are recomputed from the latches on every write, so the two
@@ -500,6 +500,12 @@ machine is where the exemption lives. See [`computeStatus`](#applysignal-and-com
 The card events are a **backstop**. The card handlers write `has_payment_method`
 inline and best-effort; Stripe redelivers, an inline write does not.
 
+**An expired card is not a payment method.** Expiry is the one card change with no
+event behind it: the vault keeps the card, the UI keeps showing it, and nothing
+collects on it. `resolveCardSignal` therefore reads an expired card as
+`SignalCardRemoved`, and [the card-expiry sweep](#the-card-expiry-sweep) supplies
+the event Stripe never sends.
+
 ### `ApplySignal` and `computeStatus`
 
 `ApplySignal` writes one latch and recomputes. It performs no provider calls and
@@ -553,6 +559,32 @@ Grace defaults to seven days (`BILLING_DUNNING_GRACE_DAYS`).
 The clock does not restart. `SetDunningSince` uses `COALESCE`, so a provider
 redelivery keeps the original stamp. A clock that restarted on every retry would
 walk the deadline forward forever.
+
+### The card-expiry sweep
+
+`CardExpirySweepWorker` runs daily. It walks every account recorded as carded,
+keyset-paginated on `account_id`, re-reads each default card from the vault, and
+applies `SignalCardRemoved` to the ones whose expiry month has passed. The key is
+the id, not `updated_at`: a valid card writes nothing, so ordering on a column a
+healthy account never touches would return the same page every day. Daily is enough: a card expires on a month
+boundary, and each tick costs one provider read per carded account. An account
+leaves the work set as soon as its latch is cleared, so the sweep only re-reads
+cards that still look chargeable, and it returns when a fresh card is saved.
+
+Without it the fact stays stale until the period closes and the charge declines,
+which then costs the seven-day dunning grace on top. Rank 3 of `computeStatus`
+runs on a card the vault would refuse.
+
+The sweep suspends nobody itself. It applies a signal, and the ranking decides,
+which is what keeps the outcome identical to a card that was never added:
+
+- **Inside the signup credit**, nothing is owed and the account stays active. Only
+  the derived gateway ceiling changes, dropping to the card-less default.
+- **Past the credit**, `credits_exhausted` is already latched, so rank 3 suspends
+  the account on the same reason and the same notice a card-less account gets.
+
+Recovery is the ordinary card-save path, or Stripe's
+`payment_method.automatically_updated` when the network reissues the card.
 
 ---
 
