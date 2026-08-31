@@ -277,6 +277,59 @@ func TestAccountSwitch_KnownAccountNeverHitsTheNetwork(t *testing.T) {
 	require.False(t, called, "switching to an already-known account must not fetch")
 }
 
+// ─── account list: always refreshes ───────────────────────────────────────────
+
+func TestAccountList_ShowsAccountsCreatedSinceLastLogin(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
+	}))
+
+	buf := &bytes.Buffer{}
+	cmd := accountListCmd
+	cmd.SetOut(buf)
+	require.NoError(t, runAccountList(cmd, nil))
+	require.Contains(t, buf.String(), "new-org")
+}
+
+func TestAccountList_FallsBackToCacheWhenRefreshFails(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	buf := &bytes.Buffer{}
+	cmd := accountListCmd
+	cmd.SetOut(buf)
+	require.NoError(t, runAccountList(cmd, nil))
+	require.Contains(t, buf.String(), "acme-corp")
+}
+
+// ─── accountsForSelection ──────────────────────────────────────────────────────
+
+func TestAccountsForSelection_PersistsRefreshedList(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
+	}))
+
+	storage := accountNewStorage()
+	accounts, err := accountsForSelection(storage)
+	require.NoError(t, err)
+	require.True(t, auth.HasAccount(accounts, "new-org"))
+
+	profile, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+	require.True(t, auth.HasAccount(profile.Accounts, "new-org"), "refreshed list should persist to the cache")
+}
+
+func TestAccountsForSelection_FallsBackToCacheOnFailure(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	accounts, err := accountsForSelection(accountNewStorage())
+	require.NoError(t, err)
+	require.True(t, auth.HasAccount(accounts, "acme-corp"))
+}
+
 func TestAccountOrgID(t *testing.T) {
 	accounts := []auth.StoredAccount{
 		{ID: "acct_personal", Name: "alice", Type: "personal", OrganizationID: "org_alice"},

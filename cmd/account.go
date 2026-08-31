@@ -81,9 +81,12 @@ func init() {
 func runAccountList(cmd *cobra.Command, args []string) error {
 	storage := accountNewStorage()
 
-	profile, err := storage.GetCurrentProfile()
-	if err != nil {
+	if _, err := storage.GetCurrentProfile(); err != nil {
 		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+	}
+	accounts, err := accountsForSelection(storage)
+	if err != nil {
+		return err
 	}
 
 	currentAccount, err := storage.GetCurrentAccount()
@@ -95,7 +98,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
 	cyan := color.New(theme.PrimaryFatihAttr)
 
-	for _, a := range profile.Accounts {
+	for _, a := range accounts {
 		name := a.Name
 		if a.Type == "personal" {
 			name = fmt.Sprintf("%s (personal)", a.Name)
@@ -154,20 +157,37 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// refreshAccountsIfMissing re-fetches the account list when name isn't in the
-// local cache, so switching to an org created since the last login works
-// without a fresh 'ast login'. Best-effort: a failed refresh leaves the
-// cache as-is, and SetCurrentAccount reports its own error either way.
+// refreshAccounts fetches and persists the live account list.
+func refreshAccounts(storage *auth.Storage, profile *auth.Profile) ([]auth.StoredAccount, error) {
+	accounts, err := fetchUserAccounts(accountBaseURL(), profile.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+	if err := storage.SetAccounts(accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
+
+// Best-effort: a failed refresh falls through to SetCurrentAccount's own error.
 func refreshAccountsIfMissing(storage *auth.Storage, name string) {
 	profile, err := storage.GetCurrentProfile()
 	if err != nil || auth.HasAccount(profile.Accounts, name) {
 		return
 	}
-	accounts, err := fetchUserAccounts(accountBaseURL(), profile.AccessToken)
+	_, _ = refreshAccounts(storage, profile)
+}
+
+// Unlike refreshAccountsIfMissing, always refreshes, falling back to the cache on failure.
+func accountsForSelection(storage *auth.Storage) ([]auth.StoredAccount, error) {
+	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return
+		return nil, err
 	}
-	_ = storage.SetAccounts(accounts)
+	if accounts, err := refreshAccounts(storage, profile); err == nil {
+		return accounts, nil
+	}
+	return profile.Accounts, nil
 }
 
 func runAccountToken(cmd *cobra.Command, args []string) error {
@@ -248,15 +268,19 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 }
 
 func selectAccountInteractive(storage *auth.Storage) (string, error) {
-	profile, err := storage.GetCurrentProfile()
-	if err != nil {
+	if _, err := storage.GetCurrentProfile(); err != nil {
 		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+	}
+
+	accounts, err := accountsForSelection(storage)
+	if err != nil {
+		return "", err
 	}
 
 	currentAccount, _ := storage.GetCurrentAccount()
 
-	options := make([]huh.Option[string], 0, len(profile.Accounts))
-	for _, a := range profile.Accounts {
+	options := make([]huh.Option[string], 0, len(accounts))
+	for _, a := range accounts {
 		label := a.Name
 		if a.Type == "personal" {
 			label = fmt.Sprintf("%s (personal)", a.Name)

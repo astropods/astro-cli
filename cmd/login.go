@@ -601,11 +601,11 @@ func restorePriorLoginSelection(profile *auth.Profile, priorCurrent, priorPrevio
 		return ""
 	}
 	if !accountsFetched {
-		if !accountNameInList(priorAccounts, priorCurrent) {
+		if !auth.HasAccount(priorAccounts, priorCurrent) {
 			return ""
 		}
 		profile.CurrentAccount = priorCurrent
-		if priorPrevious != "" && accountNameInList(priorAccounts, priorPrevious) {
+		if priorPrevious != "" && auth.HasAccount(priorAccounts, priorPrevious) {
 			profile.PreviousAccount = priorPrevious
 		}
 		return ""
@@ -623,23 +623,14 @@ func applyPriorLoginAccount(profile *auth.Profile, priorCurrent, priorPrevious s
 	if priorCurrent == "" {
 		return ""
 	}
-	if !accountNameInList(profile.Accounts, priorCurrent) {
+	if !auth.HasAccount(profile.Accounts, priorCurrent) {
 		return priorCurrent
 	}
 	profile.CurrentAccount = priorCurrent
-	if priorPrevious != "" && accountNameInList(profile.Accounts, priorPrevious) {
+	if priorPrevious != "" && auth.HasAccount(profile.Accounts, priorPrevious) {
 		profile.PreviousAccount = priorPrevious
 	}
 	return ""
-}
-
-func accountNameInList(accounts []auth.StoredAccount, name string) bool {
-	for _, a := range accounts {
-		if a.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // findPersonalAccount returns the first account with type "personal", or nil.
