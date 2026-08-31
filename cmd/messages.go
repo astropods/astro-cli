@@ -25,7 +25,7 @@ func errNoSpecFile() error {
 }
 
 func errNoEvaluationFile() error {
-	return fmt.Errorf("%s not found beside astropods.yml", evaluationFilename)
+	return fmt.Errorf("%s not found beside astropods.yml", strings.Join(evaluationFilenameAliases, " or "))
 }
 
 func errAgentTargetRequired() error {
