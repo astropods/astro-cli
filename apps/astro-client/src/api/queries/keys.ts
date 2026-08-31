@@ -213,6 +213,8 @@ export const evalKeys = {
     ['evals', deploymentId, 'trace-evaluation'] as const,
   traceEvaluation: (deploymentId: string, traceId: string) =>
     [...evalKeys.traceEvaluations(deploymentId), traceId] as const,
+  evaluationSet: (account: string, name: string) =>
+    ['evals', 'evaluation-set', account, name] as const,
 };
 
 export const auditLogKeys = {

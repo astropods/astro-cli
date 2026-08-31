@@ -1,5 +1,5 @@
 import * as React from "react"
-import { CheckIcon, ChevronDownIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -27,9 +27,13 @@ function SelectTrigger({
   className,
   children,
   icon,
+  onClear,
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Trigger> & { icon?: React.ReactElement }) {
-  return (
+}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
+  icon?: React.ReactElement
+  onClear?: () => void
+}) {
+  const trigger = (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       className={cn(
@@ -37,7 +41,8 @@ function SelectTrigger({
         inputBase,
         inputFocusVisible,
         inputInvalid,
-        className
+        className,
+        onClear && "pr-3.5 [&>span]:max-w-[calc(100%-2.5rem)]"
       )}
       {...props}
     >
@@ -46,6 +51,27 @@ function SelectTrigger({
         {icon ?? <ChevronDownIcon className="size-4 opacity-50" />}
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
+  )
+
+  if (!onClear) {
+    return trigger
+  }
+
+  const triggerLabel = props["aria-label"]
+  const clearLabel = triggerLabel ? `Clear ${triggerLabel}` : "Clear selection"
+
+  return (
+    <div className="inline-flex w-full items-center">
+      {trigger}
+      <button
+        type="button"
+        aria-label={clearLabel}
+        onClick={onClear}
+        className="-ml-12 rounded-sm p-0.5 text-faint-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <XIcon aria-hidden className="size-3" />
+      </button>
+    </div>
   )
 }
 

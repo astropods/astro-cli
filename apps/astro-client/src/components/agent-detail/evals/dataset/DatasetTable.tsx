@@ -19,7 +19,7 @@ import type {
 import {
   useEvalDatasetItems,
   useSetDatasetJudgmentCriteria,
-  useUndoDatasetJudgment,
+  useRemoveDatasetItem,
 } from "@/api/queries/evals";
 
 import {
@@ -46,10 +46,10 @@ export function DatasetTable({
 }: DatasetTableProps) {
   const { data, isLoading, isError, fetchNextPage, hasNextPage } =
     useEvalDatasetItems(deploymentId, PAGE_LIMIT);
-  const undoJudgment = useUndoDatasetJudgment(deploymentId);
+  const removeItem = useRemoveDatasetItem(deploymentId);
   const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
-  const undoingTraceId = undoJudgment.isPending
-    ? undoJudgment.variables?.traceId ?? null
+  const removingTraceId = removeItem.isPending
+    ? removeItem.variables?.traceId ?? null
     : null;
   const savingCriteriaTraceId = setCriteria.isPending
     ? setCriteria.variables?.traceId ?? null
@@ -62,8 +62,8 @@ export function DatasetTable({
   const undoTrace = useCallback(
     (item: EvalDatasetItem, trigger: HTMLElement | null) => {
       const sourceRect = trigger?.getBoundingClientRect() ?? null;
-      undoJudgment.reset();
-      undoJudgment.mutate(
+      removeItem.reset();
+      removeItem.mutate(
         {
           traceId: item.source_trace_id,
         },
@@ -73,7 +73,7 @@ export function DatasetTable({
         },
       );
     },
-    [reviewQueueTargetRef, undoJudgment],
+    [reviewQueueTargetRef, removeItem],
   );
   const saveTraceCriteria = useCallback(
     (traceId: string, criteria: JudgmentCriterion[], onSaved: () => void) => {
@@ -166,7 +166,7 @@ export function DatasetTable({
         </TableRow>
       </TableHeader>
       <TableBody className="block @[760px]/dataset-table:table-row-group">
-        {undoJudgment.isError && (
+        {removeItem.isError && (
           <TableRow>
             <TableCell
               colSpan={DATASET_ITEM_COLUMN_COUNT}
@@ -214,7 +214,7 @@ export function DatasetTable({
             onToggle={toggleExpanded}
             onRemove={(trigger) => undoTrace(item, trigger)}
             onSaveCriteria={saveTraceCriteria}
-            isRemoving={undoingTraceId === item.source_trace_id}
+            isRemoving={removingTraceId === item.source_trace_id}
             isSavingCriteria={savingCriteriaTraceId === item.source_trace_id}
             reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
           />

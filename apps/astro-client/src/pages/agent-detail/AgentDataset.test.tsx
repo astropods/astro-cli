@@ -8,8 +8,9 @@ import { server } from "@/test/msw/server";
 import { renderRoute, mockAuthContext } from "@/test/test-utils";
 import { evalKeys } from "@/api/queries/keys";
 import type {
-  DatasetJudgmentRequest,
+  DatasetItemRequest,
   DatasetEvaluationsResponse,
+  EvaluationSetResponse,
   EvalDatasetItem,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
@@ -128,29 +129,16 @@ function mockRunEvaluations(
   );
 }
 
-function mockCreateJudgment(
-  onCreate?: (judgment: DatasetJudgmentRequest) => void,
-) {
-  server.use(
-    http.post(
-      "/api/v1/deployments/:id/dataset/judgments",
-      async ({ request }) => {
-        const judgment = (await request.json()) as DatasetJudgmentRequest;
-        onCreate?.(judgment);
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: judgment.trace_id,
-            verdict: judgment.verdict,
-          },
-          { status: 201 },
-        );
-      },
-    ),
-  );
-}
+
 
 const REVIEW_QUEUE_PAGE_SIZE = "50";
+
+async function saveToDataset(user: ReturnType<typeof userEvent.setup>) {
+  if (!screen.queryByRole("button", { name: "Save" })) {
+    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+}
 
 const reviewQueueFixtures = new Map<string, ReviewQueueItem>();
 const traceEvaluationFixtures = new Map<string, Partial<TraceEvaluationResponse>>();
@@ -186,6 +174,47 @@ function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
     created_at: "2026-06-01T12:00:00Z",
     ...overrides,
   };
+}
+
+const EVALUATION_REF = "preset/default-evaluation";
+
+const EVALUATION_SET: EvaluationSetResponse = {
+  evaluation_ref: EVALUATION_REF,
+  evaluators: [
+    {
+      key: "exposed_pii",
+      label: "Exposed PII",
+      description: "Flags personal data in the output.",
+      type: "llm",
+      output: { type: "boolean" },
+    },
+    {
+      key: "user_sentiment",
+      label: "User sentiment",
+      type: "llm",
+      output: { type: "enum", options: ["positive", "negative"] },
+    },
+  ],
+};
+
+function mockAddDatasetItem(onAdd?: (body: DatasetItemRequest) => void) {
+  server.use(
+    http.post(
+      "/api/v1/deployments/:id/dataset/items",
+      async ({ request }) => {
+        const body = (await request.json()) as DatasetItemRequest;
+        onAdd?.(body);
+        return HttpResponse.json(
+          {
+            eval_dataset_id: "dataset-1",
+            trace_id: body.trace_id,
+            evaluation_ref: EVALUATION_REF,
+          },
+          { status: 201 },
+        );
+      },
+    ),
+  );
 }
 
 function setupDataset(
@@ -249,6 +278,9 @@ function setupDataset(
     http.get("/api/v1/accounts/:account/members", () =>
       HttpResponse.json({ members: [] }),
     ),
+    http.get("/api/v1/agents/:account/:name/evaluation-set", () =>
+      HttpResponse.json(EVALUATION_SET),
+    ),
     http.put(
       "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
       async ({ request, params }) => {
@@ -262,6 +294,13 @@ function setupDataset(
           criteria: body.criteria,
         });
       },
+    ),
+    http.delete("/api/v1/deployments/:id/dataset/items/:traceId", ({ params }) =>
+      HttpResponse.json({
+        eval_dataset_id: "dataset-1",
+        trace_id: params.traceId,
+        evaluation_ref: EVALUATION_REF,
+      }),
     ),
   );
   mockEvaluationStatus(() => evaluationStatus);
@@ -651,7 +690,7 @@ describe("review queue view", () => {
     expect(await screen.findByLabelText("Couldn’t evaluate")).toBeInTheDocument();
     expect(
       await screen.findByText(
-        "The evaluator couldn’t return a result for this trace.",
+        /The evaluator couldn’t score this trace\. Label it manually below\./,
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("No results")).toBeInTheDocument();
@@ -1480,7 +1519,7 @@ describe("review queue view", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("advances the open trace panel after judging the selected queue trace", async () => {
+  it("advances the open trace panel after adding the selected queue trace", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First judged panel prompt",
@@ -1495,7 +1534,7 @@ describe("review queue view", () => {
 
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
-    mockCreateJudgment(() => {
+    mockAddDatasetItem(() => {
       queueItems = [second];
     });
 
@@ -1508,8 +1547,7 @@ describe("review queue view", () => {
     const panel = await screen.findByRole("dialog", { name: /trace details/i });
     expect(within(panel).getByText("First judged panel prompt")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
+    await saveToDataset(user);
 
     await waitFor(() => {
       expect(within(panel).getByText("Second judged panel prompt")).toBeInTheDocument();
@@ -1518,7 +1556,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("closes the open trace panel after judging the final queue trace", async () => {
+  it("closes the open trace panel after adding the final queue trace", async () => {
     const only = queueItem({
       trace_id: "trace_111111",
       input: "Final panel prompt",
@@ -1528,7 +1566,7 @@ describe("review queue view", () => {
 
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
-    mockCreateJudgment(() => {
+    mockAddDatasetItem(() => {
       queueItems = [];
     });
 
@@ -1539,8 +1577,7 @@ describe("review queue view", () => {
     await user.click(screen.getByRole("button", { name: /view trace_111111/i }));
     expect(await screen.findByRole("dialog", { name: /trace details/i })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
+    await saveToDataset(user);
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /trace details/i })).not.toBeInTheDocument();
@@ -1630,11 +1667,8 @@ describe("review queue view", () => {
     });
   });
 
-  it.each([
-    ["Add to dataset", "good"],
-    ["Remove", "unknown"],
-  ] as const)("maps %s to the hidden %s judgment", async (label, verdict) => {
-    let posted: DatasetJudgmentRequest | null = null;
+  it("adds the selected trace as a dataset item", async () => {
+    let posted: DatasetItemRequest | null = null;
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -1646,36 +1680,26 @@ describe("review queue view", () => {
         }),
       ]),
     );
-    server.use(
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        posted = (await request.json()) as DatasetJudgmentRequest;
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
-    );
+    mockAddDatasetItem((body) => {
+      posted = body;
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
     await screen.findByText("Membership response");
-    await user.click(screen.getByRole("button", { name: label }));
+    await saveToDataset(user);
 
     await waitFor(() => {
       expect(posted).toEqual({
         trace_id: "trace_111111",
-        verdict,
+        evaluator_outputs: [],
       });
     });
   });
 
-  it("adds an evaluated trace with a hidden good judgment", async () => {
-    let posted: DatasetJudgmentRequest | null = null;
+  it("carries an evaluated trace's own values into the dataset", async () => {
+    let posted: DatasetItemRequest | null = null;
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -1684,48 +1708,51 @@ describe("review queue view", () => {
           trace_id: "trace_predicted",
           input: "Predicted prompt",
           output: "Predicted response",
-          run: { status: "completed", error: null },
+          run: { id: "run-1", status: "completed", error: null },
         }),
       ]),
     );
-    server.use(
-      http.post(
-        "/api/v1/deployments/:id/dataset/judgments",
-        async ({ request }) => {
-          posted = (await request.json()) as DatasetJudgmentRequest;
-          return HttpResponse.json(
-            {
-              eval_dataset_id: "dataset-1",
-              trace_id: posted.trace_id,
-              verdict: posted.verdict,
-            },
-            { status: 201 },
-          );
+    traceEvaluationFixtures.set("trace_predicted", {
+      output: "Predicted response",
+      run: { id: "run-1", status: "completed", error: null },
+      evaluators: [
+        {
+          key: "exposed_pii",
+          label: "Exposed PII",
+          status: "completed",
+          value: false,
+          confidence: 0.9,
+          explanation: "No personal data appeared.",
+          error: null,
         },
-      ),
-    );
+      ],
+    });
+    mockAddDatasetItem((body) => {
+      posted = body;
+    });
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
     await screen.findByText("Predicted response");
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
 
-    // Evaluator keys are not judgment dimensions, so nothing is pre-filled.
     expect(
-      await screen.findByRole("button", { name: /^complete$/i }),
-    ).not.toHaveAttribute("data-active");
+      await screen.findByRole("combobox", { name: "Exposed PII" }),
+    ).toHaveTextContent("False");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(posted).toEqual({
         trace_id: "trace_predicted",
-        verdict: "good",
+        evaluation_run_id: "run-1",
+        evaluator_outputs: [{ key: "exposed_pii", value: false }],
       });
     });
   });
 
   it("does not map Enter to a legacy prediction verdict", async () => {
-    let posted: DatasetJudgmentRequest | null = null;
+    let posted: DatasetItemRequest | null = null;
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -1740,14 +1767,14 @@ describe("review queue view", () => {
     );
     server.use(
       http.post(
-        "/api/v1/deployments/:id/dataset/judgments",
+        "/api/v1/deployments/:id/dataset/items",
         async ({ request }) => {
-          posted = (await request.json()) as DatasetJudgmentRequest;
+          posted = (await request.json()) as DatasetItemRequest;
           return HttpResponse.json(
             {
               eval_dataset_id: "dataset-1",
               trace_id: posted.trace_id,
-              verdict: posted.verdict,
+              evaluation_ref: EVALUATION_REF,
             },
             { status: 201 },
           );
@@ -1770,7 +1797,7 @@ describe("review queue view", () => {
   it.each(["g", "b", "s"] as const)(
     "does not post the removed %s verdict shortcut",
     async (shortcut) => {
-    let posted: DatasetJudgmentRequest | null = null;
+    let posted: DatasetItemRequest | null = null;
     setupDataset(
       makeDatasetResponse(),
       emptyItems(),
@@ -1783,13 +1810,13 @@ describe("review queue view", () => {
       ]),
     );
     server.use(
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        posted = (await request.json()) as DatasetJudgmentRequest;
+      http.post("/api/v1/deployments/:id/dataset/items", async ({ request }) => {
+        posted = (await request.json()) as DatasetItemRequest;
         return HttpResponse.json(
           {
             eval_dataset_id: "dataset-1",
             trace_id: posted.trace_id,
-            verdict: posted.verdict,
+            evaluation_ref: EVALUATION_REF,
           },
           { status: 201 },
         );
@@ -1820,7 +1847,7 @@ describe("review queue view", () => {
       ]),
     );
     server.use(
-      http.post("/api/v1/deployments/:id/dataset/judgments", () => {
+      http.post("/api/v1/deployments/:id/dataset/items", () => {
         posted = true;
         return HttpResponse.json(
           {
@@ -1875,13 +1902,13 @@ describe("review queue view", () => {
       ]),
     );
     server.use(
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
+      http.post("/api/v1/deployments/:id/dataset/items", async ({ request }) => {
+        const posted = (await request.json()) as DatasetItemRequest;
         return HttpResponse.json(
           {
             eval_dataset_id: "dataset-1",
             trace_id: posted.trace_id,
-            verdict: posted.verdict,
+            evaluation_ref: EVALUATION_REF,
           },
           { status: 201 },
         );
@@ -1895,7 +1922,7 @@ describe("review queue view", () => {
     animate.mockClear();
 
     try {
-      await user.click(screen.getByRole("button", { name: "Add to dataset" }));
+      await saveToDataset(user);
 
       expect(animate).toHaveBeenCalled();
       const cue = document.querySelector<HTMLElement>(
@@ -1933,7 +1960,7 @@ describe("review queue view", () => {
       ]),
     );
     server.use(
-      http.post("/api/v1/deployments/:id/dataset/judgments", () =>
+      http.post("/api/v1/deployments/:id/dataset/items", () =>
         HttpResponse.json({ error: "failed" }, { status: 500 }),
       ),
     );
@@ -1942,15 +1969,15 @@ describe("review queue view", () => {
     renderDataset({ tab: null });
 
     expect(await screen.findByText("Retry response")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
+    await saveToDataset(user);
 
     expect(
-      await screen.findByText("Could not update the review queue. Try again."),
+      await screen.findByText("Could not add to the dataset. Try again."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Retry prompt").length).toBeGreaterThan(0);
   });
 
-  it("removes a judged trace from the queue and selects the next trace", async () => {
+  it("removes an added trace from the queue and selects the next trace", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First prompt",
@@ -1965,7 +1992,7 @@ describe("review queue view", () => {
 
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
-    mockCreateJudgment(() => {
+    mockAddDatasetItem(() => {
       queueItems = [second];
     });
 
@@ -1973,8 +2000,7 @@ describe("review queue view", () => {
     renderDataset({ tab: null });
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
+    await saveToDataset(user);
 
     await waitFor(() => {
       expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
@@ -1982,7 +2008,7 @@ describe("review queue view", () => {
     });
   });
 
-  it("skips optional criteria and dismisses the evaluation modal", async () => {
+  it("admits a trace the reviewer left unlabelled", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First prompt",
@@ -1994,87 +2020,65 @@ describe("review queue view", () => {
       output: "Second response",
     });
     let queueItems = [first, second];
-    let criteriaSaved = false;
+    let posted: DatasetItemRequest | null = null;
 
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
-    mockCreateJudgment(() => {
+    mockAddDatasetItem((body) => {
+      posted = body;
       queueItems = [second];
     });
-    server.use(
-      http.put(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
-        () => {
-          criteriaSaved = true;
-          return HttpResponse.json({});
-        },
-      ),
-    );
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Skip" }));
+    await saveToDataset(user);
 
     await waitFor(() => {
-      expect(
-        screen.queryByRole("heading", { name: "Evaluate trace" }),
-      ).not.toBeInTheDocument();
+      expect(posted).toEqual({
+        trace_id: "trace_111111",
+        evaluator_outputs: [],
+      });
       expect(screen.queryByText("First prompt")).not.toBeInTheDocument();
       expect(screen.getByText("Second response")).toBeInTheDocument();
     });
-    expect(criteriaSaved).toBe(false);
   });
 
-  it("submits the criteria selected before saving to the dataset", async () => {
+  it("submits the values the reviewer set before saving", async () => {
     const trace = queueItem({
       trace_id: "trace_111111",
       input: "Criteria prompt",
       output: "Criteria response",
     });
     let queueItems = [trace];
-    let criteriaBody: {
-      criteria: { dimension_key: string; value: number }[];
-    } | null = null;
+    let posted: DatasetItemRequest | null = null;
 
     setupDataset(makeDatasetResponse(), emptyItems());
     mockReviewQueueRequest(() => reviewQueueResponse(queueItems));
-    mockCreateJudgment(() => {
+    mockAddDatasetItem((body) => {
+      posted = body;
       queueItems = [];
     });
-    server.use(
-      http.put(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
-        async ({ request, params }) => {
-          criteriaBody = (await request.json()) as {
-            criteria: { dimension_key: string; value: number }[];
-          };
-          return HttpResponse.json({
-            eval_dataset_id: "dataset-1",
-            trace_id: params.traceId,
-            verdict: "good",
-            criteria: criteriaBody.criteria,
-          });
-        },
-      ),
-    );
 
     const user = userEvent.setup();
     renderDataset({ tab: null });
 
     expect(await screen.findByText("Criteria response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Correct info" }));
-    await user.click(screen.getByRole("button", { name: "Followed instruction" }));
-    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
+
+    await user.click(screen.getByRole("combobox", { name: "Exposed PII" }));
+    await user.click(screen.getByRole("option", { name: "True" }));
+    await user.click(screen.getByRole("combobox", { name: "User sentiment" }));
+    await user.click(screen.getByRole("option", { name: "Negative" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
-      expect(criteriaBody).toEqual({
-        criteria: [
-          { dimension_key: "accuracy", value: 1 },
-          { dimension_key: "instruction_following", value: 1 },
+      expect(posted).toEqual({
+        trace_id: "trace_111111",
+        evaluator_outputs: [
+          { key: "exposed_pii", value: true },
+          { key: "user_sentiment", value: "negative" },
         ],
       });
     });
@@ -2102,13 +2106,13 @@ describe("review queue view", () => {
             : reviewQueueResponse([first], { next_cursor: "cursor-1" }),
         );
       }),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
+      http.post("/api/v1/deployments/:id/dataset/items", async ({ request }) => {
+        const posted = (await request.json()) as DatasetItemRequest;
         return HttpResponse.json(
           {
             eval_dataset_id: "dataset-1",
             trace_id: posted.trace_id,
-            verdict: posted.verdict,
+            evaluation_ref: EVALUATION_REF,
           },
           { status: 201 },
         );
@@ -2119,15 +2123,14 @@ describe("review queue view", () => {
     renderDataset({ tab: null });
 
     expect(await screen.findByText("Only loaded response")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    await user.click(screen.getByRole("button", { name: "Save to dataset" }));
+    await saveToDataset(user);
 
     expect(await screen.findByText("Fresh page response")).toBeInTheDocument();
     expect(screen.queryByText("Ready for more traces")).not.toBeInTheDocument();
     expect(screen.queryByText("You're all caught up")).not.toBeInTheDocument();
   });
 
-  it("shows a quick undo after judging and restores the trace", async () => {
+  it("shows a quick undo after adding and restores the trace", async () => {
     const firstPageTrace = queueItem({
       trace_id: "trace_111111",
       input: "First page prompt",
@@ -2156,19 +2159,19 @@ describe("review queue view", () => {
               }),
         );
       }),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
+      http.post("/api/v1/deployments/:id/dataset/items", async ({ request }) => {
+        const posted = (await request.json()) as DatasetItemRequest;
         return HttpResponse.json(
           {
             eval_dataset_id: "dataset-1",
             trace_id: posted.trace_id,
-            verdict: posted.verdict,
+            evaluation_ref: EVALUATION_REF,
           },
           { status: 201 },
         );
       }),
       http.delete(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        "/api/v1/deployments/:id/dataset/items/:traceId",
         ({ params }) => {
           deletedTraceId = String(params.traceId);
           return HttpResponse.json({
@@ -2191,9 +2194,9 @@ describe("review queue view", () => {
 
     expect(screen.getByText("Undoable response")).toBeInTheDocument();
     expect(queueFetchCount).toBe(2);
-    await user.click(screen.getByRole("button", { name: "Add to dataset" }));
+    await saveToDataset(user);
 
-    expect(await screen.findByText("Evaluate trace")).toBeInTheDocument();
+    expect(await screen.findByText("Added to dataset")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^undo$/i }));
 
     await waitFor(() => {
@@ -2206,7 +2209,7 @@ describe("review queue view", () => {
     expect(queueFetchCount).toBe(2);
   });
 
-  it("dismisses the criteria dialog when another queue item is selected", async () => {
+  it("drops the open panel when another queue item is selected", async () => {
     const first = queueItem({
       trace_id: "trace_111111",
       input: "First prompt",
@@ -2217,25 +2220,11 @@ describe("review queue view", () => {
       input: "Second prompt",
       output: "Second response",
     });
-    let queueItems = [first, second];
 
-    setupDataset(makeDatasetResponse(), emptyItems());
-    server.use(
-      http.get("/api/v1/deployments/:id/dataset/review-queue", () =>
-        HttpResponse.json(reviewQueueResponse(queueItems)),
-      ),
-      http.post("/api/v1/deployments/:id/dataset/judgments", async ({ request }) => {
-        const posted = (await request.json()) as DatasetJudgmentRequest;
-        queueItems = [second];
-        return HttpResponse.json(
-          {
-            eval_dataset_id: "dataset-1",
-            trace_id: posted.trace_id,
-            verdict: posted.verdict,
-          },
-          { status: 201 },
-        );
-      }),
+    setupDataset(
+      makeDatasetResponse(),
+      emptyItems(),
+      reviewQueueResponse([first, second]),
     );
 
     const user = userEvent.setup();
@@ -2243,7 +2232,9 @@ describe("review queue view", () => {
 
     expect(await screen.findByText("First response")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add to dataset" }));
-    expect(await screen.findByText("Evaluate trace")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Save" }),
+    ).toBeInTheDocument();
 
     const secondQueueItem = screen.getByRole("option", {
       name: /second prompt/i,
@@ -2252,7 +2243,7 @@ describe("review queue view", () => {
     await user.click(secondQueueItem);
 
     await waitFor(() => {
-      expect(screen.queryByText("Evaluate trace")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     });
     expect(screen.getByText("Second response")).toBeInTheDocument();
     expect(secondQueueItem).toHaveAttribute("aria-selected", "true");
@@ -2359,14 +2350,14 @@ describe("dataset view", () => {
         ),
       ),
       http.delete(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        "/api/v1/deployments/:id/dataset/items/:traceId",
         ({ params }) => {
           deletedTraceId = String(params.traceId);
           items = [];
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: deletedTraceId,
-            verdict: "good",
+            evaluation_ref: EVALUATION_REF,
           });
         },
       ),
@@ -2508,7 +2499,7 @@ describe("dataset view", () => {
         HttpResponse.json(itemsResponse(items)),
       ),
       http.delete(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId",
+        "/api/v1/deployments/:id/dataset/items/:traceId",
         ({ params }) => {
           const traceId = String(params.traceId);
           deletedTraceId = traceId;
@@ -2516,7 +2507,7 @@ describe("dataset view", () => {
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: traceId,
-            verdict: "good",
+            evaluation_ref: EVALUATION_REF,
           });
         },
       ),

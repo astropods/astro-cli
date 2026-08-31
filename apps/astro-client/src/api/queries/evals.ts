@@ -11,13 +11,14 @@ import { useApiClient } from "../../lib/api-context";
 import type {
   DatasetJudgmentCriteriaResponse,
   DatasetEvaluationsResponse,
-  DatasetJudgmentResponse,
-  DatasetJudgmentVerdict,
+  DatasetItemResponse,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
   JudgmentCriterion,
   EvaluationRun,
+  EvaluationSetResponse,
   EvaluationStatusCounts,
+  EvaluatorOutputValue,
   ReviewQueueItem,
   ReviewQueueEvaluationFilter,
   TraceEvaluationResponse,
@@ -25,17 +26,13 @@ import type {
 } from "@/lib/api";
 import { evalKeys } from "./keys";
 
-type DatasetJudgmentVariables = {
+type AddDatasetItemVariables = {
   traceId: string;
-  verdict: DatasetJudgmentVerdict;
-  nextTraceId?: string | null;
-  reviewQueueItem?: ReviewQueueItem;
-  nextReviewQueueItem?: ReviewQueueItem;
-  reviewQueuePageIndex?: number;
-  initialCriteria?: JudgmentCriterion[];
+  evaluationRunId?: string;
+  outputs: EvaluatorOutputValue[];
 };
 
-type DatasetUndoJudgmentVariables = {
+type RemoveDatasetItemVariables = {
   traceId: string;
   reviewQueueItem?: ReviewQueueItem;
   reviewQueuePageIndex?: number;
@@ -56,11 +53,15 @@ type ReviewQueueInfiniteData = InfiniteData<
 const REVIEW_QUEUE_PAGE_SIZE = 50;
 const REVIEW_QUEUE_POLL_INTERVAL_MS = 5_000;
 
-interface UsePostDatasetJudgmentOptions {
-  onSuccess?: (
-    data: DatasetJudgmentResponse,
-    variables: DatasetJudgmentVariables,
-  ) => void;
+export function useAgentEvaluationSet(account: string, name: string) {
+  const api = useApiClient();
+  return useQuery({
+    queryKey: evalKeys.evaluationSet(account, name),
+    queryFn: (): Promise<EvaluationSetResponse> =>
+      api.getAgentEvaluationSet(account, name),
+    enabled: !!account && !!name,
+    staleTime: 5 * 60_000,
+  });
 }
 
 export function useEvalDataset(deploymentId: string) {
@@ -122,7 +123,7 @@ function hasActiveEvaluations(status: EvaluationStatusCounts | undefined) {
   return status !== undefined && status.queued + status.in_progress > 0;
 }
 
-export function useDatasetEvaluationStatus(
+function useDatasetEvaluationStatus(
   deploymentId: string,
   enabled = true,
 ) {
@@ -253,28 +254,20 @@ function markReviewQueueItemsQueued(
   };
 }
 
-export function usePostDatasetJudgment(
-  deploymentId: string,
-  options: UsePostDatasetJudgmentOptions = {},
-) {
+export function useAddDatasetItem(deploymentId: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation<
-    DatasetJudgmentResponse,
-    Error,
-    DatasetJudgmentVariables
-  >({
-    mutationFn: ({ traceId, verdict }) =>
-      api.postDatasetJudgment(deploymentId, {
+  return useMutation<DatasetItemResponse, Error, AddDatasetItemVariables>({
+    mutationFn: ({ traceId, evaluationRunId, outputs }) =>
+      api.postDatasetItem(deploymentId, {
         trace_id: traceId,
-        verdict,
+        evaluation_run_id: evaluationRunId,
+        evaluator_outputs: outputs,
       }),
-    onSuccess: async (data, variables) => {
-      options.onSuccess?.(data, variables);
-
+    onSuccess: async () => {
       // Queue removal is the caller's job (useRemoveReviewQueueItem) so an added
-      // trace can stay visible until Save.
+      // trace can stay visible until its undo window closes.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),
         queryClient.invalidateQueries({ queryKey: evalKeys.itemsAll(deploymentId) }),
@@ -283,8 +276,8 @@ export function usePostDatasetJudgment(
   });
 }
 
-/** Removes a trace from the review-queue cache. Callers own the timing so a
- *  judged trace can stay visible until the reviewer dismisses its panel. */
+/** Removes a trace from the review-queue cache. Callers own the timing so an
+ *  added trace can stay visible until the reviewer dismisses its panel. */
 export function useRemoveReviewQueueItem(
   deploymentId: string,
   evaluation?: ReviewQueueEvaluationFilter,
@@ -356,20 +349,15 @@ function insertReviewQueueItemPage(
   };
 }
 
-export function useUndoDatasetJudgment(
+export function useRemoveDatasetItem(
   deploymentId: string,
   evaluation?: ReviewQueueEvaluationFilter,
 ) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
-  return useMutation<
-    DatasetJudgmentResponse,
-    Error,
-    DatasetUndoJudgmentVariables
-  >({
-    mutationFn: ({ traceId }) =>
-      api.deleteDatasetJudgment(deploymentId, traceId),
+  return useMutation<DatasetItemResponse, Error, RemoveDatasetItemVariables>({
+    mutationFn: ({ traceId }) => api.deleteDatasetItem(deploymentId, traceId),
     onSuccess: async (_data, variables) => {
       const restoredItem = variables.reviewQueueItem;
       if (restoredItem) {
@@ -396,8 +384,8 @@ export function useUndoDatasetJudgment(
         );
       }
 
-      // Queue-originated undo stays optimistic because it already has the full
-      // item. Dataset-originated undo reloads the server-owned evaluation data.
+      // Queue-originated removal stays optimistic because it already has the
+      // full item. Dataset-originated removal reloads the server-owned queue.
       await Promise.all(invalidations);
     },
   });

@@ -12,31 +12,28 @@ import { getDeploymentAvatarUrl } from "@/lib/assets";
 import { useDeploymentAvatarBust } from "@/lib/avatar-bust";
 import {
   isRunActive,
+  useAddDatasetItem,
+  useAgentEvaluationSet,
   useDatasetReviewQueue,
-  useTraceEvaluation,
-  usePostDatasetJudgment,
+  useRemoveDatasetItem,
   useRemoveReviewQueueItem,
   useReviewQueueEvaluationStatus,
-  useSetDatasetJudgmentCriteria,
-  useUndoDatasetJudgment,
+  useTraceEvaluation,
 } from "@/api/queries/evals";
 import type {
-  DatasetJudgmentVerdict,
-  JudgmentCriterion,
+  EvaluatorOutputValue,
   ReviewQueueItem,
   ReviewQueueEvaluationFilter,
   TraceEntry,
+  TraceEvaluatorResult,
 } from "@/lib/api";
 import { EvalTabCard, EvalTabCardBody, EvalTabCardHeader } from "../EvalTabCard";
 import { flyTraceToDataset } from "../review-queue-motion";
-import { JudgmentCriteriaPanel } from "./JudgmentCriteriaPanel";
 import { QuickUndoToast } from "./QuickUndoToast";
-import { ReviewQueueDatasetActions } from "./ReviewQueueDatasetActions";
 import { ReviewQueueHeaderActions } from "./ReviewQueueHeaderActions";
 import { ReviewQueueList } from "./ReviewQueueList";
 import { ReviewQueueDetail, ReviewQueueDetailEmpty } from "./ReviewQueueDetail";
-import { ReviewQueueEvaluationControls } from "./ReviewQueueEvaluationControls";
-import { ReviewQueueEvaluationResults } from "./ReviewQueueEvaluationResults";
+import { ReviewQueueEvaluationSection } from "./ReviewQueueEvaluationSection";
 import {
   ReviewQueueToolbar,
   type ReviewQueueFilterValue,
@@ -51,17 +48,18 @@ import {
 
 const EMPTY_QUEUE_AUTO_LOAD_LIMIT = 3;
 const EMPTY_REVIEW_QUEUE_ITEMS: ReviewQueueItem[] = [];
+const EMPTY_EVALUATOR_RESULTS: TraceEvaluatorResult[] = [];
 
-type ActiveJudgment = {
+type AddedItem = {
   traceId: string;
-  /** Added traces keep the criteria panel open until Save; removed ones commit
-   *  immediately with an undo toast. */
-  addedToDataset: boolean;
   item?: ReviewQueueItem;
   pageIndex?: number;
+};
+
+type NextSelection = {
+  traceId: string;
   nextTraceId?: string | null;
   nextReviewQueueItem?: ReviewQueueItem;
-  initialCriteria?: JudgmentCriterion[];
 };
 
 type ReviewQueuePanelAction = "none" | "open" | "sync";
@@ -120,7 +118,7 @@ export function ReviewQueueView({
     traceId: string;
     open: boolean;
   } | null>(null);
-  const [activeJudgment, setActiveJudgment] = useState<ActiveJudgment | null>(null);
+  const [addedItem, setAddedItem] = useState<AddedItem | null>(null);
   const [evaluationRun, setEvaluationRun] = useState<EvaluationRun | null>(null);
   // Mirrors selectedId for synchronous reads inside mutation callbacks.
   const selectedIdRef = useRef<string | null>(null);
@@ -165,13 +163,15 @@ export function ReviewQueueView({
       selectedItem?.trace_id,
       selectedEvaluating,
     );
-  const selectedEvaluationFailed = selectedItem?.run?.status === "failed";
+  const selectedResults =
+    selectedEvaluation?.evaluators ?? EMPTY_EVALUATOR_RESULTS;
   const selectedHasEvaluation = Boolean(selectedItem?.run);
   const selectedEvaluationPending = selectedEvaluating || evaluationLoading;
-  const selectedHasNoResults =
-    selectedEvaluationFailed ||
-    (!selectedEvaluationPending &&
-      selectedEvaluation?.evaluators.length === 0);
+  const selectedScoredCount = selectedResults.filter(
+    (result) => result.status === "completed",
+  ).length;
+  const selectedScored =
+    !selectedEvaluationPending && selectedScoredCount > 0;
   const resultsOpen =
     resultsOverride && resultsOverride.traceId === selectedItem?.trace_id
       ? resultsOverride.open
@@ -227,12 +227,6 @@ export function ReviewQueueView({
     evaluationStatusIsError,
   ]);
 
-  const judgmentPendingForSelected = Boolean(
-    activeJudgment &&
-      selectedItem &&
-      activeJudgment.traceId === selectedItem.trace_id,
-  );
-
   const selectTraceId = useCallback((traceId: string | null) => {
     setResultsOverride(null);
     selectedIdRef.current = traceId;
@@ -277,15 +271,15 @@ export function ReviewQueueView({
     deploymentId,
     evaluationFilter,
   );
-  const commitJudgment = useCallback(
-    (judgment: ActiveJudgment) => {
-      removeQueueItem(judgment.traceId);
-      if (selectedIdRef.current !== judgment.traceId) {
+  const commitAdd = useCallback(
+    (added: NextSelection) => {
+      removeQueueItem(added.traceId);
+      if (selectedIdRef.current !== added.traceId) {
         return;
       }
-      selectTraceId(judgment.nextTraceId ?? null);
-      if (judgment.nextReviewQueueItem) {
-        applyReviewQueueSelection(judgment.nextReviewQueueItem, "sync");
+      selectTraceId(added.nextTraceId ?? null);
+      if (added.nextReviewQueueItem) {
+        applyReviewQueueSelection(added.nextReviewQueueItem, "sync");
       } else {
         clearSyncedTracePanel();
       }
@@ -298,27 +292,9 @@ export function ReviewQueueView({
     ],
   );
 
-  const postJudgment = usePostDatasetJudgment(deploymentId, {
-    onSuccess: (_data, variables) => {
-      const judgment: ActiveJudgment = {
-        traceId: variables.traceId,
-        addedToDataset: variables.verdict === "good",
-        item: variables.reviewQueueItem,
-        pageIndex: variables.reviewQueuePageIndex,
-        nextTraceId: variables.nextTraceId,
-        nextReviewQueueItem: variables.nextReviewQueueItem,
-        initialCriteria: variables.initialCriteria,
-      };
-      setActiveJudgment(judgment);
-      if (judgment.addedToDataset) {
-        return;
-      }
-      commitJudgment(judgment);
-    },
-  });
-
-  const undoJudgment = useUndoDatasetJudgment(deploymentId, evaluationFilter);
-  const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
+  const addItem = useAddDatasetItem(deploymentId);
+  const removeItem = useRemoveDatasetItem(deploymentId, evaluationFilter);
+  const { data: evaluationSet } = useAgentEvaluationSet(account, agentName);
   const resolvedAgentAvatarUrl =
     avatarBust ?? agentAvatarUrl ?? getDeploymentAvatarUrl(deploymentId);
 
@@ -376,13 +352,8 @@ export function ReviewQueueView({
   ]);
 
   const handleSelectTrace = (traceId: string) => {
-    if (activeJudgment?.addedToDataset && activeJudgment.traceId !== traceId) {
-      removeQueueItem(activeJudgment.traceId);
-    }
-    postJudgment.reset();
-    undoJudgment.reset();
-    setCriteria.reset();
-    setActiveJudgment(null);
+    addItem.reset();
+    removeItem.reset();
     const item = items.find((candidate) => candidate.trace_id === traceId);
     if (item) {
       applyReviewQueueSelection(item, "sync");
@@ -391,94 +362,63 @@ export function ReviewQueueView({
     }
   };
 
-  const handleJudgeTrace = (
-    traceId: string,
-    verdict: DatasetJudgmentVerdict,
+  const handleAdd = (
+    outputs: EvaluatorOutputValue[],
     trigger: HTMLElement | null,
-    initialCriteria?: JudgmentCriterion[],
   ) => {
-    const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
-    const nextSelectedTraceId = nextTraceId ?? previousTraceId;
-    const reviewQueueItem = items.find((item) => item.trace_id === traceId);
-    const nextReviewQueueItem = nextSelectedTraceId
-      ? items.find((item) => item.trace_id === nextSelectedTraceId)
-      : undefined;
-    const reviewQueuePageIndex = getReviewQueuePageIndex(data?.pages, traceId);
-    setCriteria.reset();
-    setActiveJudgment(null);
-    if (verdict === "good") {
-      flyTraceToDataset(
-        trigger?.getBoundingClientRect() ?? null,
-        datasetTargetRef?.current,
-      );
-    }
-    if (selectedItem?.trace_id === traceId) {
-      selectTraceId(selectedIdRef.current ?? traceId);
-    }
-    postJudgment.mutate({
-      traceId,
-      verdict,
-      nextTraceId: nextSelectedTraceId,
-      reviewQueueItem,
-      nextReviewQueueItem,
-      reviewQueuePageIndex,
-      initialCriteria,
-    });
-  };
-
-  const handleUndo = () => {
-    if (!activeJudgment) {
+    if (!selectedItem) {
       return;
     }
 
-    const { traceId } = activeJudgment;
-    undoJudgment.reset();
-    undoJudgment.mutate(
+    const traceId = selectedItem.trace_id;
+    const { previousTraceId, nextTraceId } = getAdjacentTraceIds(items, traceId);
+    const nextSelectedTraceId = nextTraceId ?? previousTraceId;
+    const pageIndex = getReviewQueuePageIndex(data?.pages, traceId);
+    const nextSelection: NextSelection = {
+      traceId,
+      nextTraceId: nextSelectedTraceId,
+      nextReviewQueueItem: nextSelectedTraceId
+        ? items.find((item) => item.trace_id === nextSelectedTraceId)
+        : undefined,
+    };
+    const triggerRect = trigger?.getBoundingClientRect() ?? null;
+
+    addItem.mutate(
       {
         traceId,
-        reviewQueueItem: activeJudgment.item,
-        reviewQueuePageIndex: activeJudgment.pageIndex,
+        evaluationRunId: selectedEvaluation?.run?.id,
+        outputs,
       },
       {
         onSuccess: () => {
-          setActiveJudgment(null);
-          if (activeJudgment.item) {
-            applyReviewQueueSelection(activeJudgment.item, "sync");
+          flyTraceToDataset(triggerRect, datasetTargetRef?.current);
+          commitAdd(nextSelection);
+          setAddedItem({ traceId, item: selectedItem, pageIndex });
+        },
+      },
+    );
+  };
+
+  const handleUndo = () => {
+    if (!addedItem) {
+      return;
+    }
+
+    const { traceId, item, pageIndex } = addedItem;
+    removeItem.reset();
+    removeItem.mutate(
+      { traceId, reviewQueueItem: item, reviewQueuePageIndex: pageIndex },
+      {
+        onSuccess: () => {
+          setAddedItem(null);
+          if (item) {
+            applyReviewQueueSelection(item, "sync");
           } else {
             selectTraceId(traceId);
           }
         },
       },
     );
-  };
-
-  const handleCriteriaDone = (criteria: JudgmentCriterion[]) => {
-    if (!activeJudgment) {
-      return;
-    }
-
-    const judgment = activeJudgment;
-    const finish = () => {
-      commitJudgment(judgment);
-      setActiveJudgment(null);
-    };
-
-    if (criteria.length === 0) {
-      finish();
-      return;
-    }
-    setCriteria.mutate(
-      { traceId: judgment.traceId, criteria },
-      { onSuccess: finish },
-    );
-  };
-
-  const handleCriteriaSkip = () => {
-    if (!activeJudgment) {
-      return;
-    }
-    commitJudgment(activeJudgment);
-    setActiveJudgment(null);
   };
   const handleLoadMore = () => {
     void fetchNextPage();
@@ -500,7 +440,7 @@ export function ReviewQueueView({
   };
 
   useReviewQueueNavigationShortcuts({
-    disabled: Boolean(activeJudgment?.addedToDataset),
+    disabled: addItem.isPending,
     onPrevious: navigateFromOutsideList(goPrevious),
     onNext: navigateFromOutsideList(goNext),
   });
@@ -563,44 +503,27 @@ export function ReviewQueueView({
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
             {selectedItem && (
-              <div
-                data-review-queue-controls
-                className="flex flex-none items-center border-b border-border bg-card px-4 py-3 dark:bg-surface @[520px]/review-card:px-6"
-              >
-                <div className="flex w-full flex-col gap-3 @[1040px]/review-card:flex-row @[1040px]/review-card:items-center @[1040px]/review-card:justify-between">
-                  {selectedHasEvaluation && (
-                    <ReviewQueueEvaluationControls
-                      key={selectedItem.trace_id}
-                      resultsOpen={resultsOpen}
-                      onResultsOpenChange={(open: boolean) =>
-                        setResultsOverride({
-                          traceId: selectedItem.trace_id,
-                          open,
-                        })
-                      }
-                      loading={selectedEvaluationPending}
-                      noResults={selectedHasNoResults}
-                    />
-                  )}
-                  <ReviewQueueDatasetActions
-                    isPending={
-                      postJudgment.isPending || judgmentPendingForSelected
-                    }
-                    showError={postJudgment.isError || undoJudgment.isError}
-                    onAdd={(trigger) =>
-                      handleJudgeTrace(
-                        selectedItem.trace_id,
-                        "good",
-                        trigger,
-                        undefined,
-                      )
-                    }
-                    onRemove={(trigger) =>
-                      handleJudgeTrace(selectedItem.trace_id, "unknown", trigger)
-                    }
-                  />
-                </div>
-              </div>
+              <ReviewQueueEvaluationSection
+                key={selectedItem.trace_id}
+                evaluators={evaluationSet?.evaluators ?? []}
+                results={selectedResults}
+                scored={selectedScored}
+                attempted={selectedHasEvaluation}
+                open={resultsOpen}
+                onOpenChange={(open: boolean) =>
+                  setResultsOverride({ traceId: selectedItem.trace_id, open })
+                }
+                loading={selectedEvaluationPending}
+                isSaving={addItem.isPending}
+                addError={
+                  addItem.isError
+                    ? "Could not add to the dataset. Try again."
+                    : removeItem.isError
+                      ? "Could not update the review queue. Try again."
+                      : undefined
+                }
+                onAdd={handleAdd}
+              />
             )}
             {isLoading ? (
               <div className="flex flex-1 items-center justify-center">
@@ -617,15 +540,6 @@ export function ReviewQueueView({
               </div>
             ) : selectedItem ? (
               <>
-                {selectedHasEvaluation && resultsOpen && (
-                  <div className="flex-none border-b border-border bg-card px-4 pb-3 dark:bg-surface @[520px]/review-card:px-6">
-                    <ReviewQueueEvaluationResults
-                      evaluators={selectedEvaluation?.evaluators ?? []}
-                      loading={selectedEvaluationPending}
-                      noResults={selectedHasNoResults}
-                    />
-                  </div>
-                )}
                 <ReviewQueueDetail
                   item={selectedItem}
                   evaluation={selectedEvaluation}
@@ -637,7 +551,7 @@ export function ReviewQueueView({
               </>
             ) : (
               <ReviewQueueDetailEmpty
-                showActionError={postJudgment.isError || undoJudgment.isError}
+                showActionError={addItem.isError || removeItem.isError}
                 canLoadMore={canLoadMore}
                 isLoadingMore={isFetchingNextPage}
                 onLoadMore={handleLoadMore}
@@ -646,27 +560,15 @@ export function ReviewQueueView({
           </div>
         </EvalTabCardBody>
       </EvalTabCard>
-      {activeJudgment &&
-        (activeJudgment.addedToDataset ? (
-          <JudgmentCriteriaPanel
-            key={activeJudgment.traceId}
-            isUndoing={undoJudgment.isPending}
-            isSaving={setCriteria.isPending}
-            isError={setCriteria.isError}
-            initialCriteria={activeJudgment.initialCriteria}
-            onUndo={handleUndo}
-            onSkip={handleCriteriaSkip}
-            onSave={handleCriteriaDone}
-          />
-        ) : (
-          <QuickUndoToast
-            key={activeJudgment.traceId}
-            label="Removed from review queue"
-            isUndoing={undoJudgment.isPending}
-            onUndo={handleUndo}
-            onDismiss={() => setActiveJudgment(null)}
-          />
-        ))}
+      {addedItem && (
+        <QuickUndoToast
+          key={addedItem.traceId}
+          label="Added to dataset"
+          isUndoing={removeItem.isPending}
+          onUndo={handleUndo}
+          onDismiss={() => setAddedItem(null)}
+        />
+      )}
     </>
   );
 }

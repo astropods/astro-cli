@@ -1255,6 +1255,7 @@ export type EvaluationRunStatus =
 export type ReviewQueueEvaluationFilter = "evaluated" | "not_evaluated";
 
 export interface EvaluationRun {
+  id?: string;
   status: EvaluationRunStatus;
   error: string | null;
 }
@@ -1275,6 +1276,19 @@ export interface EvaluatorOutput {
   minimum?: number;
   maximum?: number;
   max_length?: number;
+}
+
+export interface EvaluationSetEvaluator {
+  key: string;
+  label: string;
+  description?: string;
+  type: string;
+  output: EvaluatorOutput;
+}
+
+export interface EvaluationSetResponse {
+  evaluation_ref: string;
+  evaluators: EvaluationSetEvaluator[];
 }
 
 export interface TraceEvaluatorResult {
@@ -1329,18 +1343,24 @@ export interface DatasetEvaluationsResponse {
   failed_trace_ids: string[];
 }
 
-export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
-
-export interface DatasetJudgmentRequest {
-  trace_id: string;
-  verdict: DatasetJudgmentVerdict;
+export interface EvaluatorOutputValue {
+  key: string;
+  value: unknown;
 }
 
-export interface DatasetJudgmentResponse {
+export interface DatasetItemRequest {
+  trace_id: string;
+  evaluation_run_id?: string;
+  evaluator_outputs: EvaluatorOutputValue[];
+}
+
+export interface DatasetItemResponse {
   eval_dataset_id: string;
   trace_id: string;
-  verdict: DatasetJudgmentVerdict;
+  evaluation_ref: string;
 }
+
+export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
 
 /** A selected judgment criterion: 1 is positive and -1 is negative. */
 export interface JudgmentCriterion {
@@ -3473,12 +3493,21 @@ class ApiClient {
     );
   }
 
-  async postDatasetJudgment(
+  async getAgentEvaluationSet(
+    account: string,
+    name: string,
+  ): Promise<EvaluationSetResponse> {
+    return this.request<EvaluationSetResponse>(
+      `/api/v1/agents/${encodeURIComponent(account)}/${encodeURIComponent(name)}/evaluation-set`,
+    );
+  }
+
+  async postDatasetItem(
     deploymentId: string,
-    body: DatasetJudgmentRequest,
-  ): Promise<DatasetJudgmentResponse> {
-    return this.request<DatasetJudgmentResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments`,
+    body: DatasetItemRequest,
+  ): Promise<DatasetItemResponse> {
+    return this.request<DatasetItemResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items`,
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -3486,12 +3515,12 @@ class ApiClient {
     );
   }
 
-  async deleteDatasetJudgment(
+  async deleteDatasetItem(
     deploymentId: string,
     traceId: string,
-  ): Promise<DatasetJudgmentResponse> {
-    return this.request<DatasetJudgmentResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}`,
+  ): Promise<DatasetItemResponse> {
+    return this.request<DatasetItemResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items/${encodeURIComponent(traceId)}`,
       { method: "DELETE" },
     );
   }
