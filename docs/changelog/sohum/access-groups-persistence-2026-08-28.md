@@ -2,7 +2,7 @@
 
 ## Summary
 
-Astro now has a canonical data model for reusable account groups. WorkOS can remain the authorization projection while Astro owns product metadata, group administrators, lifecycle state, attribution, and future classification context.
+Astro now has the persistence foundation for reusable account groups. It enables the Groups settings experience: searchable group lists, member previews, group administrators, archived groups that can be restored, and clear creation and membership attribution.
 
 ## Design
 
@@ -11,6 +11,8 @@ Astro now has a canonical data model for reusable account groups. WorkOS can rem
 `access_group_memberships` models the many-to-many relationship between groups and account members. Memberships carry a local `member` or `admin` governance role plus add/remove attribution. A group creator is inserted as its first administrator in the same transaction.
 
 Only user IDs are stored. Names and avatars continue to resolve through Astro's existing account-member profile path, so profile changes require no group data rewrite. Account-scoped foreign keys prevent cross-account membership.
+
+These records also support the next product layers without changing the model: group lifecycle APIs can project membership to WorkOS, access flyouts can assign a whole group to resources, and Insights can use validated classification metadata for group-aware reporting. Restore collisions and repeated member additions are handled safely so archived names and administrator roles cannot be overwritten accidentally.
 
 ## Migration
 

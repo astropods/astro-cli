@@ -46,8 +46,8 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 	if len(metadata) == 0 {
 		metadata = json.RawMessage(`{"schema_version":1}`)
 	}
-	if !json.Valid(metadata) {
-		return nil, errors.New("classification metadata must be valid JSON")
+	if err := validateClassificationMetadata(metadata); err != nil {
+		return nil, err
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -118,6 +118,7 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 	if len(statuses) == 0 {
 		statuses = []string{string(StatusActive), string(StatusArchiving), string(StatusRestoring)}
 	}
+	search := escapeLikeSearch(strings.TrimSpace(filter.Search))
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+groupColumns+`,
 		       (SELECT COUNT(*)
@@ -135,10 +136,10 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 		FROM access_groups
 		WHERE account_id = $1
 		  AND status = ANY($2::text[])
-		  AND ($3 = '' OR name ILIKE '%%' || $3 || '%%' OR description ILIKE '%%' || $3 || '%%')
+		  AND ($3 = '' OR name ILIKE '%' || $3 || '%' ESCAPE '\' OR description ILIKE '%' || $3 || '%' ESCAPE '\')
 		ORDER BY created_at DESC, id DESC
 		LIMIT $4 OFFSET $5
-	`, accountID, pq.Array(statuses), strings.TrimSpace(filter.Search), filter.Limit, filter.Offset)
+	`, accountID, pq.Array(statuses), search, filter.Limit, filter.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("list access groups: %w", err)
 	}
@@ -176,6 +177,9 @@ func (s *Store) Update(ctx context.Context, accountID, groupID, name, descriptio
 	}
 	if len(metadata) == 0 {
 		metadata = json.RawMessage(`{"schema_version":1}`)
+	}
+	if err := validateClassificationMetadata(metadata); err != nil {
+		return nil, err
 	}
 	group, err := scanGroup(s.db.QueryRowContext(ctx, `
 		UPDATE access_groups
@@ -227,7 +231,7 @@ func (s *Store) SetStatus(ctx context.Context, accountID, groupID, actorUserID s
 		WHERE account_id = $1 AND id = $2
 	`, accountID, groupID, status, actorUserID)
 	if err != nil {
-		return fmt.Errorf("set access group status: %w", err)
+		return classifyWriteError("set access group status", err)
 	}
 	return requireChanged(result, "set access group status")
 }
@@ -260,9 +264,14 @@ func (s *Store) UpsertMembership(ctx context.Context, membership Membership) (*M
 		)
 		VALUES ($1, $2, $3, $4, $5, 'pending', NULL, now())
 		ON CONFLICT (group_id, user_id) DO UPDATE
-		SET role = EXCLUDED.role, added_by_user_id = EXCLUDED.added_by_user_id,
-		    added_at = now(), removed_by_user_id = NULL, removed_at = NULL,
-		    sync_status = 'pending', sync_error = NULL, updated_at = now()
+		SET role = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN EXCLUDED.role ELSE access_group_memberships.role END,
+		    added_by_user_id = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN EXCLUDED.added_by_user_id ELSE access_group_memberships.added_by_user_id END,
+		    added_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN now() ELSE access_group_memberships.added_at END,
+		    removed_by_user_id = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.removed_by_user_id END,
+		    removed_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.removed_at END,
+		    sync_status = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN 'pending' ELSE access_group_memberships.sync_status END,
+		    sync_error = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.sync_error END,
+		    updated_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN now() ELSE access_group_memberships.updated_at END
 		RETURNING group_id, account_id, user_id, role, added_by_user_id,
 		          COALESCE(removed_by_user_id, ''), added_at, removed_at,
 		          sync_status, COALESCE(sync_error, ''), updated_at
@@ -375,6 +384,26 @@ func classifyWriteError(operation string, err error) error {
 		return fmt.Errorf("%s: %w", operation, ErrNameExists)
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+func validateClassificationMetadata(metadata json.RawMessage) error {
+	if !json.Valid(metadata) {
+		return errors.New("classification metadata must be valid JSON")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &object); err != nil || object == nil {
+		return errors.New("classification metadata must be a JSON object")
+	}
+	return nil
+}
+
+func escapeLikeSearch(search string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`%`, `\%`,
+		`_`, `\_`,
+		`*`, `\*`,
+	).Replace(search)
 }
 
 func requireChanged(result sql.Result, operation string) error {
