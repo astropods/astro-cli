@@ -19,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/connectapps"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
+	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -104,6 +105,11 @@ type Clients struct {
 	// ConnectApps is nil when no WorkOS API key is configured; handlers then
 	// report apps unavailable.
 	ConnectApps connectapps.Client
+
+	// Fed by a pgnotify listener: the changes originate in the worker deployment.
+	Events     *eventstream.Hub
+	EventStore *eventstream.Store
+	EventPub   *eventstream.Publisher
 
 	// Observability provisioners, wired onto the admin server for the account
 	// detail view's recover actions. Nil when their backends are unconfigured.

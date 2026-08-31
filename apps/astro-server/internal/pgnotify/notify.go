@@ -25,6 +25,10 @@ import (
 // ran on a different, non-leader replica.
 const DeployReconcileChannel = "deploy_reconcile"
 
+// AgentEventChannel carries agent build changes to every replica's SSE hub.
+// Delivery is not guaranteed; subscribers recover by replaying agent_events.
+const AgentEventChannel = "agent_event"
+
 // pingInterval bounds how long a silently-dead listener connection can go
 // unnoticed: pq.Listener only reconnects once it detects the drop, and an idle
 // connection produces no traffic to detect it with.

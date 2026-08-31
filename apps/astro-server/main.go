@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -58,6 +59,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
+	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -574,6 +576,18 @@ func runAPI(
 		log.Error("river: create api queue failed", "error", rqErr)
 		os.Exit(1)
 	}
+	// Changes originate in the worker deployment, which holds no SSE connections.
+	eventHub := eventstream.New()
+	eventPublisher := eventstream.NewPublisher(db, deploymentStore, log)
+	eventStore := eventstream.NewStore(db)
+	go pgnotify.Listen(context.Background(), cfg.Database.URL, pgnotify.AgentEventChannel, log, func(payload string) {
+		var n eventstream.Notification
+		if err := json.Unmarshal([]byte(payload), &n); err != nil {
+			log.Warn("events: decode notification failed", "error", err)
+			return
+		}
+		eventstream.Fanout(eventHub, n)
+	})
 
 	// Roles Astro derives rather than a user choosing them: a resource
 	// creator's admin role, and each member's account role. They ride the same
@@ -657,6 +671,9 @@ func runAPI(
 			Resources:     resourceLifecycle,
 			RoleProjector: roleProjector,
 			ConnectApps:   connectAppsClient,
+			Events:        eventHub,
+			EventStore:    eventStore,
+			EventPub:      eventPublisher,
 		},
 	}
 	setupRoutes(router, deps)
@@ -2729,6 +2746,16 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("from", "Period start (RFC3339)", false),
 				oapispec.QueryParam("to", "Period end (RFC3339)", false),
 				oapispec.Response(200, &handlers.AccountUsersSummaryResponse{}),
+			)
+			// Membership-gated: the stream names every agent in the account.
+			accountEvents := protected.Group("/accounts/:account")
+			accountEvents.Use(middleware.ResolveAccount(accountStore), middleware.RequireAccountMember(accountStore))
+			api.GET(accountEvents, "/events", "Stream account agent events (SSE)", handlers.StreamAccountEvents(log, deps.Clients.Events, deps.Clients.EventStore),
+				oapispec.Tags("Accounts"),
+				oapispec.BearerAuth(),
+				oapispec.PathParam("account", "Account name"),
+				oapispec.Desc("Streams agent build changes as Server-Sent Events. Each event names the agent that changed; clients refetch rather than read state off the event."),
+				oapispec.Response(200, nil),
 			)
 			api.GET(protected, "/accounts/:account/insights", "Get account Insights page model", handlers.GetAccountInsights(log, accountStore, deploymentStore, slackIdentityStore, insightsrollup.NewStore(db), k8sCache, insightsOrgRoles, classificationExperiment),
 				oapispec.Tags("Observability"),

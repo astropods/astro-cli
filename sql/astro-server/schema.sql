@@ -1047,6 +1047,20 @@ CREATE TABLE public.github_builds (
 CREATE INDEX idx_github_builds_connection ON public.github_builds (connection_id, enqueued_at DESC);
 CREATE INDEX idx_github_builds_account_agent ON public.github_builds (account_id, agent_name, enqueued_at DESC);
 
+CREATE TABLE public.agent_events (
+    id bigserial NOT NULL,
+    account_id uuid NOT NULL,
+    agent_name varchar NOT NULL,
+    type varchar NOT NULL,
+    build_id varchar NOT NULL DEFAULT '',
+    status varchar NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT agent_events_pkey PRIMARY KEY (id)
+);
+
+CREATE INDEX idx_agent_events_publisher ON public.agent_events (account_id, agent_name, id);
+CREATE INDEX idx_agent_events_created ON public.agent_events (created_at);
+
 CREATE TABLE public.github_build_components (
     id bigserial NOT NULL,
     build_id uuid NOT NULL,

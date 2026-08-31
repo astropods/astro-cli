@@ -13,6 +13,15 @@ import (
 func periodicJobs(cfg Config) []*river.PeriodicJob {
 	jobs := []*river.PeriodicJob{
 		river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return AgentEventTrimArgs{}, &river.InsertOpts{
+					UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour},
+				}
+			},
+			&river.PeriodicJobOpts{RunOnStart: true},
+		),
+		river.NewPeriodicJob(
 			river.PeriodicInterval(5*time.Minute),
 			func() (river.JobArgs, *river.InsertOpts) {
 				return MeteringArgs{}, &river.InsertOpts{

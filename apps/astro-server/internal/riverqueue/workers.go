@@ -19,6 +19,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
+	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
 	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -321,6 +322,12 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		log:       log,
 	})
 	log.Info("river: registered worker", "worker", "NotifyWorker")
+
+	addWorkerWithCatalogCheck(log, workers, &AgentEventTrimWorker{
+		events: eventstream.NewStore(cfg.DB),
+		log:    log,
+	})
+	log.Info("river: registered worker", "worker", "AgentEventTrimWorker")
 
 	store := deploymentstore.NewStore(cfg.DB)
 	var resourceAccessWorker *ResourceAccessFGAReconcileWorker
