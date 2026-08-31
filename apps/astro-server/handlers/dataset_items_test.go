@@ -78,7 +78,7 @@ func TestDownloadEvalDataset_OK(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(items, 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/download", nil)
 	rec := httptest.NewRecorder()
@@ -111,7 +111,7 @@ func TestDownloadEvalDataset_LangfuseError(t *testing.T) {
 	})
 	f := setupDatasetRouter(t, true, errorUpstream)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1", 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/download", nil)
 	rec := httptest.NewRecorder()
@@ -172,7 +172,7 @@ func decodeDatasetItems(t *testing.T, rec *httptest.ResponseRecorder) evalDatase
 func TestGetEvalDatasetItems_OK(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(listedItems(), 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectVerifiedItems(f, []string{"trace-1"}, map[string]string{
 		"trace-1": `[{"key":"exposed_pii","value":false},{"key":"user_sentiment","value":"positive"}]`,
 	})
@@ -207,7 +207,7 @@ func TestGetEvalDatasetItems_OK(t *testing.T) {
 func TestGetEvalDatasetItems_OrdersOutputsByTheEvaluationSet(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(listedItems(), 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectVerifiedItems(f, []string{"trace-1"}, map[string]string{
 		"trace-1": `[{"key":"claim_grounding","value":"grounded"},` +
 			`{"key":"exposed_pii","value":false},` +
@@ -234,7 +234,7 @@ func TestGetEvalDatasetItems_OrdersOutputsByTheEvaluationSet(t *testing.T) {
 func TestGetEvalDatasetItems_LabelsARetiredEvaluatorWithItsKey(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(listedItems(), 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectVerifiedItems(f, []string{"trace-1"}, map[string]string{
 		"trace-1": `[{"key":"retired_check","value":true}]`,
 	})
@@ -253,7 +253,7 @@ func TestGetEvalDatasetItems_LabelsARetiredEvaluatorWithItsKey(t *testing.T) {
 func TestGetEvalDatasetItems_ItemWithoutLocalOutputs(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(listedItems(), 1))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectVerifiedItems(f, nil, nil)
 
 	rec := getDatasetItems(t, f)
@@ -274,7 +274,7 @@ func TestGetEvalDatasetItems_ItemWithoutLocalOutputs(t *testing.T) {
 func TestGetEvalDatasetItems_EmptyPageSkipsTheLocalRead(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseDatasetItemsHandler(nil, 0))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 
 	rec := getDatasetItems(t, f)
 
@@ -484,7 +484,7 @@ func TestPostDatasetItem_WithoutARunStoresEveryOutput(t *testing.T) {
 	upsert := &datasetItemUpsert{}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemInsert(f, nil, 1, sqlmock.AnyArg())
 
 	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+validItemOutputs+`}`)
@@ -519,7 +519,7 @@ func TestPostDatasetItem_AcceptsAnyRunStatusForTheTrace(t *testing.T) {
 			upsert := &datasetItemUpsert{}
 			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 			expectAuthorizedDeployment(f.traceDetailFixture)
-			expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+			expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 			expectRunLookup(f, "dataset-dep-1", "trace-1", evalpreset.RefDefaultSet, status)
 			expectItemInsert(f, "run-1", 1, sqlmock.AnyArg())
 
@@ -556,7 +556,7 @@ func TestPostDatasetItem_RejectsAMismatchedRun(t *testing.T) {
 			upsert := &datasetItemUpsert{}
 			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 			expectAuthorizedDeployment(f.traceDetailFixture)
-			expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+			expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 			expectRunLookup(f, test.datasetID, test.traceID, test.evaluationRef, "completed")
 
 			rec := postDatasetItem(t, f,
@@ -576,7 +576,7 @@ func TestPostDatasetItem_RejectsAnUnknownRun(t *testing.T) {
 	upsert := &datasetItemUpsert{}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.runMock.ExpectQuery("FROM eval_dataset_evaluation_runs").
 		WithArgs("run-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "eval_dataset_id", "trace_id", "evaluation_ref", "status", "error_message"}))
@@ -593,7 +593,7 @@ func TestPostDatasetItem_RejectsADuplicate(t *testing.T) {
 	upsert := &datasetItemUpsert{}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemInsert(f, nil, 0, nil)
 
 	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+validItemOutputs+`}`)
@@ -610,7 +610,7 @@ func TestPostDatasetItem_RollsBackWhenTheLangfuseWriteFails(t *testing.T) {
 	upsert := &datasetItemUpsert{status: http.StatusInternalServerError}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemInsert(f, nil, 1, sqlmock.AnyArg())
 	expectItemRemove(f, []string{"exposed_pii"}, evalpreset.RefDefaultSet)
 
@@ -637,7 +637,7 @@ func setupItemOutputsRouter(t *testing.T) *datasetFixture {
 
 func TestPutDatasetItemOutputs_ReplacesEveryOutput(t *testing.T) {
 	f := setupItemOutputsRouter(t)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemLookup(f, evalpreset.RefDefaultSet)
 	expectOutputReplacement(f)
 
@@ -666,7 +666,7 @@ func TestPutDatasetItemOutputs_ReplacesEveryOutput(t *testing.T) {
 
 func TestPutDatasetItemOutputs_RejectsAnUnknownItem(t *testing.T) {
 	f := setupItemOutputsRouter(t)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemLookup(f, nil)
 
 	rec := putDatasetItemOutputs(t, f, `{"values":`+validItemOutputs+`}`)
@@ -678,7 +678,7 @@ func TestPutDatasetItemOutputs_RejectsAnUnknownItem(t *testing.T) {
 
 func TestPutDatasetItemOutputs_RejectsARetiredEvaluationSet(t *testing.T) {
 	f := setupItemOutputsRouter(t)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemLookup(f, "preset/retired")
 
 	rec := putDatasetItemOutputs(t, f, `{"values":`+validItemOutputs+`}`)
@@ -690,7 +690,7 @@ func TestPutDatasetItemOutputs_RejectsARetiredEvaluationSet(t *testing.T) {
 
 func TestPutDatasetItemOutputs_RejectsInvalidOutputs(t *testing.T) {
 	f := setupItemOutputsRouter(t)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemLookup(f, evalpreset.RefDefaultSet)
 
 	rec := putDatasetItemOutputs(t, f, `{"values":[{"key":"exposed_pii","value":"nope"}]}`)
@@ -704,7 +704,7 @@ func TestDeleteDatasetItem_RemovesTheItemAndItsLangfuseItem(t *testing.T) {
 	del := &datasetItemDelete{}
 	f := setupDatasetRouter(t, true, langfuseItemDeleteHandler(t, del))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemRemove(f, []string{"exposed_pii", "user_sentiment"}, evalpreset.RefDefaultSet)
 
 	rec := deleteDatasetItem(t, f)
@@ -737,7 +737,7 @@ func TestDeleteDatasetItem_RemovesAnItemOnARetiredEvaluationSet(t *testing.T) {
 	del := &datasetItemDelete{}
 	f := setupDatasetRouter(t, true, langfuseItemDeleteHandler(t, del))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemRemove(f, []string{"exposed_pii"}, "preset/retired")
 
 	rec := deleteDatasetItem(t, f)
@@ -754,7 +754,7 @@ func TestDeleteDatasetItem_DeletesTheLangfuseItemWithoutALocalRow(t *testing.T) 
 	del := &datasetItemDelete{}
 	f := setupDatasetRouter(t, true, langfuseItemDeleteHandler(t, del))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemRemoveMissing(f)
 
 	rec := deleteDatasetItem(t, f)
@@ -778,7 +778,7 @@ func TestDeleteDatasetItem_RejectsATraceThatIsNotInTheDataset(t *testing.T) {
 	del := &datasetItemDelete{status: http.StatusNotFound}
 	f := setupDatasetRouter(t, true, langfuseItemDeleteHandler(t, del))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemRemoveMissing(f)
 
 	rec := deleteDatasetItem(t, f)
@@ -792,7 +792,7 @@ func TestDeleteDatasetItem_RestoresTheItemWhenTheLangfuseDeleteFails(t *testing.
 	del := &datasetItemDelete{status: http.StatusInternalServerError}
 	f := setupDatasetRouter(t, true, langfuseItemDeleteHandler(t, del))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemRemove(f, []string{"exposed_pii"}, evalpreset.RefDefaultSet)
 	expectItemInsert(f, "run-1", 1, sqlmock.AnyArg())
 
@@ -810,7 +810,7 @@ func TestPostDatasetItem_StoresOnlyTheSubmittedOutputs(t *testing.T) {
 	upsert := &datasetItemUpsert{}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemInsert(f, nil, 1, `[{"key":"exposed_pii","value":false}]`)
 
 	rec := postDatasetItem(t, f,
@@ -828,7 +828,7 @@ func TestPostDatasetItem_AcceptsATraceWithNoOutputs(t *testing.T) {
 	upsert := &datasetItemUpsert{}
 	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectItemInsert(f, nil, 1, nil)
 
 	rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":[]}`)

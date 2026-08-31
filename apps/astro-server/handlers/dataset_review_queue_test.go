@@ -42,7 +42,7 @@ func TestGetDatasetReviewQueue_FiltersDatasetItems(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectEmptyReviewQueueState(f, "dataset-dep-1", "trace-3")
 	expectNoRuns(f.runMock)
 
@@ -94,7 +94,7 @@ func TestGetDatasetReviewQueue_EvaluatedPagesLocallyThenFetchesTraces(t *testing
 		traceHandler(w, r)
 	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectCompletedRunTraces(f.runMock, evalrunstore.RunTrace{
 		TraceID:        "trace-1",
 		TraceTimestamp: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
@@ -131,7 +131,7 @@ func TestGetDatasetReviewQueue_FiltersDismissedTraces(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectAddedTraces(f.itemMock, "dataset-dep-1")
 	expectDismissedTraces(f.dismissalMock, "dataset-dep-1", "trace-2")
 	expectNoRuns(f.runMock)
@@ -161,7 +161,7 @@ func TestGetDatasetReviewQueue_EvaluatedFiltersDismissedTraces(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 1, "1", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectCompletedRunTraces(f.runMock, evalrunstore.RunTrace{
 		TraceID:        "trace-1",
 		TraceTimestamp: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
@@ -197,7 +197,7 @@ func TestGetDatasetReviewQueue_NotEvaluatedDropsCompletedRuns(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 2, "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectLatestRuns(f.runMock, map[string]string{"trace-done": "completed"})
 
@@ -272,7 +272,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 	f := setupDatasetRouter(t, true, upstream)
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	firstReq := httptest.NewRequest(
@@ -295,7 +295,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 	}
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	secondReq := httptest.NewRequest(
@@ -337,7 +337,7 @@ func TestGetDatasetReviewQueue_FilterWithoutMatchesSkipsLangfuse(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, upstream)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectCompletedRunTraces(f.runMock)
 
 	req := httptest.NewRequest(
@@ -372,7 +372,7 @@ func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
 	}
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	expectEmptyReviewQueueState(f, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 
@@ -390,7 +390,7 @@ func TestGetDatasetReviewQueue_InvalidCursor(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?cursor=bad", nil)
 	rec := httptest.NewRecorder()

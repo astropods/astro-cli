@@ -104,8 +104,8 @@ func TestEnsureHealsLegacyRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if record.LangfuseDatasetName != "eval-dep-1" || record.GoodCount != 0 || record.BadCount != 0 {
-		t.Fatalf("record = %+v, want healed eval-dep-1 with reset counts", record)
+	if record.LangfuseDatasetName != "eval-dep-1" {
+		t.Fatalf("record = %+v, want healed eval-dep-1", record)
 	}
 	if !*called {
 		t.Error("expected Langfuse CreateDataset to be called for heal")

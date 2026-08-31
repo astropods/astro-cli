@@ -68,7 +68,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/imagecache"
 	"github.com/astropods/astro/apps/astro-server/internal/ingesttoken"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/k8s"
 	"github.com/astropods/astro/apps/astro-server/internal/k8scache"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
@@ -2618,7 +2617,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			)
 			// Dataset endpoints (deployment-scoped, backed by Langfuse + eval_datasets)
 			datasetStore := evaldatasetstore.NewStore(db)
-			judgmentStore := judgmentstore.NewStore(db)
 			evalItemStore := evalitemstore.NewStore(db)
 			evalRunStore := evalrunstore.NewStore(db)
 			evalDismissalStore := evaldismissalstore.NewStore(db)
@@ -2706,36 +2704,6 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(202, &handlers.DatasetEvaluationsResponse{}),
 				oapispec.Response(500, &handlers.DatasetEvaluationsResponse{}),
-			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/judgments", "Submit dataset judgment", handlers.PostDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
-				oapispec.Tags("Dataset"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
-				oapispec.Response(201, &handlers.DatasetJudgmentResponse{}),
-			)
-			deploymentRoutes.ModelDeferredPATCH("/deployments/:id/dataset/judgments/:trace_id", "Change dataset judgment", handlers.PatchDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
-				oapispec.Tags("Dataset"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("trace_id", "Trace ID"),
-				oapispec.Body(&handlers.DatasetJudgmentRequest{}),
-				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
-			)
-			deploymentRoutes.ModelDeferredPUT("/deployments/:id/dataset/judgments/:trace_id/criteria", "Replace dataset judgment criteria", handlers.PutDatasetJudgmentCriteria(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
-				oapispec.Tags("Dataset"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("trace_id", "Trace ID"),
-				oapispec.Body(&handlers.DatasetJudgmentCriteriaRequest{}),
-				oapispec.Response(200, &handlers.DatasetJudgmentCriteriaResponse{}),
-			)
-			deploymentRoutes.ModelDeferredDELETE("/deployments/:id/dataset/judgments/:trace_id", "Undo dataset judgment", handlers.DeleteDatasetJudgment(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore),
-				oapispec.Tags("Dataset"),
-				oapispec.BearerAuth(),
-				oapispec.PathParam("id", "Deployment ID"),
-				oapispec.PathParam("trace_id", "Trace ID"),
-				oapispec.Response(200, &handlers.DatasetJudgmentResponse{}),
 			)
 			// Account-scoped observability (aggregates across all account deployments)
 			api.GET(protected, "/accounts/:account/observability/summary", "Get account observability summary", handlers.GetAccountLangfuseSummary(log, cfg, accountStore, deploymentStore, langfuseStore, slackIdentityStore),

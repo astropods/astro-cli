@@ -29,7 +29,7 @@ func decodeDismissalResponse(t *testing.T, rec *httptest.ResponseRecorder) Revie
 func TestPostReviewQueueDismissal_DismissesTheTrace(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectDatasetAuthorization(f, true)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.dismissalMock.ExpectQuery("INSERT INTO eval_dataset_dismissed_traces").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnRows(sqlmock.NewRows([]string{"is_item"}).AddRow(false))
@@ -51,7 +51,7 @@ func TestPostReviewQueueDismissal_DismissesTheTrace(t *testing.T) {
 func TestPostReviewQueueDismissal_RejectsADatasetItem(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectDatasetAuthorization(f, true)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.dismissalMock.ExpectQuery("INSERT INTO eval_dataset_dismissed_traces").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnRows(sqlmock.NewRows([]string{"is_item"}).AddRow(true))
@@ -64,7 +64,7 @@ func TestPostReviewQueueDismissal_RejectsADatasetItem(t *testing.T) {
 func TestPostReviewQueueDismissal_SucceedsWhenAlreadyDismissed(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectDatasetAuthorization(f, true)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.dismissalMock.ExpectQuery("INSERT INTO eval_dataset_dismissed_traces").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnRows(sqlmock.NewRows([]string{"is_item"}).AddRow(false))
@@ -96,7 +96,7 @@ func TestPostReviewQueueDismissal_RequiresMembership(t *testing.T) {
 func TestDeleteReviewQueueDismissal_RestoresTheTrace(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectDatasetAuthorization(f, true)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.dismissalMock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -117,7 +117,7 @@ func TestDeleteReviewQueueDismissal_RestoresTheTrace(t *testing.T) {
 func TestDeleteReviewQueueDismissal_SucceedsWhenNotDismissed(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectDatasetAuthorization(f, true)
-	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1", 1)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 	f.dismissalMock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
 		WithArgs("dataset-dep-1", "trace-1").
 		WillReturnResult(sqlmock.NewResult(0, 0))

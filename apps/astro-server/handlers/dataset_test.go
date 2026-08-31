@@ -10,7 +10,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldismissalstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,7 +19,6 @@ import (
 type datasetFixture struct {
 	*traceDetailFixture
 	datasetMock   sqlmock.Sqlmock
-	judgmentMock  sqlmock.Sqlmock
 	itemMock      sqlmock.Sqlmock
 	runMock       sqlmock.Sqlmock
 	dismissalMock sqlmock.Sqlmock
@@ -33,10 +31,6 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	datasetDB, datasetMock, _ := sqlmock.New()
 	t.Cleanup(func() { datasetDB.Close() })
 	dsStore := evaldatasetstore.NewStore(datasetDB)
-
-	judgmentDB, judgmentMock, _ := sqlmock.New()
-	t.Cleanup(func() { judgmentDB.Close() })
-	judgmentStore := judgmentstore.NewStore(judgmentDB)
 
 	itemDB, itemMock, _ := sqlmock.New()
 	t.Cleanup(func() { itemDB.Close() })
@@ -72,31 +66,18 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 		DeleteReviewQueueDismissal(log, accountStore, deployStore, dsStore, dismissalStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/evaluations/status",
 		GetDatasetEvaluationStatus(log, accountStore, deployStore, dsStore, runStore))
-	f.router.POST("/api/v1/deployments/:id/dataset/judgments",
-		PostDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
-	f.router.PATCH("/api/v1/deployments/:id/dataset/judgments/:trace_id",
-		PatchDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
-	f.router.PUT("/api/v1/deployments/:id/dataset/judgments/:trace_id/criteria",
-		PutDatasetJudgmentCriteria(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
-	f.router.DELETE("/api/v1/deployments/:id/dataset/judgments/:trace_id",
-		DeleteDatasetJudgment(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore))
 
 	return &datasetFixture{
 		traceDetailFixture: f,
 		datasetMock:        datasetMock,
-		judgmentMock:       judgmentMock,
 		itemMock:           itemMock,
 		runMock:            runMock,
 		dismissalMock:      dismissalMock,
 	}
 }
 
-func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount int) {
-	expectDatasetRowCounts(mock, deploymentID, datasetName, itemCount, itemCount, 0)
-}
-
-func expectDatasetRowCounts(mock sqlmock.Sqlmock, deploymentID, datasetName string, itemCount, goodCount, badCount int) {
-	datasetstoretest.ExpectRow(mock, deploymentID, datasetName, goodCount, badCount)
+func expectDatasetRow(mock sqlmock.Sqlmock, deploymentID, datasetName string) {
+	datasetstoretest.ExpectRow(mock, deploymentID, datasetName)
 }
 
 func expectDatasetNotFound(mock sqlmock.Sqlmock, deploymentID string) {

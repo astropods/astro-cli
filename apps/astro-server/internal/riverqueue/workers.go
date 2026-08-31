@@ -16,12 +16,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evaljudge"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
 	"github.com/astropods/astro/apps/astro-server/internal/insightsrollup"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/knowledgestore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
@@ -180,7 +178,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	var provisionWorker *BillingProvisionWorker
 	// Held so the eval judge worker below can reuse the same cached status the
 	// HTTP gate reads.
-	var evalBillingGate evalJudgeBillingGate
+	var evalBillingGate evaluationBillingGate
 	// Fake included: its status store is the same DB-backed one, so dunning,
 	// suspend/resume and the Stripe webhook all behave for real against it. The
 	// two workers that need Metronome itself stay behind the narrower check
@@ -198,7 +196,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 		billingStatusStore = statusStore
 		// Shares that store, so an exempt account is not refused a judge run
 		// either.
-		evalBillingGate = evalJudgeStatusGate{
+		evalBillingGate = evaluationStatusGate{
 			status:  statusStore,
 			enforce: cfg.ServerConfig != nil && cfg.ServerConfig.BillingGateEnforce,
 			log:     log,
@@ -438,27 +436,6 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			}
 		}
 	}
-
-	evalJudgeWorker := &EvalJudgePredictionWorker{
-		datasets:       evaldatasetstore.NewStore(cfg.DB),
-		predictions:    judgmentstore.NewStore(cfg.DB),
-		loadLangfuse:   loadLangfuse,
-		ensureJudgeKey: ensureJudgeKey,
-		billing:        evalBillingGate,
-		log:            log,
-	}
-	if evalLangfuseBaseURL != "" {
-		evalJudgeWorker.newTraceClient = func(credentials *langfuse.AccountLangfuse) evalJudgeTraceClient {
-			return langfuse.NewClient(evalLangfuseBaseURL, credentials.PublicKey, credentials.SecretKey)
-		}
-	}
-	if ensureJudgeKey != nil {
-		evalJudgeWorker.newPredictor = func(baseURL string) evalJudgePredictor {
-			return evaljudge.New(aigateway.NewInvocationClient(baseURL))
-		}
-	}
-	addWorkerWithCatalogCheck(log, workers, evalJudgeWorker)
-	log.Info("river: registered worker", "worker", "EvalJudgePredictionWorker")
 
 	evaluationWorker := &EvalDatasetEvaluationWorker{
 		datasets:       evaldatasetstore.NewStore(cfg.DB),

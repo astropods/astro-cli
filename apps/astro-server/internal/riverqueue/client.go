@@ -123,7 +123,6 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Queue, error) {
 			queueMetering:       {MaxWorkers: 3},
 			queueInsights:       {MaxWorkers: 3},
 			queueMaintenance:    {MaxWorkers: 5},
-			queueEvalJudge:      {MaxWorkers: evalJudgeMaxWorkers},
 			queueEvaluation:     {MaxWorkers: evaluationMaxWorkers},
 			queueNotifications:  {MaxWorkers: 3},
 			queueClassification: {MaxWorkers: classificationMaxWorkers},
@@ -213,7 +212,6 @@ func (q *Queue) Start(ctx context.Context) error {
 		queueMetering,
 		queueInsights,
 		queueMaintenance,
-		queueEvalJudge,
 		queueEvaluation,
 	})
 	return nil

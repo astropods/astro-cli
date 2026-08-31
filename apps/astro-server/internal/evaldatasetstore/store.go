@@ -13,8 +13,6 @@ type EvalDataset struct {
 	DeploymentID        string
 	AccountID           string
 	LangfuseDatasetName string
-	GoodCount           int
-	BadCount            int
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -35,12 +33,12 @@ func (s *Store) GetByID(ctx context.Context, id string) (*EvalDataset, error) {
 	var d EvalDataset
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, deployment_id, account_id, langfuse_dataset_name,
-		       good_count, bad_count, created_at, updated_at
+		       created_at, updated_at
 		FROM eval_datasets
 		WHERE id = $1
 	`, id).Scan(
 		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName,
-		&d.GoodCount, &d.BadCount, &d.CreatedAt, &d.UpdatedAt,
+		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -56,12 +54,12 @@ func (s *Store) GetByDeploymentID(deploymentID string) (*EvalDataset, error) {
 	var d EvalDataset
 	err := s.db.QueryRow(`
 		SELECT id, deployment_id, account_id, langfuse_dataset_name,
-		       good_count, bad_count, created_at, updated_at
+		       created_at, updated_at
 		FROM eval_datasets
 		WHERE deployment_id = $1
 	`, deploymentID).Scan(
 		&d.ID, &d.DeploymentID, &d.AccountID, &d.LangfuseDatasetName,
-		&d.GoodCount, &d.BadCount, &d.CreatedAt, &d.UpdatedAt,
+		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -85,50 +83,17 @@ func (s *Store) Create(d *EvalDataset) error {
 	return nil
 }
 
-// RepointByDeploymentID flips the Langfuse dataset name a row points at and
-// resets cached counts, since the new Langfuse dataset starts empty. Used to
-// heal pre-flip dep-* rows to the eval-* naming convention.
-//
-// Current legacy dep-* rows predate eval_dataset_judgments, so this heal path
-// does not clear judgment rows. If a future caller repoints rows that may have
-// judgments, clear eval_dataset_judgments for this dataset id in the same path
-// or replace the dataset row with a fresh id.
+// RepointByDeploymentID flips the Langfuse dataset name a row points at.
+// Used to heal pre-flip dep-* rows to the eval-* naming convention.
 func (s *Store) RepointByDeploymentID(deploymentID, langfuseDatasetName string) error {
 	_, err := s.db.Exec(`
 		UPDATE eval_datasets
 		SET langfuse_dataset_name = $1,
-		    good_count = 0,
-		    bad_count = 0,
 		    updated_at = NOW()
 		WHERE deployment_id = $2
 	`, langfuseDatasetName, deploymentID)
 	if err != nil {
 		return fmt.Errorf("dataset store repoint: %w", err)
-	}
-	return nil
-}
-
-// BumpCountsByID increments good_count and bad_count by the supplied deltas
-// for a specific eval dataset row. Either may be zero. Negative deltas are
-// allowed for rollback, but callers must keep the resulting counts >= 0;
-// schema CHECK constraints reject negative totals with a constraint error.
-func (s *Store) BumpCountsByID(evalDatasetID string, goodDelta, badDelta int) error {
-	res, err := s.db.Exec(`
-		UPDATE eval_datasets
-		SET good_count = good_count + $1,
-		    bad_count = bad_count + $2,
-		    updated_at = NOW()
-		WHERE id = $3
-	`, goodDelta, badDelta, evalDatasetID)
-	if err != nil {
-		return fmt.Errorf("dataset store bump counts: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("dataset store bump counts rows affected: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("dataset store bump counts: eval dataset %q not found", evalDatasetID)
 	}
 	return nil
 }

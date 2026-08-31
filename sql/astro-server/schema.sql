@@ -1226,81 +1226,12 @@ CREATE TABLE public.eval_datasets (
     deployment_id          varchar(11) NOT NULL,
     account_id             uuid        NOT NULL,
     langfuse_dataset_name  varchar     NOT NULL,
-    good_count             integer     NOT NULL DEFAULT 0,
-    bad_count              integer     NOT NULL DEFAULT 0,
     created_at             timestamptz NOT NULL DEFAULT now(),
     updated_at             timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_datasets_pkey PRIMARY KEY (id),
     CONSTRAINT eval_datasets_deployment_id_key UNIQUE (deployment_id),
-    CONSTRAINT eval_datasets_good_count_check CHECK (good_count >= 0),
-    CONSTRAINT eval_datasets_bad_count_check CHECK (bad_count >= 0),
     CONSTRAINT eval_datasets_deployment_id_fkey FOREIGN KEY (deployment_id) REFERENCES public.deployments(id) ON DELETE CASCADE,
     CONSTRAINT eval_datasets_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE
-);
-
-CREATE TABLE public.eval_dataset_judgments (
-    eval_dataset_id uuid        NOT NULL,
-    trace_id        text        NOT NULL,
-    verdict         text        NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT eval_dataset_judgments_pkey PRIMARY KEY (eval_dataset_id, trace_id),
-    CONSTRAINT eval_dataset_judgments_eval_dataset_id_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_judgments_verdict_check CHECK (verdict IN ('good', 'bad', 'unknown'))
-);
-
-CREATE TABLE public.eval_dataset_judgment_reasons (
-    eval_dataset_id uuid        NOT NULL,
-    trace_id        text        NOT NULL,
-    dimension_key   text        NOT NULL,
-    dimension_value numeric     NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT eval_dataset_judgment_reasons_pkey PRIMARY KEY (eval_dataset_id, trace_id, dimension_key),
-    CONSTRAINT eval_dataset_judgment_reasons_judgment_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_judgments(eval_dataset_id, trace_id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_judgment_reasons_value_check CHECK (dimension_value BETWEEN -1 AND 1)
-);
-
-CREATE TABLE public.eval_dataset_judgment_predictions (
-    eval_dataset_id uuid        NOT NULL,
-    trace_id        text        NOT NULL,
-    trace_timestamp timestamptz NOT NULL,
-    verdict_score   numeric     NOT NULL,
-    confidence      integer     NOT NULL,
-    explanation     text        NOT NULL DEFAULT '',
-    judge_version   text        NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT eval_dataset_judgment_predictions_pkey PRIMARY KEY (eval_dataset_id, trace_id),
-    CONSTRAINT eval_dataset_judgment_predictions_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_judgment_predictions_score_check CHECK (verdict_score BETWEEN -1 AND 1),
-    CONSTRAINT eval_dataset_judgment_predictions_confidence_check CHECK (confidence BETWEEN 0 AND 100),
-    CONSTRAINT eval_dataset_judgment_predictions_explanation_check CHECK (char_length(explanation) <= 240)
-);
-
-CREATE INDEX eval_dataset_judgment_predictions_trace_timestamp_idx
-    ON public.eval_dataset_judgment_predictions
-    (eval_dataset_id, trace_timestamp DESC, trace_id DESC);
-
-CREATE TABLE public.eval_dataset_judgment_prediction_criteria (
-    eval_dataset_id uuid        NOT NULL,
-    trace_id        text        NOT NULL,
-    dimension_key   text        NOT NULL,
-    dimension_value numeric     NOT NULL,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT eval_dataset_judgment_prediction_criteria_pkey PRIMARY KEY (eval_dataset_id, trace_id, dimension_key),
-    CONSTRAINT eval_dataset_judgment_prediction_criteria_prediction_fkey FOREIGN KEY (eval_dataset_id, trace_id) REFERENCES public.eval_dataset_judgment_predictions(eval_dataset_id, trace_id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_judgment_prediction_criteria_value_check CHECK (dimension_value BETWEEN -1 AND 1)
-);
-
-CREATE TABLE public.eval_dataset_prediction_requests (
-    eval_dataset_id uuid        NOT NULL,
-    trace_id        text        NOT NULL,
-    status          text        NOT NULL DEFAULT 'queued',
-    error_message   text,
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT eval_dataset_prediction_requests_pkey PRIMARY KEY (eval_dataset_id, trace_id),
-    CONSTRAINT eval_dataset_prediction_requests_dataset_fkey FOREIGN KEY (eval_dataset_id) REFERENCES public.eval_datasets(id) ON DELETE CASCADE,
-    CONSTRAINT eval_dataset_prediction_requests_status_check CHECK (status IN ('queued', 'in_progress', 'completed', 'failed'))
 );
 
 CREATE TABLE public.eval_dataset_evaluation_runs (

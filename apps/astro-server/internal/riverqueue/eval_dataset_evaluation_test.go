@@ -57,6 +57,25 @@ func TestEvalDatasetEvaluationInsertManyParamsEmpty(t *testing.T) {
 	assert.Empty(t, evalDatasetEvaluationInsertManyParams("dataset-1", nil))
 }
 
+type fakeEvaluationDatasetStore struct {
+	dataset *evaldatasetstore.EvalDataset
+	err     error
+}
+
+func (f *fakeEvaluationDatasetStore) GetByID(context.Context, string) (*evaldatasetstore.EvalDataset, error) {
+	return f.dataset, f.err
+}
+
+type fakeEvaluationBillingGate struct {
+	blocked   bool
+	accountID string
+}
+
+func (f *fakeEvaluationBillingGate) Blocked(_ context.Context, accountID string) bool {
+	f.accountID = accountID
+	return f.blocked
+}
+
 type fakeEvaluationRunStore struct {
 	runID      string
 	adopted    evalrunstore.Status
@@ -215,7 +234,7 @@ func newEvaluationWorker(
 	runner *fakeEvaluationRunner,
 ) *EvalDatasetEvaluationWorker {
 	return &EvalDatasetEvaluationWorker{
-		datasets: &fakeEvalJudgeDatasetStore{dataset: &evaldatasetstore.EvalDataset{
+		datasets: &fakeEvaluationDatasetStore{dataset: &evaldatasetstore.EvalDataset{
 			ID: "dataset-1", DeploymentID: "dep-1", AccountID: "account-1",
 		}},
 		runs: runs,
@@ -630,7 +649,7 @@ func TestEvaluationWorkerRefusesASuspendedAccount(t *testing.T) {
 	runs := newFakeRunStore()
 	runner := &fakeEvaluationRunner{}
 	worker := newEvaluationWorker(runs, &fakeEvaluationTraceClient{trace: evaluationTraceFixture()}, runner)
-	gate := &fakeEvalJudgeBillingGate{blocked: true}
+	gate := &fakeEvaluationBillingGate{blocked: true}
 	worker.billing = gate
 
 	err := worker.Work(context.Background(), evaluationJob(1))
@@ -652,7 +671,7 @@ func TestEvaluationWorkerRunsWhenNotSuspended(t *testing.T) {
 		"user_sentiment": {Value: "negative", Confidence: 0.8, Explanation: "next message is unhappy"},
 	}}
 	worker := newEvaluationWorker(runs, &fakeEvaluationTraceClient{trace: evaluationTraceFixture()}, runner)
-	worker.billing = &fakeEvalJudgeBillingGate{blocked: false}
+	worker.billing = &fakeEvaluationBillingGate{blocked: false}
 
 	require.NoError(t, worker.Work(context.Background(), evaluationJob(1)))
 	assert.Equal(t, evalrunstore.StatusCompleted, runs.finalized)

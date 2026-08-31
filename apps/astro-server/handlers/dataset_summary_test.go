@@ -92,7 +92,7 @@ func TestGetEvalDataset_DatasetNotYetCreated(t *testing.T) {
 func TestGetEvalDataset_ItemCountError(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 	f.itemMock.ExpectQuery("FROM eval_dataset_items").
 		WithArgs(datasetstoretest.ID("dep-1")).
 		WillReturnError(errors.New("count failed"))
@@ -119,7 +119,7 @@ func TestGetEvalDataset_ItemCountError(t *testing.T) {
 func TestGetEvalDataset_OutputValueCountsError(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 40)
 	f.itemMock.ExpectQuery("FROM eval_dataset_item_evaluator_outputs").
 		WithArgs(datasetstoretest.ID("dep-1")).
@@ -137,7 +137,7 @@ func TestGetEvalDataset_OutputValueCountsError(t *testing.T) {
 func TestGetEvalDataset_OK(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 40)
 	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"),
 		valueCountRow{evaluatorKey: "exposed_pii", value: "false", count: 38},
@@ -187,7 +187,7 @@ func TestGetEvalDataset_OK(t *testing.T) {
 func TestGetEvalDataset_OrdersEvaluatorsBySetAndKeepsRetiredOnes(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 10, 10, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 10)
 	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"),
 		valueCountRow{evaluatorKey: "retired_check", value: "true", count: 1},
@@ -224,7 +224,7 @@ func TestGetEvalDataset_OrdersEvaluatorsBySetAndKeepsRetiredOnes(t *testing.T) {
 func TestGetEvalDataset_EmptyDataset(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
-	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 0, 0, 0)
+	expectDatasetRow(f.datasetMock, "dep-1", "dep-dep-1")
 	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 0)
 	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"))
 

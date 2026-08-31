@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
+	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
@@ -95,7 +97,7 @@ type EvalDatasetEvaluationWorker struct {
 	newTraceClient func(*langfuse.AccountLangfuse) evaluationTraceClient
 	ensureJudgeKey func(context.Context, string) (string, string, error)
 	newRunner      func(string) evaluationRunner
-	billing        evalJudgeBillingGate
+	billing        evaluationBillingGate
 	log            *logger.Logger
 }
 
@@ -500,4 +502,98 @@ func (w *EvalDatasetEvaluationWorker) logEvaluatorFailure(job *river.Job[EvalDat
 		"max_attempts", job.MaxAttempts,
 		"error", err,
 	)
+}
+
+type evaluationBillingGate interface {
+	Blocked(ctx context.Context, accountID string) bool
+}
+
+type evaluationStatusGate struct {
+	status  *billing.StatusStore
+	enforce bool
+	log     *logger.Logger
+}
+
+func (g evaluationStatusGate) Blocked(ctx context.Context, accountID string) bool {
+	if g.status == nil || accountID == "" {
+		return false
+	}
+	rec, err := g.status.Record(ctx, accountID)
+	if err != nil {
+		g.log.Warn("eval dataset evaluation: billing status read failed, allowing", "account_id", accountID, "error", err)
+		return false
+	}
+	if rec.Status != billing.StatusSuspended {
+		return false
+	}
+	if !g.enforce {
+		g.log.Info("eval dataset evaluation: billing gate observe, would block", "account_id", accountID)
+		return false
+	}
+	return true
+}
+
+func textFromAny(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case map[string]any:
+		for _, key := range []string{"content", "text", "message", "input"} {
+			if val, ok := x[key]; ok {
+				if s := textFromAny(val); s != "" {
+					return s
+				}
+			}
+		}
+		return ""
+	case []any:
+		for i := len(x) - 1; i >= 0; i-- {
+			if s := textFromAny(x[i]); s != "" {
+				return s
+			}
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func latestThumbsFeedback(scores []langfuse.Score) string {
+	var latestValue, latestAt, latestID string
+	for _, score := range scores {
+		if score.Name != "user_feedback" ||
+			(score.StringValue != "thumbs_up" && score.StringValue != "thumbs_down") {
+			continue
+		}
+		if score.CreatedAt > latestAt || (score.CreatedAt == latestAt && score.ID > latestID) {
+			latestValue = score.StringValue
+			latestAt = score.CreatedAt
+			latestID = score.ID
+		}
+	}
+	return latestValue
+}
+
+func isBudgetExceeded(err error) bool {
+	var invocationErr *aigateway.InvocationError
+	return errors.As(err, &invocationErr) && invocationErr.StatusCode == http.StatusPaymentRequired
+}
+
+func isPermanentInvocationError(err error) bool {
+	var invocationErr *aigateway.InvocationError
+	return errors.As(err, &invocationErr) && isPermanentHTTPStatus(invocationErr.StatusCode)
+}
+
+func isPermanentLangfuseError(err error) bool {
+	var apiErr *langfuse.APIError
+	return errors.As(err, &apiErr) && isPermanentHTTPStatus(apiErr.StatusCode)
+}
+
+func isPermanentHTTPStatus(code int) bool {
+	return code >= http.StatusBadRequest &&
+		code < http.StatusInternalServerError &&
+		code != http.StatusRequestTimeout &&
+		code != http.StatusTooManyRequests
 }
