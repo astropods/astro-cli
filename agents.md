@@ -21,7 +21,11 @@ rule" for the full breakdown across every doc folder.
 **When delegating a coding task to a subagent, say so in its prompt.** A
 subagent doesn't inherit this file, the `docs-map` skill, or the docs-map
 hook (`.claude/hooks/docs-map-check.mjs`) — it only sees what its own
-prompt gives it. If the task touches a path
+prompt gives it, including the Writing style and Development Workflow
+rules below (comments, test naming, convention-following). Tell it to
+read `agents.md` first, or restate the specific rules that apply, before
+it writes any code; without that, it defaults to whatever a model writes
+unprompted, which is not this file's bar. If the task touches a path
 listed in `docs/README.md`'s area map, name the relevant doc(s) in the
 delegating prompt and ask the subagent to check and fix them, the same way
 you would if doing the work directly. If the doc is being cited to override
@@ -136,15 +140,32 @@ plus these house rules:
   wording for variety; in technical text a synonym reads as a second thing.
 - **Second person and imperative for instructions.** "Run the migration", not
   "the migration should be run". Sentence-case headings.
-- **Comments are rare and short.** Add one only when the code would genuinely
-  confuse a reader without it, never to restate what the next line does.
-  When one is warranted, write the least that resolves the confusion — a
-  phrase or one sentence, not a paragraph. Most functions need none; several
-  comments in one body usually means the code needs better names.
-- **A comment describes the code as it is, not its history.** No "this was
-  broken before", "as discussed", "we discovered", "once support enables
-  this", no dated status, no bug-hunt history, no explaining why the change
-  was made. That belongs in the changelog, not the comment.
+- **Default to no comment.** The bar to clear is narrow and specific: add one
+  only when it would meaningfully improve a coding agent's ability to
+  interpret the code correctly, not to make correct code friendlier or to
+  restate what the next line already shows. Readable code with a good name
+  needs nothing next to it. When in doubt, leave it out.
+- **A comment that clears the bar resolves one point of confusion, as
+  concisely as possible.** A phrase, or at most one sentence: the fact the
+  code can't otherwise convey (an external constraint, a non-obvious
+  invariant, a library's undocumented behavior), and nothing surrounding it.
+  Needing several in one function is a sign the code needs better names, not
+  more comments.
+- **A comment never carries reasoning.** Not a "why", not a rejected
+  alternative, not history: no "this was broken before", "as discussed", "we
+  discovered", "once support enables this", no dated status, no bug-hunt
+  narrative, no explaining why the change was made. All of that goes in the
+  changelog. A changelog is read once, at review time, by someone who wants
+  the reasoning; a comment is read every time the file is opened, by someone
+  who does not.
+- **In a test, the name and assertions are the documentation, not a
+  comment.** Name the test for the behavior and condition it checks, and let
+  the assertion messages carry the "why", so nobody needs to open the body to
+  know what's being verified. The bar for a comment here is the same one
+  above, applied even harder: a name or a clearer assertion message can
+  almost always do the job instead. The exception is a genuine gotcha
+  neither can carry, like a dependency serializing a request differently
+  than its field names suggest.
 - **No em dashes.** Use a comma, a colon, a pair of parentheses, or a second
   sentence. An em dash usually joins two ideas that read better apart, so
   removing it tends to satisfy the one-idea rule at the same time.
@@ -189,32 +210,48 @@ verification/testing steps for a pure doc or config-only change):
    claim to justify overriding what's in front of you, check that one claim
    against current code first. The convention wins; a stale or invented
    detail inside the doc describing it doesn't.
-3. **When you deviate from a convention or a documented design, resolve
+3. **When no convention covers the problem yet, still build the standard,
+   well-known solution, not the smallest one that satisfies the immediate
+   ask.** Search for an existing shared implementation before writing a new
+   one, and extract code the moment it's duplicated, or about to be a
+   second time, into a shared function or component, even with no local
+   precedent to point to; a bespoke one-off is itself the drift a future
+   pass will have to clean up. Favor the common, well-established shape for
+   the kind of problem over an ad hoc one that merely works today. A more
+   thorough implementation that takes longer to land is worth more than a
+   narrow one that ships fast and needs a second pass once review catches
+   what it missed.
+4. **When you deviate from a convention or a documented design, resolve
    it — don't leave it silent.** Either bring the code back in line with the
    convention/doc, or update the doc to reflect the new reality, whichever is
    the better outcome for the codebase. Never ship a change that quietly
    disagrees with what's documented or with the pattern used everywhere else
    nearby.
-4. **Verify the change for real, not just that it compiles or typechecks.**
+5. **Verify the change for real, not just that it compiles or typechecks.**
    Start whatever it takes to observe the change working and confirm the
    behavior actually changed as intended. Iterate on failures instead of
    declaring the task done. If something can't be verified from where you're
    running (missing infra, a live account/cluster you don't have access to,
    etc.), say so plainly rather than assuming it works.
-5. **Once the change is verified, bring tests up to it.** Add or update tests
+6. **Once the change is verified, bring tests up to it.** Add or update tests
    for the behavior you changed, aiming for real coverage of it, not a padded
    percentage. Run the suite and fix what it finds before calling the work
    done. For Go, follow the existing shape for the kind of test you're
    adding (mocked-DB, real-Postgres integration, or pure-unit) — see
    [`docs/04-guides/go-testing-conventions.md`](docs/04-guides/go-testing-conventions.md).
-6. **When the scope of work is complete, write the changelog** (use the
+7. **When the scope of work is complete, write the changelog** (use the
    `write-changelog` skill). This is also the point to do the doc-vs-code
-   check from step 3 one more time, now that the whole change is in view.
+   check from step 4 one more time, now that the whole change is in view.
+   It's also the point to scan any comments the change just added: if one
+   explains *why* a decision was made or which alternatives were rejected,
+   move that reasoning into the changelog and cut the comment to at most a
+   one-line pointer, or drop it.
 
-Comments stay governed by the writing-style rules above — minimal,
-explaining what the code does now and why, never narrating the change that
-produced it. If something about *why this change happened* is worth
-recording, it belongs in the changelog, not a comment.
+Comments stay governed by the writing-style rules above: default to none,
+and when one clears the bar, state only the fact the code doesn't already
+convey, never the reasoning behind it or the change that produced it. If
+something about *why this change happened* is worth recording, it belongs
+in the changelog, not a comment.
 
 # Changelogs
 
