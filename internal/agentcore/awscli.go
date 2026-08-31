@@ -122,6 +122,23 @@ func (a *AWSCLIRuntime) Update(id string, req CreateAgentRuntime, region string)
 	return resp.AgentRuntimeArn, resp.AgentRuntimeVersion, nil
 }
 
+// Status reads one runtime's lifecycle state, and why it failed when it did.
+func (a *AWSCLIRuntime) Status(id string) (RuntimeStatus, error) {
+	out, err := a.run(append(a.base(), "get-agent-runtime", "--agent-runtime-id", id))
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	var resp struct {
+		Status              string `json:"status"`
+		AgentRuntimeVersion string `json:"agentRuntimeVersion"`
+		FailureReason       string `json:"failureReason"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return RuntimeStatus{}, fmt.Errorf("parse get-agent-runtime: %w", err)
+	}
+	return RuntimeStatus{Status: resp.Status, Version: resp.AgentRuntimeVersion, FailureReason: resp.FailureReason}, nil
+}
+
 func (a *AWSCLIRuntime) networkJSON(req CreateAgentRuntime) string {
 	if req.NetworkMode != "VPC" {
 		return `{"networkMode":"PUBLIC"}`
@@ -191,7 +208,8 @@ func (a *AWSCLIRuntime) run(args []string) ([]byte, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("aws %s: %v: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		msg := strings.TrimSpace(stderr.String())
+		return nil, fmt.Errorf("aws %s: %v: %s%s", args[0], err, msg, staleAWSCLIHint(msg))
 	}
 	return stdout.Bytes(), nil
 }
@@ -207,4 +225,13 @@ func quoteArgs(args []string) []string {
 		}
 	}
 	return out
+}
+
+// staleAWSCLIHint names the cause when the installed aws CLI's bundled service
+// model predates VPC network mode, which fails local validation, not the API.
+func staleAWSCLIHint(stderr string) string {
+	if !strings.Contains(stderr, "networkModeConfig") {
+		return ""
+	}
+	return "\n\nThe installed aws CLI does not know VPC network mode. Upgrade it (2.36.21 is known good): brew upgrade awscli"
 }

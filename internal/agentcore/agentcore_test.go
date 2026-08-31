@@ -244,6 +244,18 @@ func TestResolveSecrets(t *testing.T) {
 type fakeRuntime struct {
 	existingArn, existingID string
 	created, updated        bool
+	// statuses are returned in order; the last one repeats.
+	statuses    []RuntimeStatus
+	statusCalls int
+}
+
+func (f *fakeRuntime) Status(string) (RuntimeStatus, error) {
+	if len(f.statuses) == 0 {
+		return RuntimeStatus{}, nil
+	}
+	i := min(f.statusCalls, len(f.statuses)-1)
+	f.statusCalls++
+	return f.statuses[i], nil
 }
 
 func (f *fakeRuntime) GetByName(string) (string, string, error) {

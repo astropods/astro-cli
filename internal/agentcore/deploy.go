@@ -23,6 +23,7 @@ type Runtime interface {
 	GetByName(name string) (arn, id string, err error)
 	Create(req CreateAgentRuntime, name, region string) (arn, id, version string, err error)
 	Update(id string, req CreateAgentRuntime, region string) (arn, version string, err error)
+	Status(id string) (RuntimeStatus, error)
 }
 
 // Result is what a deploy produced: the resolved identifiers plus the env block

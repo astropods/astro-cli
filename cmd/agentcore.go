@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -97,6 +99,13 @@ const (
 	dependencyHostsEnv = "AGENTCORE_DEPENDENCY_HOSTS"
 )
 
+// A create or update is accepted before the runtime is usable, so the deploy
+// polls until the control plane reports a terminal state.
+const (
+	agentCoreReadyTimeout   = 10 * time.Minute
+	agentCoreStatusInterval = 5 * time.Second
+)
+
 // Placeholders let --dry-run render a complete plan with no AWS details set. A
 // real deploy rejects them rather than sending them to AWS.
 const (
@@ -175,9 +184,29 @@ func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath 
 		return err
 	}
 	fmt.Fprintln(w, out)
+	if err := waitAgentCoreReady(cmd.Context(), rt, res, w); err != nil {
+		return err
+	}
 	fmt.Fprintf(w, "\n# messaging sidecar env for this runtime (from %s):\n", specPath)
 	fmt.Fprint(w, res.EnvExports())
 	return nil
+}
+
+// waitAgentCoreReady reports the runtime's progress to READY. A timeout is a
+// warning because the deploy was accepted; a reported failure is an error.
+func waitAgentCoreReady(ctx context.Context, rt agentcore.Runtime, res *agentcore.Result, w io.Writer) error {
+	if res.RuntimeID == "" {
+		return nil
+	}
+	fmt.Fprintln(w, "\n# waiting for the runtime to report READY")
+	err := agentcore.WaitReady(ctx, rt, res.RuntimeID, res.Version,
+		agentCoreReadyTimeout, agentCoreStatusInterval,
+		func(status string) { fmt.Fprintf(w, "  %s\n", status) })
+	if errors.Is(err, agentcore.ErrWaitTimeout) {
+		fmt.Fprintf(w, "  %s\n", err)
+		return nil
+	}
+	return err
 }
 
 // renderAgentCorePlan prints the plan, then the aws commands a real deploy would
