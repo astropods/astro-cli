@@ -313,12 +313,13 @@ func ResolveDocument(doc Document) ([]evaluator.Evaluator, error) {
 			output = *entry.Output
 		}
 		out = append(out, evaluator.Evaluator{
-			Key:    entry.Key,
-			Label:  entry.Label,
-			Type:   evaluator.Type(entry.Type),
-			Config: config,
-			Prompt: entry.Prompt,
-			Output: output,
+			Key:         entry.Key,
+			Label:       entry.Label,
+			Description: entry.Description,
+			Type:        evaluator.Type(entry.Type),
+			Config:      config,
+			Prompt:      entry.Prompt,
+			Output:      output,
 		})
 	}
 	return out, nil
