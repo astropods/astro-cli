@@ -19,27 +19,25 @@ export function evaluationRows(
   evaluators: EvaluationSetEvaluator[],
   results: TraceEvaluatorResult[],
 ): EvaluationRow[] {
-  const resultsByKey = new Map(results.map((result) => [result.key, result]));
-
-  if (evaluators.length > 0) {
-    return evaluators.map((evaluator) =>
+  if (results.length > 0) {
+    return results.map((result) =>
       buildRow(
-        evaluator.key,
-        evaluator.label,
-        evaluator.description,
-        evaluator.output,
-        resultsByKey.get(evaluator.key),
+        result.key,
+        result.label ?? result.key,
+        result.description,
+        result.output ?? null,
+        result,
       ),
     );
   }
 
-  return results.map((result) =>
+  return evaluators.map((evaluator) =>
     buildRow(
-      result.key,
-      result.label ?? result.key,
-      result.description,
-      result.output ?? null,
-      result,
+      evaluator.key,
+      evaluator.label,
+      evaluator.description,
+      evaluator.output,
+      undefined,
     ),
   );
 }

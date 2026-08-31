@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EvaluationSetEvaluator } from "@/lib/api";
+import type { EvaluationSetEvaluator, TraceEvaluatorResult } from "@/lib/api";
 import { ReviewQueueEvaluationSection } from "./ReviewQueueEvaluationSection";
 
 afterEach(cleanup);
@@ -151,5 +151,27 @@ describe("ReviewQueueEvaluationSection", () => {
       screen.getByRole("button", { name: "Add to dataset" }),
     ).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("renders a trace's own results even when its evaluator isn't in the current evaluation set", () => {
+    const staleResults: TraceEvaluatorResult[] = [
+      {
+        key: "leaked_credentials",
+        label: "Leaked credentials",
+        output: { type: "boolean" },
+        status: "completed",
+        value: false,
+        confidence: 0.92,
+        explanation: "No credentials appeared in the answer.",
+        error: null,
+      },
+    ];
+
+    renderSection({ results: staleResults, scored: true });
+
+    expect(screen.getByText("Leaked credentials")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("combobox", { name: "Exposed PII" }),
+    ).not.toBeInTheDocument();
   });
 });
