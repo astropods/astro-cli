@@ -364,8 +364,9 @@ func ResolveSecrets(p *Plan, provided map[string]string) (unresolved []string) {
 		}
 	}
 	// Merge extra provided env not present as a placeholder (direct injection).
+	// An input with no default sits here as "", which must not shadow a supplied value.
 	for k, v := range provided {
-		if _, exists := p.AgentCore.Env[k]; !exists {
+		if cur, exists := p.AgentCore.Env[k]; !exists || cur == "" {
 			p.AgentCore.Env[k] = v
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	spec "github.com/astropods/astro-spec"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func baseSpec() *spec.AstroSpec {
@@ -195,6 +197,33 @@ func TestResolveSecrets(t *testing.T) {
 		if p.AgentCore.Env["OPENAI_BASE_URL"] != "https://gw/v1" {
 			t.Errorf("OPENAI_BASE_URL = %q, want injected", p.AgentCore.Env["OPENAI_BASE_URL"])
 		}
+	})
+	// An input with no default is emitted as "", and that empty value must not
+	// shadow what the operator supplied, or declaring the input makes it unsettable.
+	t.Run("supplied value beats a default-less input", func(t *testing.T) {
+		s := baseSpec()
+		s.Inputs = map[string]spec.Input{
+			"GITHUB_OWNER": {Name: "GITHUB_OWNER", Datatype: "string"},
+		}
+		p, _ := Build(s, Options{})
+		require.Empty(t, p.AgentCore.Env["GITHUB_OWNER"], "precondition: empty before resolve")
+
+		unresolved := ResolveSecrets(p, map[string]string{"GITHUB_OWNER": "awslabs"})
+
+		assert.Empty(t, unresolved)
+		assert.Equal(t, "awslabs", p.AgentCore.Env["GITHUB_OWNER"])
+	})
+	// Only an empty input is treated as absent, so the fix stays narrow.
+	t.Run("a declared default is not overwritten", func(t *testing.T) {
+		s := baseSpec()
+		s.Inputs = map[string]spec.Input{
+			"GITHUB_REPO": {Name: "GITHUB_REPO", Datatype: "string", Default: "agents"},
+		}
+		p, _ := Build(s, Options{})
+
+		ResolveSecrets(p, map[string]string{"GITHUB_REPO": "other"})
+
+		assert.Equal(t, "agents", p.AgentCore.Env["GITHUB_REPO"])
 	})
 	t.Run("fails closed on missing", func(t *testing.T) {
 		s := baseSpec()
