@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -260,7 +261,7 @@ var refreshEntryPoints = map[string]func(t *testing.T) string{
 		return buf.String()
 	},
 	"selection": func(t *testing.T) string {
-		accounts, err := accountsForSelection(accountNewStorage())
+		accounts, err := accountsForSelection(context.Background(), accountNewStorage())
 		require.NoError(t, err)
 		names := make([]string, len(accounts))
 		for i, a := range accounts {
@@ -298,6 +299,82 @@ func TestAccountRefresh_FallsBackToCacheWhenFetchFails(t *testing.T) {
 			require.Contains(t, run(t), "acme-corp")
 		})
 	}
+}
+
+func TestAccountRefresh_FallsBackToCacheWhenTokenRefreshFails(t *testing.T) {
+	for name, run := range refreshEntryPoints {
+		if name == "switch" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("NO_COLOR", "1")
+			writeAccountTestCredentials(t, &auth.Credentials{
+				CurrentProfile: "default",
+				Profiles: map[string]*auth.Profile{
+					"default": {
+						AccessToken:    "stale-token",
+						RefreshToken:   "refresh-tok",
+						ExpiresAt:      time.Now().Add(2 * time.Minute),
+						CurrentAccount: "alice",
+						Accounts: []auth.StoredAccount{
+							{ID: "acct_personal", Name: "alice", Type: "personal", Role: "owner"},
+							{ID: "acct_acme", Name: "acme-corp", Type: "organization", Role: "member", OrganizationID: "org_acme"},
+						},
+					},
+				},
+			})
+
+			workOSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+			}))
+			t.Cleanup(workOSServer.Close)
+			auth.SetWorkOSBaseURLOverride(workOSServer.URL)
+			t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+			require.Contains(t, run(t), "acme-corp")
+		})
+	}
+}
+
+func TestAccountRefresh_RefreshesExpiringAccessTokenFirst(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "1")
+	writeAccountTestCredentials(t, &auth.Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*auth.Profile{
+			"default": {
+				AccessToken:    "stale-token",
+				RefreshToken:   "refresh-tok",
+				ExpiresAt:      time.Now().Add(2 * time.Minute),
+				CurrentAccount: "alice",
+				Accounts: []auth.StoredAccount{
+					{ID: "acct_personal", Name: "alice", Type: "personal", Role: "owner"},
+				},
+			},
+		},
+	})
+
+	workOSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "fresh-token", ExpiresIn: 3600}) //nolint:errcheck
+	}))
+	t.Cleanup(workOSServer.Close)
+	auth.SetWorkOSBaseURLOverride(workOSServer.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	var sawAuth string
+	accountServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		json.NewEncoder(w).Encode(accountsResponse("alice", "new-org")) //nolint:errcheck
+	}))
+	t.Cleanup(accountServer.Close)
+	accountServerURLOverride = accountServer.URL
+	t.Cleanup(func() { accountServerURLOverride = "" })
+
+	accounts, err := accountsForSelection(context.Background(), accountNewStorage())
+	require.NoError(t, err)
+	require.True(t, auth.HasAccount(accounts, "new-org"))
+	require.Equal(t, "Bearer fresh-token", sawAuth, "must fetch with the refreshed token, not the stale cached one")
 }
 
 // Unlike list and selection, switch reports its own error instead of

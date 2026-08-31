@@ -84,7 +84,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 	if _, err := storage.GetCurrentProfile(); err != nil {
 		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
-	accounts, err := accountsForSelection(storage)
+	accounts, err := accountsForSelection(cmd.Context(), storage)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 
 	if name == "" {
 		var err error
-		name, err = selectAccountInteractive(storage)
+		name, err = selectAccountInteractive(cmd.Context(), storage)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				printCancelled(w)
@@ -147,7 +147,7 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	refreshAccountsIfMissing(storage, name)
+	refreshAccountsIfMissing(cmd.Context(), storage, name)
 	if err := storage.SetCurrentAccount(name); err != nil {
 		return err
 	}
@@ -157,9 +157,17 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// refreshAccounts fetches and persists the live account list.
-func refreshAccounts(storage *auth.Storage, profile *auth.Profile) ([]auth.StoredAccount, error) {
-	accounts, err := fetchUserAccounts(accountBaseURL(), profile.AccessToken)
+// refreshAccounts fetches and persists the live account list, refreshing the
+// access token first if it's close to expiry.
+func refreshAccounts(ctx context.Context, storage *auth.Storage) ([]auth.StoredAccount, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, err := auth.NewTokenManager(buildinfo.BinaryName).GetValidAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := fetchUserAccounts(accountBaseURL(), token)
 	if err != nil {
 		return nil, err
 	}
@@ -170,22 +178,22 @@ func refreshAccounts(storage *auth.Storage, profile *auth.Profile) ([]auth.Store
 }
 
 // Best-effort: a failed refresh falls through to SetCurrentAccount's own error.
-func refreshAccountsIfMissing(storage *auth.Storage, name string) {
+func refreshAccountsIfMissing(ctx context.Context, storage *auth.Storage, name string) {
 	profile, err := storage.GetCurrentProfile()
 	if err != nil || auth.HasAccount(profile.Accounts, name) {
 		return
 	}
-	_, _ = refreshAccounts(storage, profile)
+	_, _ = refreshAccounts(ctx, storage)
 }
 
 // Unlike refreshAccountsIfMissing, always refreshes, falling back to the cache on failure.
-func accountsForSelection(storage *auth.Storage) ([]auth.StoredAccount, error) {
+func accountsForSelection(ctx context.Context, storage *auth.Storage) ([]auth.StoredAccount, error) {
+	if accounts, err := refreshAccounts(ctx, storage); err == nil {
+		return accounts, nil
+	}
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
 		return nil, err
-	}
-	if accounts, err := refreshAccounts(storage, profile); err == nil {
-		return accounts, nil
 	}
 	return profile.Accounts, nil
 }
@@ -267,12 +275,12 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	return token, nil
 }
 
-func selectAccountInteractive(storage *auth.Storage) (string, error) {
+func selectAccountInteractive(ctx context.Context, storage *auth.Storage) (string, error) {
 	if _, err := storage.GetCurrentProfile(); err != nil {
 		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 	}
 
-	accounts, err := accountsForSelection(storage)
+	accounts, err := accountsForSelection(ctx, storage)
 	if err != nil {
 		return "", err
 	}
