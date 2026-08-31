@@ -15,15 +15,15 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
+	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
 
 type DatasetReviewQueueRun struct {
+	ID     string  `json:"id"`
 	Status string  `json:"status"`
 	Error  *string `json:"error"`
 }
@@ -45,7 +45,7 @@ type DatasetReviewQueueResponse struct {
 type reviewQueueEvaluationFilter string
 
 type reviewQueueScanStore interface {
-	JudgedTraceIDs(context.Context, string, []string) (map[string]bool, error)
+	AddedTraceIDs(context.Context, string, []string) (map[string]bool, error)
 }
 
 type reviewQueueRunStore interface {
@@ -67,7 +67,6 @@ const (
 	reviewQueueCursorVersion = 1
 	reviewQueueEvaluated     = reviewQueueEvaluationFilter("evaluated")
 	reviewQueueNotEvaluated  = reviewQueueEvaluationFilter("not_evaluated")
-	reviewQueueEvaluationRef = evalpreset.RefDefaultSet
 )
 
 var (
@@ -87,8 +86,8 @@ type reviewQueueCursor struct {
 	LocalTrace    string `json:"local_trace,omitempty"`
 }
 
-// GetDatasetReviewQueue returns one cursor-paginated batch of traces awaiting
-// dataset judgment, preserving Langfuse's newest-first ordering.
+// GetDatasetReviewQueue returns one cursor-paginated batch of traces that are
+// not yet dataset items, preserving Langfuse's newest-first ordering.
 // GET /api/v1/deployments/:id/dataset/review-queue?limit=&evaluation=&cursor=
 func GetDatasetReviewQueue(
 	log *logger.Logger,
@@ -97,7 +96,7 @@ func GetDatasetReviewQueue(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore *langfuse.Store,
-	judgmentStore *judgmentstore.Store,
+	itemStore *evalitemstore.Store,
 	runStore *evalrunstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -126,7 +125,7 @@ func GetDatasetReviewQueue(
 		resp, err := getDatasetReviewQueuePage(
 			c.Request.Context(),
 			lctx.Client,
-			judgmentStore,
+			itemStore,
 			runStore,
 			ds.ID,
 			lctx.DeploymentID,
@@ -166,7 +165,7 @@ func parseReviewQueueEvaluationFilter(raw string) (reviewQueueEvaluationFilter, 
 func getDatasetReviewQueuePage(
 	ctx context.Context,
 	client *langfuse.Client,
-	judgmentStore reviewQueueScanStore,
+	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
 	evalDatasetID, deploymentID string,
 	limit int,
@@ -186,7 +185,7 @@ func getDatasetReviewQueuePage(
 		return getEvaluatedReviewQueuePage(
 			ctx,
 			client,
-			judgmentStore,
+			itemStore,
 			runStore,
 			evalDatasetID,
 			deploymentID,
@@ -197,7 +196,7 @@ func getDatasetReviewQueuePage(
 	return scanLangfuseReviewQueuePages(
 		ctx,
 		client,
-		judgmentStore,
+		itemStore,
 		runStore,
 		evalDatasetID,
 		deploymentID,
@@ -222,13 +221,13 @@ func newReviewQueueCursor(
 	}
 }
 
-// getEvaluatedReviewQueuePage pages prediction records without judgments from
-// the local database, then fetches only that bounded trace set from Langfuse.
-// PredictionTime and PredictionTrace identify the last database row selected.
+// getEvaluatedReviewQueuePage pages traces with a completed run from the local
+// database, then fetches only that bounded trace set from Langfuse. LocalTime
+// and LocalTrace identify the last database row selected.
 func getEvaluatedReviewQueuePage(
 	ctx context.Context,
 	client *langfuse.Client,
-	judgmentStore reviewQueueScanStore,
+	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
 	evalDatasetID, deploymentID string,
 	limit int,
@@ -296,7 +295,7 @@ func getEvaluatedReviewQueuePage(
 	if len(traces.Data) > 0 {
 		items, _, _, err = loadReviewQueueItems(
 			ctx,
-			judgmentStore,
+			itemStore,
 			runStore,
 			evalDatasetID,
 			traces.Data,
@@ -328,7 +327,7 @@ func getEvaluatedReviewQueuePage(
 func scanLangfuseReviewQueuePages(
 	ctx context.Context,
 	client *langfuse.Client,
-	judgmentStore reviewQueueScanStore,
+	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
 	evalDatasetID, deploymentID string,
 	limit int,
@@ -363,7 +362,7 @@ func scanLangfuseReviewQueuePages(
 		}
 		items, nextIndex, full, err := loadReviewQueueItems(
 			ctx,
-			judgmentStore,
+			itemStore,
 			runStore,
 			evalDatasetID,
 			traces.Data,
@@ -415,12 +414,11 @@ func reviewQueuePageResponse(
 	return DatasetReviewQueueResponse{Items: items, NextCursor: nextCursor}, nil
 }
 
-// loadReviewQueueItems batch-loads the state needed by each prediction filter
-// and builds up to limit queue items. Present candidates already exclude
-// judgments in SQL. All and absent candidates require the scan-path reads.
+// loadReviewQueueItems batch-loads the state each evaluation filter needs and
+// builds up to limit queue items.
 func loadReviewQueueItems(
 	ctx context.Context,
-	judgmentStore reviewQueueScanStore,
+	itemStore reviewQueueScanStore,
 	runStore reviewQueueRunStore,
 	evalDatasetID string,
 	traces []langfuse.Trace,
@@ -431,9 +429,9 @@ func loadReviewQueueItems(
 	for _, trace := range traces {
 		traceIDs = append(traceIDs, trace.ID)
 	}
-	judged, err := judgmentStore.JudgedTraceIDs(ctx, evalDatasetID, traceIDs)
+	added, err := itemStore.AddedTraceIDs(ctx, evalDatasetID, traceIDs)
 	if err != nil {
-		return nil, 0, false, fmt.Errorf("%w: judgments: %w", errReviewQueueLocalRead, err)
+		return nil, 0, false, fmt.Errorf("%w: dataset items: %w", errReviewQueueLocalRead, err)
 	}
 	runs, err := runStore.LatestRuns(ctx, evalDatasetID, traceIDs)
 	if err != nil {
@@ -443,7 +441,7 @@ func loadReviewQueueItems(
 	items := make([]DatasetReviewQueueItem, 0, limit)
 	for i := startIndex; i < len(traces); i++ {
 		trace := traces[i]
-		if judged[trace.ID] || trace.Input == nil {
+		if added[trace.ID] || trace.Input == nil {
 			continue
 		}
 		run, hasRun := runs[trace.ID]
@@ -539,7 +537,7 @@ func newDatasetReviewQueueItem(
 	if !hasRun {
 		return item
 	}
-	queueRun := DatasetReviewQueueRun{Status: string(run.Status)}
+	queueRun := DatasetReviewQueueRun{ID: run.ID, Status: string(run.Status)}
 	if run.ErrorMessage != "" {
 		message := run.ErrorMessage
 		queueRun.Error = &message

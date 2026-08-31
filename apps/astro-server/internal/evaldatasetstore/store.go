@@ -19,11 +19,6 @@ type EvalDataset struct {
 	UpdatedAt           time.Time
 }
 
-// Total returns the sum of good and bad judgments backing this dataset.
-func (d *EvalDataset) Total() int {
-	return d.GoodCount + d.BadCount
-}
-
 // Store manages the eval_datasets table.
 type Store struct {
 	db *sql.DB

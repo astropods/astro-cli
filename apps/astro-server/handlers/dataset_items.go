@@ -91,15 +91,21 @@ func DownloadEvalDataset(
 	}
 }
 
-// evalDatasetItemsResponse mirrors the Langfuse list response 1:1, narrowed to
-// the fields the UI uses.
 type evalDatasetItemRow struct {
-	ID             string `json:"id"`
-	Input          any    `json:"input"`
-	ExpectedOutput any    `json:"expected_output"`
-	Metadata       any    `json:"metadata"`
-	SourceTraceID  string `json:"source_trace_id"`
-	CreatedAt      string `json:"created_at"`
+	ID               string                  `json:"id"`
+	Input            any                     `json:"input"`
+	ExpectedOutput   any                     `json:"expected_output"`
+	SourceTraceID    string                  `json:"source_trace_id"`
+	CreatedAt        string                  `json:"created_at"`
+	EvaluationRef    string                  `json:"evaluation_ref,omitempty"`
+	VerifiedByUserID string                  `json:"verified_by_user_id,omitempty"`
+	EvaluatorOutputs []evalDatasetItemOutput `json:"evaluator_outputs"`
+}
+
+type evalDatasetItemOutput struct {
+	Key   string          `json:"key"`
+	Label string          `json:"label"`
+	Value json.RawMessage `json:"value"`
 }
 
 type evalDatasetItemsResponse struct {
@@ -115,7 +121,8 @@ const (
 	itemsMaxLimit     = 100
 )
 
-// GetEvalDatasetItems returns a page of judged items from the Langfuse dataset.
+// GetEvalDatasetItems returns a page of items from the Langfuse dataset, each
+// carrying the evaluator outputs it was verified on.
 // GET /api/v1/deployments/:id/dataset/items?page=&limit=
 func GetEvalDatasetItems(
 	log *logger.Logger,
@@ -124,6 +131,7 @@ func GetEvalDatasetItems(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore *langfuse.Store,
+	itemStore *evalitemstore.Store,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -155,16 +163,41 @@ func GetEvalDatasetItems(
 			return
 		}
 
+		traceIDs := make([]string, 0, len(resp.Data))
+		for _, item := range resp.Data {
+			traceIDs = append(traceIDs, item.SourceTraceID)
+		}
+		verified, err := itemStore.GetMany(c.Request.Context(), ds.ID, traceIDs)
+		if err != nil {
+			log.Error("dataset items: load evaluator outputs failed", "error", err, "deployment_id", lctx.DeploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load evaluator outputs"})
+			return
+		}
+
+		// A retired evaluator still holds values, so a set that will not resolve
+		// costs labels and ordering rather than the values themselves.
+		set, err := evalpreset.ResolveSet(activeEvaluationRef)
+		if err != nil {
+			log.Warn("dataset items: resolve evaluation set failed", "error", err,
+				"dataset_id", ds.ID, "evaluation_ref", activeEvaluationRef)
+		}
+
 		rows := make([]evalDatasetItemRow, 0, len(resp.Data))
 		for _, item := range resp.Data {
-			rows = append(rows, evalDatasetItemRow{
-				ID:             item.ID,
-				Input:          item.Input,
-				ExpectedOutput: item.ExpectedOutput,
-				Metadata:       item.Metadata,
-				SourceTraceID:  item.SourceTraceID,
-				CreatedAt:      item.CreatedAt,
-			})
+			row := evalDatasetItemRow{
+				ID:               item.ID,
+				Input:            item.Input,
+				ExpectedOutput:   item.ExpectedOutput,
+				SourceTraceID:    item.SourceTraceID,
+				CreatedAt:        item.CreatedAt,
+				EvaluatorOutputs: []evalDatasetItemOutput{},
+			}
+			if local, ok := verified[item.SourceTraceID]; ok {
+				row.EvaluationRef = local.EvaluationRef
+				row.VerifiedByUserID = local.VerifiedByUserID
+				row.EvaluatorOutputs = itemOutputs(set, local.Outputs)
+			}
+			rows = append(rows, row)
 		}
 
 		c.JSON(http.StatusOK, evalDatasetItemsResponse{
@@ -175,6 +208,24 @@ func GetEvalDatasetItems(
 			TotalPages: resp.Meta.TotalPages,
 		})
 	}
+}
+
+func itemOutputs(
+	set []evaluator.Evaluator,
+	outputs []evalitemstore.Output,
+) []evalDatasetItemOutput {
+	groups := evaluatorsBySet(set, outputs,
+		func(output evalitemstore.Output) string { return output.EvaluatorKey })
+
+	out := make([]evalDatasetItemOutput, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, evalDatasetItemOutput{
+			Key:   group.Key,
+			Label: group.label(),
+			Value: group.Rows[0].Value,
+		})
+	}
+	return out
 }
 
 type datasetItemEvaluatorOutput struct {
@@ -194,8 +245,8 @@ type DatasetItemResponse struct {
 	EvaluationRef string `json:"evaluation_ref"`
 }
 
-// PostDatasetItem adds a trace to the dataset with a verified value for every
-// evaluator in the agent's evaluation set.
+// PostDatasetItem adds a trace to the dataset with the reviewer's verified
+// values, for as many evaluators in the set as they chose to record.
 // POST /api/v1/deployments/:id/dataset/items
 func PostDatasetItem(
 	log *logger.Logger,
@@ -224,16 +275,8 @@ func PostDatasetItem(
 			return
 		}
 
-		set, err := evalpreset.ResolveSet(evalpreset.RefDefaultSet)
-		if err != nil {
-			log.Error("dataset items: resolve evaluation set failed", "error", err,
-				"deployment_id", lctx.DeploymentID, "evaluation_ref", evalpreset.RefDefaultSet)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
-			return
-		}
-		outputs, invalid := resolveItemOutputs(set, body.EvaluatorOutputs)
-		if invalid != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": invalid})
+		outputs, ok := resolveSubmittedOutputs(c, log, lctx.DeploymentID, body.EvaluatorOutputs)
+		if !ok {
 			return
 		}
 
@@ -265,7 +308,7 @@ func PostDatasetItem(
 		item := evalitemstore.Item{
 			EvalDatasetID:         ds.ID,
 			TraceID:               body.TraceID,
-			EvaluationRef:         evalpreset.RefDefaultSet,
+			EvaluationRef:         activeEvaluationRef,
 			SourceEvaluationRunID: sourceRunID,
 			VerifiedByUserID:      lctx.UserID,
 		}
@@ -302,7 +345,7 @@ func PostDatasetItem(
 		c.JSON(http.StatusCreated, DatasetItemResponse{
 			EvalDatasetID: ds.ID,
 			TraceID:       body.TraceID,
-			EvaluationRef: evalpreset.RefDefaultSet,
+			EvaluationRef: activeEvaluationRef,
 		})
 	}
 }
@@ -319,9 +362,10 @@ type DatasetItemOutputsResponse struct {
 	EvaluatorOutputs []evalitemstore.Output `json:"evaluator_outputs"`
 }
 
-// PutDatasetItemEvaluatorOutputs replaces a dataset item's final value for every
-// evaluator in its evaluation set. Evaluation runs and their results are left in
-// place, so the automated values stay available for comparison.
+// PutDatasetItemEvaluatorOutputs replaces a dataset item's final values with the
+// submitted ones, dropping any evaluator the caller left out. Evaluation runs and
+// their results are left in place, so the automated values stay available for
+// comparison.
 // PUT /api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs
 func PutDatasetItemEvaluatorOutputs(
 	log *logger.Logger,
@@ -336,9 +380,8 @@ func PutDatasetItemEvaluatorOutputs(
 			return
 		}
 
-		traceID := strings.TrimSpace(c.Param("trace_id"))
-		if traceID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+		traceID, ok := requireTraceIDParam(c)
+		if !ok {
 			return
 		}
 
@@ -365,21 +408,13 @@ func PutDatasetItemEvaluatorOutputs(
 		}
 		// A retired set has no resolvable output contract to validate against, so
 		// its outputs stay as admitted until the item is removed and re-added.
-		if item.EvaluationRef != evalpreset.RefDefaultSet {
+		if item.EvaluationRef != activeEvaluationRef {
 			c.JSON(http.StatusConflict, gin.H{"error": "dataset item does not use the active evaluation set"})
 			return
 		}
 
-		set, err := evalpreset.ResolveSet(item.EvaluationRef)
-		if err != nil {
-			log.Error("dataset items: resolve evaluation set failed", "error", err,
-				"deployment_id", dctx.DeploymentID, "evaluation_ref", item.EvaluationRef)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
-			return
-		}
-		outputs, invalid := resolveItemOutputs(set, body.Values)
-		if invalid != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": invalid})
+		outputs, ok := resolveSubmittedOutputs(c, log, dctx.DeploymentID, body.Values)
+		if !ok {
 			return
 		}
 
@@ -422,9 +457,8 @@ func DeleteDatasetItem(
 			return
 		}
 
-		traceID := strings.TrimSpace(c.Param("trace_id"))
-		if traceID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+		traceID, ok := requireTraceIDParam(c)
+		if !ok {
 			return
 		}
 
@@ -492,15 +526,38 @@ func resolveItemSourceRun(
 		return nil, false
 	}
 	if run == nil || run.EvalDatasetID != evalDatasetID || run.TraceID != body.TraceID ||
-		run.EvaluationRef != evalpreset.RefDefaultSet {
+		run.EvaluationRef != activeEvaluationRef {
 		c.JSON(http.StatusConflict, gin.H{"error": "evaluation run does not match this trace"})
 		return nil, false
 	}
 	return &run.ID, true
 }
 
+func resolveSubmittedOutputs(
+	c *gin.Context,
+	log *logger.Logger,
+	deploymentID string,
+	submitted []datasetItemEvaluatorOutput,
+) ([]evalitemstore.Output, bool) {
+	set, err := evalpreset.ResolveSet(activeEvaluationRef)
+	if err != nil {
+		log.Error("dataset items: resolve evaluation set failed", "error", err,
+			"deployment_id", deploymentID, "evaluation_ref", activeEvaluationRef)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+		return nil, false
+	}
+	outputs, invalid := resolveItemOutputs(set, submitted)
+	if invalid != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": invalid})
+		return nil, false
+	}
+	return outputs, true
+}
+
 // resolveItemOutputs pairs each evaluator in the set with its submitted value,
 // returning the outputs in definition order or the reason the request failed.
+// An evaluator the caller left out is absent from the result: a reviewer can
+// record as few values as they are sure of, including none.
 func resolveItemOutputs(
 	set []evaluator.Evaluator,
 	submitted []datasetItemEvaluatorOutput,
@@ -516,11 +573,11 @@ func resolveItemOutputs(
 
 	outputs := make([]evalitemstore.Output, 0, len(set))
 	for _, definition := range set {
-		raw, submitted := byKey[definition.Key]
-		if !submitted || raw == nil {
-			return nil, fmt.Sprintf("evaluator %q requires a value", definition.Key)
-		}
+		raw := byKey[definition.Key]
 		delete(byKey, definition.Key)
+		if raw == nil {
+			continue
+		}
 		if _, err := evaluator.ValidateValue(definition.Output, *raw); err != nil {
 			return nil, fmt.Sprintf("evaluator %q: %v", definition.Key, err)
 		}

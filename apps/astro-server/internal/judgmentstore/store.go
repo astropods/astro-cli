@@ -52,13 +52,6 @@ func (d CriterionDimension) Valid() bool {
 	}
 }
 
-// CriterionCounts is the aggregate good/bad count for one criterion dimension.
-type CriterionCounts struct {
-	Dimension CriterionDimension
-	GoodCount int
-	BadCount  int
-}
-
 // Prediction is an Astro-managed judge's stored prediction for one trace.
 type Prediction struct {
 	TraceTimestamp time.Time
@@ -420,35 +413,6 @@ func replaceReasonsTx(tx *sql.Tx, evalDatasetID, traceID string, reasons []Reaso
 	return previous, nil
 }
 
-// JudgedTraceIDs returns the subset of the input trace_ids that already have a judgment row.
-func (s *Store) JudgedTraceIDs(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]bool, error) {
-	if len(traceIDs) == 0 {
-		return map[string]bool{}, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT trace_id
-		FROM eval_dataset_judgments
-		WHERE eval_dataset_id = $1 AND trace_id = ANY($2)
-	`, evalDatasetID, pq.Array(traceIDs))
-	if err != nil {
-		return nil, fmt.Errorf("judgmentstore judged: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := make(map[string]bool, len(traceIDs))
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("judgmentstore judged scan: %w", err)
-		}
-		out[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("judgmentstore judged iter: %w", err)
-	}
-	return out, nil
-}
-
 // IsJudged reports whether a reviewer judgment already exists for the target.
 func (s *Store) IsJudged(ctx context.Context, evalDatasetID, traceID string) (bool, error) {
 	var judged bool
@@ -462,46 +426,6 @@ func (s *Store) IsJudged(ctx context.Context, evalDatasetID, traceID string) (bo
 		return false, fmt.Errorf("judgmentstore is judged: %w", err)
 	}
 	return judged, nil
-}
-
-// CriterionCounts returns selected criterion counts for a dataset, grouped by
-// dimension. Positive values count as good and negative values count as bad.
-func (s *Store) CriterionCounts(evalDatasetID string) ([]CriterionCounts, error) {
-	rows, err := s.db.Query(`
-		SELECT
-			dimension_key,
-			COUNT(*) FILTER (WHERE dimension_value > 0) AS good_count,
-			COUNT(*) FILTER (WHERE dimension_value < 0) AS bad_count
-		FROM eval_dataset_judgment_reasons
-		WHERE eval_dataset_id = $1
-		GROUP BY dimension_key
-		ORDER BY dimension_key
-	`, evalDatasetID)
-	if err != nil {
-		return nil, fmt.Errorf("judgmentstore criterion counts: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []CriterionCounts
-	for rows.Next() {
-		var (
-			key  string
-			good int64
-			bad  int64
-		)
-		if err := rows.Scan(&key, &good, &bad); err != nil {
-			return nil, fmt.Errorf("judgmentstore criterion counts scan: %w", err)
-		}
-		out = append(out, CriterionCounts{
-			Dimension: CriterionDimension(key),
-			GoodCount: int(good),
-			BadCount:  int(bad),
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("judgmentstore criterion counts iter: %w", err)
-	}
-	return out, nil
 }
 
 // Reason is one selected criterion on a judgment: a dimension and the value

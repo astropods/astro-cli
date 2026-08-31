@@ -17,7 +17,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore/judgmentstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 )
@@ -140,6 +139,21 @@ func (f *fakeEvaluationRunStore) FailQueuedRuns(
 ) error {
 	f.failed = append(f.failed, traceIDs...)
 	return nil
+}
+
+type fakeDatasetItemStore struct {
+	added    map[string]bool
+	addedErr error
+	traceIDs []string
+}
+
+func (f *fakeDatasetItemStore) AddedTraceIDs(
+	_ context.Context,
+	_ string,
+	traceIDs []string,
+) (map[string]bool, error) {
+	f.traceIDs = append([]string(nil), traceIDs...)
+	return f.added, f.addedErr
 }
 
 type fakeDatasetEvaluationQueue struct {
@@ -275,13 +289,13 @@ func completedRun(traceID string) evalrunstore.Run {
 }
 
 func TestPostDatasetEvaluationsQueuesMostRecentEligibleTraces(t *testing.T) {
-	store := &judgmentstoretest.FakePredictionStore{Judged: map[string]bool{"judged": true}}
+	store := &fakeDatasetItemStore{added: map[string]bool{"added": true}}
 	runStore := newFakeEvaluationRunStore()
 	runStore.runs = map[string]evalrunstore.Run{"evaluated": completedRun("evaluated")}
 	queue := &fakeDatasetEvaluationQueue{}
 	fixture := setupDatasetEvaluationsRouter(t, true, store, runStore, queue)
 	fixture.langfuse.traces = []langfuse.Trace{
-		evaluationTrace("judged"),
+		evaluationTrace("added"),
 		evaluationTrace("evaluated"),
 		{ID: "missing-input"},
 		evaluationTrace("trace-1"),
@@ -317,7 +331,7 @@ func TestPostDatasetEvaluationsSkipsRunsAlreadyInFlight(t *testing.T) {
 				"trace-1": {ID: "run-1", TraceID: "trace-1", Status: status},
 			}
 			queue := &fakeDatasetEvaluationQueue{}
-			fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, queue)
+			fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, queue)
 			fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1"), evaluationTrace("trace-2")}
 			fixture.expectAuthorized(true)
 			datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -338,7 +352,7 @@ func TestPostDatasetEvaluationsRetriesAFailedRun(t *testing.T) {
 		"trace-1": {ID: "run-1", TraceID: "trace-1", Status: evalrunstore.StatusFailed},
 	}
 	queue := &fakeDatasetEvaluationQueue{}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, queue)
 	fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -354,7 +368,7 @@ func TestPostDatasetEvaluationsRetriesAFailedRun(t *testing.T) {
 func TestPostDatasetEvaluationsFailsRunsItCouldNotEnqueue(t *testing.T) {
 	runStore := newFakeEvaluationRunStore()
 	queue := &fakeDatasetEvaluationQueue{failAt: 1}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, queue)
 	fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -373,7 +387,7 @@ func TestPostDatasetEvaluationsFailsRunsItCouldNotEnqueue(t *testing.T) {
 
 func TestPostDatasetEvaluationsScansUntilFiftyEligibleTraces(t *testing.T) {
 	queue := &fakeDatasetEvaluationQueue{}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), queue)
 	for i := 0; i < 120; i++ {
 		fixture.langfuse.traces = append(fixture.langfuse.traces, evaluationTrace(fmt.Sprintf("trace-%d", i)))
 	}
@@ -390,14 +404,14 @@ func TestPostDatasetEvaluationsScansUntilFiftyEligibleTraces(t *testing.T) {
 
 func TestPostDatasetEvaluationsAuthorizationAndConfiguration(t *testing.T) {
 	t.Run("non-member", func(t *testing.T) {
-		fixture := setupDatasetEvaluationsRouter(t, false, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
+		fixture := setupDatasetEvaluationsRouter(t, false, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 		rec := evaluationRequest(t, fixture.router)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("response = %d", rec.Code)
 		}
 	})
 	t.Run("langfuse not configured", func(t *testing.T) {
-		fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
+		fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 		fixture.cfg.Deployment.LangfuseBaseURL = ""
 		fixture.expectAuthorized(true)
 		rec := evaluationRequest(t, fixture.router)
@@ -406,7 +420,7 @@ func TestPostDatasetEvaluationsAuthorizationAndConfiguration(t *testing.T) {
 		}
 	})
 	t.Run("missing credentials", func(t *testing.T) {
-		fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
+		fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 		fixture.credentials.credentials = nil
 		fixture.expectAuthorized(true)
 		datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -418,7 +432,7 @@ func TestPostDatasetEvaluationsAuthorizationAndConfiguration(t *testing.T) {
 }
 
 func TestPostDatasetEvaluationsMissingDataset(t *testing.T) {
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectMissing(fixture.datasetMock, "dep-1")
 
@@ -433,7 +447,7 @@ func TestPostDatasetEvaluationsIsANoOpWhenEverythingIsEvaluated(t *testing.T) {
 	runStore := newFakeEvaluationRunStore()
 	runStore.runs = map[string]evalrunstore.Run{"trace-1": completedRun("trace-1")}
 	queue := &fakeDatasetEvaluationQueue{}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, queue)
 	fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -446,8 +460,8 @@ func TestPostDatasetEvaluationsIsANoOpWhenEverythingIsEvaluated(t *testing.T) {
 }
 
 func TestPostDatasetEvaluationsStoreReadFailures(t *testing.T) {
-	t.Run("judgments", func(t *testing.T) {
-		store := &judgmentstoretest.FakePredictionStore{JudgedErr: errors.New("db down")}
+	t.Run("dataset items", func(t *testing.T) {
+		store := &fakeDatasetItemStore{addedErr: errors.New("db down")}
 		fixture := setupDatasetEvaluationsRouter(t, true, store, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 		fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 		fixture.expectAuthorized(true)
@@ -460,7 +474,7 @@ func TestPostDatasetEvaluationsStoreReadFailures(t *testing.T) {
 	t.Run("runs", func(t *testing.T) {
 		runStore := newFakeEvaluationRunStore()
 		runStore.runsErr = errors.New("db down")
-		fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, &fakeDatasetEvaluationQueue{})
+		fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, &fakeDatasetEvaluationQueue{})
 		fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 		fixture.expectAuthorized(true)
 		datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -472,7 +486,7 @@ func TestPostDatasetEvaluationsStoreReadFailures(t *testing.T) {
 }
 
 func TestPostDatasetEvaluationsLangfuseFailures(t *testing.T) {
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), &fakeDatasetEvaluationQueue{})
 	fixture.langfuse.statusCode = http.StatusBadGateway
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -486,7 +500,7 @@ func TestPostDatasetEvaluationsReportsEveryTraceWhenRecordingFails(t *testing.T)
 	runStore := newFakeEvaluationRunStore()
 	runStore.createErr = errors.New("write failed")
 	queue := &fakeDatasetEvaluationQueue{}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, runStore, queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, runStore, queue)
 	fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1")}
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -503,7 +517,7 @@ func TestPostDatasetEvaluationsReportsEveryTraceWhenRecordingFails(t *testing.T)
 
 func TestPostDatasetEvaluationsEnqueueFailureReportsEveryTrace(t *testing.T) {
 	queue := &fakeDatasetEvaluationQueue{failAt: 1}
-	fixture := setupDatasetEvaluationsRouter(t, true, &judgmentstoretest.FakePredictionStore{}, newFakeEvaluationRunStore(), queue)
+	fixture := setupDatasetEvaluationsRouter(t, true, &fakeDatasetItemStore{}, newFakeEvaluationRunStore(), queue)
 	fixture.langfuse.traces = []langfuse.Trace{evaluationTrace("trace-1"), evaluationTrace("trace-2")}
 	fixture.expectAuthorized(true)
 	datasetstoretest.ExpectLegacyExists(fixture.datasetMock, "dep-1")
@@ -623,7 +637,7 @@ func TestPostDatasetEvaluationsRefusesASuspendedAccount(t *testing.T) {
 	fixtureEntCheck = blockingEntCheck{reason: "credits_exhausted"}
 	t.Cleanup(func() { fixtureEntCheck = nil })
 
-	store := &judgmentstoretest.FakePredictionStore{}
+	store := &fakeDatasetItemStore{}
 	runStore := newFakeEvaluationRunStore()
 	queue := &fakeDatasetEvaluationQueue{}
 	fixture := setupDatasetEvaluationsRouter(t, true, store, runStore, queue)

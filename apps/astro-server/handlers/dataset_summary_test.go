@@ -5,25 +5,31 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore"
 )
 
-type criterionCountRow struct {
-	dimension string
-	goodCount int
-	badCount  int
+type valueCountRow struct {
+	evaluatorKey string
+	value        string
+	count        int
 }
 
-func expectCriterionCounts(mock sqlmock.Sqlmock, evalDatasetID string, rows ...criterionCountRow) {
-	dbRows := sqlmock.NewRows([]string{"dimension_key", "good_count", "bad_count"})
+func expectItemCount(mock sqlmock.Sqlmock, evalDatasetID string, count int) {
+	mock.ExpectQuery("count\\(\\*\\)\\s+FROM eval_dataset_items").
+		WithArgs(evalDatasetID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+}
+
+func expectOutputValueCounts(mock sqlmock.Sqlmock, evalDatasetID string, rows ...valueCountRow) {
+	dbRows := sqlmock.NewRows([]string{"evaluator_key", "value_json", "count"})
 	for _, row := range rows {
-		dbRows.AddRow(row.dimension, row.goodCount, row.badCount)
+		dbRows.AddRow(row.evaluatorKey, []byte(row.value), row.count)
 	}
-	mock.ExpectQuery("FROM eval_dataset_judgment_reasons").
+	mock.ExpectQuery("FROM eval_dataset_item_evaluator_outputs").
 		WithArgs(evalDatasetID).
 		WillReturnRows(dbRows)
 }
@@ -83,11 +89,11 @@ func TestGetEvalDataset_DatasetNotYetCreated(t *testing.T) {
 	}
 }
 
-func TestGetEvalDataset_CriterionCountsError(t *testing.T) {
+func TestGetEvalDataset_ItemCountError(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
-	f.judgmentMock.ExpectQuery("FROM eval_dataset_judgment_reasons").
+	f.itemMock.ExpectQuery("FROM eval_dataset_items").
 		WithArgs(datasetstoretest.ID("dep-1")).
 		WillReturnError(errors.New("count failed"))
 
@@ -105,8 +111,26 @@ func TestGetEvalDataset_CriterionCountsError(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if resp.Error != "failed to get dataset criteria counts" {
-		t.Errorf("error = %q, want failed to get dataset criteria counts", resp.Error)
+	if resp.Error != "failed to count dataset items" {
+		t.Errorf("error = %q, want failed to count dataset items", resp.Error)
+	}
+}
+
+func TestGetEvalDataset_OutputValueCountsError(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
+	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 40)
+	f.itemMock.ExpectQuery("FROM eval_dataset_item_evaluator_outputs").
+		WithArgs(datasetstoretest.ID("dep-1")).
+		WillReturnError(errors.New("count failed"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -114,9 +138,12 @@ func TestGetEvalDataset_OK(t *testing.T) {
 	f := setupDatasetRouter(t, true, nil)
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 100, 90, 10)
-	expectCriterionCounts(f.judgmentMock, datasetstoretest.ID("dep-1"),
-		criterionCountRow{dimension: "accuracy", goodCount: 12, badCount: 2},
-		criterionCountRow{dimension: "tone", goodCount: 4, badCount: 1},
+	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 40)
+	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"),
+		valueCountRow{evaluatorKey: "exposed_pii", value: "false", count: 38},
+		valueCountRow{evaluatorKey: "exposed_pii", value: "true", count: 2},
+		valueCountRow{evaluatorKey: "user_sentiment", value: `"negative"`, count: 9},
+		valueCountRow{evaluatorKey: "user_sentiment", value: `"positive"`, count: 31},
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
@@ -127,45 +154,93 @@ func TestGetEvalDataset_OK(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp struct {
-		DatasetName    string `json:"dataset_name"`
-		ItemCount      int    `json:"item_count"`
-		CriteriaCounts []struct {
-			DimensionKey string `json:"dimension_key"`
-			GoodCount    int    `json:"good_count"`
-			BadCount     int    `json:"bad_count"`
-		} `json:"criteria_counts"`
-	}
+	var resp evalDatasetSummary
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if resp.DatasetName != "dep-dep-1" {
 		t.Errorf("dataset_name = %q, want dep-dep-1", resp.DatasetName)
 	}
-	if resp.ItemCount != 100 {
-		t.Errorf("item_count = %d, want 100", resp.ItemCount)
+	if resp.ItemCount != 40 {
+		t.Errorf("item_count = %d, want 40", resp.ItemCount)
 	}
-	if len(resp.CriteriaCounts) != len(judgmentstore.CriterionDimensions) {
-		t.Fatalf("criteria_counts len = %d, want %d", len(resp.CriteriaCounts), len(judgmentstore.CriterionDimensions))
+	if len(resp.Evaluators) != 2 {
+		t.Fatalf("evaluators = %+v, want one entry per evaluator key", resp.Evaluators)
 	}
-	criteriaByDimension := make(map[string]struct {
-		goodCount int
-		badCount  int
-	}, len(resp.CriteriaCounts))
-	for _, count := range resp.CriteriaCounts {
-		criteriaByDimension[count.DimensionKey] = struct {
-			goodCount int
-			badCount  int
-		}{goodCount: count.GoodCount, badCount: count.BadCount}
+	if resp.Evaluators[0].Key != "exposed_pii" || len(resp.Evaluators[0].Distribution) != 2 {
+		t.Fatalf("first evaluator = %+v", resp.Evaluators[0])
 	}
-	if got := criteriaByDimension["accuracy"]; got.goodCount != 12 || got.badCount != 2 {
-		t.Errorf("accuracy criteria counts = good %d / bad %d, want 12 / 2", got.goodCount, got.badCount)
+	if resp.Evaluators[0].Label != "Exposed PII" {
+		t.Errorf("first label = %q, want Exposed PII", resp.Evaluators[0].Label)
 	}
-	if got := criteriaByDimension["completeness"]; got.goodCount != 0 || got.badCount != 0 {
-		t.Errorf("completeness criteria counts = good %d / bad %d, want 0 / 0", got.goodCount, got.badCount)
+	if got := resp.Evaluators[0].Distribution[0]; string(got.Value) != "false" || got.Count != 38 {
+		t.Errorf("first value = %+v, want false / 38", got)
 	}
-	if got := criteriaByDimension["tone"]; got.goodCount != 4 || got.badCount != 1 {
-		t.Errorf("tone criteria counts = good %d / bad %d, want 4 / 1", got.goodCount, got.badCount)
+	if resp.Evaluators[1].Key != "user_sentiment" || len(resp.Evaluators[1].Distribution) != 2 {
+		t.Fatalf("second evaluator = %+v", resp.Evaluators[1])
+	}
+	if got := resp.Evaluators[1].Distribution[1]; string(got.Value) != `"positive"` || got.Count != 31 {
+		t.Errorf("second value = %+v, want positive / 31", got)
+	}
+}
+
+func TestGetEvalDataset_OrdersEvaluatorsBySetAndKeepsRetiredOnes(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 10, 10, 0)
+	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 10)
+	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"),
+		valueCountRow{evaluatorKey: "retired_check", value: "true", count: 1},
+		valueCountRow{evaluatorKey: "user_sentiment", value: `"positive"`, count: 4},
+		valueCountRow{evaluatorKey: "exposed_pii", value: "false", count: 5},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp evalDatasetSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	keys := make([]string, 0, len(resp.Evaluators))
+	labels := make([]string, 0, len(resp.Evaluators))
+	for _, evaluator := range resp.Evaluators {
+		keys = append(keys, evaluator.Key)
+		labels = append(labels, evaluator.Label)
+	}
+	if want := []string{"exposed_pii", "user_sentiment", "retired_check"}; !slices.Equal(keys, want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	if want := []string{"Exposed PII", "User sentiment", "retired_check"}; !slices.Equal(labels, want) {
+		t.Errorf("labels = %v, want %v", labels, want)
+	}
+}
+
+func TestGetEvalDataset_EmptyDataset(t *testing.T) {
+	f := setupDatasetRouter(t, true, nil)
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRowCounts(f.datasetMock, "dep-1", "dep-dep-1", 0, 0, 0)
+	expectItemCount(f.itemMock, datasetstoretest.ID("dep-1"), 0)
+	expectOutputValueCounts(f.itemMock, datasetstoretest.ID("dep-1"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset", nil)
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp evalDatasetSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.ItemCount != 0 || len(resp.Evaluators) != 0 {
+		t.Fatalf("response = %+v, want no items and no evaluators", resp)
 	}
 }
 

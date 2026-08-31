@@ -107,7 +107,7 @@ func PostDatasetEvaluations(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore datasetEvaluationLangfuseStore,
-	judgmentStore reviewQueueScanStore,
+	itemStore reviewQueueScanStore,
 	runStore datasetEvaluationRunStore,
 	queue datasetEvaluationQueue,
 	entCheck EntitlementChecker,
@@ -128,7 +128,7 @@ func PostDatasetEvaluations(
 		if cfg == nil ||
 			cfg.Deployment.LangfuseBaseURL == "" ||
 			langfuseStore == nil ||
-			judgmentStore == nil ||
+			itemStore == nil ||
 			runStore == nil ||
 			queue == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset evaluation is not configured"})
@@ -159,7 +159,7 @@ func PostDatasetEvaluations(
 		recentQueue, err := scanLangfuseReviewQueuePages(
 			c.Request.Context(),
 			traceClient,
-			judgmentStore,
+			itemStore,
 			runStore,
 			dataset.ID,
 			deploymentID,
@@ -205,7 +205,7 @@ func PostDatasetEvaluations(
 		queuedTraceIDs, err := runStore.CreateQueuedRuns(
 			c.Request.Context(),
 			dataset.ID,
-			reviewQueueEvaluationRef,
+			activeEvaluationRef,
 			eligible,
 		)
 		if err != nil {
@@ -219,7 +219,7 @@ func PostDatasetEvaluations(
 			if failErr := runStore.FailQueuedRuns(
 				c.Request.Context(),
 				dataset.ID,
-				reviewQueueEvaluationRef,
+				activeEvaluationRef,
 				queuedTraceIDs,
 				evaluationEnqueueFailureMessage,
 			); failErr != nil {

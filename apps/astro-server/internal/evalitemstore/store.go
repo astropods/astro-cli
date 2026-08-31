@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 var (
@@ -24,6 +26,17 @@ type Item struct {
 type Output struct {
 	EvaluatorKey string          `json:"key"`
 	Value        json.RawMessage `json:"value"`
+}
+
+type VerifiedItem struct {
+	Item
+	Outputs []Output
+}
+
+type ValueCount struct {
+	EvaluatorKey string
+	Value        json.RawMessage
+	Count        int
 }
 
 type Store struct {
@@ -91,6 +104,119 @@ func (s *Store) Get(ctx context.Context, evalDatasetID, traceID string) (*Item, 
 	}
 	item.VerifiedByUserID = verifiedBy.String
 	return &item, nil
+}
+
+func (s *Store) GetMany(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]VerifiedItem, error) {
+	out := make(map[string]VerifiedItem, len(traceIDs))
+	if len(traceIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT i.trace_id, i.evaluation_ref, i.source_evaluation_run_id, i.verified_by_user_id,
+		       COALESCE((
+		           SELECT jsonb_agg(
+		                      jsonb_build_object('key', o.evaluator_key, 'value', o.value_json)
+		                      ORDER BY o.evaluator_key
+		                  )
+		           FROM eval_dataset_item_evaluator_outputs o
+		           WHERE o.eval_dataset_id = i.eval_dataset_id AND o.trace_id = i.trace_id
+		       ), '[]'::jsonb)
+		FROM eval_dataset_items i
+		WHERE i.eval_dataset_id = $1 AND i.trace_id = ANY($2)
+	`, evalDatasetID, pq.Array(traceIDs))
+	if err != nil {
+		return nil, fmt.Errorf("evalitemstore get many: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		item := VerifiedItem{Item: Item{EvalDatasetID: evalDatasetID}}
+		var runID, verifiedBy sql.NullString
+		var outputs []byte
+		if err := rows.Scan(&item.TraceID, &item.EvaluationRef, &runID, &verifiedBy, &outputs); err != nil {
+			return nil, fmt.Errorf("evalitemstore get many scan: %w", err)
+		}
+		if runID.Valid {
+			item.SourceEvaluationRunID = &runID.String
+		}
+		item.VerifiedByUserID = verifiedBy.String
+		if err := json.Unmarshal(outputs, &item.Outputs); err != nil {
+			return nil, fmt.Errorf("evalitemstore get many outputs %q: %w", item.TraceID, err)
+		}
+		out[item.TraceID] = item
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("evalitemstore get many iter: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) Count(ctx context.Context, evalDatasetID string) (int, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM eval_dataset_items
+		WHERE eval_dataset_id = $1
+	`, evalDatasetID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("evalitemstore count: %w", err)
+	}
+	return count, nil
+}
+
+func (s *Store) OutputValueCounts(ctx context.Context, evalDatasetID string) ([]ValueCount, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT evaluator_key, value_json, count(*)
+		FROM eval_dataset_item_evaluator_outputs
+		WHERE eval_dataset_id = $1
+		GROUP BY evaluator_key, value_json
+		ORDER BY evaluator_key, value_json
+	`, evalDatasetID)
+	if err != nil {
+		return nil, fmt.Errorf("evalitemstore output value counts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var out []ValueCount
+	for rows.Next() {
+		var count ValueCount
+		if err := rows.Scan(&count.EvaluatorKey, &count.Value, &count.Count); err != nil {
+			return nil, fmt.Errorf("evalitemstore output value counts scan: %w", err)
+		}
+		out = append(out, count)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("evalitemstore output value counts iter: %w", err)
+	}
+	return out, nil
+}
+
+// AddedTraceIDs returns the subset of the given trace IDs already in the dataset.
+func (s *Store) AddedTraceIDs(ctx context.Context, evalDatasetID string, traceIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(traceIDs))
+	if len(traceIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT trace_id
+		FROM eval_dataset_items
+		WHERE eval_dataset_id = $1 AND trace_id = ANY($2)
+	`, evalDatasetID, pq.Array(traceIDs))
+	if err != nil {
+		return nil, fmt.Errorf("evalitemstore added trace ids: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var traceID string
+		if err := rows.Scan(&traceID); err != nil {
+			return nil, fmt.Errorf("evalitemstore added trace ids scan: %w", err)
+		}
+		out[traceID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("evalitemstore added trace ids iter: %w", err)
+	}
+	return out, nil
 }
 
 func (s *Store) ReplaceOutputs(ctx context.Context, evalDatasetID, traceID, verifiedByUserID string, outputs []Output) error {

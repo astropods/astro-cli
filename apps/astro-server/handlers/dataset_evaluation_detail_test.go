@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -85,7 +86,7 @@ func TestGetTraceEvaluationReturnsEveryEvaluatorInSetOrder(t *testing.T) {
 		response.UserDetails.DisplayName != "Bob Smith" {
 		t.Fatalf("trace identity = %+v / %+v", response.UserID, response.UserDetails)
 	}
-	if response.EvaluationRef != reviewQueueEvaluationRef ||
+	if response.EvaluationRef != activeEvaluationRef ||
 		response.Run == nil ||
 		response.Run.Status != "completed" {
 		t.Fatalf("response = %+v", response)
@@ -108,6 +109,35 @@ func TestGetTraceEvaluationReturnsEveryEvaluatorInSetOrder(t *testing.T) {
 	sentiment := response.Evaluators[1]
 	if sentiment.Key != "user_sentiment" || sentiment.Status != "failed" || sentiment.Error == nil {
 		t.Fatalf("sentiment = %+v", sentiment)
+	}
+}
+
+func TestGetTraceEvaluationOrdersResultsByTheSetNotTheStore(t *testing.T) {
+	f := setupDatasetRouter(t, true, traceCoreHandler(t, ""))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	datasetstoretest.ExpectExists(f.datasetMock, "dep-1")
+	expectLatestRuns(f.runMock, map[string]string{"trace-1": "completed"})
+	// The store returns results by evaluator key, which is not the order the
+	// evaluation set defines them in.
+	expectEvaluatorResults(f.runMock, "run-trace-1", func(rows *sqlmock.Rows) {
+		rows.AddRow("claim_grounding", "completed", []byte(`"grounded"`), 0.9, "", nil)
+		rows.AddRow("exposed_pii", "completed", []byte("false"), 0.9, "", nil)
+		rows.AddRow("user_sentiment", "completed", []byte(`"positive"`), 0.9, "", nil)
+	})
+
+	rec := traceEvaluationRequest(f.router, "trace-1")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+	}
+	response := decodeTraceEvaluation(t, rec)
+	keys := make([]string, 0, len(response.Evaluators))
+	for _, result := range response.Evaluators {
+		keys = append(keys, result.Key)
+	}
+	want := []string{"exposed_pii", "claim_grounding", "user_sentiment"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("evaluator order = %v, want %v", keys, want)
 	}
 }
 

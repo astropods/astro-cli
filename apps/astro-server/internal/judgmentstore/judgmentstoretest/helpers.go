@@ -4,8 +4,6 @@
 package judgmentstoretest
 
 import (
-	"context"
-
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/lib/pq"
 
@@ -81,67 +79,4 @@ func ExpectReplaceReasonsMissing(mock sqlmock.Sqlmock, datasetID, traceID string
 		WithArgs(datasetID, traceID).
 		WillReturnRows(sqlmock.NewRows([]string{"verdict"}))
 	mock.ExpectRollback()
-}
-
-func ExpectJudgedTraceIDs(mock sqlmock.Sqlmock, datasetID string, traceIDs ...string) {
-	rows := sqlmock.NewRows([]string{"trace_id"})
-	for _, traceID := range traceIDs {
-		rows.AddRow(traceID)
-	}
-	mock.ExpectQuery("SELECT trace_id FROM eval_dataset_judgments").
-		WithArgs(datasetID, sqlmock.AnyArg()).
-		WillReturnRows(rows)
-}
-
-// PredictionRequestUpdate records one batch lifecycle update made through a
-// FakePredictionStore.
-type PredictionRequestUpdate struct {
-	TraceIDs     []string
-	Status       judgmentstore.PredictionRequestStatus
-	ErrorMessage *string
-}
-
-// FakePredictionStore is a deterministic prediction-store implementation for
-// handler tests. PreservedIDs model queued or in-progress rows that a batch
-// queue operation leaves unchanged.
-type FakePredictionStore struct {
-	Judged         map[string]bool
-	Requests       map[string]judgmentstore.PredictionRequest
-	Predictions    map[string]judgmentstore.Prediction
-	JudgedErr      error
-	RequestsErr    error
-	PredictionsErr error
-	QueueErr       error
-	UpdateErr      error
-	BatchTraceIDs  []string
-	PredictionIDs  []string
-	QueuedTraceIDs []string
-	PreservedIDs   map[string]bool
-	Updates        []PredictionRequestUpdate
-}
-
-func (f *FakePredictionStore) JudgedTraceIDs(
-	_ context.Context,
-	_ string,
-	traceIDs []string,
-) (map[string]bool, error) {
-	f.BatchTraceIDs = append([]string(nil), traceIDs...)
-	return f.Judged, f.JudgedErr
-}
-
-func (f *FakePredictionStore) GetPredictionRequests(
-	_ context.Context,
-	_ string,
-	_ []string,
-) (map[string]judgmentstore.PredictionRequest, error) {
-	return f.Requests, f.RequestsErr
-}
-
-func (f *FakePredictionStore) GetPredictions(
-	_ context.Context,
-	_ string,
-	traceIDs []string,
-) (map[string]judgmentstore.Prediction, error) {
-	f.PredictionIDs = append([]string(nil), traceIDs...)
-	return f.Predictions, f.PredictionsErr
 }

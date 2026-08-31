@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/evaldataset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
+	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -57,4 +60,62 @@ func loadDatasetEnsured(
 		return nil, false
 	}
 	return ensured, true
+}
+
+const activeEvaluationRef = evalpreset.RefDefaultSet
+
+func requireTraceIDParam(c *gin.Context) (string, bool) {
+	traceID := strings.TrimSpace(c.Param("trace_id"))
+	if traceID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
+		return "", false
+	}
+	return traceID, true
+}
+
+type evaluatorGroup[R any] struct {
+	Key        string
+	Definition evaluator.Evaluator
+	Rows       []R
+}
+
+func evaluatorsBySet[R any](
+	set []evaluator.Evaluator,
+	rows []R,
+	keyOf func(R) string,
+) []evaluatorGroup[R] {
+	grouped := make(map[string][]R, len(set))
+	order := make([]string, 0, len(set))
+	for _, row := range rows {
+		key := keyOf(row)
+		if _, seen := grouped[key]; !seen {
+			order = append(order, key)
+		}
+		grouped[key] = append(grouped[key], row)
+	}
+
+	out := make([]evaluatorGroup[R], 0, len(order))
+	for _, definition := range set {
+		matched, ok := grouped[definition.Key]
+		if !ok {
+			continue
+		}
+		delete(grouped, definition.Key)
+		out = append(out, evaluatorGroup[R]{Key: definition.Key, Definition: definition, Rows: matched})
+	}
+	for _, key := range order {
+		matched, ok := grouped[key]
+		if !ok {
+			continue
+		}
+		out = append(out, evaluatorGroup[R]{Key: key, Rows: matched})
+	}
+	return out
+}
+
+func (g evaluatorGroup[R]) label() string {
+	if g.Definition.Key == "" {
+		return g.Key
+	}
+	return g.Definition.Label
 }

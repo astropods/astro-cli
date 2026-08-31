@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,91 @@ func TestGetReturnsNilForATraceNotInTheDataset(t *testing.T) {
 	got, err := store.Get(context.Background(), "dataset-1", "trace-1")
 	require.NoError(t, err)
 	assert.Nil(t, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetManyReturnsTheItemsWithTheirOutputs(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs("dataset-1", pq.Array([]string{"trace-1", "trace-2"})).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"trace_id", "evaluation_ref", "source_evaluation_run_id", "verified_by_user_id", "outputs",
+		}).
+			AddRow("trace-1", "preset/default-evaluation", "run-1", "user-1",
+				[]byte(`[{"key":"exposed_pii","value":false}]`)).
+			AddRow("trace-2", "preset/default-evaluation", nil, nil, []byte(`[]`)))
+
+	got, err := store.GetMany(context.Background(), "dataset-1", []string{"trace-1", "trace-2"})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	first := got["trace-1"]
+	require.NotNil(t, first.SourceEvaluationRunID)
+	assert.Equal(t, "run-1", *first.SourceEvaluationRunID)
+	assert.Equal(t, "user-1", first.VerifiedByUserID)
+	assert.Equal(t, []Output{{EvaluatorKey: "exposed_pii", Value: json.RawMessage("false")}}, first.Outputs)
+	second := got["trace-2"]
+	assert.Nil(t, second.SourceEvaluationRunID)
+	assert.Empty(t, second.VerifiedByUserID)
+	assert.Empty(t, second.Outputs)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetManyWithoutTracesSkipsTheQuery(t *testing.T) {
+	store, mock := newStore(t)
+
+	got, err := store.GetMany(context.Background(), "dataset-1", nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCount(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs("dataset-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
+	got, err := store.Count(context.Background(), "dataset-1")
+	require.NoError(t, err)
+	assert.Equal(t, 12, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestOutputValueCountsGroupsStoredValues(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("FROM eval_dataset_item_evaluator_outputs").
+		WithArgs("dataset-1").
+		WillReturnRows(sqlmock.NewRows([]string{"evaluator_key", "value_json", "count"}).
+			AddRow("exposed_pii", []byte("false"), 4).
+			AddRow("user_sentiment", []byte(`"positive"`), 3))
+
+	got, err := store.OutputValueCounts(context.Background(), "dataset-1")
+	require.NoError(t, err)
+	assert.Equal(t, []ValueCount{
+		{EvaluatorKey: "exposed_pii", Value: json.RawMessage("false"), Count: 4},
+		{EvaluatorKey: "user_sentiment", Value: json.RawMessage(`"positive"`), Count: 3},
+	}, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAddedTraceIDsReturnsTheTracesInTheDataset(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs("dataset-1", pq.Array([]string{"trace-1", "trace-2"})).
+		WillReturnRows(sqlmock.NewRows([]string{"trace_id"}).AddRow("trace-2"))
+
+	got, err := store.AddedTraceIDs(context.Background(), "dataset-1", []string{"trace-1", "trace-2"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"trace-2": true}, got)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAddedTraceIDsWithoutTracesSkipsTheQuery(t *testing.T) {
+	store, mock := newStore(t)
+
+	got, err := store.AddedTraceIDs(context.Background(), "dataset-1", nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

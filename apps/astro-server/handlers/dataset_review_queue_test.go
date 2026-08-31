@@ -12,17 +12,16 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
-	"github.com/astropods/astro/apps/astro-server/internal/judgmentstore/judgmentstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 )
 
-func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
+func TestGetDatasetReviewQueue_FiltersDatasetItems(t *testing.T) {
 	traces := []langfuse.Trace{
 		{
 			ID:        "trace-3",
 			SessionID: "session-2",
 			CreatedAt: "2026-06-01T14:00:00Z", Timestamp: "2026-06-01T14:00:00Z",
-			Input:  "already judged",
+			Input:  "already in the dataset",
 			Output: "done",
 		},
 		{
@@ -44,7 +43,7 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1", "trace-3")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1", "trace-3")
 	expectNoRuns(f.runMock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue?limit=3", nil)
@@ -70,8 +69,8 @@ func TestGetDatasetReviewQueue_FiltersJudged(t *testing.T) {
 	if resp.Items[0].Run != nil || resp.Items[1].Run != nil {
 		t.Fatalf("runs = %+v/%+v, want none", resp.Items[0].Run, resp.Items[1].Run)
 	}
-	if err := f.judgmentMock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("unmet judgment expectations: %v", err)
+	if err := f.itemMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet dataset item expectations: %v", err)
 	}
 }
 
@@ -100,7 +99,7 @@ func TestGetDatasetReviewQueue_EvaluatedPagesLocallyThenFetchesTraces(t *testing
 		TraceID:        "trace-1",
 		TraceTimestamp: time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC),
 	})
-	judgmentstoretest.ExpectJudgedTraceIDs(f.judgmentMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
 	expectLatestRuns(f.runMock, map[string]string{"trace-1": "completed"})
 
 	req := httptest.NewRequest(
@@ -133,7 +132,7 @@ func TestGetDatasetReviewQueue_NotEvaluatedDropsCompletedRuns(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, 2, "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	judgmentstoretest.ExpectJudgedTraceIDs(f.judgmentMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
 	expectLatestRuns(f.runMock, map[string]string{"trace-done": "completed"})
 
 	req := httptest.NewRequest(
@@ -208,7 +207,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	firstReq := httptest.NewRequest(
 		http.MethodGet,
@@ -231,7 +230,7 @@ func TestGetDatasetReviewQueue_CursorResumesWithinRawPage(t *testing.T) {
 
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 	secondReq := httptest.NewRequest(
 		http.MethodGet,
@@ -308,7 +307,7 @@ func TestGetDatasetReviewQueue_DefaultLimitUsesDefaultPageSize(t *testing.T) {
 	f := setupDatasetRouter(t, true, langfuseTracesHandler(t, traces, len(traces), "100", "", "*"))
 	expectAuthorizedDeployment(f.traceDetailFixture)
 	expectDatasetRowCounts(f.datasetMock, "dep-1", "eval-dep-1", 1, 1, 0)
-	expectEmptyReviewQueueState(f.judgmentMock, "dataset-dep-1")
+	expectEmptyReviewQueueState(f.itemMock, "dataset-dep-1")
 	expectNoRuns(f.runMock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/deployments/dep-1/dataset/review-queue", nil)
@@ -486,14 +485,20 @@ func langfuseTracesHandler(t *testing.T, traces []langfuse.Trace, totalItems int
 	}
 }
 
-func expectEmptyReviewQueueState(mock sqlmock.Sqlmock, datasetID string, judgedTraceIDs ...string) {
-	judgmentstoretest.ExpectJudgedTraceIDs(mock, datasetID, judgedTraceIDs...)
+func expectEmptyReviewQueueState(mock sqlmock.Sqlmock, datasetID string, addedTraceIDs ...string) {
+	rows := sqlmock.NewRows([]string{"trace_id"})
+	for _, traceID := range addedTraceIDs {
+		rows.AddRow(traceID)
+	}
+	mock.ExpectQuery("FROM eval_dataset_items").
+		WithArgs(datasetID, sqlmock.AnyArg()).
+		WillReturnRows(rows)
 }
 
 func expectLatestRuns(mock sqlmock.Sqlmock, runs map[string]string) {
 	rows := sqlmock.NewRows([]string{"trace_id", "id", "evaluation_ref", "status", "error_message"})
 	for traceID, status := range runs {
-		rows.AddRow(traceID, "run-"+traceID, reviewQueueEvaluationRef, status, nil)
+		rows.AddRow(traceID, "run-"+traceID, activeEvaluationRef, status, nil)
 	}
 	mock.ExpectQuery("DISTINCT ON").WillReturnRows(rows)
 }

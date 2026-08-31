@@ -45,9 +45,9 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	runStore := evalrunstore.NewStore(runDB)
 
 	f.router.GET("/api/v1/deployments/:id/dataset",
-		GetEvalDataset(log, accountStore, deployStore, dsStore, judgmentStore))
+		GetEvalDataset(log, accountStore, deployStore, dsStore, itemStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/items",
-		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
+		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore))
 	f.router.POST("/api/v1/deployments/:id/dataset/items",
 		PostDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore))
 	f.router.PUT("/api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs",
@@ -57,7 +57,7 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
 		DownloadEvalDataset(log, cfg, accountStore, deployStore, dsStore, langfuseStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
-		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, judgmentStore, runStore))
+		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue/:trace_id/evaluation",
 		GetDatasetTraceEvaluation(log, cfg, accountStore, deployStore, dsStore, langfuseStore, runStore, nil))
 	f.router.GET("/api/v1/deployments/:id/dataset/evaluations/status",

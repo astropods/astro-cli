@@ -2620,13 +2620,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			judgmentStore := judgmentstore.NewStore(db)
 			evalItemStore := evalitemstore.NewStore(db)
 			evalRunStore := evalrunstore.NewStore(db)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, judgmentStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, evalItemStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/items", "List judged dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/items", "List dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2662,7 +2662,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue", "Get dataset review queue", handlers.GetDatasetReviewQueue(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2684,7 +2684,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetEvaluationStatusResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, judgmentStore, evalRunStore, queue, ent),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, queue, ent),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

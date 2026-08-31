@@ -118,7 +118,7 @@ func GetDatasetTraceEvaluation(
 		}
 
 		response.EvaluationRef = run.EvaluationRef
-		queueRun := DatasetReviewQueueRun{Status: string(run.Status)}
+		queueRun := DatasetReviewQueueRun{ID: run.ID, Status: string(run.Status)}
 		if run.ErrorMessage != "" {
 			message := run.ErrorMessage
 			queueRun.Error = &message
@@ -131,30 +131,26 @@ func GetDatasetTraceEvaluation(
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load evaluator results"})
 			return
 		}
-		definitions := evaluationDefinitionsByKey(run.EvaluationRef)
-		for _, result := range results {
-			response.Evaluators = append(
-				response.Evaluators,
-				newDatasetTraceEvaluator(result, definitions[result.EvaluatorKey]),
-			)
-		}
+		response.Evaluators = orderedTraceEvaluators(run.EvaluationRef, results)
 		c.JSON(http.StatusOK, response)
 	}
 }
 
-// evaluationDefinitionsByKey supplies display metadata for the set that ran.
-// A reference this build cannot resolve leaves the results to speak for
-// themselves rather than failing the read.
-func evaluationDefinitionsByKey(evaluationRef string) map[string]evaluator.Evaluator {
-	set, err := evalpreset.ResolveSet(evaluationRef)
-	if err != nil {
-		return nil
+// orderedTraceEvaluators returns one entry per result. A reference this build
+// cannot resolve costs labels and ordering rather than failing the read.
+func orderedTraceEvaluators(
+	evaluationRef string,
+	results []evalrunstore.Result,
+) []DatasetTraceEvaluator {
+	set, _ := evalpreset.ResolveSet(evaluationRef)
+	groups := evaluatorsBySet(set, results,
+		func(result evalrunstore.Result) string { return result.EvaluatorKey })
+
+	out := make([]DatasetTraceEvaluator, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, newDatasetTraceEvaluator(group.Rows[0], group.Definition))
 	}
-	definitions := make(map[string]evaluator.Evaluator, len(set))
-	for _, definition := range set {
-		definitions[definition.Key] = definition
-	}
-	return definitions
+	return out
 }
 
 func newDatasetTraceEvaluator(

@@ -13,13 +13,12 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
 )
 
-const agentEvaluationRef = evalpreset.RefDefaultSet
-
 type EvaluationSetEvaluator struct {
-	Key    string           `json:"key"`
-	Label  string           `json:"label"`
-	Type   string           `json:"type"`
-	Output evaluator.Output `json:"output"`
+	Key         string           `json:"key"`
+	Label       string           `json:"label"`
+	Description string           `json:"description,omitempty"`
+	Type        string           `json:"type"`
+	Output      evaluator.Output `json:"output"`
 }
 
 type EvaluationSetResponse struct {
@@ -65,10 +64,10 @@ func GetAgentEvaluationSet(
 			return
 		}
 
-		set, err := evalpreset.ResolveSet(agentEvaluationRef)
+		set, err := evalpreset.ResolveSet(activeEvaluationRef)
 		if err != nil {
 			log.Error("evaluation set: resolve set failed", "error", err,
-				"account_id", acct.ID, "agent_name", agentName, "evaluation_ref", agentEvaluationRef)
+				"account_id", acct.ID, "agent_name", agentName, "evaluation_ref", activeEvaluationRef)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
 			return
 		}
@@ -76,15 +75,16 @@ func GetAgentEvaluationSet(
 		evaluators := make([]EvaluationSetEvaluator, 0, len(set))
 		for _, definition := range set {
 			evaluators = append(evaluators, EvaluationSetEvaluator{
-				Key:    definition.Key,
-				Label:  definition.Label,
-				Type:   string(definition.Type),
-				Output: definition.Output,
+				Key:         definition.Key,
+				Label:       definition.Label,
+				Description: definition.Description,
+				Type:        string(definition.Type),
+				Output:      definition.Output,
 			})
 		}
 
 		c.JSON(http.StatusOK, EvaluationSetResponse{
-			EvaluationRef: agentEvaluationRef,
+			EvaluationRef: activeEvaluationRef,
 			Evaluators:    evaluators,
 		})
 	}
