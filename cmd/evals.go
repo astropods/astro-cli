@@ -91,10 +91,6 @@ func runEvalsPush(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// resolveEvalsAgentName returns args[0] if given, otherwise the name declared
-// in the spec's name field. Unlike resolveSpecAndName, this does not run the
-// spec's full schema/semantic validation — an unrelated problem in the spec
-// should not block an evaluation-only push.
 func resolveEvalsAgentName(specPath string, args []string) (string, error) {
 	if len(args) > 0 {
 		return args[0], nil
