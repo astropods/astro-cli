@@ -20,7 +20,8 @@ the default set. Both get store packages (`evaldefinitionstore`,
 `evaldocument.Parse` validates a builder's YAML against the
 `evaluation/v1` document contract (schema, evaluator count, unique keys,
 preset references, prompt files) and computes a stable content-addressed
-ref for the result.
+ref for the result. Custom evaluators can also carry an optional
+`description`, matching what preset evaluators already expose.
 
 ## Migration
 
