@@ -11,21 +11,6 @@ const (
 	StatusRestoring Status = "restoring"
 )
 
-type SyncStatus string
-
-const (
-	SyncPending SyncStatus = "pending"
-	SyncSynced  SyncStatus = "synced"
-	SyncError   SyncStatus = "error"
-)
-
-type MembershipRole string
-
-const (
-	MembershipRoleMember MembershipRole = "member"
-	MembershipRoleAdmin  MembershipRole = "admin"
-)
-
 type Group struct {
 	ID               string
 	AccountID        string
@@ -36,30 +21,8 @@ type Group struct {
 	CreatedByUserID  string
 	ArchivedByUserID string
 	ArchivedAt       *time.Time
-	SyncStatus       SyncStatus
-	SyncError        string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-}
-
-type Summary struct {
-	Group
-	MemberCount    int
-	PreviewUserIDs []string
-}
-
-type Membership struct {
-	GroupID         string
-	AccountID       string
-	UserID          string
-	Role            MembershipRole
-	AddedByUserID   string
-	RemovedByUserID string
-	AddedAt         time.Time
-	RemovedAt       *time.Time
-	SyncStatus      SyncStatus
-	SyncError       string
-	UpdatedAt       time.Time
 }
 
 type CreateParams struct {

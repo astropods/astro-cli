@@ -2,19 +2,19 @@
 
 ## Summary
 
-Astro now has the persistence foundation for reusable account groups. It enables the Groups settings experience: searchable group lists, member previews, group administrators, archived groups that can be restored, and clear creation and membership attribution.
+Astro now has the persistence foundation for reusable account groups. It enables searchable group lists, creator-managed groups, and archived groups that can be restored.
 
 ## Design
 
-`groups` gives every group a stable Astro ID and maps it to a replaceable WorkOS group ID. It records the description, creator, lifecycle, and synchronization health.
+`groups` gives every group a stable Astro ID and maps it to a WorkOS group ID. It records the description, creator, and lifecycle.
 
-`group_memberships` models the many-to-many relationship between groups and account members. Memberships carry a local `member` or `admin` governance role plus add/remove attribution. A group creator is inserted as its first administrator in the same transaction.
+The creator manages the group. Account managers retain account-wide management access. WorkOS remains the source of truth for membership, so Astro does not duplicate the roster or maintain a synchronization ledger.
 
-Only user IDs are stored. Names and avatars continue to resolve through Astro's existing account-member profile path, so profile changes require no group data rewrite. Account-scoped foreign keys prevent cross-account membership.
+The creator is constrained to an account member. Names and avatars continue to resolve through Astro's existing account-member profile path.
 
-These records support group lifecycle APIs, member administration, archived-group restoration, and future resource role assignments. Text limits count characters rather than UTF-8 bytes. Duplicate WorkOS projections and duplicate group names remain distinct errors. Restore collisions and repeated member additions preserve archived names and administrator roles.
+The record supports group lifecycle APIs and future resource role assignments. Duplicate WorkOS IDs and duplicate active names remain distinct errors.
 
-The persistence contract is verified against Postgres itself, including transactional creation, case-insensitive active names, restore collisions, and membership resurrection. This protects the database invariants that query mocks cannot exercise.
+The persistence contract verifies creation, case-insensitive active names, and restore collisions against Postgres.
 
 ## Migration
 

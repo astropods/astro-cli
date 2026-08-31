@@ -175,8 +175,7 @@ CREATE TABLE public.account_members (
 
 CREATE INDEX idx_account_members_user ON public.account_members(user_id);
 
--- Astro owns group product metadata and membership governance. WorkOS receives
--- the active authorization projection referenced by workos_group_id.
+-- Astro owns group product metadata. WorkOS owns group membership.
 CREATE TABLE public.groups (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     account_id uuid NOT NULL,
@@ -187,16 +186,13 @@ CREATE TABLE public.groups (
     created_by_user_id text NOT NULL,
     archived_by_user_id text,
     archived_at timestamptz,
-    sync_status text NOT NULL DEFAULT 'pending',
-    sync_error text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT groups_pkey PRIMARY KEY (id),
     CONSTRAINT groups_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(id) ON DELETE CASCADE,
-    CONSTRAINT groups_account_id_id_key UNIQUE (account_id, id),
+    CONSTRAINT groups_creator_member_fkey FOREIGN KEY (account_id, created_by_user_id) REFERENCES public.account_members(account_id, user_id) ON DELETE RESTRICT,
     CONSTRAINT groups_workos_group_id_key UNIQUE (workos_group_id),
-    CONSTRAINT groups_status_check CHECK (status IN ('active', 'archiving', 'archived', 'restoring')),
-    CONSTRAINT groups_sync_status_check CHECK (sync_status IN ('pending', 'synced', 'error'))
+    CONSTRAINT groups_status_check CHECK (status IN ('active', 'archiving', 'archived', 'restoring'))
 );
 
 CREATE UNIQUE INDEX idx_groups_active_name
@@ -204,32 +200,6 @@ CREATE UNIQUE INDEX idx_groups_active_name
     WHERE status <> 'archived';
 CREATE INDEX idx_groups_account_status
     ON public.groups (account_id, status, created_at DESC, id DESC);
-
-CREATE TABLE public.group_memberships (
-    group_id uuid NOT NULL,
-    account_id uuid NOT NULL,
-    user_id text NOT NULL,
-    role text NOT NULL DEFAULT 'member',
-    added_by_user_id text NOT NULL,
-    removed_by_user_id text,
-    added_at timestamptz NOT NULL DEFAULT now(),
-    removed_at timestamptz,
-    sync_status text NOT NULL DEFAULT 'pending',
-    sync_error text,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT group_memberships_pkey PRIMARY KEY (group_id, user_id),
-    CONSTRAINT group_memberships_group_fkey FOREIGN KEY (account_id, group_id) REFERENCES public.groups(account_id, id) ON DELETE CASCADE,
-    CONSTRAINT group_memberships_account_member_fkey FOREIGN KEY (account_id, user_id) REFERENCES public.account_members(account_id, user_id) ON DELETE CASCADE,
-    CONSTRAINT group_memberships_role_check CHECK (role IN ('member', 'admin')),
-    CONSTRAINT group_memberships_sync_status_check CHECK (sync_status IN ('pending', 'synced', 'error'))
-);
-
-CREATE INDEX idx_group_memberships_account_user
-    ON public.group_memberships (account_id, user_id)
-    WHERE removed_at IS NULL;
-CREATE INDEX idx_group_memberships_group_active
-    ON public.group_memberships (group_id, added_at, user_id)
-    WHERE removed_at IS NULL;
 
 -- Stated as ALTER because accounts and account_members reference each other, and
 -- the schema file is replayed in order: neither table can name the other inline.
