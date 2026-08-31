@@ -85,6 +85,9 @@ demand, or --all-logs to tail every service.
 
 Use -b/--background to start in the background and exit immediately.`
 
+	// trigger reads the same env file as start, but shares no other flags.
+	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
 		cmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
