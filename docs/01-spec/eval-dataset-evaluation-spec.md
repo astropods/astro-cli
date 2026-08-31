@@ -85,6 +85,7 @@ schema: evaluation/v1
 evaluators:
   - key: has_secrets
     label: Contains secrets
+    description: Flags credentials, API keys, tokens, or other secrets in the output.
     type: llm
     prompt: Determine whether the agent output exposes credentials, API keys, tokens, or other secrets.
     output:
@@ -126,6 +127,7 @@ Each custom evaluator contains:
 
 - `key`: A stable machine identifier used in persistence and APIs.
 - `label`: A human-readable name.
+- `description`: Optional human-readable explanation shown alongside the evaluator's results.
 - `type`: The execution mechanism. Version 1 supports `llm`.
 - `config`: Optional configuration defined by the evaluator type. For LLM evaluators, version 1 only supports `context`.
 - `prompt` or `prompt_file`: The instructions used to perform the evaluation.

@@ -31,6 +31,7 @@ schema: evaluation/v1
 evaluators:
   - key: has_secrets
     label: Contains secrets
+    description: Flags credentials in the output.
     type: llm
     prompt: Determine whether the agent output exposes credentials.
     output:
@@ -39,6 +40,8 @@ evaluators:
 	require.NoError(t, err)
 	require.Len(t, result.Evaluators, 1)
 	assert.Equal(t, "has_secrets", result.Evaluators[0].Key)
+	assert.Equal(t, "Flags credentials in the output.", result.Evaluators[0].Description)
+	assert.Equal(t, "Flags credentials in the output.", result.Document.Evaluators[0].Description)
 	assert.Equal(t, evaluator.OutputBoolean, result.Evaluators[0].Output.Type)
 }
 

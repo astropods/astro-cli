@@ -26,13 +26,14 @@ const (
 var ErrInvalidDocument = errors.New("invalid evaluation document")
 
 type Entry struct {
-	Ref    string            `json:"ref,omitempty"`
-	Key    string            `json:"key,omitempty"`
-	Label  string            `json:"label,omitempty"`
-	Type   string            `json:"type,omitempty"`
-	Config *evaluator.Config `json:"config,omitempty"`
-	Prompt string            `json:"prompt,omitempty"`
-	Output *evaluator.Output `json:"output,omitempty"`
+	Ref         string            `json:"ref,omitempty"`
+	Key         string            `json:"key,omitempty"`
+	Label       string            `json:"label,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Type        string            `json:"type,omitempty"`
+	Config      *evaluator.Config `json:"config,omitempty"`
+	Prompt      string            `json:"prompt,omitempty"`
+	Output      *evaluator.Output `json:"output,omitempty"`
 }
 
 type Document struct {
@@ -52,14 +53,15 @@ type rawDocument struct {
 }
 
 type rawEntry struct {
-	Ref        string     `yaml:"ref"`
-	Key        string     `yaml:"key"`
-	Label      string     `yaml:"label"`
-	Type       string     `yaml:"type"`
-	Config     *rawConfig `yaml:"config"`
-	Prompt     string     `yaml:"prompt"`
-	PromptFile string     `yaml:"prompt_file"`
-	Output     *rawOutput `yaml:"output"`
+	Ref         string     `yaml:"ref"`
+	Key         string     `yaml:"key"`
+	Label       string     `yaml:"label"`
+	Description string     `yaml:"description"`
+	Type        string     `yaml:"type"`
+	Config      *rawConfig `yaml:"config"`
+	Prompt      string     `yaml:"prompt"`
+	PromptFile  string     `yaml:"prompt_file"`
+	Output      *rawOutput `yaml:"output"`
 }
 
 type rawConfig struct {
@@ -155,7 +157,7 @@ func normalizeEntry(
 }
 
 func normalizeRefEntry(r rawEntry) (Entry, evaluator.Evaluator, error) {
-	if r.Key != "" || r.Label != "" || r.Type != "" || r.Config != nil || r.Prompt != "" || r.PromptFile != "" || r.Output != nil {
+	if r.Key != "" || r.Label != "" || r.Description != "" || r.Type != "" || r.Config != nil || r.Prompt != "" || r.PromptFile != "" || r.Output != nil {
 		return Entry{}, evaluator.Evaluator{}, fmt.Errorf("a preset reference accepts no other fields")
 	}
 	if !evalpreset.IsEvaluatorRef(r.Ref) {
@@ -186,24 +188,26 @@ func normalizeCustomEntry(
 	output := resolveOutput(r.Output)
 
 	def := evaluator.Evaluator{
-		Key:    r.Key,
-		Label:  r.Label,
-		Type:   evaluator.Type(r.Type),
-		Config: config,
-		Prompt: prompt,
-		Output: output,
+		Key:         r.Key,
+		Label:       r.Label,
+		Description: r.Description,
+		Type:        evaluator.Type(r.Type),
+		Config:      config,
+		Prompt:      prompt,
+		Output:      output,
 	}
 	if err := evaluator.Validate(def); err != nil {
 		return Entry{}, evaluator.Evaluator{}, err
 	}
 
 	entry := Entry{
-		Key:    def.Key,
-		Label:  def.Label,
-		Type:   string(def.Type),
-		Config: &config,
-		Prompt: def.Prompt,
-		Output: &output,
+		Key:         def.Key,
+		Label:       def.Label,
+		Description: def.Description,
+		Type:        string(def.Type),
+		Config:      &config,
+		Prompt:      def.Prompt,
+		Output:      &output,
 	}
 	return entry, def, nil
 }
