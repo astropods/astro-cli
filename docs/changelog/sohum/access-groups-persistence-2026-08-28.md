@@ -14,6 +14,8 @@ Only user IDs are stored. Names and avatars continue to resolve through Astro's 
 
 These records also support the next product layers without changing the model: group lifecycle APIs can project membership to WorkOS, access flyouts can assign a whole group to resources, and Insights can use validated classification metadata for group-aware reporting. Restore collisions and repeated member additions are handled safely so archived names and administrator roles cannot be overwritten accidentally.
 
+The persistence contract is verified against Postgres itself, including transactional creation, case-insensitive active names, restore collisions, and membership resurrection. This protects the database invariants that query mocks cannot exercise.
+
 ## Migration
 
 The migration only adds new tables and indexes. Existing WorkOS groups and authorization behavior are unchanged until the lifecycle API adopts the model.
