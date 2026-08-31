@@ -2,19 +2,9 @@
 
 Extends `docs/01-spec/eval-dataset-v2-spec.md`.
 
-> **Superseded as a design, still live in product.**
-> [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md)
-> proposes removing this feature entirely (the `eval_dataset_judgment_reasons`
-> table, the "Judgment criteria and reasons" concept), but that removal
-> hasn't shipped. The criteria/reasons flow described below is exactly
-> what's running today: `internal/judgmentstore`'s `SetVerdictAndReasons`,
-> the client's `JudgmentCriteriaPanel`, and a real `judgment_criteria` field
-> in Langfuse metadata all match this spec. One separate correction: the
-> "existing... unchanged" metadata table below inherited a claim from
-> [`eval-dataset-v2-spec.md`](eval-dataset-v2-spec.md) that was never
-> accurate. `verdict` and `confidence` were never actually written to
-> Langfuse metadata; only `judged_by_user_id`, `judged_at`, and this spec's
-> own `judgment_criteria` are real. See that spec's banner.
+> **Out of date.** This feature is removed. See
+> [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md) for
+> the evaluator flow that replaced it.
 
 ## Summary
 

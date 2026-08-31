@@ -2,15 +2,9 @@
 
 Extends `docs/01-spec/eval-dataset-v2-spec.md` and `docs/01-spec/eval-dataset-v2-judgment-reasons-spec.md`.
 
-> **Superseded, and built but inert.** [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md)
-> supersedes the model-prediction contract this spec defines. What shipped
-> of this design (`account_llm_judge_keys`, `eval_dataset_judgment_predictions`,
-> the `EvalJudgePredictionWorker`) has full schema, store, and worker code,
-> and the worker is registered at startup — but no HTTP endpoint was ever
-> added and no production code path constructs the job. It's dead weight,
-> not a live third flow. See
-> [`../03-architecture/traces-to-eval-dataset.md`](../03-architecture/traces-to-eval-dataset.md)
-> for the two flows that are actually live.
+> **Out of date.** This feature is removed. See
+> [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md) for
+> the evaluator flow that replaced it.
 
 ## Summary
 

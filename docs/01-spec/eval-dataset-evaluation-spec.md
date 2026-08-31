@@ -2,15 +2,16 @@
 
 Supersedes the model-prediction and human-judgment contracts in `docs/01-spec/eval-dataset-v2-judge-signal-spec.md` and `docs/01-spec/eval-dataset-v2-judgment-reasons-spec.md`, and — though not previously declared here — the grade and Langfuse-metadata model in [`eval-dataset-v2-spec.md`](eval-dataset-v2-spec.md), whose `good_count`/`bad_count` and grade formula this spec's own "Removed tables and fields" section deletes.
 
-> **Status: the evaluator flow shipped, the write-path replacement
-> hasn't.** `internal/evalpreset` and the review-queue integration below are
-> live. The parts of this spec that assume judgments are gone — the
-> dataset-scoped `/datasets/:id/...` API paths, the removal of
-> `eval_dataset_judgments`, and per-agent `EVALUATION.yaml` — have not
-> shipped. The client still writes to the dataset exclusively through the
-> judgment flow this spec proposes retiring. See
+> **Status: the evaluator flow shipped, including the write-path
+> replacement.** `internal/evalpreset`, the review-queue integration, and
+> the client's writes through this flow's own `POST .../dataset/items` are
+> all live. The judgment flow this spec proposes retiring is gone: its
+> tables, handlers, and the judge-prediction worker are removed (see
+> "Removed tables and fields" below). The part of this spec that remains
+> unshipped is per-agent `EVALUATION.yaml`; every agent still uses the same
+> hardcoded default evaluation set. See
 > [`../03-architecture/traces-to-eval-dataset.md`](../03-architecture/traces-to-eval-dataset.md)
-> for how the two currently coexist.
+> for the system as it actually runs today.
 
 ## Summary
 
@@ -448,7 +449,6 @@ CREATE TABLE public.eval_dataset_evaluation_runs (
     trace_timestamp      timestamptz NOT NULL,
     evaluation_ref       text        NOT NULL,
     status               text        NOT NULL DEFAULT 'queued',
-    requested_by_user_id text,
     error_message        text,
     created_at           timestamptz NOT NULL DEFAULT now(),
     updated_at           timestamptz NOT NULL DEFAULT now(),
@@ -462,10 +462,9 @@ CREATE UNIQUE INDEX eval_dataset_evaluation_runs_active_idx
     (eval_dataset_id, trace_id, evaluation_ref)
     WHERE status IN ('queued', 'in_progress');
 
-CREATE INDEX eval_dataset_evaluation_runs_completed_trace_idx
+CREATE INDEX eval_dataset_evaluation_runs_latest_idx
     ON public.eval_dataset_evaluation_runs
-    (eval_dataset_id, trace_timestamp DESC, trace_id DESC)
-    WHERE status = 'completed';
+    (eval_dataset_id, trace_id, created_at DESC);
 ```
 
 Each attempt creates a new run. Terminal runs and their results are immutable so a dataset item can retain the exact automated outputs reviewed for admission. The partial unique index makes requests idempotent while an attempt is active.
@@ -494,7 +493,7 @@ CREATE TABLE public.eval_dataset_evaluator_results (
 
 ### `eval_dataset_items`
 
-One row records the trace, evaluation run, and method used to add a dataset item. **As shipped**, `source_evaluation_run_id` is nullable, not `NOT NULL` as originally specified — `resolveItemSourceRun` (`handlers/dataset_items.go`) explicitly allows adding an item with no run. The user column is also renamed from what's specified above: it's `verified_by_user_id`, not `added_by_user_id`, matching `internal/evalitemstore`'s `SetVerifiedBy` and every read/write path.
+One row records the trace, evaluation run, and method used to add a dataset item. **As shipped**, `source_evaluation_run_id` is nullable, not `NOT NULL` as originally specified — `resolveItemSourceRun` (`handlers/dataset_items.go`) explicitly allows adding an item with no run. The user column is also renamed from what's specified above: it's `verified_by_user_id`, not `added_by_user_id`, matching `internal/evalitemstore`'s `SetVerifiedBy` and every read/write path, and it's nullable rather than `NOT NULL`.
 
 ```sql
 CREATE TABLE public.eval_dataset_items (
@@ -502,7 +501,7 @@ CREATE TABLE public.eval_dataset_items (
     trace_id                 text        NOT NULL,
     evaluation_ref           text        NOT NULL,
     source_evaluation_run_id uuid,
-    verified_by_user_id      text        NOT NULL,
+    verified_by_user_id      text,
     created_at               timestamptz NOT NULL DEFAULT now(),
     updated_at               timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT eval_dataset_items_pkey PRIMARY KEY (eval_dataset_id, trace_id),
@@ -767,13 +766,13 @@ These mutations only update `eval_dataset_dismissed_traces`. They do not modify 
 
 ---
 
-**Everything from here down describes the unshipped end state.** The real, shipped API stays deployment-scoped throughout (`/api/v1/deployments/:id/dataset/...`, matching every endpoint above this point) — there is no `/api/v1/datasets/:id/...` route anywhere in the codebase. Treat the `GET /api/v1/datasets/:id` family below as this spec's proposed redesign, not as current API surface.
-
 ### Dataset summary
 
 ```http
 GET /api/v1/datasets/:id
 ```
+
+Real, shipped path: `GET /api/v1/deployments/:id/dataset`.
 
 ```json
 {
@@ -819,6 +818,8 @@ List dataset items:
 GET /api/v1/datasets/:id/items
 ```
 
+Real, shipped path: `GET /api/v1/deployments/:id/dataset/items`.
+
 The response preserves the existing paginated Langfuse item and trace fields. Each item also includes its evaluation schema, final evaluator outputs, and the automated results from its source run.
 
 The dataset-item mutations rework the existing judgment endpoints rather than adding a parallel workflow. Adding an item replaces `POST /api/v1/deployments/:id/dataset/judgments`, moves dataset identity into the path, and removes the verdict from its request:
@@ -826,6 +827,8 @@ The dataset-item mutations rework the existing judgment endpoints rather than ad
 ```http
 POST /api/v1/datasets/:id/items
 ```
+
+Real, shipped path: `POST /api/v1/deployments/:id/dataset/items`.
 
 ```json
 {
@@ -848,6 +851,8 @@ Removing it uses:
 DELETE /api/v1/datasets/:id/items/:trace_id
 ```
 
+Real, shipped path: `DELETE /api/v1/deployments/:id/dataset/items/:trace_id`.
+
 Removing the item deletes its Langfuse item and cascades to its final evaluator outputs. Automated runs and results remain available, so the trace returns to the review queue unless dismissed.
 
 Edit a dataset item's final outputs:
@@ -855,6 +860,8 @@ Edit a dataset item's final outputs:
 ```http
 PUT /api/v1/datasets/:id/items/:trace_id/evaluator-outputs
 ```
+
+Real, shipped path: `PUT /api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs`.
 
 ```json
 {

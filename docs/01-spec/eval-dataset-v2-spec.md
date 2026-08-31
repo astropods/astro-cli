@@ -2,29 +2,9 @@
 
 Supersedes v1 at `docs/05-implementation/eval-infrastructure.md`.
 
-> **Out of date.** This was the design for the judgment-based dataset write
-> path; it's an older implementation record now, not the current spec.
-> [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md) is
-> the most recent design, and its own "Removed tables and fields" section
-> now supersedes this spec's grade formula and `good_count`/`bad_count`
-> model too, alongside the judgment-reasons and judge-signal specs it
-> already names. For what's actually shipped and running today, see
-> [`../03-architecture/traces-to-eval-dataset.md`](../03-architecture/traces-to-eval-dataset.md):
-> the judgment review flow below (`good`/`bad`/`i don't know`, the queue
-> ordering) is still the live write path there, but the write-path fields
-> and the [Grade](#grade) section's A–F letter described below never
-> shipped as specified; the product replaced grade with a per-dimension
-> ratio sidebar instead. Three more inaccuracies below, kept as-is rather
-> than rewritten since this is a design record, not a live doc: the
-> [Server API](#server-api) table's endpoints (`GET /eval/queue`,
-> `POST /eval/judge`) were never the real routes, which are
-> `GET .../dataset/review-queue` and `POST .../dataset/judgments`; "Handlers
-> live in `apps/astro-server/handlers/dataset.go`" undersells it, that file
-> is two small shared helpers, the actual handlers are split across
-> `dataset_judgments.go`, `dataset_items.go`, `dataset_summary.go`, and
-> others; and the Langfuse metadata table's `sourceTraceID` field is
-> actually `sourceTraceId` (lowercase `d`), matching every other doc and
-> the real code.
+> **Out of date.** This feature is removed. See
+> [`eval-dataset-evaluation-spec.md`](eval-dataset-evaluation-spec.md) for
+> the evaluator flow that replaced it.
 
 ## What was wrong with v1
 
