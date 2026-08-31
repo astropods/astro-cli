@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 )
@@ -14,14 +15,18 @@ import (
 var (
 	ErrNotFound           = errors.New("access group not found")
 	ErrNameExists         = errors.New("access group name already exists")
+	ErrProjectionConflict = errors.New("access group WorkOS projection already exists")
 	errStoreNotConfigured = errors.New("access group store is not configured")
 )
 
-const groupColumns = `
+const (
+	classificationMetadataMaxBytes = 8 * 1024
+	groupColumns                   = `
 	id, account_id, COALESCE(workos_group_id, ''), name, description, status,
 	management_source, created_by_user_id, COALESCE(archived_by_user_id, ''),
 	archived_at, classification_metadata, sync_status, COALESCE(sync_error, ''),
 	created_at, updated_at`
+)
 
 type Store struct {
 	db *sql.DB
@@ -40,7 +45,7 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 	if params.AccountID == "" || params.CreatedByUserID == "" || params.Name == "" {
 		return nil, errors.New("account id, creator user id, and group name are required")
 	}
-	if len(params.Name) > 100 || len(params.Description) > 500 {
+	if utf8.RuneCountInString(params.Name) > 100 || utf8.RuneCountInString(params.Description) > 500 {
 		return nil, errors.New("group name must be at most 100 characters and description at most 500 characters")
 	}
 	metadata := params.ClassificationMetadata
@@ -173,7 +178,7 @@ func (s *Store) Update(ctx context.Context, accountID, groupID, name, descriptio
 	}
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
-	if name == "" || len(name) > 100 || len(description) > 500 {
+	if name == "" || utf8.RuneCountInString(name) > 100 || utf8.RuneCountInString(description) > 500 {
 		return nil, errors.New("group name must be 1-100 characters and description at most 500 characters")
 	}
 	if len(metadata) == 0 {
@@ -210,6 +215,10 @@ func (s *Store) SetProjection(ctx context.Context, accountID, groupID, workOSGro
 		WHERE account_id = $1 AND id = $2
 	`, accountID, groupID, workOSGroupID, status, syncError)
 	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			return fmt.Errorf("set access group projection: %w", ErrProjectionConflict)
+		}
 		return fmt.Errorf("set access group projection: %w", err)
 	}
 	return requireChanged(result, "set access group projection")
@@ -400,6 +409,9 @@ func classifyWriteError(operation string, err error) error {
 }
 
 func validateClassificationMetadata(metadata json.RawMessage) error {
+	if len(metadata) > classificationMetadataMaxBytes {
+		return errors.New("classification metadata must be at most 8192 bytes")
+	}
 	if !json.Valid(metadata) {
 		return errors.New("classification metadata must be valid JSON")
 	}

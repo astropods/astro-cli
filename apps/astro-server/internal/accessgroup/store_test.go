@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,36 @@ func TestStoreCreateRejectsNonObjectClassificationMetadata(t *testing.T) {
 	}
 }
 
+func TestStoreTextLimitsCountCharacters(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint:errcheck
+	store := NewStore(db)
+	validName := strings.Repeat("界", 100)
+	invalidName := validName + "界"
+
+	mock.ExpectBegin().WillReturnError(errors.New("reached database"))
+	if _, err := store.Create(context.Background(), CreateParams{AccountID: "account-1", Name: validName, CreatedByUserID: "user-1"}); err == nil || !strings.Contains(err.Error(), "reached database") {
+		t.Fatalf("100-character Create should pass validation, got %v", err)
+	}
+	if _, err := store.Create(context.Background(), CreateParams{AccountID: "account-1", Name: invalidName, CreatedByUserID: "user-1"}); err == nil || !strings.Contains(err.Error(), "at most 100 characters") {
+		t.Fatalf("101-character Create should fail validation, got %v", err)
+	}
+
+	mock.ExpectQuery(`UPDATE access_groups`).WillReturnError(errors.New("reached database"))
+	if _, err := store.Update(context.Background(), "account-1", "group-1", validName, "", nil); err == nil || !strings.Contains(err.Error(), "reached database") {
+		t.Fatalf("100-character Update should pass validation, got %v", err)
+	}
+	if _, err := store.Update(context.Background(), "account-1", "group-1", invalidName, "", nil); err == nil || !strings.Contains(err.Error(), "1-100 characters") {
+		t.Fatalf("101-character Update should fail validation, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStoreListReturnsCountsAndPreviewMembers(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	if err != nil {
@@ -152,6 +183,7 @@ func TestStoreUpdateRejectsInvalidClassificationMetadata(t *testing.T) {
 		{name: "invalid JSON", metadata: json.RawMessage(`{"schema_version":`), want: "classification metadata must be valid JSON"},
 		{name: "array", metadata: json.RawMessage(`["technical"]`), want: "classification metadata must be a JSON object"},
 		{name: "null", metadata: json.RawMessage(`null`), want: "classification metadata must be a JSON object"},
+		{name: "too large", metadata: json.RawMessage(strings.Repeat(" ", classificationMetadataMaxBytes+1)), want: "classification metadata must be at most 8192 bytes"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,6 +198,25 @@ func TestStoreUpdateRejectsInvalidClassificationMetadata(t *testing.T) {
 				t.Fatalf("expected %q, got %v", tt.want, err)
 			}
 		})
+	}
+}
+
+func TestStoreSetProjectionClassifiesWorkOSIDCollision(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close() //nolint:errcheck
+	mock.ExpectExec(`UPDATE access_groups`).
+		WithArgs("account-1", "group-1", "workos-group-1", SyncSynced, "").
+		WillReturnError(&pq.Error{Code: "23505"})
+
+	err = NewStore(db).SetProjection(context.Background(), "account-1", "group-1", "workos-group-1", SyncSynced, "")
+	if !errors.Is(err, ErrProjectionConflict) {
+		t.Fatalf("expected ErrProjectionConflict, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }
 

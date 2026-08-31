@@ -132,6 +132,35 @@ func TestStoreCreateRejectsCaseInsensitiveActiveNameIntegration(t *testing.T) {
 	}
 }
 
+func TestStoreListEscapesLikeMetacharactersIntegration(t *testing.T) {
+	db := accessGroupTestDB(t)
+	accountID := createAccessGroupTestAccount(t, db, "creator-search")
+	store := NewStore(db)
+	ctx := context.Background()
+	for _, name := range []string{"100%_team", "a_b", "plain team"} {
+		if _, err := store.Create(ctx, CreateParams{AccountID: accountID, Name: name, CreatedByUserID: "creator-search"}); err != nil {
+			t.Fatalf("create %q: %v", name, err)
+		}
+	}
+
+	for _, test := range []struct {
+		search string
+		want   string
+	}{
+		{search: "%", want: "100%_team"},
+		{search: "a_b", want: "a_b"},
+		{search: "%_", want: "100%_team"},
+	} {
+		groups, err := store.List(ctx, accountID, ListFilter{Search: test.search})
+		if err != nil {
+			t.Fatalf("search %q: %v", test.search, err)
+		}
+		if len(groups) != 1 || groups[0].Name != test.want {
+			t.Fatalf("search %q returned %+v, want only %q", test.search, groups, test.want)
+		}
+	}
+}
+
 func TestStoreRestoreRejectsActiveNameCollisionIntegration(t *testing.T) {
 	db := accessGroupTestDB(t)
 	accountID := createAccessGroupTestAccount(t, db, "creator-3")
