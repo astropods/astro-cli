@@ -3,7 +3,6 @@ package accessgroup
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,11 +19,10 @@ var (
 )
 
 const (
-	classificationMetadataMaxBytes = 8 * 1024
-	groupColumns                   = `
+	groupColumns = `
 	id, account_id, COALESCE(workos_group_id, ''), name, description, status,
-	management_source, created_by_user_id, COALESCE(archived_by_user_id, ''),
-	archived_at, classification_metadata, sync_status, COALESCE(sync_error, ''),
+	created_by_user_id, COALESCE(archived_by_user_id, ''), archived_at,
+	sync_status, COALESCE(sync_error, ''),
 	created_at, updated_at`
 )
 
@@ -48,14 +46,6 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 	if utf8.RuneCountInString(params.Name) > 100 || utf8.RuneCountInString(params.Description) > 500 {
 		return nil, errors.New("group name must be at most 100 characters and description at most 500 characters")
 	}
-	metadata := params.ClassificationMetadata
-	if len(metadata) == 0 {
-		metadata = json.RawMessage(`{}`)
-	}
-	if err := validateClassificationMetadata(metadata); err != nil {
-		return nil, err
-	}
-
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create access group: begin transaction: %w", err)
@@ -63,20 +53,19 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 	defer tx.Rollback() //nolint:errcheck
 
 	row := tx.QueryRowContext(ctx, `
-		INSERT INTO access_groups (
-			account_id, name, description, created_by_user_id,
-			classification_metadata, sync_status
+		INSERT INTO groups (
+			account_id, name, description, created_by_user_id, sync_status
 		)
-		VALUES ($1, $2, $3, $4, $5, 'pending')
+		VALUES ($1, $2, $3, $4, 'pending')
 		RETURNING `+groupColumns,
-		params.AccountID, params.Name, params.Description, params.CreatedByUserID, []byte(metadata),
+		params.AccountID, params.Name, params.Description, params.CreatedByUserID,
 	)
 	group, err := scanGroup(row)
 	if err != nil {
 		return nil, classifyWriteError("create access group", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO access_group_memberships (
+		INSERT INTO group_memberships (
 			group_id, account_id, user_id, role, added_by_user_id, sync_status
 		)
 		VALUES ($1, $2, $3, 'admin', $3, 'pending')
@@ -95,7 +84,7 @@ func (s *Store) Get(ctx context.Context, accountID, groupID string) (*Group, err
 	}
 	group, err := scanGroup(s.db.QueryRowContext(ctx, `
 		SELECT `+groupColumns+`
-		FROM access_groups
+		FROM groups
 		WHERE account_id = $1 AND id = $2
 	`, accountID, groupID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -128,18 +117,18 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+groupColumns+`,
 		       (SELECT COUNT(*)
-		        FROM access_group_memberships memberships
-		        WHERE memberships.group_id = access_groups.id
+		        FROM group_memberships memberships
+		        WHERE memberships.group_id = groups.id
 		          AND memberships.removed_at IS NULL) AS member_count,
 		       ARRAY(
 		        SELECT memberships.user_id
-		        FROM access_group_memberships memberships
-		        WHERE memberships.group_id = access_groups.id
+		        FROM group_memberships memberships
+		        WHERE memberships.group_id = groups.id
 		          AND memberships.removed_at IS NULL
 		        ORDER BY memberships.added_at, memberships.user_id
 		        LIMIT 3
 		       ) AS preview_user_ids
-		FROM access_groups
+		FROM groups
 		WHERE account_id = $1
 		  AND status = ANY($2::text[])
 		  AND ($3 = '' OR name ILIKE '%' || $3 || '%' ESCAPE '\' OR description ILIKE '%' || $3 || '%' ESCAPE '\')
@@ -154,16 +143,14 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 	groups := make([]Summary, 0)
 	for rows.Next() {
 		var summary Summary
-		var metadata []byte
 		if err := rows.Scan(
 			&summary.ID, &summary.AccountID, &summary.WorkOSGroupID, &summary.Name, &summary.Description,
-			&summary.Status, &summary.ManagementSource, &summary.CreatedByUserID, &summary.ArchivedByUserID,
-			&summary.ArchivedAt, &metadata, &summary.SyncStatus, &summary.SyncError,
+			&summary.Status, &summary.CreatedByUserID, &summary.ArchivedByUserID,
+			&summary.ArchivedAt, &summary.SyncStatus, &summary.SyncError,
 			&summary.CreatedAt, &summary.UpdatedAt, &summary.MemberCount, pq.Array(&summary.PreviewUserIDs),
 		); err != nil {
 			return nil, fmt.Errorf("scan access group summary: %w", err)
 		}
-		summary.ClassificationMetadata = append(json.RawMessage(nil), metadata...)
 		groups = append(groups, summary)
 	}
 	if err := rows.Err(); err != nil {
@@ -172,7 +159,7 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 	return groups, nil
 }
 
-func (s *Store) Update(ctx context.Context, accountID, groupID, name, description string, metadata json.RawMessage) (*Group, error) {
+func (s *Store) Update(ctx context.Context, accountID, groupID, name, description string) (*Group, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
@@ -181,19 +168,13 @@ func (s *Store) Update(ctx context.Context, accountID, groupID, name, descriptio
 	if name == "" || utf8.RuneCountInString(name) > 100 || utf8.RuneCountInString(description) > 500 {
 		return nil, errors.New("group name must be 1-100 characters and description at most 500 characters")
 	}
-	if len(metadata) == 0 {
-		metadata = json.RawMessage(`{}`)
-	}
-	if err := validateClassificationMetadata(metadata); err != nil {
-		return nil, err
-	}
 	group, err := scanGroup(s.db.QueryRowContext(ctx, `
-		UPDATE access_groups
-		SET name = $3, description = $4, classification_metadata = $5,
+		UPDATE groups
+		SET name = $3, description = $4,
 		    sync_status = 'pending', sync_error = NULL, updated_at = now()
 		WHERE account_id = $1 AND id = $2 AND status <> 'archived'
 		RETURNING `+groupColumns,
-		accountID, groupID, name, description, []byte(metadata),
+		accountID, groupID, name, description,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -209,7 +190,7 @@ func (s *Store) SetProjection(ctx context.Context, accountID, groupID, workOSGro
 		return err
 	}
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE access_groups
+		UPDATE groups
 		SET workos_group_id = NULLIF($3, ''), sync_status = $4,
 		    sync_error = NULLIF($5, ''), updated_at = now()
 		WHERE account_id = $1 AND id = $2
@@ -232,7 +213,7 @@ func (s *Store) SetStatus(ctx context.Context, accountID, groupID, actorUserID s
 		return errors.New("invalid access group status")
 	}
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE access_groups
+		UPDATE groups
 		SET status = $3,
 		    archived_at = CASE WHEN $3 = 'archived' THEN now() WHEN $3 IN ('active', 'restoring') THEN NULL ELSE archived_at END,
 		    archived_by_user_id = CASE WHEN $3 IN ('archiving', 'archived') THEN NULLIF($4, '') WHEN $3 IN ('active', 'restoring') THEN NULL ELSE archived_by_user_id END,
@@ -250,7 +231,7 @@ func (s *Store) Delete(ctx context.Context, accountID, groupID string) error {
 	if err := s.ensureConfigured(); err != nil {
 		return err
 	}
-	result, err := s.db.ExecContext(ctx, `DELETE FROM access_groups WHERE account_id = $1 AND id = $2`, accountID, groupID)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM groups WHERE account_id = $1 AND id = $2`, accountID, groupID)
 	if err != nil {
 		return fmt.Errorf("delete access group: %w", err)
 	}
@@ -268,20 +249,20 @@ func (s *Store) UpsertMembership(ctx context.Context, membership Membership) (*M
 		membership.Role = MembershipRoleMember
 	}
 	return scanMembership(s.db.QueryRowContext(ctx, `
-		INSERT INTO access_group_memberships (
+		INSERT INTO group_memberships (
 			group_id, account_id, user_id, role, added_by_user_id,
 			sync_status, sync_error, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, 'pending', NULL, now())
 		ON CONFLICT (group_id, user_id) DO UPDATE
-		SET role = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN EXCLUDED.role ELSE access_group_memberships.role END,
-		    added_by_user_id = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN EXCLUDED.added_by_user_id ELSE access_group_memberships.added_by_user_id END,
-		    added_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN now() ELSE access_group_memberships.added_at END,
-		    removed_by_user_id = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.removed_by_user_id END,
-		    removed_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.removed_at END,
-		    sync_status = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN 'pending' ELSE access_group_memberships.sync_status END,
-		    sync_error = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN NULL ELSE access_group_memberships.sync_error END,
-		    updated_at = CASE WHEN access_group_memberships.removed_at IS NOT NULL THEN now() ELSE access_group_memberships.updated_at END
+		SET role = CASE WHEN group_memberships.removed_at IS NOT NULL THEN EXCLUDED.role ELSE group_memberships.role END,
+		    added_by_user_id = CASE WHEN group_memberships.removed_at IS NOT NULL THEN EXCLUDED.added_by_user_id ELSE group_memberships.added_by_user_id END,
+		    added_at = CASE WHEN group_memberships.removed_at IS NOT NULL THEN now() ELSE group_memberships.added_at END,
+		    removed_by_user_id = CASE WHEN group_memberships.removed_at IS NOT NULL THEN NULL ELSE group_memberships.removed_by_user_id END,
+		    removed_at = CASE WHEN group_memberships.removed_at IS NOT NULL THEN NULL ELSE group_memberships.removed_at END,
+		    sync_status = CASE WHEN group_memberships.removed_at IS NOT NULL THEN 'pending' ELSE group_memberships.sync_status END,
+		    sync_error = CASE WHEN group_memberships.removed_at IS NOT NULL THEN NULL ELSE group_memberships.sync_error END,
+		    updated_at = CASE WHEN group_memberships.removed_at IS NOT NULL THEN now() ELSE group_memberships.updated_at END
 		RETURNING group_id, account_id, user_id, role, added_by_user_id,
 		          COALESCE(removed_by_user_id, ''), added_at, removed_at,
 		          sync_status, COALESCE(sync_error, ''), updated_at
@@ -296,7 +277,7 @@ func (s *Store) SetMembershipRole(ctx context.Context, accountID, groupID, userI
 		return errors.New("membership role must be member or admin")
 	}
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE access_group_memberships
+		UPDATE group_memberships
 		SET role = $4, updated_at = now()
 		WHERE account_id = $1 AND group_id = $2 AND user_id = $3 AND removed_at IS NULL
 	`, accountID, groupID, userID, role)
@@ -311,7 +292,7 @@ func (s *Store) RemoveMembership(ctx context.Context, accountID, groupID, userID
 		return err
 	}
 	result, err := s.db.ExecContext(ctx, `
-		UPDATE access_group_memberships
+		UPDATE group_memberships
 		SET removed_by_user_id = NULLIF($4, ''), removed_at = now(),
 		    sync_status = 'pending', sync_error = NULL, updated_at = now()
 		WHERE account_id = $1 AND group_id = $2 AND user_id = $3 AND removed_at IS NULL
@@ -330,7 +311,7 @@ func (s *Store) ListMemberships(ctx context.Context, accountID, groupID string, 
 		SELECT group_id, account_id, user_id, role, added_by_user_id,
 		       COALESCE(removed_by_user_id, ''), added_at, removed_at,
 		       sync_status, COALESCE(sync_error, ''), updated_at
-		FROM access_group_memberships
+		FROM group_memberships
 		WHERE account_id = $1 AND group_id = $2 AND ($3 OR removed_at IS NULL)
 		ORDER BY (role = 'admin') DESC, added_at, user_id
 	`, accountID, groupID, includeRemoved)
@@ -359,7 +340,7 @@ func (s *Store) ActiveAdminCount(ctx context.Context, accountID, groupID string)
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM access_group_memberships
+		FROM group_memberships
 		WHERE account_id = $1 AND group_id = $2 AND role = 'admin' AND removed_at IS NULL
 	`, accountID, groupID).Scan(&count)
 	if err != nil {
@@ -377,16 +358,12 @@ func scanGroup(row interface{ Scan(...any) error }) (*Group, error) {
 }
 
 func scanGroupFields(row interface{ Scan(...any) error }, group *Group) error {
-	var metadata []byte
 	err := row.Scan(
 		&group.ID, &group.AccountID, &group.WorkOSGroupID, &group.Name, &group.Description,
-		&group.Status, &group.ManagementSource, &group.CreatedByUserID, &group.ArchivedByUserID,
-		&group.ArchivedAt, &metadata, &group.SyncStatus, &group.SyncError,
+		&group.Status, &group.CreatedByUserID, &group.ArchivedByUserID,
+		&group.ArchivedAt, &group.SyncStatus, &group.SyncError,
 		&group.CreatedAt, &group.UpdatedAt,
 	)
-	if err == nil {
-		group.ClassificationMetadata = append(json.RawMessage(nil), metadata...)
-	}
 	return err
 }
 
@@ -406,20 +383,6 @@ func classifyWriteError(operation string, err error) error {
 		return fmt.Errorf("%s: %w", operation, ErrNameExists)
 	}
 	return fmt.Errorf("%s: %w", operation, err)
-}
-
-func validateClassificationMetadata(metadata json.RawMessage) error {
-	if len(metadata) > classificationMetadataMaxBytes {
-		return errors.New("classification metadata must be at most 8192 bytes")
-	}
-	if !json.Valid(metadata) {
-		return errors.New("classification metadata must be valid JSON")
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(metadata, &object); err != nil || object == nil {
-		return errors.New("classification metadata must be a JSON object")
-	}
-	return nil
 }
 
 func escapeLikeSearch(search string) string {

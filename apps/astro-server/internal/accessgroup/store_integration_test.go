@@ -84,7 +84,7 @@ func TestStoreCreateTransactionIntegration(t *testing.T) {
 	var addedBy string
 	if err := db.QueryRowContext(ctx, `
 		SELECT role, added_by_user_id
-		FROM access_group_memberships
+		FROM group_memberships
 		WHERE group_id = $1 AND user_id = 'creator-1'
 	`, group.ID).Scan(&role, &addedBy); err != nil {
 		t.Fatalf("load creator membership: %v", err)
@@ -103,8 +103,8 @@ func TestStoreCreateTransactionIntegration(t *testing.T) {
 	var groupCount, membershipCount int
 	if err := db.QueryRowContext(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM access_groups WHERE account_id = $1 AND name = 'Broken group'),
-			(SELECT COUNT(*) FROM access_group_memberships WHERE account_id = $1 AND user_id = 'missing-member')
+			(SELECT COUNT(*) FROM groups WHERE account_id = $1 AND name = 'Broken group'),
+			(SELECT COUNT(*) FROM group_memberships WHERE account_id = $1 AND user_id = 'missing-member')
 	`, accountID).Scan(&groupCount, &membershipCount); err != nil {
 		t.Fatalf("verify rollback: %v", err)
 	}

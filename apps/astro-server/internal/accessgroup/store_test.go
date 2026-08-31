@@ -3,7 +3,6 @@ package accessgroup
 import (
 	"context"
 	"database/sql/driver"
-	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -16,8 +15,8 @@ import (
 
 var groupScanColumns = []string{
 	"id", "account_id", "workos_group_id", "name", "description", "status",
-	"management_source", "created_by_user_id", "archived_by_user_id", "archived_at",
-	"classification_metadata", "sync_status", "sync_error", "created_at", "updated_at",
+	"created_by_user_id", "archived_by_user_id", "archived_at", "sync_status",
+	"sync_error", "created_at", "updated_at",
 }
 
 func TestStoreCreatePersistsCreatorAsAdmin(t *testing.T) {
@@ -28,14 +27,13 @@ func TestStoreCreatePersistsCreatorAsAdmin(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	now := time.Now().UTC()
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO access_groups`).
-		WithArgs("account-1", "Platform Engineering", "Builds the platform", "user-1", sqlmock.AnyArg()).
+	mock.ExpectQuery(`INSERT INTO groups`).
+		WithArgs("account-1", "Platform Engineering", "Builds the platform", "user-1").
 		WillReturnRows(sqlmock.NewRows(groupScanColumns).AddRow(
 			"group-1", "account-1", "", "Platform Engineering", "Builds the platform",
-			"active", "astro", "user-1", "", nil, []byte(`{"schema_version":1}`),
-			"pending", "", now, now,
+			"active", "user-1", "", nil, "pending", "", now, now,
 		))
-	mock.ExpectExec(`INSERT INTO access_group_memberships`).
+	mock.ExpectExec(`INSERT INTO group_memberships`).
 		WithArgs("group-1", "account-1", "user-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -64,7 +62,7 @@ func TestStoreCreateClassifiesDuplicateName(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO access_groups`).
+	mock.ExpectQuery(`INSERT INTO groups`).
 		WillReturnError(&pq.Error{Code: "23505"})
 	mock.ExpectRollback()
 
@@ -75,24 +73,6 @@ func TestStoreCreateClassifiesDuplicateName(t *testing.T) {
 	})
 	if !errors.Is(err, ErrNameExists) {
 		t.Fatalf("expected ErrNameExists, got %v", err)
-	}
-}
-
-func TestStoreCreateRejectsNonObjectClassificationMetadata(t *testing.T) {
-	db, _, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close() //nolint:errcheck
-
-	_, err = NewStore(db).Create(context.Background(), CreateParams{
-		AccountID:              "account-1",
-		Name:                   "Engineering",
-		CreatedByUserID:        "user-1",
-		ClassificationMetadata: json.RawMessage(`["technical"]`),
-	})
-	if err == nil || err.Error() != "classification metadata must be a JSON object" {
-		t.Fatalf("expected JSON object error, got %v", err)
 	}
 }
 
@@ -114,11 +94,11 @@ func TestStoreTextLimitsCountCharacters(t *testing.T) {
 		t.Fatalf("101-character Create should fail validation, got %v", err)
 	}
 
-	mock.ExpectQuery(`UPDATE access_groups`).WillReturnError(errors.New("reached database"))
-	if _, err := store.Update(context.Background(), "account-1", "group-1", validName, "", nil); err == nil || !strings.Contains(err.Error(), "reached database") {
+	mock.ExpectQuery(`UPDATE groups`).WillReturnError(errors.New("reached database"))
+	if _, err := store.Update(context.Background(), "account-1", "group-1", validName, ""); err == nil || !strings.Contains(err.Error(), "reached database") {
 		t.Fatalf("100-character Update should pass validation, got %v", err)
 	}
-	if _, err := store.Update(context.Background(), "account-1", "group-1", invalidName, "", nil); err == nil || !strings.Contains(err.Error(), "1-100 characters") {
+	if _, err := store.Update(context.Background(), "account-1", "group-1", invalidName, ""); err == nil || !strings.Contains(err.Error(), "1-100 characters") {
 		t.Fatalf("101-character Update should fail validation, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -134,12 +114,12 @@ func TestStoreListReturnsCountsAndPreviewMembers(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	now := time.Now().UTC()
 	columns := append(append([]string(nil), groupScanColumns...), "member_count", "preview_user_ids")
-	mock.ExpectQuery(`SELECT[\s\S]+FROM access_groups`).
+	mock.ExpectQuery(`SELECT[\s\S]+FROM groups`).
 		WithArgs("account-1", driver.Value(pq.Array([]string{"active", "archiving", "restoring"})), "", 50, 0).
 		WillReturnRows(sqlmock.NewRows(columns).AddRow(
 			"group-1", "account-1", "workos-group-1", "Engineering", "",
-			"active", "astro", "user-1", "", nil, []byte(`{"schema_version":1}`),
-			"synced", "", now, now, 4, pq.Array([]string{"user-1", "user-2", "user-3"}),
+			"active", "user-1", "", nil, "synced", "", now, now,
+			4, pq.Array([]string{"user-1", "user-2", "user-3"}),
 		))
 
 	groups, err := NewStore(db).List(context.Background(), "account-1", ListFilter{})
@@ -174,40 +154,13 @@ func TestStoreListTreatsSearchMetacharactersLiterally(t *testing.T) {
 	}
 }
 
-func TestStoreUpdateRejectsInvalidClassificationMetadata(t *testing.T) {
-	tests := []struct {
-		name     string
-		metadata json.RawMessage
-		want     string
-	}{
-		{name: "invalid JSON", metadata: json.RawMessage(`{"schema_version":`), want: "classification metadata must be valid JSON"},
-		{name: "array", metadata: json.RawMessage(`["technical"]`), want: "classification metadata must be a JSON object"},
-		{name: "null", metadata: json.RawMessage(`null`), want: "classification metadata must be a JSON object"},
-		{name: "too large", metadata: json.RawMessage(strings.Repeat(" ", classificationMetadataMaxBytes+1)), want: "classification metadata must be at most 8192 bytes"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db, _, err := sqlmock.New()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer db.Close() //nolint:errcheck
-
-			_, err = NewStore(db).Update(context.Background(), "account-1", "group-1", "Engineering", "", tt.metadata)
-			if err == nil || err.Error() != tt.want {
-				t.Fatalf("expected %q, got %v", tt.want, err)
-			}
-		})
-	}
-}
-
 func TestStoreSetProjectionClassifiesWorkOSIDCollision(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close() //nolint:errcheck
-	mock.ExpectExec(`UPDATE access_groups`).
+	mock.ExpectExec(`UPDATE groups`).
 		WithArgs("account-1", "group-1", "workos-group-1", SyncSynced, "").
 		WillReturnError(&pq.Error{Code: "23505"})
 
@@ -226,7 +179,7 @@ func TestStoreSetStatusClassifiesRestoreNameCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close() //nolint:errcheck
-	mock.ExpectExec(`UPDATE access_groups`).
+	mock.ExpectExec(`UPDATE groups`).
 		WithArgs("account-1", "group-1", StatusRestoring, "user-1").
 		WillReturnError(&pq.Error{Code: "23505"})
 
@@ -244,7 +197,7 @@ func TestStoreUpsertMembershipPreservesActiveMembership(t *testing.T) {
 	defer db.Close() //nolint:errcheck
 	addedAt := time.Now().UTC().Add(-time.Hour)
 	updatedAt := addedAt.Add(time.Minute)
-	mock.ExpectQuery(`INSERT INTO access_group_memberships[\s\S]+access_group_memberships\.removed_at IS NOT NULL THEN EXCLUDED\.role`).
+	mock.ExpectQuery(`INSERT INTO group_memberships[\s\S]+group_memberships\.removed_at IS NOT NULL THEN EXCLUDED\.role`).
 		WithArgs("group-1", "account-1", "user-1", MembershipRoleMember, "user-2").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"group_id", "account_id", "user_id", "role", "added_by_user_id",

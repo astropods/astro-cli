@@ -1,9 +1,6 @@
 package accessgroup
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type Status string
 
@@ -12,13 +9,6 @@ const (
 	StatusArchiving Status = "archiving"
 	StatusArchived  Status = "archived"
 	StatusRestoring Status = "restoring"
-)
-
-type ManagementSource string
-
-const (
-	ManagementSourceAstro     ManagementSource = "astro"
-	ManagementSourceDirectory ManagementSource = "directory"
 )
 
 type SyncStatus string
@@ -37,21 +27,19 @@ const (
 )
 
 type Group struct {
-	ID                     string
-	AccountID              string
-	WorkOSGroupID          string
-	Name                   string
-	Description            string
-	Status                 Status
-	ManagementSource       ManagementSource
-	CreatedByUserID        string
-	ArchivedByUserID       string
-	ArchivedAt             *time.Time
-	ClassificationMetadata json.RawMessage
-	SyncStatus             SyncStatus
-	SyncError              string
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	ID               string
+	AccountID        string
+	WorkOSGroupID    string
+	Name             string
+	Description      string
+	Status           Status
+	CreatedByUserID  string
+	ArchivedByUserID string
+	ArchivedAt       *time.Time
+	SyncStatus       SyncStatus
+	SyncError        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type Summary struct {
@@ -75,11 +63,10 @@ type Membership struct {
 }
 
 type CreateParams struct {
-	AccountID              string
-	Name                   string
-	Description            string
-	CreatedByUserID        string
-	ClassificationMetadata json.RawMessage
+	AccountID       string
+	Name            string
+	Description     string
+	CreatedByUserID string
 }
 
 type ListFilter struct {
