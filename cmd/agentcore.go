@@ -34,6 +34,10 @@ import (
 // an IAM role ARN or a region is not blueprint data:
 //
 //	AGENTCORE_EXEC_ROLE_ARN  execution role the runtime assumes (same name astro-server uses)
+//	AGENTCORE_SUBNETS        comma-separated VPC subnet ids; set => networkMode VPC
+//	AGENTCORE_SECURITY_GROUPS comma-separated security group ids (required with subnets)
+//	AGENTCORE_DEPENDENCY_HOSTS comma-separated from=to host rewrites (e.g. an in-cluster
+//	                         service name -> a VPC-resolvable endpoint)
 //	AWS_REGION, AWS_DEFAULT_REGION
 //	AWS_PROFILE              read natively by the aws CLI
 //
@@ -86,6 +90,13 @@ func maybeAgentCoreDeploy(cmd *cobra.Command, args []string) (handled bool, err 
 // pointed at one role without two spellings of the same setting.
 const execRoleEnv = "AGENTCORE_EXEC_ROLE_ARN"
 
+// Network placement is a property of the account deployed into, not the blueprint.
+const (
+	subnetsEnv         = "AGENTCORE_SUBNETS"
+	securityGroupsEnv  = "AGENTCORE_SECURITY_GROUPS"
+	dependencyHostsEnv = "AGENTCORE_DEPENDENCY_HOSTS"
+)
+
 // Placeholders let --dry-run render a complete plan with no AWS details set. A
 // real deploy rejects them rather than sending them to AWS.
 const (
@@ -100,10 +111,25 @@ func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath 
 	secretFlags, _ := cmd.Flags().GetStringArray("secret")
 	secretsFile, _ := cmd.Flags().GetString("secrets-file")
 
+	depHosts, err := parseHostPairs(os.Getenv(dependencyHostsEnv))
+	if err != nil {
+		return fmt.Errorf("%s: %w", dependencyHostsEnv, err)
+	}
+	subnets := splitCSV(os.Getenv(subnetsEnv))
+	groups := splitCSV(os.Getenv(securityGroupsEnv))
+	// Subnets alone build a VPC plan AWS rejects, and drop the ingress rules
+	// the plan derives from the first security group.
+	if len(subnets) > 0 && len(groups) == 0 {
+		return fmt.Errorf("%s is set but %s is empty: a VPC runtime needs both", subnetsEnv, securityGroupsEnv)
+	}
+
 	opts := agentcore.Options{
-		Region:        awsRegionFromEnv(),
-		ImageURI:      orPlaceholder(image, placeholderImage),
-		ExecutionRole: orPlaceholder(os.Getenv(execRoleEnv), placeholderRole),
+		Region:          awsRegionFromEnv(),
+		ImageURI:        orPlaceholder(image, placeholderImage),
+		ExecutionRole:   orPlaceholder(os.Getenv(execRoleEnv), placeholderRole),
+		Subnets:         subnets,
+		SecurityGroups:  groups,
+		DependencyHosts: depHosts,
 	}
 	plan, err := agentcore.Build(astroSpec, opts)
 	if err != nil {
@@ -198,6 +224,36 @@ func orPlaceholder(v, placeholder string) string {
 		return placeholder
 	}
 	return v
+}
+
+// splitCSV reads a comma-separated environment value, dropping blanks.
+func splitCSV(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// parseHostPairs reads "from=to,from=to" host rewrites. A malformed entry is an
+// error, because a dropped rewrite only surfaces as an unresolvable dependency.
+func parseHostPairs(v string) (map[string]string, error) {
+	pairs := splitCSV(v)
+	if len(pairs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		from, to, ok := strings.Cut(p, "=")
+		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+		if !ok || from == "" || to == "" {
+			return nil, fmt.Errorf("invalid host rewrite %q, want from=to", p)
+		}
+		out[from] = to
+	}
+	return out, nil
 }
 
 // collectAgentCoreSecrets merges a --secrets-file (KEY=VALUE lines, `#` comments

@@ -198,6 +198,95 @@ func TestAgentCoreDeploy_FailsClosed(t *testing.T) {
 	}
 }
 
+// A dropped option deploys a PUBLIC runtime that cannot see its dependencies.
+func TestAgentCoreDeploy_VPCOptionsFromEnv(t *testing.T) {
+	const body = agentCoreSpecYAML + `knowledge:
+  graph:
+    provider: neo4j
+`
+	t.Setenv(subnetsEnv, "subnet-a, subnet-b,")
+	t.Setenv(securityGroupsEnv, "sg-a")
+	t.Setenv(dependencyHostsEnv, "neo4j.default.svc.cluster.local=neo4j.astro.internal")
+
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, body), "--dry-run"})
+	require.NoError(t, c.Execute())
+
+	got := out.String()
+	assert.Contains(t, got, `"networkMode": "VPC"`, "subnets in the environment must flip the plan to VPC")
+	assert.Contains(t, got, "subnet-a")
+	assert.Contains(t, got, "subnet-b")
+	assert.Contains(t, got, "sg-a")
+	// The rewrite must reach the created runtime's env, not just the plan.
+	assert.Contains(t, got, `--environment-variables '{"ASTRO_RUNTIME":"agentcore","NEO4J_HOST":"neo4j.astro.internal"}'`,
+		"the rewritten host must be in the created runtime's env")
+}
+
+func TestAgentCoreDeploy_NoNetworkEnvStaysPublic(t *testing.T) {
+	t.Setenv(subnetsEnv, "")
+	t.Setenv(securityGroupsEnv, "")
+	t.Setenv(dependencyHostsEnv, "")
+
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	require.NoError(t, c.Execute())
+
+	assert.Contains(t, out.String(), `"networkMode": "PUBLIC"`)
+}
+
+// A half-configured network is rejected up front rather than sent to AWS.
+func TestAgentCoreDeploy_RejectsIncompleteNetworkEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		subnets string
+		groups  string
+		hosts   string
+		wantErr string
+	}{
+		{
+			name:    "subnets without security groups",
+			subnets: "subnet-a",
+			wantErr: "AGENTCORE_SUBNETS is set but AGENTCORE_SECURITY_GROUPS is empty",
+		},
+		{
+			name:    "malformed dependency host",
+			hosts:   "neo4j.default.svc.cluster.local",
+			wantErr: `invalid host rewrite "neo4j.default.svc.cluster.local", want from=to`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(subnetsEnv, tt.subnets)
+			t.Setenv(securityGroupsEnv, tt.groups)
+			t.Setenv(dependencyHostsEnv, tt.hosts)
+
+			var out bytes.Buffer
+			c := newDeployTestCmd(&out)
+			c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+
+			err := c.Execute()
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestParseHostPairs(t *testing.T) {
+	got, err := parseHostPairs(" a=1 , b=2 ")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"a": "1", "b": "2"}, got)
+
+	got, err = parseHostPairs("")
+	require.NoError(t, err)
+	assert.Nil(t, got, "no rewrites is not an error")
+
+	_, err = parseHostPairs("a=")
+	assert.Error(t, err, "a rewrite with no target is malformed")
+}
+
 // A frontend agent cannot run on AgentCore, and the rejection has to name the
 // agent so the operator knows which spec to change.
 func TestAgentCoreDeploy_RejectsUnsupportedCapability(t *testing.T) {
