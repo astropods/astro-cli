@@ -188,7 +188,7 @@ CREATE TABLE public.access_groups (
     created_by_user_id text NOT NULL,
     archived_by_user_id text,
     archived_at timestamptz,
-    classification_metadata jsonb NOT NULL DEFAULT '{"schema_version": 1}'::jsonb,
+    classification_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     sync_status text NOT NULL DEFAULT 'pending',
     sync_error text,
     created_at timestamptz NOT NULL DEFAULT now(),

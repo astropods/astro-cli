@@ -45,7 +45,7 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 	}
 	metadata := params.ClassificationMetadata
 	if len(metadata) == 0 {
-		metadata = json.RawMessage(`{"schema_version":1}`)
+		metadata = json.RawMessage(`{}`)
 	}
 	if err := validateClassificationMetadata(metadata); err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func (s *Store) Update(ctx context.Context, accountID, groupID, name, descriptio
 		return nil, errors.New("group name must be 1-100 characters and description at most 500 characters")
 	}
 	if len(metadata) == 0 {
-		metadata = json.RawMessage(`{"schema_version":1}`)
+		metadata = json.RawMessage(`{}`)
 	}
 	if err := validateClassificationMetadata(metadata); err != nil {
 		return nil, err
