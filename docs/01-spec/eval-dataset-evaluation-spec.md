@@ -65,7 +65,7 @@ Builders may select Astro-maintained presets or define custom evaluators through
 
 ### Discovery
 
-The canonical filename is `EVALUATION.yaml`, located beside `astropods.yml`.
+The filename is `EVALUATION.yaml` or `EVALUATION.yml`, located beside `astropods.yml`.
 
 The CLI includes the file as optional agent-scoped configuration in the existing registration request made by `ast push`. No evaluation path is added to `astropods.yml`.
 
