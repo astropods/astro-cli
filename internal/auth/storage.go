@@ -321,14 +321,7 @@ func (s *Storage) SetCurrentAccount(name string) error {
 		return errors.New("no current profile found")
 	}
 
-	found := false
-	for _, a := range profile.Accounts {
-		if a.Name == name {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !HasAccount(profile.Accounts, name) {
 		return fmt.Errorf("account %q not found; run '%s account list' to see available accounts", name, s.binaryName)
 	}
 
@@ -342,6 +335,33 @@ func (s *Storage) SetCurrentAccount(name string) error {
 
 	profile.PreviousAccount = prev
 	profile.CurrentAccount = name
+	return s.SaveCredentials(creds)
+}
+
+// HasAccount reports whether name is present in accounts.
+func HasAccount(accounts []StoredAccount, name string) bool {
+	for _, a := range accounts {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// SetAccounts overwrites the current profile's account list, e.g. after a
+// live refresh from the server.
+func (s *Storage) SetAccounts(accounts []StoredAccount) error {
+	creds, err := s.LoadCredentials()
+	if err != nil {
+		return err
+	}
+
+	profile, ok := creds.Profiles[creds.CurrentProfile]
+	if !ok {
+		return errors.New("no current profile found")
+	}
+
+	profile.Accounts = accounts
 	return s.SaveCredentials(creds)
 }
 

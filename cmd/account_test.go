@@ -3,6 +3,8 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -216,6 +218,63 @@ func TestAccountSwitch_SwitchBackToPersonal(t *testing.T) {
 	account, err := accountNewStorage().GetCurrentAccount()
 	require.NoError(t, err)
 	require.Equal(t, "alice", account)
+}
+
+// ─── account switch: refresh on miss ──────────────────────────────────────────
+
+func setupAccountRefreshTest(t *testing.T, handler http.Handler) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("NO_COLOR", "1")
+	writeAccountTestCredentials(t, accountTestCreds("alice"))
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	accountServerURLOverride = srv.URL
+	t.Cleanup(func() { accountServerURLOverride = "" })
+}
+
+func accountsResponse(names ...string) map[string]any {
+	accounts := make([]map[string]any, len(names))
+	for i, name := range names {
+		accounts[i] = map[string]any{"id": "acct_" + name, "name": name, "type": "organization"}
+	}
+	return map[string]any{"accounts": accounts}
+}
+
+func TestAccountSwitch_RefreshesOnMiss(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
+	}))
+
+	require.NoError(t, runAccountSwitch(accountSwitchCmd, []string{"new-org"}))
+
+	account, err := accountNewStorage().GetCurrentAccount()
+	require.NoError(t, err)
+	require.Equal(t, "new-org", account)
+
+	profile, err := accountNewStorage().GetCurrentProfile()
+	require.NoError(t, err)
+	require.True(t, auth.HasAccount(profile.Accounts, "new-org"), "refreshed list should persist to the cache")
+}
+
+func TestAccountSwitch_StillErrorsWhenRefreshDoesNotFindIt(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
+	}))
+
+	require.ErrorContains(t, runAccountSwitch(accountSwitchCmd, []string{"no-such-account"}), "no-such-account")
+}
+
+func TestAccountSwitch_KnownAccountNeverHitsTheNetwork(t *testing.T) {
+	var called bool
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
+	}))
+
+	require.NoError(t, runAccountSwitch(accountSwitchCmd, []string{"acme-corp"}))
+	require.False(t, called, "switching to an already-known account must not fetch")
 }
 
 func TestAccountOrgID(t *testing.T) {

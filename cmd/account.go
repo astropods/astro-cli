@@ -21,6 +21,16 @@ import (
 // accountNewStorage is the storage constructor used by account commands. Overridable in tests.
 var accountNewStorage = func() *auth.Storage { return auth.NewStorage(buildinfo.BinaryName) }
 
+// accountServerURLOverride is set in tests to redirect API calls to a test server.
+var accountServerURLOverride string
+
+func accountBaseURL() string {
+	if accountServerURLOverride != "" {
+		return strings.TrimSuffix(accountServerURLOverride, "/")
+	}
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
+}
+
 var accountCmd = &cobra.Command{
 	Use:   "account",
 	Short: "Manage accounts",
@@ -134,6 +144,7 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	refreshAccountsIfMissing(storage, name)
 	if err := storage.SetCurrentAccount(name); err != nil {
 		return err
 	}
@@ -141,6 +152,22 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 	green.Fprint(w, "✓ ")                            //nolint:errcheck,gosec
 	fmt.Fprintf(w, "Switched to account %q\n", name) //nolint:errcheck,gosec
 	return nil
+}
+
+// refreshAccountsIfMissing re-fetches the account list when name isn't in the
+// local cache, so switching to an org created since the last login works
+// without a fresh 'ast login'. Best-effort: a failed refresh leaves the
+// cache as-is, and SetCurrentAccount reports its own error either way.
+func refreshAccountsIfMissing(storage *auth.Storage, name string) {
+	profile, err := storage.GetCurrentProfile()
+	if err != nil || auth.HasAccount(profile.Accounts, name) {
+		return
+	}
+	accounts, err := fetchUserAccounts(accountBaseURL(), profile.AccessToken)
+	if err != nil {
+		return
+	}
+	_ = storage.SetAccounts(accounts)
 }
 
 func runAccountToken(cmd *cobra.Command, args []string) error {
