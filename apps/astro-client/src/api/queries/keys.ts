@@ -163,6 +163,8 @@ export const fileKeys = {
   detail: (deploymentId: string, key: string) =>
     ['files', deploymentId, key] as const,
   usage: (deploymentId: string) => ['files', deploymentId, 'usage'] as const,
+  content: (deploymentId: string, key: string) =>
+    ['file-content', deploymentId, key] as const,
 };
 
 export const deploymentKeys = {

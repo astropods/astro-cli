@@ -235,6 +235,106 @@ def attach_csv(hooks: StreamHooks, csv: str) -> None:
 
 The file must exist before `onFile` / `on_file`, and the hook's name must exactly match the basename on disk. If the sidecar cannot find that regular file when it processes the terminal chunk, it omits the download chip rather than creating a broken link.
 
+## Read images attached by a user
+
+Images arrive separately from files, in `StreamOptions.images`. The bytes travel
+inline as a `data:` URI on each image's `url`, so a model can read them without
+a filesystem access.
+
+| Node       | Python      | Meaning                                                     |
+| ---------- | ----------- | ----------------------------------------------------------- |
+| `name`     | `name`      | Original display filename.                                  |
+| `url`      | `url`       | `data:` URI holding the bytes. Pass this to the model.       |
+| `mimeType` | `mime_type` | MIME type detected from the bytes.                          |
+| `size`     | `size`      | Size in bytes.                                              |
+
+`StreamOptions` is the same for every adapter. What differs is which fields an
+adapter consumes, because the adapter owns `stream()`. The Mastra and LangChain
+adapters read `images` and pass them to the model, so a vision-capable agent
+describes an uploaded image with no extra code. For a non-image attachment they
+append its name and path to the turn's text, which a tool can then read. Pair
+that with a file-reading tool: a model handed a path it cannot open tends to
+describe a file it never read. In a custom adapter you write `stream()` yourself
+and read both lists directly.
+
+An uploaded image also appears in `attachments` with a `path`, so an agent that
+reads files keeps working unchanged. Use `attachments` to process the bytes and
+`images` to show the image to the model.
+
+A message inlines up to 2 MiB of image bytes in total. A larger image, or one
+past that budget, arrives in `attachments` only, so the model does not see it.
+
+<Tabs>
+  <Tab title="Node.js">
+
+```typescript
+import type { AgentAdapter } from "@astropods/adapter-core";
+
+const adapter: AgentAdapter = {
+  name: "Image describer",
+
+  async stream(prompt, hooks, options) {
+    const images = options.images ?? [];
+    if (images.length === 0) {
+      hooks.onChunk("Attach an image and I will describe it.");
+      hooks.onFinish();
+      return;
+    }
+
+    const content = [
+      ...images.map((image) => ({
+        type: "image_url" as const,
+        image_url: { url: image.url },
+      })),
+      { type: "text" as const, text: prompt },
+    ];
+
+    // Send `content` to your vision model, then stream its reply.
+    hooks.onFinish();
+  },
+
+  getConfig() {
+    return { systemPrompt: "Describe user-provided images.", tools: [], supportsFiles: true };
+  },
+};
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python
+from astropods_adapter_core import AgentAdapter, StreamHooks, StreamOptions
+
+
+class ImageDescriber:
+    name = "Image describer"
+
+    async def stream(self, prompt: str, hooks: StreamHooks, options: StreamOptions) -> None:
+        if not options.images:
+            hooks.on_chunk("Attach an image and I will describe it.")
+            hooks.on_finish()
+            return
+
+        content = [
+            {"type": "image_url", "image_url": {"url": image.url}}
+            for image in options.images
+        ]
+        content.append({"type": "text", "text": prompt})
+
+        # Send `content` to your vision model, then stream its reply.
+        hooks.on_finish()
+
+    def get_config(self) -> dict:
+        return {
+            "system_prompt": "Describe user-provided images.",
+            "tools": [],
+            "supports_files": True,
+        }
+```
+
+  </Tab>
+</Tabs>
+
 ## Use the raw messaging SDK
 
 If you manage the gRPC stream yourself, the same rules apply without the adapter conveniences.
@@ -244,6 +344,7 @@ For an inbound web attachment:
 - Select attachments with type `FILE`.
 - Use `storageKey` (Node) or `storage_key` (Python), not `filename`, to locate the bytes.
 - Filesystem-backed uploads are stored at `AGENT_FILES_DIR/<storage key>.blob`.
+- An uploaded image also arrives as a second attachment with type `IMAGE`, carrying the bytes in a `data:` URI on `url`. Select those to pass images to a model.
 
 For an outbound file:
 

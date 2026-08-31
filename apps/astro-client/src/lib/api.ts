@@ -3295,6 +3295,7 @@ class ApiClient {
   async downloadDeploymentFile(
     deploymentId: string,
     key: string,
+    signal?: AbortSignal,
   ): Promise<Blob> {
     // Default redirect-follow: a 200 stream (server-received) and a 3xx to a
     // presigned URL both resolve to the bytes with the same call.
@@ -3302,7 +3303,7 @@ class ApiClient {
       deploymentId,
       `${encodeURIComponent(key)}/content`,
     )}`;
-    const response = await fetch(url, { credentials: "include" });
+    const response = await fetch(url, { credentials: "include", signal });
     if (!response.ok) {
       const body = await parseFilesApiError(response, "download");
       throw new ApiRequestError(body, response.status);

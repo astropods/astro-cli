@@ -1,6 +1,7 @@
 /** TanStack Query bindings for the agent files API (GET/POST/PUT/DELETE
  *  /deployments/:id/files). Backed by the deployment's persistent disk today;
  *  the same hooks work unchanged once a presigned object store lands. */
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApiClient } from "@/lib/api-context";
 import { downloadBlob } from "@/lib/download";
@@ -45,9 +46,12 @@ export function useDeleteDeploymentFile(deploymentId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (key: string) => api.deleteDeploymentFile(deploymentId, key),
-    onSuccess: () => {
+    onSuccess: (_result, key) => {
       void queryClient.invalidateQueries({ queryKey: fileKeys.all(deploymentId) });
       void queryClient.invalidateQueries({ queryKey: fileKeys.usage(deploymentId) });
+      void queryClient.resetQueries({
+        queryKey: fileKeys.content(deploymentId, key),
+      });
     },
   });
 }
@@ -61,4 +65,33 @@ export function useDownloadDeploymentFile(deploymentId: string) {
       downloadBlob(await api.downloadDeploymentFile(deploymentId, key), name);
     },
   });
+}
+
+export const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
+
+export function useDeploymentFilePreview(deploymentId: string, key: string) {
+  const api = useApiClient();
+  // gcTime: 0 buys a memory bound proportional to what is on screen, at the
+  // cost of a re-download when a thumbnail scrolls back in. A time-based window
+  // has no count cap, so one fast scroll would hold every blob it passed.
+  const { data: blob } = useQuery({
+    queryKey: fileKeys.content(deploymentId, key),
+    queryFn: ({ signal }) => api.downloadDeploymentFile(deploymentId, key, signal),
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+  });
+
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!blob) {
+      setUrl(undefined);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [blob]);
+
+  return url;
 }

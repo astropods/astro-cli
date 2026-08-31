@@ -41,13 +41,34 @@ Connects a Mastra `Agent` to the messaging service and starts listening.
 | Parameter | Type                          | Required | Notes                                                                    |
 | --------- | ----------------------------- | -------- | ------------------------------------------------------------------------ |
 | `agent`   | `Agent` (from `@mastra/core`) | yes      | A Mastra Agent. Must have at least `name`, `model`, and `instructions`.  |
-| `options` | `ServeOptions`                | no       | Overrides for the underlying `MessagingBridge`.                          |
+| `options` | `ServeOptions & MastraAdapterOptions` | no | Bridge overrides and agent capabilities.                          |
 
 **`ServeOptions`**
 
 | Field           | Type   | Default                                            | Notes                              |
 | --------------- | ------ | -------------------------------------------------- | ---------------------------------- |
 | `serverAddress` | string | `process.env.GRPC_SERVER_ADDR \|\| 'localhost:9090'` | Override the messaging gRPC address. |
+
+**`MastraAdapterOptions`**
+
+| Field           | Type      | Default | Notes                                                                                          |
+| --------------- | --------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `supportsFiles` | `boolean` | `false` | Show the chat's upload controls. The chat hides them until an agent sets this. See [Files in chat](/messaging-sdk/files-in-chat). |
+
+```typescript
+serve(agent, { supportsFiles: true });
+```
+
+This adapter passes attached **images** to the model as visual content. For any
+other file type it appends a line to the turn's text naming each file and its
+path on the agent's disk, so give the agent a tool that reads a path and the
+model can act on documents. The adapter does not read file bytes itself.
+
+Give an agent that accepts documents a file-reading tool. Without one the model
+sees a path it cannot open, and it tends to describe a file it never read. For
+full control over how attachments are handled, author a
+[custom adapter](/adapters/custom-node) and read `attachments` in your own
+`stream()`.
 
 ### `MastraAdapter`
 

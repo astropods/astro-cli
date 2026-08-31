@@ -117,6 +117,7 @@ The bridge passes this to every `stream()` / `streamAudio()` call.
 | `userId`          | string            | Sender's user ID. Use for memory scoping and trace attribution.            |
 | `platformContext` | `PlatformContext` | Channel/thread IDs, workspace, event kind, raw platform user ID. Undefined when the message did not originate from a platform adapter (e.g. direct gRPC). See [Messaging SDK — PlatformContext](/messaging-sdk/node#inbound-message-anatomy). |
 | `attachments`     | `AttachmentInput[]` | Files attached to this turn. Read the provided `path`; do not derive a path from the display name or scan the shared directory. See [Files in chat](/messaging-sdk/files-in-chat). |
+| `images`          | `ImageInput[]`      | Images attached to this turn, with the bytes inline in a `data:` URI on `url`. Pass these to a vision model. See [Files in chat](/messaging-sdk/files-in-chat). |
 
 ### `AudioInput`
 

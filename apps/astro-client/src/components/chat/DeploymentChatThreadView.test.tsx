@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -15,8 +15,13 @@ import {
 } from "./deployment-chat-streaming-context";
 import type { ChatComposerState } from "@/lib/deployment-utils";
 import { ApiClientProvider } from "@/lib/api-context";
-import type { ApiClient } from "@/lib/api";
+import type { ApiClient, ChatAttachment } from "@/lib/api";
 import type { Interaction } from "@/lib/chat/interaction";
+import { MAX_PREVIEW_BYTES } from "@/api/queries/files";
+import {
+  ASTRO_FILE_PART,
+  createDeploymentAttachmentAdapter,
+} from "@/lib/messaging/deployment-attachment-adapter";
 
 // jsdom lacks Element.scrollTo, which assistant-ui calls during auto-scroll.
 beforeAll(() => {
@@ -354,5 +359,201 @@ describe("DeploymentChatThreadView interaction composer", () => {
       }),
     );
     await waitFor(() => expect(clearPendingInteraction).toHaveBeenCalledTimes(1));
+  });
+});
+
+const imageFile: ChatAttachment = {
+  key: "file-1",
+  name: "shot.png",
+  content_type: "image/png",
+  size: 1024,
+};
+
+function PreviewHarness({ file = imageFile }: { file?: ChatAttachment }) {
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
+  const runtime = useExternalStoreRuntime({
+    messages: [
+      {
+        role: "assistant",
+        content: [{ type: "data", name: ASTRO_FILE_PART, data: file }],
+      } as unknown as ThreadMessageLike,
+    ],
+    isRunning: false,
+    onNew: async () => {},
+    convertMessage: (m) => m,
+  });
+  const api = {
+    downloadDeploymentFile: async () => new Blob([new Uint8Array(8)]),
+  } as unknown as ApiClient;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ApiClientProvider value={api}>
+        <AssistantRuntimeProvider runtime={runtime}>
+          <DeploymentChatThreadView
+            account="acme"
+            deploymentId="dep-1"
+            agentLabel="Test Agent"
+            composerState="ready"
+          />
+        </AssistantRuntimeProvider>
+      </ApiClientProvider>
+    </QueryClientProvider>
+  );
+}
+
+describe("DeploymentChatThreadView image previews", () => {
+  const realCreateObjectURL = URL.createObjectURL;
+  const realRevokeObjectURL = URL.revokeObjectURL;
+
+  beforeEach(() => {
+    let n = 0;
+    URL.createObjectURL = vi.fn(() => `blob:preview-${n++}`);
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  afterEach(() => {
+    URL.createObjectURL = realCreateObjectURL;
+    URL.revokeObjectURL = realRevokeObjectURL;
+  });
+
+  it("previews an agent-produced image as a thumbnail", async () => {
+    render(<PreviewHarness />);
+    const img = await screen.findByAltText("shot.png");
+    expect(img).toHaveAttribute("src", "blob:preview-0");
+  });
+
+  it("falls back to the file chip when the image cannot be decoded", async () => {
+    render(<PreviewHarness />);
+    const img = await screen.findByAltText("shot.png");
+
+    fireEvent.error(img);
+
+    await waitFor(() =>
+      expect(screen.queryByAltText("shot.png")).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Expand shot.png" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Download shot.png" }),
+    ).toBeInTheDocument();
+  });
+
+  it("leaves a file over the preview bound as a chip", async () => {
+    render(
+      <PreviewHarness file={{ ...imageFile, size: MAX_PREVIEW_BYTES + 1 }} />,
+    );
+    expect(
+      await screen.findByRole("button", { name: "Download shot.png" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByAltText("shot.png")).not.toBeInTheDocument();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
+
+// The composer thumbnail comes from the staged File, so it is reached by drop
+// rather than by a message.
+function ComposerAttachmentHarness() {
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  );
+  const api = {} as unknown as ApiClient;
+  const runtime = useExternalStoreRuntime({
+    messages: NO_MESSAGES,
+    isRunning: false,
+    onNew: async () => {},
+    convertMessage: (m) => m,
+    adapters: { attachments: createDeploymentAttachmentAdapter(api, "dep-1") },
+  });
+  const viewport: DeploymentChatViewportState = {
+    streamingMessageId: null,
+    conversationId: "conv-1",
+    historyLoading: false,
+    isStreaming: false,
+    streamError: null,
+    hasMoreHistory: false,
+    loadOlderMessages: async () => {},
+    filesEnabled: true,
+    pendingInteraction: null,
+    clearPendingInteraction: () => {},
+  };
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ApiClientProvider value={api}>
+        <AssistantRuntimeProvider runtime={runtime}>
+          <DeploymentChatStreamingContext.Provider value={viewport}>
+            <DeploymentChatThreadView
+              account="acme"
+              deploymentId="dep-1"
+              agentLabel="Test Agent"
+              composerState="ready"
+            />
+          </DeploymentChatStreamingContext.Provider>
+        </AssistantRuntimeProvider>
+      </ApiClientProvider>
+    </QueryClientProvider>
+  );
+}
+
+async function stageFile(container: HTMLElement, file: File) {
+  const dropTarget = container.querySelector("form") ?? container;
+  fireEvent.drop(dropTarget, {
+    dataTransfer: { files: [file], types: ["Files"] },
+  });
+  await waitFor(() => expect(screen.getByText(file.name)).toBeInTheDocument());
+}
+
+function imageOfSize(bytes: number, name = "staged.png") {
+  return new File([new Uint8Array(bytes)], name, { type: "image/png" });
+}
+
+describe("DeploymentChatThreadView composer attachment thumbnail", () => {
+  const realCreateObjectURL = URL.createObjectURL;
+  const realRevokeObjectURL = URL.revokeObjectURL;
+
+  beforeEach(() => {
+    let n = 0;
+    URL.createObjectURL = vi.fn(() => `blob:staged-${n++}`);
+    URL.revokeObjectURL = vi.fn();
+  });
+
+  afterEach(() => {
+    URL.createObjectURL = realCreateObjectURL;
+    URL.revokeObjectURL = realRevokeObjectURL;
+  });
+
+  it("shows a thumbnail for a staged image", async () => {
+    const { container } = render(<ComposerAttachmentHarness />);
+    await stageFile(container, imageOfSize(64));
+    await waitFor(() =>
+      expect(container.querySelector("img")).toHaveAttribute(
+        "src",
+        "blob:staged-0",
+      ),
+    );
+  });
+
+  it("drops back to the icon when the staged image cannot be decoded", async () => {
+    const { container } = render(<ComposerAttachmentHarness />);
+    await stageFile(container, imageOfSize(64));
+    const img = await waitFor(() => {
+      const el = container.querySelector("img");
+      expect(el).not.toBeNull();
+      return el as HTMLImageElement;
+    });
+
+    fireEvent.error(img);
+
+    await waitFor(() => expect(container.querySelector("img")).toBeNull());
+    expect(screen.getByText("staged.png")).toBeInTheDocument();
+  });
+
+  it("does not decode a staged image over the preview bound", async () => {
+    const { container } = render(<ComposerAttachmentHarness />);
+    await stageFile(container, imageOfSize(MAX_PREVIEW_BYTES + 1, "huge.png"));
+    expect(container.querySelector("img")).toBeNull();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 });

@@ -33,7 +33,7 @@ serve(adapter)
 
 ## API
 
-### `LangChainAdapter(executor, name, system_prompt?, tools?, voice?)`
+### `LangChainAdapter(executor, name, system_prompt?, tools?, voice?, supports_files?)`
 
 | Parameter       | Type                  | Required | Notes                                                                |
 | --------------- | --------------------- | -------- | -------------------------------------------------------------------- |
@@ -42,6 +42,22 @@ serve(adapter)
 | `system_prompt` | `str`                 | no       | Shown in the playground's config panel.                              |
 | `tools`         | `list`                | no       | LangChain tool objects. Populates the playground tool list.          |
 | `voice`         | `VoiceProvider`       | no       | Optional STT provider (e.g. `OpenAIVoice`).                          |
+| `supports_files` | `bool`               | no       | Show the chat's upload controls. Defaults to `False`. The chat hides them until an agent sets this. See [Files in chat](/messaging-sdk/files-in-chat). |
+
+```python
+adapter = LangChainAdapter(executor, name="Image describer", supports_files=True)
+```
+
+This adapter passes attached **images** to the model as visual content. For any
+other file type it appends a line to the turn's text naming each file and its
+path on the agent's disk, so give the agent a tool that reads a path and the
+model can act on documents. The adapter does not read file bytes itself.
+
+Give an agent that accepts documents a file-reading tool. Without one the model
+sees a path it cannot open, and it tends to describe a file it never read. For
+full control over how attachments are handled, author a
+[custom adapter](/adapters/custom-python) and read `attachments` in your own
+`stream()`.
 
 ### `serve(adapter, options?)`
 

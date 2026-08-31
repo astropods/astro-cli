@@ -27,6 +27,14 @@ import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 import { DeploymentAvatar } from "@/components/DeploymentAvatar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { deploymentPath } from "@/lib/routes";
 import {
   isDictationActive,
@@ -34,7 +42,12 @@ import {
 } from "@/lib/chat/dictation";
 import { loadDraft, saveDraft } from "@/lib/chat/chat-draft";
 import { DictationWaveform } from "@/components/chat/DictationWaveform";
-import { useDownloadDeploymentFile } from "@/api/queries/files";
+import {
+  MAX_PREVIEW_BYTES,
+  useDeploymentFilePreview,
+  useDownloadDeploymentFile,
+} from "@/api/queries/files";
+import { useInViewport } from "@/hooks/use-in-viewport";
 import { fileApiErrorMessage } from "@/lib/chat/file-upload";
 import {
   readAttachmentRef,
@@ -52,6 +65,7 @@ import {
   groupPartByType,
   MessagePrimitive,
   ThreadPrimitive,
+  useAttachment,
   useAuiState,
   useComposer,
   useComposerRuntime,
@@ -624,9 +638,37 @@ const ComposerAttachments: FC = () => (
   />
 );
 
+const ComposerAttachmentThumbnail: FC = () => {
+  const file = useAttachment((a) => (a as { file?: File }).file);
+  const [url, setUrl] = useState<string>();
+
+  useEffect(() => {
+    if (!file || !canPreviewImage(file.type, file.size)) {
+      setUrl(undefined);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  if (!url) {
+    return <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />;
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      className="size-7 shrink-0 rounded object-cover"
+      // Bytes the browser cannot decode fall back to the icon.
+      onError={() => setUrl(undefined)}
+    />
+  );
+};
+
 const ComposerAttachmentChip: FC = () => (
   <div className="flex items-center gap-1.5 rounded-lg border border-border bg-surface/60 px-2 py-1">
-    <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    <ComposerAttachmentThumbnail />
     <span className="max-w-40 truncate text-label text-foreground">
       <AttachmentPrimitive.Name />
     </span>
@@ -897,6 +939,60 @@ const UserAttachmentChip: FC<{
   return <FileDownloadChip file={file} deploymentId={deploymentId} />;
 };
 
+const ImageAttachment: FC<{
+  file: ChatAttachment;
+  url: string;
+  onDownload: () => void;
+  downloadPending: boolean;
+  downloadError: string | null;
+  onError: () => void;
+}> = ({ file, url, onDownload, downloadPending, downloadError, onError }) => (
+  <figure>
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Expand ${file.name}`}
+          className="block overflow-hidden rounded-lg border border-border transition-opacity hover:opacity-90"
+        >
+          <img
+            src={url}
+            alt={file.name}
+            className="max-h-40 max-w-56 object-contain"
+            // The dialog reuses this URL, so a thumbnail that cannot decode
+            // falls back to the chip before there is a dialog to open.
+            onError={onError}
+          />
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[90vw] sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="truncate text-left">{file.name}</DialogTitle>
+        </DialogHeader>
+        <img
+          src={url}
+          alt={file.name}
+          className="max-h-[70vh] w-full object-contain"
+        />
+        <DialogFooter>
+          <Button variant="outline" disabled={downloadPending} onClick={onDownload}>
+            <Download className="size-4" />
+            Download
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <figcaption className="mt-1 max-w-56 truncate text-label text-faint-foreground">
+      {file.name}
+    </figcaption>
+    {downloadError && (
+      <p className="mt-1 max-w-56 text-label text-destructive" role="alert">
+        {downloadError}
+      </p>
+    )}
+  </figure>
+);
+
 // A single file chip: name + size + a download button. Shared by user-attached
 // files (via attachments) and agent-produced files (via a data content part).
 const FileDownloadChip: FC<{
@@ -905,33 +1001,110 @@ const FileDownloadChip: FC<{
   className?: string;
 }> = ({ file, deploymentId, className }) => {
   const download = useDownloadDeploymentFile(deploymentId);
+  const previewable = isPreviewableImage(file);
+  const { ref, inViewport } = useInViewport<HTMLDivElement>();
+
+  const onDownload = () => download.mutate({ key: file.key, name: file.name });
+  const downloadError = download.isError
+    ? fileApiErrorMessage(download.error, "download", "Download failed.")
+    : null;
+
   return (
-    <div className={cn("w-fit", className)}>
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/70 px-2.5 py-1.5">
-        <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <p className="max-w-48 truncate text-label text-foreground">{file.name}</p>
-          {file.size > 0 ? (
-            <p className="text-label text-faint-foreground">
-              {formatBytes(file.size)}
-            </p>
-          ) : null}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Download ${file.name}`}
-          disabled={download.isPending}
-          onClick={() => download.mutate({ key: file.key, name: file.name })}
-        >
-          <Download className="size-4" />
-        </Button>
-      </div>
-      {download.isError && (
-        <p className="mt-1 max-w-64 text-label text-destructive" role="alert">
-          {fileApiErrorMessage(download.error, "download", "Download failed.")}
-        </p>
+    <div ref={ref} className={cn("w-fit", className)}>
+      {previewable && inViewport ? (
+        <ImagePreview
+          file={file}
+          deploymentId={deploymentId}
+          onDownload={onDownload}
+          downloadPending={download.isPending}
+          downloadError={downloadError}
+        />
+      ) : (
+        <FileChip
+          file={file}
+          onDownload={onDownload}
+          downloadPending={download.isPending}
+          downloadError={downloadError}
+        />
       )}
     </div>
   );
 };
+
+// One bound for both directions: the composer stages a File, the thread resolves
+// a ChatAttachment.
+function canPreviewImage(contentType: string | undefined, size: number): boolean {
+  return (contentType?.startsWith("image/") ?? false) && size <= MAX_PREVIEW_BYTES;
+}
+
+function isPreviewableImage(file: ChatAttachment): boolean {
+  return canPreviewImage(file.content_type, file.size);
+}
+
+const ImagePreview: FC<{
+  file: ChatAttachment;
+  deploymentId: string;
+  onDownload: () => void;
+  downloadPending: boolean;
+  downloadError: string | null;
+}> = ({ file, deploymentId, onDownload, downloadPending, downloadError }) => {
+  const url = useDeploymentFilePreview(deploymentId, file.key);
+  // Keyed to the URL, not the file: a refetch mints a new one, so bytes that
+  // failed to decode once are retried rather than written off.
+  const [failedUrl, setFailedUrl] = useState<string>();
+  if (!url || url === failedUrl) {
+    return (
+      <FileChip
+        file={file}
+        onDownload={onDownload}
+        downloadPending={downloadPending}
+        downloadError={downloadError}
+      />
+    );
+  }
+  return (
+    <ImageAttachment
+      file={file}
+      url={url}
+      onDownload={onDownload}
+      downloadPending={downloadPending}
+      downloadError={downloadError}
+      onError={() => setFailedUrl(url)}
+    />
+  );
+};
+
+const FileChip: FC<{
+  file: ChatAttachment;
+  onDownload: () => void;
+  downloadPending: boolean;
+  downloadError: string | null;
+}> = ({ file, onDownload, downloadPending, downloadError }) => (
+  <>
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/70 px-2.5 py-1.5">
+      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="max-w-48 truncate text-label text-foreground">{file.name}</p>
+        {file.size > 0 ? (
+          <p className="text-label text-faint-foreground">
+            {formatBytes(file.size)}
+          </p>
+        ) : null}
+      </div>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Download ${file.name}`}
+        disabled={downloadPending}
+        onClick={onDownload}
+      >
+        <Download className="size-4" />
+      </Button>
+    </div>
+    {downloadError && (
+      <p className="mt-1 max-w-64 text-label text-destructive" role="alert">
+        {downloadError}
+      </p>
+    )}
+  </>
+);
