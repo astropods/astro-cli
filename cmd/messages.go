@@ -164,6 +164,13 @@ func errAgentCoreMissingSecrets(names []string) error {
 	)
 }
 
+func errAgentCoreOnlyFlags(flags []string) error {
+	return fmt.Errorf(
+		"cannot honor %s: this deploy goes to Astro, and those flags apply only when the spec sets agent.annotations.runtime: agentcore",
+		strings.Join(flags, ", "),
+	)
+}
+
 func errAgentCoreDeployTakesNoName(name, specName string) error {
 	return fmt.Errorf(
 		"cannot deploy %q: this spec sets agent.annotations.runtime: agentcore, which deploys %q from the local spec. Drop the name, or pass -f to select another spec",

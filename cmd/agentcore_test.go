@@ -108,6 +108,52 @@ func TestMaybeAgentCoreDeploy_RefusesAPositionalName(t *testing.T) {
 	assert.Empty(t, out.String(), "nothing may be deployed when the target is ambiguous")
 }
 
+func TestDeployAgentCoreOnlyFlagsAreHidden(t *testing.T) {
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+
+	for _, name := range agentCoreOnlyFlags {
+		f := c.Flags().Lookup(name)
+		require.NotNil(t, f, name)
+		assert.True(t, f.Hidden, "--%s is agentcore-only and must stay out of deploy --help", name)
+	}
+}
+
+// A flag the server path cannot honor is refused, not accepted and discarded.
+func TestDeployRejectsAgentCoreOnlyFlagsOnTheServerPath(t *testing.T) {
+	const defaultRuntimeSpec = "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n"
+
+	tests := []struct {
+		flag  string
+		value func(t *testing.T) string
+	}{
+		{flag: "image", value: func(*testing.T) string { return "acct.dkr.ecr.us-east-1.amazonaws.com/x:1" }},
+		{flag: "secrets-file", value: func(*testing.T) string { return ".env" }},
+		{flag: "secret", value: func(*testing.T) string { return "TOKEN=x" }},
+		{
+			// A spec that parses but does not opt in: the flag is still unusable.
+			flag:  "file",
+			value: func(t *testing.T) string { return writeAgentCoreSpec(t, defaultRuntimeSpec) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.flag, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			var out bytes.Buffer
+			c := newDeployTestCmd(&out)
+			require.NoError(t, c.Flags().Set(tt.flag, tt.value(t)))
+			c.SetArgs([]string{"some-agent"})
+
+			err := c.Execute()
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "--"+tt.flag)
+			assert.Contains(t, err.Error(), "agent.annotations.runtime: agentcore")
+		})
+	}
+}
+
 func TestAWSRegionFromEnv(t *testing.T) {
 	tests := []struct {
 		name          string

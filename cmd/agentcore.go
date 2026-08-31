@@ -46,14 +46,35 @@ import (
 // The image URI stays a flag because it identifies the artifact being deployed:
 // it changes per build and belongs to neither the blueprint nor the environment.
 
+// agentCoreOnlyFlags are read only by the agentcore deploy path.
+var agentCoreOnlyFlags = []string{"file", "image", "secret", "secrets-file"}
+
 // registerAgentCoreDeployFlags adds the flags the agentcore path needs to a
-// deploy command. All are inert on a default spec, which never reads them.
+// deploy command, hidden because only a spec that opts in reads them.
 func registerAgentCoreDeployFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
 	f.StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	f.String("image", "", "ECR image URI (agentcore runtime)")
 	f.StringArray("secret", nil, "Secret NAME=VALUE resolving an @SECRET: placeholder (agentcore runtime; repeatable, never logged)")
 	f.String("secrets-file", "", "Load agentcore secrets from a .env file (KEY=VALUE lines)")
+	for _, name := range agentCoreOnlyFlags {
+		_ = f.MarkHidden(name)
+	}
+}
+
+// rejectAgentCoreOnlyFlags fails a server-path deploy that was given a flag only
+// the agentcore path can honor, rather than accepting and discarding it.
+func rejectAgentCoreOnlyFlags(cmd *cobra.Command) error {
+	var passed []string
+	for _, name := range agentCoreOnlyFlags {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
+			passed = append(passed, "--"+name)
+		}
+	}
+	if len(passed) == 0 {
+		return nil
+	}
+	return errAgentCoreOnlyFlags(passed)
 }
 
 // maybeAgentCoreDeploy runs the agentcore deploy when the local spec selects
