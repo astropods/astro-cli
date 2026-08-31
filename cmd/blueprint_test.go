@@ -195,7 +195,7 @@ func TestBlueprintCreate(t *testing.T) {
 		},
 		{
 			name:      "name too short",
-			agentName: "ab",
+			agentName: "a",
 			wantErr:   true,
 		},
 		{
