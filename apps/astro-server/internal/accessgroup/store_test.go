@@ -219,3 +219,41 @@ func TestStoreUpsertMembershipPreservesActiveMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStoreMembershipMethodsRejectUnconfiguredStore(t *testing.T) {
+	stores := []struct {
+		name  string
+		store *Store
+	}{
+		{name: "nil store"},
+		{name: "nil database", store: NewStore(nil)},
+	}
+	methods := []struct {
+		name string
+		call func(*Store) error
+	}{
+		{name: "set role", call: func(store *Store) error {
+			return store.SetMembershipRole(context.Background(), "account-1", "group-1", "user-1", MembershipRoleMember)
+		}},
+		{name: "remove", call: func(store *Store) error {
+			return store.RemoveMembership(context.Background(), "account-1", "group-1", "user-1", "actor-1")
+		}},
+		{name: "list", call: func(store *Store) error {
+			_, err := store.ListMemberships(context.Background(), "account-1", "group-1", false)
+			return err
+		}},
+		{name: "count admins", call: func(store *Store) error {
+			_, err := store.ActiveAdminCount(context.Background(), "account-1", "group-1")
+			return err
+		}},
+	}
+	for _, configured := range stores {
+		for _, method := range methods {
+			t.Run(configured.name+"/"+method.name, func(t *testing.T) {
+				if err := method.call(configured.store); err == nil || err.Error() != "access group store is not configured" {
+					t.Fatalf("expected store configuration error, got %v", err)
+				}
+			})
+		}
+	}
+}

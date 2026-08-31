@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrNotFound   = errors.New("access group not found")
-	ErrNameExists = errors.New("access group name already exists")
+	ErrNotFound           = errors.New("access group not found")
+	ErrNameExists         = errors.New("access group name already exists")
+	errStoreNotConfigured = errors.New("access group store is not configured")
 )
 
 const groupColumns = `
@@ -31,8 +32,8 @@ func NewStore(db *sql.DB) *Store {
 }
 
 func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	params.Name = strings.TrimSpace(params.Name)
 	params.Description = strings.TrimSpace(params.Description)
@@ -84,8 +85,8 @@ func (s *Store) Create(ctx context.Context, params CreateParams) (*Group, error)
 }
 
 func (s *Store) Get(ctx context.Context, accountID, groupID string) (*Group, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	group, err := scanGroup(s.db.QueryRowContext(ctx, `
 		SELECT `+groupColumns+`
@@ -102,8 +103,8 @@ func (s *Store) Get(ctx context.Context, accountID, groupID string) (*Group, err
 }
 
 func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) ([]Summary, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	if accountID == "" {
 		return nil, errors.New("account id is required")
@@ -167,8 +168,8 @@ func (s *Store) List(ctx context.Context, accountID string, filter ListFilter) (
 }
 
 func (s *Store) Update(ctx context.Context, accountID, groupID, name, description string, metadata json.RawMessage) (*Group, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	name = strings.TrimSpace(name)
 	description = strings.TrimSpace(description)
@@ -199,8 +200,8 @@ func (s *Store) Update(ctx context.Context, accountID, groupID, name, descriptio
 }
 
 func (s *Store) SetProjection(ctx context.Context, accountID, groupID, workOSGroupID string, status SyncStatus, syncError string) error {
-	if s == nil || s.db == nil {
-		return errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE access_groups
@@ -215,8 +216,8 @@ func (s *Store) SetProjection(ctx context.Context, accountID, groupID, workOSGro
 }
 
 func (s *Store) SetStatus(ctx context.Context, accountID, groupID, actorUserID string, status Status) error {
-	if s == nil || s.db == nil {
-		return errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 	if status != StatusActive && status != StatusArchiving && status != StatusArchived && status != StatusRestoring {
 		return errors.New("invalid access group status")
@@ -237,8 +238,8 @@ func (s *Store) SetStatus(ctx context.Context, accountID, groupID, actorUserID s
 }
 
 func (s *Store) Delete(ctx context.Context, accountID, groupID string) error {
-	if s == nil || s.db == nil {
-		return errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return err
 	}
 	result, err := s.db.ExecContext(ctx, `DELETE FROM access_groups WHERE account_id = $1 AND id = $2`, accountID, groupID)
 	if err != nil {
@@ -248,8 +249,8 @@ func (s *Store) Delete(ctx context.Context, accountID, groupID string) error {
 }
 
 func (s *Store) UpsertMembership(ctx context.Context, membership Membership) (*Membership, error) {
-	if s == nil || s.db == nil {
-		return nil, errors.New("access group store is not configured")
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
 	}
 	if membership.GroupID == "" || membership.AccountID == "" || membership.UserID == "" || membership.AddedByUserID == "" {
 		return nil, errors.New("group id, account id, user id, and actor user id are required")
@@ -279,6 +280,9 @@ func (s *Store) UpsertMembership(ctx context.Context, membership Membership) (*M
 }
 
 func (s *Store) SetMembershipRole(ctx context.Context, accountID, groupID, userID string, role MembershipRole) error {
+	if err := s.ensureConfigured(); err != nil {
+		return err
+	}
 	if role != MembershipRoleMember && role != MembershipRoleAdmin {
 		return errors.New("membership role must be member or admin")
 	}
@@ -294,6 +298,9 @@ func (s *Store) SetMembershipRole(ctx context.Context, accountID, groupID, userI
 }
 
 func (s *Store) RemoveMembership(ctx context.Context, accountID, groupID, userID, actorUserID string) error {
+	if err := s.ensureConfigured(); err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE access_group_memberships
 		SET removed_by_user_id = NULLIF($4, ''), removed_at = now(),
@@ -307,6 +314,9 @@ func (s *Store) RemoveMembership(ctx context.Context, accountID, groupID, userID
 }
 
 func (s *Store) ListMemberships(ctx context.Context, accountID, groupID string, includeRemoved bool) ([]Membership, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT group_id, account_id, user_id, role, added_by_user_id,
 		       COALESCE(removed_by_user_id, ''), added_at, removed_at,
@@ -334,6 +344,9 @@ func (s *Store) ListMemberships(ctx context.Context, accountID, groupID string, 
 }
 
 func (s *Store) ActiveAdminCount(ctx context.Context, accountID, groupID string) (int, error) {
+	if err := s.ensureConfigured(); err != nil {
+		return 0, err
+	}
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
@@ -404,6 +417,13 @@ func escapeLikeSearch(search string) string {
 		`_`, `\_`,
 		`*`, `\*`,
 	).Replace(search)
+}
+
+func (s *Store) ensureConfigured() error {
+	if s == nil || s.db == nil {
+		return errStoreNotConfigured
+	}
+	return nil
 }
 
 func requireChanged(result sql.Result, operation string) error {
