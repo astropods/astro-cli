@@ -89,3 +89,45 @@ func TestPutAgentEvaluationSet_RejectsEmptyBody(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func setupValidateAgentEvaluationSetRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	log := logger.New("error", "json")
+	router.POST("/api/v1/evaluation-set/validate", PostValidateAgentEvaluationSet(log))
+	return router
+}
+
+func validateAgentEvaluationSet(router *gin.Engine, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/evaluation-set/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestPostValidateAgentEvaluationSet_AcceptsValidContent(t *testing.T) {
+	router := setupValidateAgentEvaluationSetRouter(t)
+
+	body := `{
+		"evaluation_yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n"
+	}`
+	rec := validateAgentEvaluationSet(router, body)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var resp AgentEvaluationActivationResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.EvaluationRef)
+}
+
+func TestPostValidateAgentEvaluationSet_RejectsInvalidContent(t *testing.T) {
+	router := setupValidateAgentEvaluationSetRouter(t)
+
+	body := `{
+		"evaluation_yaml": "schema: evaluation/v2\nevaluators:\n  - ref: preset/exposed-pii\n"
+	}`
+	rec := validateAgentEvaluationSet(router, body)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}

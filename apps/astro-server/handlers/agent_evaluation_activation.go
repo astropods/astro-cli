@@ -124,3 +124,29 @@ func PutAgentEvaluationSet(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, AgentEvaluationActivationResponse{EvaluationRef: activation.evaluationRef})
 	}
 }
+
+// PostValidateAgentEvaluationSet validates an EVALUATION.yaml document and its
+// referenced prompt files without persisting anything. No account/agent
+// dependency, so no path params. Remove once evaldocument is shared with
+// astro-cli and ast evals validate can run this check locally.
+// POST /api/v1/evaluation-set/validate
+func PostValidateAgentEvaluationSet(log *logger.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body RegisterAgentEvaluation
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+
+		result, err := evaldocument.Parse(body.EvaluationYAML, body.PromptFiles)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid evaluation configuration",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, AgentEvaluationActivationResponse{EvaluationRef: result.EvaluationRef})
+	}
+}

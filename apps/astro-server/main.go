@@ -2082,6 +2082,17 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.Response(200, &handlers.HeartResponse{}),
 			)
 
+			// Evaluation-set validation (requires auth only — it's a stateless
+			// check with no dependency on any account or agent's data, so it
+			// takes no account/agent path params)
+			api.POST(protected, "/evaluation-set/validate", "Validate an evaluation set without activating it", handlers.PostValidateAgentEvaluationSet(log),
+				oapispec.Tags("Agents"),
+				oapispec.BearerAuth(),
+				oapispec.Body(&handlers.RegisterAgentEvaluation{}),
+				oapispec.Response(200, &handlers.AgentEvaluationActivationResponse{}),
+				oapispec.Response(400, &handlers.ErrorResponse{}),
+			)
+
 			// Feedback
 			api.POST(protected, "/feedback", "Submit feedback", handlers.SubmitFeedback(log, db),
 				oapispec.Tags("Feedback"),
