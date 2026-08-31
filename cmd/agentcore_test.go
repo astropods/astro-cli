@@ -73,7 +73,7 @@ func TestMaybeAgentCoreDeploy_RoutesOnTheSpecRuntime(t *testing.T) {
 			require.NoError(t, c.Flags().Set("file", writeAgentCoreSpec(t, tt.body)))
 			require.NoError(t, c.Flags().Set("dry-run", "true"))
 
-			handled, err := maybeAgentCoreDeploy(c)
+			handled, err := maybeAgentCoreDeploy(c, nil)
 
 			assert.Equal(t, tt.wantHandled, handled)
 			assert.NoError(t, err)
@@ -87,10 +87,25 @@ func TestMaybeAgentCoreDeploy_NoLocalSpecFallsThrough(t *testing.T) {
 	t.Chdir(t.TempDir())
 
 	var out bytes.Buffer
-	handled, err := maybeAgentCoreDeploy(newDeployTestCmd(&out))
+	handled, err := maybeAgentCoreDeploy(newDeployTestCmd(&out), nil)
 
 	assert.False(t, handled)
 	assert.NoError(t, err)
+}
+
+func TestMaybeAgentCoreDeploy_RefusesAPositionalName(t *testing.T) {
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	require.NoError(t, c.Flags().Set("file", writeAgentCoreSpec(t, agentCoreSpecYAML)))
+	require.NoError(t, c.Flags().Set("dry-run", "true"))
+
+	handled, err := maybeAgentCoreDeploy(c, []string{"some-other-agent"})
+
+	assert.True(t, handled, "the agentcore branch must own the error, not fall through")
+	require.Error(t, err, "a name argument must not be silently ignored")
+	assert.Contains(t, err.Error(), "some-other-agent")
+	assert.Contains(t, err.Error(), "hello-astro")
+	assert.Empty(t, out.String(), "nothing may be deployed when the target is ambiguous")
 }
 
 func TestAWSRegionFromEnv(t *testing.T) {

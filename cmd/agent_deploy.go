@@ -289,7 +289,7 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	// The spec picks the runtime: a local astropods.yml with
 	// agent.annotations.runtime: agentcore deploys to AWS Bedrock AgentCore
 	// instead of taking the server-mediated path. There is no target flag.
-	if handled, err := maybeAgentCoreDeploy(cmd); handled || err != nil {
+	if handled, err := maybeAgentCoreDeploy(cmd, args); handled || err != nil {
 		return err
 	}
 	if len(args) == 0 {

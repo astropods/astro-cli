@@ -164,6 +164,13 @@ func errAgentCoreMissingSecrets(names []string) error {
 	)
 }
 
+func errAgentCoreDeployTakesNoName(name, specName string) error {
+	return fmt.Errorf(
+		"cannot deploy %q: this spec sets agent.annotations.runtime: agentcore, which deploys %q from the local spec. Drop the name, or pass -f to select another spec",
+		name, specName,
+	)
+}
+
 func errAgentCoreMissingImage() error {
 	return fmt.Errorf("an agentcore deploy needs --image <ecr-uri> (use --dry-run to preview without it)")
 }

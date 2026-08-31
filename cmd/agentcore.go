@@ -54,7 +54,7 @@ func registerAgentCoreDeployFlags(cmd *cobra.Command) {
 // that runtime. It reports handled=false with no error when there is no local
 // spec or the spec uses the default runtime, so `ast deploy <name>` keeps
 // working against the server without a local checkout.
-func maybeAgentCoreDeploy(cmd *cobra.Command) (handled bool, err error) {
+func maybeAgentCoreDeploy(cmd *cobra.Command, args []string) (handled bool, err error) {
 	specFile, _ := cmd.Flags().GetString("file")
 	specPath, _, err := resolveSpecPathAndCwd(specFile)
 	if err != nil {
@@ -72,6 +72,11 @@ func maybeAgentCoreDeploy(cmd *cobra.Command) (handled bool, err error) {
 	}
 	if astroSpec.Agent.Runtime() != spec.AgentCoreRuntime {
 		return false, nil
+	}
+	// This path deploys the local spec, so a name argument names a target it
+	// cannot reach.
+	if len(args) > 0 {
+		return true, errAgentCoreDeployTakesNoName(args[0], astroSpec.Name)
 	}
 	return true, runAgentCoreDeploy(cmd, astroSpec, specPath)
 }
