@@ -14,12 +14,13 @@ import { useAccountMembers } from "@/api/queries/accounts";
 import type {
   EvalDatasetItem,
   EvalDatasetResponse,
-  JudgmentCriterion,
+  EvaluationSetEvaluator,
+  EvaluatorOutputValue,
 } from "@/lib/api";
 import {
   useEvalDatasetItems,
-  useSetDatasetJudgmentCriteria,
   useRemoveDatasetItem,
+  useSetDatasetItemOutputs,
 } from "@/api/queries/evals";
 
 import {
@@ -29,10 +30,13 @@ import {
 } from "./DatasetItemRow";
 import { flyUndoToReviewQueue } from "../review-queue-motion";
 
-export interface DatasetTableProps {
+interface DatasetTableProps {
   deploymentId: string;
   account: string;
   summary: EvalDatasetResponse;
+  evaluators: EvaluationSetEvaluator[];
+  evaluationRef?: string;
+  evaluatorsUnavailable: boolean;
   reviewQueueTargetRef?: RefObject<HTMLElement | null>;
 }
 
@@ -42,24 +46,27 @@ export function DatasetTable({
   deploymentId,
   account,
   summary,
+  evaluators,
+  evaluationRef,
+  evaluatorsUnavailable,
   reviewQueueTargetRef,
 }: DatasetTableProps) {
   const { data, isLoading, isError, fetchNextPage, hasNextPage } =
     useEvalDatasetItems(deploymentId, PAGE_LIMIT);
   const removeItem = useRemoveDatasetItem(deploymentId);
-  const setCriteria = useSetDatasetJudgmentCriteria(deploymentId);
+  const setOutputs = useSetDatasetItemOutputs(deploymentId);
   const removingTraceId = removeItem.isPending
     ? removeItem.variables?.traceId ?? null
     : null;
-  const savingCriteriaTraceId = setCriteria.isPending
-    ? setCriteria.variables?.traceId ?? null
+  const savingOutputsTraceId = setOutputs.isPending
+    ? setOutputs.variables?.traceId ?? null
     : null;
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const toggleExpanded = useCallback((id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
-  const undoTrace = useCallback(
+  const removeTrace = useCallback(
     (item: EvalDatasetItem, trigger: HTMLElement | null) => {
       const sourceRect = trigger?.getBoundingClientRect() ?? null;
       removeItem.reset();
@@ -75,20 +82,21 @@ export function DatasetTable({
     },
     [reviewQueueTargetRef, removeItem],
   );
-  const saveTraceCriteria = useCallback(
-    (traceId: string, criteria: JudgmentCriterion[], onSaved: () => void) => {
-      setCriteria.mutate(
-        { traceId, criteria },
+  const saveTraceOutputs = useCallback(
+    (traceId: string, outputs: EvaluatorOutputValue[], onSaved: () => void) => {
+      setOutputs.mutate(
+        { traceId, outputs },
         {
           onSuccess: () => {
-            toast.success("Criteria saved");
+            toast.success("Evaluator values saved");
             onSaved();
           },
-          onError: () => toast.error("Could not save criteria. Try again."),
+          onError: () =>
+            toast.error("Could not save evaluator values. Try again."),
         },
       );
     },
-    [setCriteria],
+    [setOutputs],
   );
 
   const { data: membersData, isLoading: membersLoading } = useAccountMembers(
@@ -159,9 +167,11 @@ export function DatasetTable({
           <TableHead className="w-[42%] text-faint-foreground">
             Expected output
           </TableHead>
-          <TableHead className="w-[170px] text-faint-foreground">Criteria</TableHead>
+          <TableHead className="w-[170px] text-faint-foreground">
+            Evaluators
+          </TableHead>
           <TableHead className="w-[185px] pr-5 text-faint-foreground">
-            Added by
+            Verified by
           </TableHead>
         </TableRow>
       </TableHeader>
@@ -210,13 +220,16 @@ export function DatasetTable({
           <DatasetItemRow
             key={item.id}
             item={item}
+            evaluators={evaluators}
+            evaluationRef={evaluationRef}
+            evaluatorsUnavailable={evaluatorsUnavailable}
             isOpen={expandedId === item.id}
             onToggle={toggleExpanded}
-            onRemove={(trigger) => undoTrace(item, trigger)}
-            onSaveCriteria={saveTraceCriteria}
+            onRemove={(trigger) => removeTrace(item, trigger)}
+            onSaveOutputs={saveTraceOutputs}
             isRemoving={removingTraceId === item.source_trace_id}
-            isSavingCriteria={savingCriteriaTraceId === item.source_trace_id}
-            reviewer={resolveReviewer(item.metadata?.judged_by_user_id)}
+            isSavingOutputs={savingOutputsTraceId === item.source_trace_id}
+            reviewer={resolveReviewer(item.verified_by_user_id)}
           />
         ))}
       </TableBody>

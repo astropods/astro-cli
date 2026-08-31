@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react";
 import { ContentValue } from "@/components/agent-detail/ContentValue";
-import { CriterionLabels } from "@/components/agent-detail/evals/CriterionLabels";
+import { ValueLabels } from "@/components/agent-detail/evals/ValueLabels";
 import { InfoHint } from "@/components/InfoHint";
 import { UserAvatar } from "@/components/UserAvatar";
 import { TableCell, TableRow } from "@/components/ui/table";
@@ -8,7 +8,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { summarize } from "@/lib/content-parse";
 import { formatTimeAgo } from "@/lib/time-format";
-import type { EvalDatasetItem, JudgmentCriterion } from "@/lib/api";
+import type {
+  EvalDatasetItem,
+  EvaluationSetEvaluator,
+  EvaluatorOutputValue,
+} from "@/lib/api";
+import { formatEvaluatorValue } from "@/components/agent-detail/evals/evaluator-values";
 import { DatasetRowActionsMenu } from "./DatasetRowActionsMenu";
 
 export const DATASET_ITEM_COLUMN_COUNT = 5;
@@ -20,14 +25,14 @@ export interface ResolvedReviewer {
 
 function ReviewerCell({
   reviewer,
-  judgedAt,
+  createdAt,
 }: {
   reviewer: ResolvedReviewer | null;
-  judgedAt?: string;
+  createdAt?: string;
 }) {
   if (!reviewer) return <span className="text-faint-foreground">—</span>;
   const { handle, name } = reviewer;
-  const ago = judgedAt ? formatTimeAgo(judgedAt) : "";
+  const ago = createdAt ? formatTimeAgo(createdAt) : "";
 
   return (
     <div className="flex min-w-0 items-center gap-2.5" title={name}>
@@ -85,32 +90,40 @@ function ExpandedPreview({
   );
 }
 
-export interface DatasetItemRowProps {
+interface DatasetItemRowProps {
   item: EvalDatasetItem;
+  evaluators: EvaluationSetEvaluator[];
+  evaluationRef?: string;
+  evaluatorsUnavailable: boolean;
   isOpen: boolean;
   onToggle: (id: string) => void;
   onRemove: (trigger: HTMLElement | null) => void;
-  onSaveCriteria: (
+  onSaveOutputs: (
     traceId: string,
-    criteria: JudgmentCriterion[],
+    outputs: EvaluatorOutputValue[],
     onSaved: () => void,
   ) => void;
   isRemoving: boolean;
-  isSavingCriteria: boolean;
+  isSavingOutputs: boolean;
   reviewer: ResolvedReviewer | null;
 }
 
 export function DatasetItemRow({
   item,
+  evaluators,
+  evaluationRef,
+  evaluatorsUnavailable,
   isOpen,
   onToggle,
   onRemove,
-  onSaveCriteria,
+  onSaveOutputs,
   isRemoving,
-  isSavingCriteria,
+  isSavingOutputs,
   reviewer,
 }: DatasetItemRowProps) {
-  const savedCriteria = item.metadata?.judgment_criteria ?? [];
+  const valueLabels = item.evaluator_outputs.map(
+    (output) => `${output.label}: ${formatEvaluatorValue(output.value)}`,
+  );
   const inputSummary = summarize(item.input);
   const outputSummary = summarize(item.expected_output);
 
@@ -169,16 +182,19 @@ export function DatasetItemRow({
           </div>
         </TableCell>
         <TableCell
-          data-label="Criteria"
+          data-label="Evaluators"
           className="order-5 block px-4 pb-2 pt-2 before:mb-1 before:block before:font-mono before:text-label before:uppercase before:text-faint-foreground before:content-[attr(data-label)] @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:before:hidden"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <CriterionLabels criteria={item.metadata?.judgment_criteria ?? []} />
+          <ValueLabels
+            labels={valueLabels}
+            itemNoun={{ singular: "value", plural: "values" }}
+          />
         </TableCell>
         <TableCell className="order-2 block px-4 pb-2 pt-1 @[760px]/dataset-table:table-cell @[760px]/dataset-table:py-3.5 @[760px]/dataset-table:pr-5">
           <div className="flex min-w-0 items-center justify-between gap-3">
-            <ReviewerCell reviewer={reviewer} judgedAt={item.metadata?.judged_at} />
+            <ReviewerCell reviewer={reviewer} createdAt={item.created_at} />
             <div
               className="flex flex-none"
               onClick={(event) => event.stopPropagation()}
@@ -186,11 +202,17 @@ export function DatasetItemRow({
             >
               <DatasetRowActionsMenu
                 traceId={item.source_trace_id}
-                savedCriteria={savedCriteria}
+                evaluators={evaluators}
+                editDisabled={evaluatorsUnavailable}
+                outdated={
+                  evaluationRef !== undefined &&
+                  item.evaluation_ref !== evaluationRef
+                }
+                savedOutputs={item.evaluator_outputs}
                 isRemoving={isRemoving}
                 onRemove={onRemove}
-                onSaveCriteria={onSaveCriteria}
-                isSavingCriteria={isSavingCriteria}
+                onSaveOutputs={onSaveOutputs}
+                isSavingOutputs={isSavingOutputs}
               />
             </div>
           </div>

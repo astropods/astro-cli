@@ -7,83 +7,112 @@ import { DatasetGradeSidebar } from "./DatasetGradeSidebar";
 afterEach(cleanup);
 
 function summary(
-  criteria_counts: EvalDatasetResponse["criteria_counts"] = [],
+  evaluators: EvalDatasetResponse["evaluators"] = [],
 ): EvalDatasetResponse {
-  return {
-    dataset_name: "dep-test",
-    item_count: 10,
-    criteria_counts,
-  };
+  return { dataset_name: "dep-test", item_count: 10, evaluators };
 }
 
 describe("DatasetGradeSidebar", () => {
-  it("shows a neutral empty state without criterion values", () => {
+  it("shows a neutral empty state without evaluator values", () => {
     render(<DatasetGradeSidebar summary={summary()} />);
+
     expect(
-      screen.getByRole("heading", { level: 3, name: "Evaluation criteria" }),
-    ).toHaveClass("text-heading-3");
+      screen.getByRole("heading", { level: 3, name: "Dataset overview" }),
+    ).toHaveClass("text-heading-4");
     expect(
-      screen.getByText("Evaluations recorded for traces in this dataset."),
+      screen.getByText("No evaluator values recorded yet."),
     ).toBeInTheDocument();
-    expect(screen.getByText("No criteria values recorded yet.")).toBeInTheDocument();
-    expect(screen.queryByText(/grade/i)).not.toBeInTheDocument();
   });
 
-  it("renders criteria in definition order with independent percentages", () => {
+  it("totals each evaluator and keeps the order the server sent", () => {
     render(
       <DatasetGradeSidebar
         summary={summary([
-          { dimension_key: "tone", good_count: 1, bad_count: 3 },
-          { dimension_key: "accuracy", good_count: 3, bad_count: 1 },
+          {
+            key: "claim_grounding",
+            label: "Claim grounding",
+            distribution: [
+              { value: "grounded", count: 3 },
+              { value: "no_claims", count: 5 },
+            ],
+          },
+          {
+            key: "exposed_pii",
+            label: "Exposed PII",
+            distribution: [{ value: false, count: 4 }],
+          },
         ])}
       />,
     );
 
-    const headings = screen.getAllByText(/Accuracy|Completeness|Instruction following|Scope & clarity|Tone/);
-    expect(headings.map((heading) => heading.textContent)).toEqual([
-      "Accuracy",
-      "Tone",
-    ]);
-    expect(screen.getByText("3:1")).toBeInTheDocument();
-    expect(screen.getByText("1:3")).toBeInTheDocument();
-    expect(screen.queryByText("0:0")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("progressbar", {
-        name: "Accuracy positive distribution",
-      }),
-    ).toHaveAttribute("aria-valuenow", "3");
-    expect(
-      screen.getByRole("progressbar", {
-        name: "Accuracy positive distribution",
-      }),
-    ).toHaveAttribute("aria-valuemax", "4");
+    const labels = screen
+      .getAllByText(/Exposed PII|Claim grounding/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual(["Claim grounding", "Exposed PII"]);
+    expect(screen.getByText("8")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
-  it("reduces criterion counts to a ratio", () => {
+  it("labels an evaluator the set no longer defines with its key", () => {
     render(
       <DatasetGradeSidebar
         summary={summary([
-          { dimension_key: "accuracy", good_count: 50, bad_count: 2 },
+          {
+            key: "retired_check",
+            label: "retired_check",
+            distribution: [{ value: true, count: 1 }],
+          },
         ])}
       />,
     );
 
-    expect(screen.getByText("25:1")).toBeInTheDocument();
+    expect(screen.getByText("retired_check")).toBeInTheDocument();
   });
 
-  it("shows each criterion's positive definition in a tooltip", async () => {
+  it("ranks the values behind an evaluator by how many items hold them", async () => {
     const user = userEvent.setup();
     render(
       <DatasetGradeSidebar
         summary={summary([
-          { dimension_key: "accuracy", good_count: 1, bad_count: 0 },
+          {
+            key: "claim_grounding",
+            label: "Claim grounding",
+            distribution: [
+              { value: "grounded", count: 3 },
+              { value: "unsupported", count: 1 },
+              { value: "no_claims", count: 20 },
+            ],
+          },
         ])}
       />,
     );
 
-    await user.hover(screen.getByLabelText("About Accuracy"));
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      "The answer was factually accurate, with no invented facts, citations, or capabilities.",
+    await user.click(screen.getByRole("button", { name: /Claim grounding/ }));
+
+    const values = screen
+      .getAllByText(/Grounded|Unsupported|No claims/)
+      .map((node) => node.textContent);
+    expect(values).toEqual(["No claims", "Grounded", "Unsupported"]);
+  });
+
+  it("keeps each evaluator's values collapsed until asked", async () => {
+    const user = userEvent.setup();
+    render(
+      <DatasetGradeSidebar
+        summary={summary([
+          {
+            key: "exposed_pii",
+            label: "Exposed PII",
+            distribution: [{ value: false, count: 2 }],
+          },
+        ])}
+      />,
     );
+
+    expect(screen.queryByText("False")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Exposed PII/ }));
+
+    expect(screen.getByText("False")).toBeInTheDocument();
   });
 });

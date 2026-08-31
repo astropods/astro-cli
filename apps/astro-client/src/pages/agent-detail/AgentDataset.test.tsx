@@ -46,7 +46,7 @@ function makeDatasetResponse(
   return {
     dataset_name: "dep-test-deployment",
     item_count: 42,
-    criteria_counts: [],
+    evaluators: [],
     ...overrides,
   };
 }
@@ -169,9 +169,11 @@ function datasetItem(overrides: Partial<EvalDatasetItem>): EvalDatasetItem {
     id: "item-1",
     input: "input",
     expected_output: "output",
-    metadata: {},
     source_trace_id: "trace-1",
     created_at: "2026-06-01T12:00:00Z",
+    evaluation_ref: EVALUATION_REF,
+    verified_by_user_id: "user_1",
+    evaluator_outputs: [],
     ...overrides,
   };
 }
@@ -282,16 +284,17 @@ function setupDataset(
       HttpResponse.json(EVALUATION_SET),
     ),
     http.put(
-      "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
+      "/api/v1/deployments/:id/dataset/items/:traceId/evaluator-outputs",
       async ({ request, params }) => {
         const body = (await request.json()) as {
-          criteria: { dimension_key: string; value: number }[];
+          values: { key: string; value: unknown }[];
         };
         return HttpResponse.json({
           eval_dataset_id: "dataset-1",
           trace_id: params.traceId,
-          verdict: "good",
-          criteria: body.criteria,
+          evaluation_ref: EVALUATION_REF,
+          evaluator_outputs: body.values,
+          verified_by_user_id: "user_1",
         });
       },
     ),
@@ -2251,24 +2254,35 @@ describe("review queue view", () => {
 });
 
 describe("dataset view", () => {
-  it("renders criterion distributions", async () => {
+  it("renders each evaluator's value distribution", async () => {
     setupDataset(
       makeDatasetResponse({
-        criteria_counts: [
-          { dimension_key: "accuracy", good_count: 30, bad_count: 12 },
+        evaluators: [
+          {
+            key: "exposed_pii",
+            label: "Exposed PII",
+            distribution: [
+              { value: false, count: 30 },
+              { value: true, count: 12 },
+            ],
+          },
         ],
       }),
     );
+    const user = userEvent.setup();
     renderDataset();
+
     expect(
-      await screen.findByRole("heading", { name: "Evaluation criteria" }),
+      await screen.findByRole("heading", { name: "Dataset overview" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("5:2")).toBeInTheDocument();
-    expect(
-      screen.getByRole("progressbar", {
-        name: "Accuracy positive distribution",
-      }),
-    ).toHaveAttribute("aria-valuenow", "30");
+    expect(screen.getByText("42")).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: /Exposed PII/ }));
+
+    expect(screen.getByText("False")).toBeInTheDocument();
+    expect(screen.getByText("30")).toBeInTheDocument();
+    expect(screen.getByText("True")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
   });
 
   it("shows download button when data is loaded", async () => {
@@ -2299,7 +2313,7 @@ describe("dataset view", () => {
     });
   });
 
-  it("undoes a judged dataset item and refreshes the table", async () => {
+  it("undoes an added dataset item and refreshes the table", async () => {
     const hadAnimate = "animate" in HTMLElement.prototype;
     const originalAnimate = HTMLElement.prototype.animate;
     const animation = {
@@ -2320,7 +2334,6 @@ describe("dataset view", () => {
       input: "Undo prompt",
       expected_output: "Undo response",
       source_trace_id: "trace-undo",
-      metadata: {},
     });
     let items = [item];
     let deletedTraceId = "";
@@ -2357,7 +2370,7 @@ describe("dataset view", () => {
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: deletedTraceId,
-            evaluation_ref: EVALUATION_REF,
+            verdict: "good",
           });
         },
       ),
@@ -2403,19 +2416,56 @@ describe("dataset view", () => {
     }
   });
 
-  it("updates a dataset item's criteria in place", async () => {
+  it("locks editing when the evaluation set cannot be loaded", async () => {
+    const item = datasetItem({
+      id: "dataset-item-unset",
+      input: "Unset prompt",
+      source_trace_id: "trace-unset",
+      evaluator_outputs: [
+        { key: "exposed_pii", label: "Exposed PII", value: false },
+      ],
+    });
+    setupDataset(
+      makeDatasetResponse({ item_count: 1 }),
+      itemsResponse([item]),
+    );
+    server.use(
+      http.get("/api/v1/agents/:account/:name/evaluation-set", () =>
+        HttpResponse.json({ error: "boom" }, { status: 500 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDataset();
+
+    expect(await screen.findByText("Unset prompt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("menuitem", { name: /edit evaluations/i }),
+      ).toHaveAttribute("data-disabled");
+    });
+    expect(
+      screen.getByRole("menuitem", { name: /remove from dataset/i }),
+    ).not.toHaveAttribute("data-disabled");
+  });
+
+  it("updates a dataset item's evaluator values in place", async () => {
     const item = datasetItem({
       id: "dataset-item-change",
       input: "Change prompt",
       expected_output: "Change response",
       source_trace_id: "trace-change",
-      metadata: { judgment_criteria: [] },
+      evaluator_outputs: [
+        { key: "exposed_pii", label: "Exposed PII", value: false },
+      ],
     });
     let items = [item];
     let updated:
       | {
           traceId: string;
-          body: { criteria: { dimension_key: string; value: number }[] };
+          body: { values: { key: string; value: unknown }[] };
         }
       | null = null;
 
@@ -2428,27 +2478,28 @@ describe("dataset view", () => {
         HttpResponse.json(itemsResponse(items)),
       ),
       http.put(
-        "/api/v1/deployments/:id/dataset/judgments/:traceId/criteria",
+        "/api/v1/deployments/:id/dataset/items/:traceId/evaluator-outputs",
         async ({ params, request }) => {
           const traceId = String(params.traceId);
           const body = (await request.json()) as {
-            criteria: { dimension_key: string; value: number }[];
+            values: { key: string; value: unknown }[];
           };
           updated = { traceId, body };
           items = [
             {
               ...item,
-              metadata: {
-                ...item.metadata,
-                judgment_criteria: body.criteria,
-              },
+              evaluator_outputs: body.values.map((value) => ({
+                ...value,
+                label: "Exposed PII",
+              })),
             },
           ];
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: traceId,
-            verdict: "good",
-            criteria: body.criteria,
+            evaluation_ref: EVALUATION_REF,
+            evaluator_outputs: body.values,
+            verified_by_user_id: "user_1",
           });
         },
       ),
@@ -2460,32 +2511,31 @@ describe("dataset view", () => {
     expect(await screen.findByText("Change prompt")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
     await user.click(
-      await screen.findByRole("menuitem", { name: /correct info/i }),
+      await screen.findByRole("menuitem", { name: /edit evaluations/i }),
     );
-    await user.click(screen.getByRole("menuitem", { name: /^save$/i }));
+    await user.click(screen.getByRole("combobox", { name: "Exposed PII" }));
+    await user.click(screen.getByRole("option", { name: "True" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(updated).toEqual({
         traceId: "trace-change",
-        body: {
-          criteria: [{ dimension_key: "accuracy", value: 1 }],
-        },
+        body: { values: [{ key: "exposed_pii", value: true }] },
       });
     });
     await waitFor(() => {
       const row = screen.getByText("Change prompt").closest("tr");
       expect(row).not.toBeNull();
-      expect(within(row!).getByText("Correct info")).toBeInTheDocument();
+      expect(within(row!).getByText(/Exposed PII: True/)).toBeInTheDocument();
     });
   });
 
-  it("removes a judged dataset item from the dataset", async () => {
+  it("removes a dataset item from the dataset", async () => {
     const item = datasetItem({
       id: "dataset-item-neutral",
       input: "Neutral prompt",
       expected_output: "Neutral response",
       source_trace_id: "trace-neutral",
-      metadata: {},
     });
     let items = [item];
     let deletedTraceId: string | null = null;
@@ -2507,7 +2557,7 @@ describe("dataset view", () => {
           return HttpResponse.json({
             eval_dataset_id: "dataset-1",
             trace_id: traceId,
-            evaluation_ref: EVALUATION_REF,
+            verdict: "good",
           });
         },
       ),
@@ -2530,13 +2580,12 @@ describe("dataset view", () => {
     });
   });
 
-  it("renders a neutral criteria state when the dataset is empty", async () => {
-    setupDataset(
-      makeDatasetResponse({ item_count: 0 }),
-    );
+  it("renders a neutral overview when the dataset is empty", async () => {
+    setupDataset(makeDatasetResponse({ item_count: 0 }));
     renderDataset();
+
     expect(
-      await screen.findByText("No criteria values recorded yet."),
+      await screen.findByText("No evaluator values recorded yet."),
     ).toBeInTheDocument();
   });
 

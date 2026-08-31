@@ -20,6 +20,7 @@ interface EvaluatorValueControlProps {
   value: unknown;
   disabled?: boolean;
   className?: string;
+  controlRef?: React.Ref<HTMLButtonElement>;
   onChange: (value: unknown) => void;
 }
 
@@ -46,6 +47,7 @@ function ValueSelect({
   value,
   disabled,
   className,
+  controlRef,
   onChange,
   options,
 }: ControlProps & { options: unknown[] }) {
@@ -59,6 +61,7 @@ function ValueSelect({
         onValueChange={(next) => onChange(optionForValue(next, options))}
       >
         <SelectTrigger
+          ref={controlRef}
           aria-label={label}
           className="h-7 w-full text-body-sm"
           onClear={text && !disabled ? () => onChange(undefined) : undefined}

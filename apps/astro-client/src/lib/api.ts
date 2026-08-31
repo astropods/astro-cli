@@ -1207,31 +1207,41 @@ export interface DeploymentAlertsResponse {
 
 // --- Dataset ---
 
-export interface EvalDatasetCriteriaCount {
-  dimension_key: string;
-  good_count: number;
-  bad_count: number;
+export interface EvalDatasetValueCount {
+  value: unknown;
+  count: number;
+}
+
+export interface EvalDatasetEvaluatorSummary {
+  key: string;
+  label: string;
+  distribution: EvalDatasetValueCount[];
 }
 
 export interface EvalDatasetResponse {
   dataset_name: string;
   item_count: number;
-  criteria_counts: EvalDatasetCriteriaCount[];
+  evaluators: EvalDatasetEvaluatorSummary[];
 }
 
-export interface EvalDatasetItemMetadata {
-  judged_by_user_id?: string;
-  judged_at?: string;
-  judgment_criteria?: JudgmentCriterion[];
+export interface EvaluatorOutputValue {
+  key: string;
+  value: unknown;
+}
+
+export interface EvalDatasetItemOutput extends EvaluatorOutputValue {
+  label: string;
 }
 
 export interface EvalDatasetItem {
   id: string;
   input: unknown;
   expected_output: unknown;
-  metadata: EvalDatasetItemMetadata | null;
   source_trace_id: string;
   created_at: string;
+  evaluation_ref?: string;
+  verified_by_user_id?: string;
+  evaluator_outputs: EvalDatasetItemOutput[];
 }
 
 export interface EvalDatasetItemsResponse {
@@ -1343,11 +1353,6 @@ export interface DatasetEvaluationsResponse {
   failed_trace_ids: string[];
 }
 
-export interface EvaluatorOutputValue {
-  key: string;
-  value: unknown;
-}
-
 export interface DatasetItemRequest {
   trace_id: string;
   evaluation_run_id?: string;
@@ -1360,19 +1365,12 @@ export interface DatasetItemResponse {
   evaluation_ref: string;
 }
 
-export type DatasetJudgmentVerdict = "good" | "bad" | "unknown";
-
-/** A selected judgment criterion: 1 is positive and -1 is negative. */
-export interface JudgmentCriterion {
-  dimension_key: string;
-  value: number;
-}
-
-export interface DatasetJudgmentCriteriaResponse {
+export interface DatasetItemOutputsResponse {
   eval_dataset_id: string;
   trace_id: string;
-  verdict: DatasetJudgmentVerdict;
-  criteria: JudgmentCriterion[];
+  evaluation_ref: string;
+  verified_by_user_id: string;
+  evaluator_outputs: EvaluatorOutputValue[];
 }
 
 // --- Pod metrics (CPU / memory time series) ---
@@ -3515,6 +3513,20 @@ class ApiClient {
     );
   }
 
+  async putDatasetItemEvaluatorOutputs(
+    deploymentId: string,
+    traceId: string,
+    body: { values: EvaluatorOutputValue[] },
+  ): Promise<DatasetItemOutputsResponse> {
+    return this.request<DatasetItemOutputsResponse>(
+      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items/${encodeURIComponent(traceId)}/evaluator-outputs`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
   async deleteDatasetItem(
     deploymentId: string,
     traceId: string,
@@ -3522,20 +3534,6 @@ class ApiClient {
     return this.request<DatasetItemResponse>(
       `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/items/${encodeURIComponent(traceId)}`,
       { method: "DELETE" },
-    );
-  }
-
-  async putDatasetJudgmentCriteria(
-    deploymentId: string,
-    traceId: string,
-    body: { criteria: JudgmentCriterion[] },
-  ): Promise<DatasetJudgmentCriteriaResponse> {
-    return this.request<DatasetJudgmentCriteriaResponse>(
-      `/api/v1/deployments/${encodeURIComponent(deploymentId)}/dataset/judgments/${encodeURIComponent(traceId)}/criteria`,
-      {
-        method: "PUT",
-        body: JSON.stringify(body),
-      },
     );
   }
 

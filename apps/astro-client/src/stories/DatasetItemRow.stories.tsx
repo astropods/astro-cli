@@ -11,12 +11,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { EvalDatasetItem } from "@/lib/api";
+import type { EvalDatasetItem, EvaluationSetEvaluator } from "@/lib/api";
 
 const reviewer: ResolvedReviewer = {
   handle: "reviewer",
   name: "Riley Chen",
 };
+
+const evaluators: EvaluationSetEvaluator[] = [
+  {
+    key: "exposed_pii",
+    label: "Exposed PII",
+    description: "Flags personal data in the output.",
+    type: "llm",
+    output: { type: "boolean" },
+  },
+  {
+    key: "user_sentiment",
+    label: "User sentiment",
+    type: "llm",
+    output: { type: "enum", options: ["positive", "neutral", "negative"] },
+  },
+];
 
 const item = (overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem => ({
   id: "item-1",
@@ -26,12 +42,14 @@ const item = (overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem => ({
   },
   expected_output:
     "Yes. Run `ast deploy` from the project root, then watch the deployment status in Astro.",
-  metadata: {
-    judged_by_user_id: "user-1",
-    judged_at: "2026-06-23T14:30:00Z",
-  },
   source_trace_id: "trace-123456",
   created_at: "2026-06-23T14:29:00Z",
+  evaluation_ref: "preset/default-set",
+  verified_by_user_id: "user-1",
+  evaluator_outputs: [
+    { key: "exposed_pii", label: "Exposed PII", value: false },
+    { key: "user_sentiment", label: "User sentiment", value: "positive" },
+  ],
   ...overrides,
 });
 
@@ -55,19 +73,22 @@ function DatasetRowStory({
               Expected output
             </TableHead>
             <TableHead className="w-[220px] pr-5 text-faint-foreground">
-              Judged by
+              Verified by
             </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <DatasetItemRow
             item={row}
+            evaluators={evaluators}
+            evaluationRef="preset/default-set"
+            evaluatorsUnavailable={false}
             isOpen={open}
             onToggle={() => setOpen((current) => !current)}
             onRemove={() => undefined}
-            onSaveCriteria={(_traceId, _criteria, onSaved) => onSaved()}
+            onSaveOutputs={(_traceId, _outputs, onSaved) => onSaved()}
             isRemoving={false}
-            isSavingCriteria={false}
+            isSavingOutputs={false}
             reviewer={reviewer}
           />
         </TableBody>
@@ -92,16 +113,13 @@ export const Expanded: Story = {
   render: () => <DatasetRowStory defaultOpen />,
 };
 
-export const BadExample: Story = {
+export const OlderEvaluationSet: Story = {
   render: () => (
     <DatasetRowStory
       defaultOpen
       row={item({
         id: "item-2",
-        metadata: {
-          judged_by_user_id: "user-1",
-          judged_at: "2026-06-23T14:35:00Z",
-        },
+        evaluation_ref: "preset/retired-set",
       })}
     />
   ),

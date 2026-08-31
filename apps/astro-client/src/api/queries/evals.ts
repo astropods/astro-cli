@@ -9,12 +9,11 @@ import {
 } from "@tanstack/react-query";
 import { useApiClient } from "../../lib/api-context";
 import type {
-  DatasetJudgmentCriteriaResponse,
   DatasetEvaluationsResponse,
+  DatasetItemOutputsResponse,
   DatasetItemResponse,
   EvalDatasetItemsResponse,
   EvalDatasetResponse,
-  JudgmentCriterion,
   EvaluationRun,
   EvaluationSetResponse,
   EvaluationStatusCounts,
@@ -38,9 +37,9 @@ type RemoveDatasetItemVariables = {
   reviewQueuePageIndex?: number;
 };
 
-type DatasetJudgmentCriteriaVariables = {
+type DatasetItemOutputsVariables = {
   traceId: string;
-  criteria: JudgmentCriterion[];
+  outputs: EvaluatorOutputValue[];
 };
 
 type ReviewQueuePageParam = string | undefined;
@@ -391,17 +390,19 @@ export function useRemoveDatasetItem(
   });
 }
 
-export function useSetDatasetJudgmentCriteria(deploymentId: string) {
+export function useSetDatasetItemOutputs(deploymentId: string) {
   const api = useApiClient();
   const queryClient = useQueryClient();
 
   return useMutation<
-    DatasetJudgmentCriteriaResponse,
+    DatasetItemOutputsResponse,
     Error,
-    DatasetJudgmentCriteriaVariables
+    DatasetItemOutputsVariables
   >({
-    mutationFn: ({ traceId, criteria }) =>
-      api.putDatasetJudgmentCriteria(deploymentId, traceId, { criteria }),
+    mutationFn: ({ traceId, outputs }) =>
+      api.putDatasetItemEvaluatorOutputs(deploymentId, traceId, {
+        values: outputs,
+      }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: evalKeys.summary(deploymentId) }),

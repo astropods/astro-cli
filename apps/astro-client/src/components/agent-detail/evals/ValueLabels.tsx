@@ -1,21 +1,12 @@
 import { Tag } from "@/components/Tag";
 import { OverflowPopover } from "@/components/activity/OverflowPopover";
-import type { JudgmentCriterion } from "@/lib/api";
-import { criterionLabelFor } from "./judgment-criteria";
 
-export interface CriterionLabelsProps {
-  criteria: JudgmentCriterion[];
+interface ValueLabelsProps {
+  labels: string[];
+  itemNoun: { singular: string; plural: string };
 }
 
-/** Renders the first criterion label plus a `+N` overflow chip that reveals the
- *  full set on hover. Shows a faint placeholder when there are no known
- *  criteria. */
-export function CriterionLabels({ criteria }: CriterionLabelsProps) {
-  const labels = criteria
-    .filter((criterion) => criterion.value !== 0)
-    .map((c) => criterionLabelFor(c.dimension_key, c.value))
-    .filter((label): label is string => label !== null);
-
+export function ValueLabels({ labels, itemNoun }: ValueLabelsProps) {
   if (labels.length === 0) {
     return <span className="text-faint-foreground">—</span>;
   }
@@ -31,7 +22,7 @@ export function CriterionLabels({ criteria }: CriterionLabelsProps) {
         <OverflowPopover
           overflow={rest.length}
           total={labels.length}
-          itemNoun={{ singular: "criterion", plural: "criteria" }}
+          itemNoun={itemNoun}
           trigger="hover"
         >
           <div className="flex min-h-0 flex-wrap gap-2 overflow-y-auto">

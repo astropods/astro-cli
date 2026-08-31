@@ -8,21 +8,37 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatasetItemRow, type ResolvedReviewer } from "./DatasetItemRow";
-import type { EvalDatasetItem } from "@/lib/api";
+import type { EvalDatasetItem, EvaluationSetEvaluator } from "@/lib/api";
 
 afterEach(cleanup);
+
+const evaluators: EvaluationSetEvaluator[] = [
+  {
+    key: "exposed_pii",
+    label: "Exposed PII",
+    type: "llm",
+    output: { type: "boolean" },
+  },
+  {
+    key: "user_sentiment",
+    label: "User sentiment",
+    type: "llm",
+    output: { type: "enum", options: ["positive", "negative"] },
+  },
+];
 
 function makeItem(overrides: Partial<EvalDatasetItem> = {}): EvalDatasetItem {
   return {
     id: "item-1",
     input: "What is the capital of France?",
     expected_output: "Paris.",
-    metadata: {
-      judged_by_user_id: "user_1",
-      judged_at: new Date(Date.now() - 60_000).toISOString(),
-    },
     source_trace_id: "trace-1",
-    created_at: new Date().toISOString(),
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+    evaluation_ref: "preset/default-evaluation",
+    verified_by_user_id: "user_1",
+    evaluator_outputs: [
+      { key: "exposed_pii", label: "Exposed PII", value: false },
+    ],
     ...overrides,
   };
 }
@@ -38,27 +54,29 @@ interface RenderOpts {
 function renderRow(opts: RenderOpts = {}) {
   const onToggle = vi.fn();
   const onRemove = vi.fn();
-  const onSaveCriteria = vi.fn();
+  const onSaveOutputs = vi.fn();
   render(
     <DatasetItemRow
       item={opts.item ?? makeItem()}
+      evaluators={evaluators}
+      evaluatorsUnavailable={false}
       isOpen={opts.isOpen ?? false}
       onToggle={onToggle}
       onRemove={onRemove}
-      onSaveCriteria={onSaveCriteria}
+      onSaveOutputs={onSaveOutputs}
       isRemoving={false}
-      isSavingCriteria={false}
+      isSavingOutputs={false}
       reviewer={opts.reviewer === undefined ? reviewer : opts.reviewer}
     />,
   );
-  return { onToggle, onRemove, onSaveCriteria };
+  return { onToggle, onRemove, onSaveOutputs };
 }
 
 describe("DatasetItemRow collapsed", () => {
-  it("renders the reviewer without a verdict pill", () => {
+  it("renders the reviewer and the verified evaluator values", () => {
     renderRow();
-    expect(screen.queryByText("Good")).not.toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
+    expect(screen.getByText("Exposed PII: False")).toBeInTheDocument();
   });
 
   it("does not render expanded preview when isOpen is false", () => {
@@ -92,56 +110,48 @@ describe("DatasetItemRow collapsed", () => {
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("activating the criterion overflow chip does not toggle the row", async () => {
+  it("activating the value overflow chip does not toggle the row", async () => {
     const { onToggle } = renderRow({
       item: makeItem({
-        metadata: {
-          judgment_criteria: [
-            { dimension_key: "accuracy", value: 1 },
-            { dimension_key: "completeness", value: 1 },
-          ],
-        },
+        evaluator_outputs: [
+          { key: "exposed_pii", label: "Exposed PII", value: false },
+          { key: "user_sentiment", label: "User sentiment", value: "positive" },
+        ],
       }),
     });
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /show 2 criteria/i }));
+    await user.click(screen.getByRole("button", { name: /show 2 values/i }));
 
     expect(onToggle).not.toHaveBeenCalled();
   });
 
-  it("selects the stored positive and negative criterion choices", async () => {
+  it("seeds the editor with the stored value for every evaluator", async () => {
+    const user = userEvent.setup();
     renderRow({
       item: makeItem({
-        metadata: {
-          judgment_criteria: [
-            { dimension_key: "accuracy", value: 1 },
-            { dimension_key: "completeness", value: -1 },
-          ],
-        },
+        evaluator_outputs: [
+          { key: "exposed_pii", label: "Exposed PII", value: true },
+          { key: "user_sentiment", label: "User sentiment", value: "negative" },
+        ],
       }),
     });
 
-    await userEvent.setup().click(
-      screen.getByRole("button", { name: /^trace actions$/i }),
+    await user.click(screen.getByRole("button", { name: /^trace actions$/i }));
+    await user.click(
+      screen.getByRole("menuitem", { name: /edit evaluations/i }),
     );
+
     expect(
-      screen.getByRole("menuitem", { name: /correct info/i }),
-    ).toHaveAttribute("data-active");
+      screen.getByRole("combobox", { name: "Exposed PII" }),
+    ).toHaveTextContent("True");
     expect(
-      screen.getByRole("menuitem", { name: /^incomplete$/i }),
-    ).toHaveAttribute("data-active");
+      screen.getByRole("combobox", { name: "User sentiment" }),
+    ).toHaveTextContent("Negative");
   });
 
   it("renders dash when reviewer is null", () => {
-    renderRow({
-      reviewer: null,
-      item: makeItem({
-        metadata: {
-          judgment_criteria: [{ dimension_key: "accuracy", value: 1 }],
-        },
-      }),
-    });
+    renderRow({ reviewer: null, item: makeItem({ verified_by_user_id: undefined }) });
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 });

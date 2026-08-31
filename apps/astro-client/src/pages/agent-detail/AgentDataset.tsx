@@ -155,6 +155,7 @@ export default function AgentDataset() {
                   <DatasetView
                     deploymentId={deploymentId}
                     account={account}
+                    agentName={deployment.name}
                     summary={data}
                     reviewQueueTargetRef={reviewQueueTargetRef}
                   />
