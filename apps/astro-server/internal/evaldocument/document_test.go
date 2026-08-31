@@ -117,6 +117,20 @@ evaluators:
 	assert.True(t, errors.Is(err, ErrInvalidDocument))
 }
 
+func TestParseRejectsAMultiDocumentYAMLStream(t *testing.T) {
+	_, err := Parse(`
+schema: evaluation/v1
+evaluators:
+  - ref: preset/exposed-pii
+---
+schema: evaluation/v1
+evaluators:
+  - ref: preset/leaked-credentials
+`, nil)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrInvalidDocument))
+}
+
 func TestParseRejectsTooFewEvaluators(t *testing.T) {
 	_, err := Parse(`
 schema: evaluation/v1

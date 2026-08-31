@@ -142,6 +142,10 @@ func decodeStrict(yamlText string) (rawDocument, error) {
 	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return rawDocument{}, invalidDocument("%v", err)
 	}
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return rawDocument{}, invalidDocument("document must contain exactly one YAML document")
+	}
 	return raw, nil
 }
 
