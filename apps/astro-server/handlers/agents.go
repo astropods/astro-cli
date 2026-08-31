@@ -22,9 +22,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploycache"
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalagentstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evaldefinitionstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evaldocument"
 	githubclient "github.com/astropods/astro/apps/astro-server/internal/github"
 	"github.com/astropods/astro/apps/astro-server/internal/githubconnection"
 	"github.com/astropods/astro/apps/astro-server/internal/githubwebhook"
@@ -206,66 +203,6 @@ type RegisterAgentRequest struct {
 	// these before storing so links resolve to the assets CDN.
 	ReadmeAssets map[string]string `json:"readme_assets,omitempty"`
 	Visibility   string            `json:"visibility,omitempty"` // "public" or "private"; only applied on first registration
-	Evaluation   json.RawMessage   `json:"evaluation"`
-}
-
-type RegisterAgentEvaluation struct {
-	EvaluationYAML string            `json:"evaluation_yaml"`
-	PromptFiles    map[string]string `json:"prompt_files"`
-}
-
-type evaluationActivation struct {
-	clear          bool
-	evaluationRef  string
-	definitionJSON json.RawMessage
-}
-
-func parseEvaluationActivation(raw json.RawMessage) (*evaluationActivation, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	if string(raw) == "null" {
-		return &evaluationActivation{clear: true}, nil
-	}
-	var body RegisterAgentEvaluation
-	if err := json.Unmarshal(raw, &body); err != nil {
-		return nil, fmt.Errorf("invalid evaluation object: %w", err)
-	}
-	result, err := evaldocument.Parse(body.EvaluationYAML, body.PromptFiles)
-	if err != nil {
-		return nil, err
-	}
-	definitionJSON, err := json.Marshal(result.Document)
-	if err != nil {
-		return nil, fmt.Errorf("marshal evaluation document: %w", err)
-	}
-	return &evaluationActivation{evaluationRef: result.EvaluationRef, definitionJSON: definitionJSON}, nil
-}
-
-func applyEvaluationActivation(
-	ctx context.Context,
-	db *sql.DB,
-	accountID, agentName string,
-	activation *evaluationActivation,
-) error {
-	if activation == nil {
-		return nil
-	}
-	if activation.clear {
-		return evalagentstore.NewStore(db).Clear(ctx, accountID, agentName)
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin evaluation activation: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-	if err := evaldefinitionstore.CreateTx(ctx, tx, activation.evaluationRef, activation.definitionJSON); err != nil {
-		return err
-	}
-	if err := evalagentstore.SetTx(ctx, tx, accountID, agentName, activation.evaluationRef); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // agentMetrics returns an AgentMetrics value for the given counts.
@@ -875,16 +812,6 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		// Parse agent card from readme and merge spec-derived integrations at registration time
 		agentCardJSON := buildAgentCardJSON(req.Readme, specMap)
 
-		activation, err := parseEvaluationActivation(req.Evaluation)
-		if err != nil {
-			log.Error("agents: invalid evaluation configuration", "error", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid evaluation configuration",
-				"details": err.Error(),
-			})
-			return
-		}
-
 		resourceID, err := index.RegisterWithResourceID(accountID, agentName, req.BuildID, req.Registry, acct.ID, specMap, req.Readme, agentCardJSON, validationWarningsJSON, uuid.NewString())
 		if err != nil {
 			log.Error("agents: register agent failed", "error", err)
@@ -897,15 +824,6 @@ func RegisterAgent(log *logger.Logger, index *agentindex.Index, minCLIVersion st
 		registerAuthorizationResource(c.Request.Context(), log, resources, acct, authz.BlueprintResource(resourceID), agentName)
 		creator, _ := middleware.GetUser(c)
 		grantResourceCreatorAccess(c.Request.Context(), log, roleProjector, acct, authz.BlueprintResource(resourceID), creator)
-
-		if err := applyEvaluationActivation(c.Request.Context(), db, accountID, agentName, activation); err != nil {
-			log.Error("agents: activate evaluation set failed", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Agent registered, but activating the evaluation set failed",
-				"details": err.Error(),
-			})
-			return
-		}
 
 		// Publishing a new build shifts `latest_build_id` for every downstream
 		// deployment whose lineage points at this agent. Bust their per-account

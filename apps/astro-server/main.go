@@ -2160,6 +2160,15 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
+				api.PUT(agentWriteRoutes, "/evaluation-set", "Activate a custom evaluation set", handlers.PutAgentEvaluationSet(log, db),
+					oapispec.Tags("Agents"),
+					oapispec.BearerAuth(),
+					oapispec.PathParam("account", "Account name"),
+					oapispec.PathParam("name", "Agent name"),
+					oapispec.Body(&handlers.RegisterAgentEvaluation{}),
+					oapispec.Response(200, &handlers.AgentEvaluationActivationResponse{}),
+					oapispec.Response(400, &handlers.ErrorResponse{}),
+				)
 				api.POST(agentWriteRoutes, "/transfer", "Transfer agent to another account", handlers.TransferAgent(log, agentIndex, accountStore, avatarStore, auditStore, deploymentStore, k8sCache, queue, resourceLifecycle, roleProjector),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
