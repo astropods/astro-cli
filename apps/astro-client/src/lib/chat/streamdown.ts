@@ -1,5 +1,7 @@
 import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
+import { defaultRemarkPlugins } from "streamdown";
+import remarkGemoji from "remark-gemoji";
 
 // Ported from astropods/playground#28 (memory-box chat model). Math + diagrams
 // are opt-in Streamdown plugins. Single-dollar inline math matches what agents
@@ -17,3 +19,8 @@ export const deploymentChatStreamdownControls = {
   mermaid: { fullscreen: false },
   table: { fullscreen: false },
 } as const;
+
+export const deploymentChatRemarkPlugins = [
+  ...Object.values(defaultRemarkPlugins),
+  remarkGemoji,
+];

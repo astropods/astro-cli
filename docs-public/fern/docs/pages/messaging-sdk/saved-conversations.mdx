@@ -1,0 +1,214 @@
+---
+title: Save a conversation from another source
+subtitle: Copy a Slack thread, an email chain, or any other transcript into a user's Astro chat history
+slug: messaging-sdk/saved-conversations
+---
+
+An agent can copy a conversation that happened somewhere else into a user's Astro
+AI chat history. The copy appears in that user's conversation list under its
+title, alongside the conversations they had in the chat, and opens like any other
+one.
+
+The API takes a list of turns and nothing platform-specific. Where the transcript
+came from is the agent's business: a Slack thread, an email chain, a support
+ticket, a transcript your own service already stores. If your agent runs on the
+Astro messaging sidecar, this is already available to it. There is no capability
+to switch on and no separate service to call.
+
+<Note>
+Reading this from `StreamOptions` requires `@astropods/adapter-core` 0.10.0 or
+later for Node, or `astropods-adapter-core` 0.7.0 or later for Python. On an
+earlier version the field is absent.
+</Note>
+
+## Save a transcript
+
+`StreamOptions.saveConversation` (`save_conversation` in Python) takes the turns
+and returns the conversation the copy landed on.
+
+<Tabs>
+  <Tab title="Node.js">
+
+```typescript
+async stream(prompt, hooks, options) {
+  const res = await options.saveConversation!({
+    userId: options.userId,
+    idempotencyKey: `slack:${channelId}:${threadTs}`,
+    title: "Deploy is stuck in pending",
+    sourceLabel: "#eng-support",
+    sourceUrl: `https://slack.com/archives/${channelId}/p${threadTs}`,
+    messages: [
+      { role: "user", author: "Ada", content: "the deploy is stuck", timestamp: new Date() },
+      { role: "assistant", content: "checking the scheduler now" },
+    ],
+  });
+
+  hooks.onChunk(`Saved. Status: ${res.status}.`);
+  hooks.onFinish();
+}
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python
+from astropods_adapter_core import SaveConversationInput, SavedMessageInput
+
+
+async def stream(self, prompt, hooks, options):
+    res = await options.save_conversation(
+        SaveConversationInput(
+            user_id=options.user_id,
+            idempotency_key=f"slack:{channel_id}:{thread_ts}",
+            title="Deploy is stuck in pending",
+            source_label="#eng-support",
+            source_url=f"https://slack.com/archives/{channel_id}/p{thread_ts}",
+            messages=[
+                SavedMessageInput(role="user", author="Ada", content="the deploy is stuck"),
+                SavedMessageInput(role="assistant", content="checking the scheduler now"),
+            ],
+        )
+    )
+
+    hooks.on_chunk(f"Saved. Status: {res.status}.")
+    hooks.on_finish()
+```
+
+  </Tab>
+</Tabs>
+
+`saveConversation` is optional on `StreamOptions`, because a caller that drives the
+gRPC stream itself may not provide it. Guard on it, or assert it, before calling.
+
+### Input
+
+| Node             | Python           | Required | Notes                                                                                     |
+| ---------------- | ---------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `idempotencyKey` | `idempotency_key` | yes      | Stable per source conversation and user. See [Saving twice](#saving-twice).               |
+| `messages`       | `messages`        | yes      | The turns, oldest first.                                                                  |
+| `userId`         | `user_id`         | no       | Astro user id that owns the copy. Defaults to this turn's user. Must start with `user_`.   |
+| `title`          | `title`           | no       | Shown in the conversation list. A title the user has since renamed is left alone.         |
+| `sourceLabel`    | `source_label`    | no       | Where the transcript came from, for example `#eng-support`. Recorded with the copy.         |
+| `sourceUrl`      | `source_url`      | no       | Link back to the source. Recorded with the copy.                                           |
+| `onConflict`     | `on_conflict`     | no       | `SKIP` (default), `REPLACE`, or `APPEND`. See [Saving twice](#saving-twice).               |
+
+Each turn:
+
+| Node        | Python      | Required | Notes                                                                                              |
+| ----------- | ----------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `role`      | `role`      | yes      | `user` or `assistant`. Any other value is rejected.                                                |
+| `content`   | `content`   | yes      | The text of the turn.                                                                              |
+| `author`    | `author`    | no       | Original sender's display name. Set it when the transcript has several speakers, or every turn renders as the owner's own. |
+| `timestamp` | `timestamp` | no       | When the turn happened at the source. Defaults to now.                                             |
+
+Give every copy a `title`. The conversation list identifies a copy by its title,
+so a save with no title arrives as an untitled conversation.
+
+The copy must be addressed to a resolved Astro identity: `userId` has to start with
+`user_`. A raw platform id, such as a Slack `U…`, is refused, because it would write
+a conversation no session can open. Resolve the sender to an Astro user first, and
+tell the user when you cannot.
+
+## Saving twice
+
+The `idempotencyKey` is what makes a save repeatable. The platform derives the
+conversation id from `(userId, idempotencyKey)`, so the same key always addresses
+the same copy. Key it on the source conversation, not on the message that triggered
+the turn: `slack:C123:1699.0001`, `zendesk:ticket-4417`.
+
+Re-read the whole source and send it again under the same key to keep a copy
+current. The refreshed copy reflects the source, including edits and deletions.
+
+`onConflict` decides what happens to a copy that already exists.
+
+| Value     | Behavior                                                                                       |
+| --------- | ---------------------------------------------------------------------------------------------- |
+| `SKIP`    | Default. Refreshes a copy the user has not touched, and leaves a copy they replied in alone.    |
+| `REPLACE` | Overwrites, discarding turns the user typed into the copy.                                      |
+| `APPEND`  | Adds these turns after whatever is already there.                                               |
+
+The platform will not silently destroy turns it did not write. Under `SKIP`, a copy
+the user has replied in comes back as `SKIPPED_DIVERGED` and is left as it was.
+Choosing `REPLACE` there is the agent stating that intent.
+
+### Status
+
+The status is the point of the call. Await it.
+
+| Status              | Meaning                                                              | What agents usually do                                                     |
+| ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `CREATED`           | First save, new conversation.                                         | Tell the user where it went.                                               |
+| `REPLACED`          | Existing copy refreshed.                                             | Nothing.                                                                   |
+| `APPENDED`          | Turns added after what was there.                                    | Nothing.                                                                   |
+| `SKIPPED_DIVERGED`  | The user has replied in the copy, and `SKIP` left it alone.           | Re-send with `APPEND` so their notes survive and new turns still arrive.    |
+| `SKIPPED_DELETED`   | The user deleted the copy. It is never recreated.                     | Stop saving this source. Deleting the copy is how a user opts out.         |
+| `SKIPPED_CONFLICT`  | The derived id belongs to another user's conversation.                | Report the failure. Nothing was changed.                                   |
+
+A deleted copy staying deleted is deliberate: an agent that saves on every source
+message would otherwise resurrect a conversation the user threw away.
+
+## Read the source thread first
+
+An agent that mirrors a thread needs the whole thread, and the prompt only carries
+the message that triggered the turn. `StreamOptions.getThreadHistory`
+(`get_thread_history`) returns the source thread, hydrated from the platform so
+edits and deletions are reflected.
+
+<Tabs>
+  <Tab title="Node.js">
+
+```typescript
+const thread = (await options.getThreadHistory?.(200)) ?? [];
+const messages = thread.map((m) => ({
+  role: "user" as const,
+  author: m.user?.username ?? "",
+  content: m.content,
+  timestamp: new Date(Number(m.timestamp?.seconds ?? 0) * 1000),
+}));
+```
+
+  </Tab>
+  <Tab title="Python">
+
+```python
+thread = await options.get_thread_history(200) if options.get_thread_history else []
+messages = [
+    SavedMessageInput(
+        role="user",
+        author=m.user.username or "",
+        content=m.content,
+    )
+    for m in thread
+]
+```
+
+  </Tab>
+</Tabs>
+
+Platform ids are opaque, and a transcript copied verbatim carries them. Slack
+mention tokens such as `<@U07UVWXYZ>` stay in the text unless the agent rewrites
+them, and they read as noise in the chat. The thread itself usually holds the
+answer: each message carries its poster's resolved `username`, so build a map of
+id to name from the thread and substitute before saving. Prefer leaving a turn
+unattributed over setting `author` to a raw platform id.
+
+## Why it is not automatic
+
+Running the messaging sidecar gives your agent this API, but the sidecar will not
+save conversations on its own, because it cannot answer the questions the call
+requires. Which of the many conversations your agent sees is worth keeping. Whose
+history it belongs to. What identifies it, so a later save updates that copy
+rather than creating a second one. Whether a copy the user has since edited should
+be overwritten or appended to.
+
+Only the agent can answer those, so a save happens when an agent asks for one. A
+user gets a conversation in their history because an agent was built to put one
+there.
+
+## Next steps
+
+- [Files in chat](/messaging-sdk/files-in-chat) covers the other half of a rich
+  conversation: reading a user's uploads and returning files they can download.
+- [Custom adapter (Node)](/adapters/custom-node) and
+  [Custom adapter (Python)](/adapters/custom-python) list every field on
+  `StreamOptions`.

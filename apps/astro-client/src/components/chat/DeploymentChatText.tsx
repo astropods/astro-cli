@@ -5,6 +5,7 @@ import { useAuiState } from "@assistant-ui/react";
 import { useDeploymentChatStreamingMessageId } from "@/components/chat/deployment-chat-streaming-context";
 import { proseClasses } from "@/components/StyledMarkdown";
 import {
+  deploymentChatRemarkPlugins,
   deploymentChatStreamdownControls,
   deploymentChatStreamdownPlugins,
 } from "@/lib/chat/streamdown";
@@ -63,6 +64,7 @@ export const DeploymentChatText: FC = () => {
       isAnimating={isStreaming}
       animated={ANIMATE_OPTIONS}
       plugins={deploymentChatStreamdownPlugins}
+      remarkPlugins={deploymentChatRemarkPlugins}
       controls={deploymentChatStreamdownControls}
       shikiTheme={SHIKI_THEME}
       className={cn(proseClasses, chatMessageLinkClasses)}
