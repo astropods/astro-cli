@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,7 +221,7 @@ func TestAccountSwitch_SwitchBackToPersonal(t *testing.T) {
 	require.Equal(t, "alice", account)
 }
 
-// ─── account switch: refresh on miss ──────────────────────────────────────────
+// ─── account refresh: switch, list, and selection share one fetch path ────────
 
 func setupAccountRefreshTest(t *testing.T, handler http.Handler) {
 	t.Helper()
@@ -242,22 +243,65 @@ func accountsResponse(names ...string) map[string]any {
 	return map[string]any{"accounts": accounts}
 }
 
-func TestAccountSwitch_RefreshesOnMiss(t *testing.T) {
-	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
-	}))
-
-	require.NoError(t, runAccountSwitch(accountSwitchCmd, []string{"new-org"}))
-
-	account, err := accountNewStorage().GetCurrentAccount()
-	require.NoError(t, err)
-	require.Equal(t, "new-org", account)
-
-	profile, err := accountNewStorage().GetCurrentProfile()
-	require.NoError(t, err)
-	require.True(t, auth.HasAccount(profile.Accounts, "new-org"), "refreshed list should persist to the cache")
+// refreshEntryPoints run the three surfaces that read the account list and
+// return text that should contain the account name under test.
+var refreshEntryPoints = map[string]func(t *testing.T) string{
+	"switch": func(t *testing.T) string {
+		require.NoError(t, runAccountSwitch(accountSwitchCmd, []string{"new-org"}))
+		account, err := accountNewStorage().GetCurrentAccount()
+		require.NoError(t, err)
+		return account
+	},
+	"list": func(t *testing.T) string {
+		buf := &bytes.Buffer{}
+		cmd := accountListCmd
+		cmd.SetOut(buf)
+		require.NoError(t, runAccountList(cmd, nil))
+		return buf.String()
+	},
+	"selection": func(t *testing.T) string {
+		accounts, err := accountsForSelection(accountNewStorage())
+		require.NoError(t, err)
+		names := make([]string, len(accounts))
+		for i, a := range accounts {
+			names[i] = a.Name
+		}
+		return strings.Join(names, ",")
+	},
 }
 
+func TestAccountRefresh_FindsAccountCreatedSinceLastLogin(t *testing.T) {
+	for name, run := range refreshEntryPoints {
+		t.Run(name, func(t *testing.T) {
+			setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
+			}))
+
+			require.Contains(t, run(t), "new-org")
+
+			profile, err := accountNewStorage().GetCurrentProfile()
+			require.NoError(t, err)
+			require.True(t, auth.HasAccount(profile.Accounts, "new-org"), "refreshed list should persist to the cache")
+		})
+	}
+}
+
+func TestAccountRefresh_FallsBackToCacheWhenFetchFails(t *testing.T) {
+	for name, run := range refreshEntryPoints {
+		if name == "switch" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+			}))
+			require.Contains(t, run(t), "acme-corp")
+		})
+	}
+}
+
+// Unlike list and selection, switch reports its own error instead of
+// falling back to the cache.
 func TestAccountSwitch_StillErrorsWhenRefreshDoesNotFindIt(t *testing.T) {
 	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
@@ -266,6 +310,8 @@ func TestAccountSwitch_StillErrorsWhenRefreshDoesNotFindIt(t *testing.T) {
 	require.ErrorContains(t, runAccountSwitch(accountSwitchCmd, []string{"no-such-account"}), "no-such-account")
 }
 
+// Unlike list and selection, switch only fetches on a miss, so a known name
+// must never hit the network.
 func TestAccountSwitch_KnownAccountNeverHitsTheNetwork(t *testing.T) {
 	var called bool
 	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -275,59 +321,6 @@ func TestAccountSwitch_KnownAccountNeverHitsTheNetwork(t *testing.T) {
 
 	require.NoError(t, runAccountSwitch(accountSwitchCmd, []string{"acme-corp"}))
 	require.False(t, called, "switching to an already-known account must not fetch")
-}
-
-// ─── account list: always refreshes ───────────────────────────────────────────
-
-func TestAccountList_ShowsAccountsCreatedSinceLastLogin(t *testing.T) {
-	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
-	}))
-
-	buf := &bytes.Buffer{}
-	cmd := accountListCmd
-	cmd.SetOut(buf)
-	require.NoError(t, runAccountList(cmd, nil))
-	require.Contains(t, buf.String(), "new-org")
-}
-
-func TestAccountList_FallsBackToCacheWhenRefreshFails(t *testing.T) {
-	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-
-	buf := &bytes.Buffer{}
-	cmd := accountListCmd
-	cmd.SetOut(buf)
-	require.NoError(t, runAccountList(cmd, nil))
-	require.Contains(t, buf.String(), "acme-corp")
-}
-
-// ─── accountsForSelection ──────────────────────────────────────────────────────
-
-func TestAccountsForSelection_PersistsRefreshedList(t *testing.T) {
-	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
-	}))
-
-	storage := accountNewStorage()
-	accounts, err := accountsForSelection(storage)
-	require.NoError(t, err)
-	require.True(t, auth.HasAccount(accounts, "new-org"))
-
-	profile, err := storage.GetCurrentProfile()
-	require.NoError(t, err)
-	require.True(t, auth.HasAccount(profile.Accounts, "new-org"), "refreshed list should persist to the cache")
-}
-
-func TestAccountsForSelection_FallsBackToCacheOnFailure(t *testing.T) {
-	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-
-	accounts, err := accountsForSelection(accountNewStorage())
-	require.NoError(t, err)
-	require.True(t, auth.HasAccount(accounts, "acme-corp"))
 }
 
 func TestAccountOrgID(t *testing.T) {
