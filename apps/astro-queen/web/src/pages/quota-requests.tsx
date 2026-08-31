@@ -19,7 +19,16 @@ export const FEATURE_LABELS: Record<string, string> = {
   members: "Members",
   knowledge_stores: "Knowledge Stores",
   knowledge_endpoints: "PrivateLink Endpoints",
+  spend_limit: "Spend Limit ($/mo)",
 };
+
+// Dollars per month, not a resource count.
+const MONEY_FEATURES = new Set(["spend_limit"]);
+
+function formatAmount(value: number, money: boolean): string {
+  if (money) return value.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  return String(value);
+}
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-600",
@@ -99,6 +108,8 @@ function RequestRow({ request: req }: { request: QuotaRequest }) {
   );
   const [note, setNote] = useState("");
   const [approveErr, setApproveErr] = useState("");
+  const money = MONEY_FEATURES.has(req.feature_key);
+  const amount = (value: number) => formatAmount(value, money);
 
   const handleApprove = async () => {
     const amount = parseFloat(grantAmount);
@@ -130,16 +141,16 @@ function RequestRow({ request: req }: { request: QuotaRequest }) {
         </td>
         <td className="px-2 py-1.5">{req.account_name || req.account_id}</td>
         <td className="px-2 py-1.5 font-medium">{FEATURE_LABELS[req.feature_key] ?? req.feature_key}</td>
-        <td className="px-2 py-1.5 text-right tabular-nums">{req.current_usage}</td>
-        <td className="px-2 py-1.5 text-right tabular-nums">{req.current_quota || "—"}</td>
-        <td className="px-2 py-1.5 text-right tabular-nums">{req.requested_amount || "—"}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{amount(req.current_usage)}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{req.current_quota ? amount(req.current_quota) : "—"}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{req.requested_amount ? amount(req.requested_amount) : "—"}</td>
         <td className="px-2 py-1.5 text-muted-foreground max-w-[200px] truncate" title={req.reason}>
           {req.reason || "—"}
         </td>
         <td className="px-2 py-1.5 text-muted-foreground">{formatDateTime(req.created_at)}</td>
         <td className="px-2 py-1.5 text-right tabular-nums">
           {req.grant_amount > 0 ? (
-            <span className="text-green-600">{req.grant_amount}</span>
+            <span className="text-green-600">{amount(req.grant_amount)}</span>
           ) : "—"}
         </td>
         <td className="px-2 py-1.5">
@@ -165,7 +176,9 @@ function RequestRow({ request: req }: { request: QuotaRequest }) {
           <td colSpan={10} className="px-2 py-2">
             <div className="flex items-end gap-2">
               <div>
-                <label className="text-[10px] font-medium">Grant amount *</label>
+                <label className="text-[10px] font-medium">
+                  {money ? "Grant ceiling ($/mo) *" : "Grant amount *"}
+                </label>
                 <Input
                   type="number"
                   min={0}

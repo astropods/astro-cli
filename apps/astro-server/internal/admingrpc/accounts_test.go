@@ -68,6 +68,7 @@ type mockAdminJobQueue struct {
 
 	billingProvisionCalls []string
 	billingResumeCalls    []string
+	gatewayBudgetCalls    []string
 	billingErr            error
 }
 
@@ -95,6 +96,11 @@ func (m *mockAdminJobQueue) InsertBillingProvision(_ context.Context, accountID 
 
 func (m *mockAdminJobQueue) InsertBillingResume(_ context.Context, accountID string) error {
 	m.billingResumeCalls = append(m.billingResumeCalls, accountID)
+	return m.billingErr
+}
+
+func (m *mockAdminJobQueue) InsertBillingGatewayBudget(_ context.Context, accountID string) error {
+	m.gatewayBudgetCalls = append(m.gatewayBudgetCalls, accountID)
 	return m.billingErr
 }
 

@@ -25,6 +25,9 @@ vi.mock("@/api/queries/billing", () => ({
   useBillingSpend: (account: string) => mockSpend(account),
   useSetBillingSpendThresholds: () => ({ mutateAsync: mockMutateAsync, isPending: false }),
 }));
+vi.mock("@/api/queries/usage", () => ({
+  useRequestQuotaIncrease: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+}));
 
 function spendResponse(partial: Partial<BillingSpend> = {}) {
   return {
@@ -78,13 +81,44 @@ describe("ManageLimitsDialog opened against a cold cache", () => {
 });
 
 describe("ManageLimitsDialog validation", () => {
-  it("has no upper bound on the spend limit", async () => {
+  it("saves a limit at the self-serve ceiling", async () => {
     renderDialog();
     await userEvent.clear(screen.getByLabelText("Spend limit"));
-    await userEvent.type(screen.getByLabelText("Spend limit"), "50000");
+    await userEvent.type(screen.getByLabelText("Spend limit"), "1000");
     await userEvent.click(screen.getByRole("button", { name: "Save limits" }));
 
-    expect(mockMutateAsync).toHaveBeenCalledWith({ warning: null, limit: 5_000_000 });
+    expect(mockMutateAsync).toHaveBeenCalledWith({ warning: null, limit: 100_000 });
+  });
+
+  it("refuses a limit above the ceiling and offers the request route instead", async () => {
+    renderDialog();
+    await userEvent.clear(screen.getByLabelText("Spend limit"));
+    await userEvent.type(screen.getByLabelText("Spend limit"), "5000");
+    await userEvent.click(screen.getByRole("button", { name: "Save limits" }));
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(screen.getByText(/Self-serve spend limits stop at \$1,000\.00 per month/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request an increase" })).toBeInTheDocument();
+  });
+
+  it("opens the quota increase form in place of the limits dialog", async () => {
+    renderDialog();
+    await userEvent.clear(screen.getByLabelText("Spend limit"));
+    await userEvent.type(screen.getByLabelText("Spend limit"), "5000");
+    await userEvent.click(screen.getByRole("button", { name: "Request an increase" }));
+
+    expect(screen.getByText("Request quota increase")).toBeInTheDocument();
+    expect(screen.queryByText("Manage limits")).not.toBeInTheDocument();
+  });
+
+  it("saves above the default ceiling once the account has a granted one", async () => {
+    mockSpend.mockReturnValue(spendResponse({ spend_ceiling: 500_000 }));
+    renderDialog();
+    await userEvent.clear(screen.getByLabelText("Spend limit"));
+    await userEvent.type(screen.getByLabelText("Spend limit"), "5000");
+    await userEvent.click(screen.getByRole("button", { name: "Save limits" }));
+
+    expect(mockMutateAsync).toHaveBeenCalledWith({ warning: null, limit: 500_000 });
   });
 
   it("blocks an alert set at or above the limit, but keeps Save enabled so the error stays reachable", async () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import {
   useAccount,
@@ -8,6 +8,7 @@ import {
   useAccountBilling,
   useRetryBillingProvision,
   useForceBillingResume,
+  useSetAccountSpendLimit,
   useRecoverAccountLangfuse,
   useRecoverAccountBifrost,
   useClusters,
@@ -30,6 +31,7 @@ import type {
   AccountMemberInfo,
   BillingContract,
   BillingSpend,
+  GetAccountBillingDetailResponse,
 } from "@/types/admin";
 import {
   AlertDialog,
@@ -252,9 +254,100 @@ function BillingCard({ billing, accountId }: { billing?: AccountBillingInfo; acc
           />
           <IdRow label="Stripe" value={billing?.stripe_customer_id ?? ""} href={detail?.stripe_url} />
         </div>
+        <SpendLimitControl accountId={accountId} detail={detail} />
+
         {metronomeId && <MetronomeAliasCheck accountId={accountId} />}
       </div>
     </Section>
+  );
+}
+
+// A limit above the self-serve ceiling raises that ceiling server-side, so the
+// number entered here is the one that ends up in force.
+function SpendLimitControl({
+  accountId,
+  detail,
+}: {
+  accountId: string;
+  detail?: GetAccountBillingDetailResponse;
+}) {
+  const mut = useSetAccountSpendLimit();
+  const saved = detail?.has_spend_limit ? (detail.spend_limit_usd ?? 0) : undefined;
+  const [input, setInput] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!touched) setInput(saved == null ? "" : String(saved));
+  }, [saved, touched]);
+
+  const parsed = input.trim() === "" ? null : Number(input);
+  const invalid = parsed !== null && (Number.isNaN(parsed) || parsed <= 0);
+  const hasCustomer = !!detail?.billing?.metronome_customer_id;
+  const ceiling = detail?.spend_ceiling_usd;
+  const pending = mut.isPending;
+
+  const run = async (clear: boolean) => {
+    setResult(null);
+    try {
+      const resp = await mut.mutateAsync(
+        clear ? { id: accountId, clear: true } : { id: accountId, limitUSD: parsed ?? 0 },
+      );
+      setTouched(false);
+      setResult(
+        resp.status === "cleared"
+          ? "Limit cleared. The account is uncapped."
+          : `Limit set to $${(resp.limit_usd ?? 0).toFixed(2)}, ceiling $${(resp.ceiling_usd ?? 0).toFixed(2)}.`,
+      );
+    } catch (e) {
+      setResult(e instanceof Error ? e.message : "Failed to set the spend limit.");
+    }
+  };
+
+  return (
+    <div className="rounded bg-glass-light px-2 py-1.5">
+      <div className="flex items-end gap-2">
+        <div>
+          <label htmlFor="spend-limit" className="text-[10px] font-medium">
+            Spend limit ($/mo)
+          </label>
+          <Input
+            id="spend-limit"
+            type="number"
+            min={0}
+            step="0.01"
+            value={input}
+            disabled={!hasCustomer || pending}
+            onChange={(e) => {
+              setTouched(true);
+              setInput(e.target.value);
+            }}
+            placeholder="No limit"
+            className="mt-0.5 h-7 w-28"
+          />
+        </div>
+        <Button size="xs" disabled={!hasCustomer || pending || parsed === null || invalid} onClick={() => run(false)}>
+          {pending ? "..." : "Save"}
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={!hasCustomer || pending || saved == null}
+          onClick={() => run(true)}
+        >
+          Clear
+        </Button>
+      </div>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        {!hasCustomer
+          ? "No Metronome customer yet, so there is nothing to write a limit to. Register one above."
+          : saved == null
+            ? `Uncapped. Self-serve ceiling ${ceiling != null ? `$${ceiling.toFixed(2)}` : "unknown"}.`
+            : `In force $${saved.toFixed(2)}. The account may set itself up to ${ceiling != null ? `$${ceiling.toFixed(2)}` : "unknown"}.`}
+      </p>
+      {invalid && <p className="mt-1 text-[10px] text-destructive">Enter an amount above zero, or use Clear.</p>}
+      {result && <p className="mt-1 text-[10px] text-muted-foreground">{result}</p>}
+    </div>
   );
 }
 

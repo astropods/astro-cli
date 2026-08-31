@@ -57,6 +57,7 @@ service AdminService {
   rpc GetAccountBillingDetail(GetAccountBillingDetailRequest) returns (GetAccountBillingDetailResponse);
   rpc RetryBillingProvision(RetryBillingProvisionRequest) returns (RetryBillingProvisionResponse);
   rpc ForceBillingResume(ForceBillingResumeRequest) returns (ForceBillingResumeResponse);
+  rpc SetAccountSpendLimit(SetAccountSpendLimitRequest) returns (SetAccountSpendLimitResponse);
   rpc RecoverAccountLangfuse(RecoverAccountLangfuseRequest) returns (RecoverAccountLangfuseResponse);
   rpc RecoverAccountBifrost(RecoverAccountBifrostRequest) returns (RecoverAccountBifrostResponse);
   rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
@@ -1034,6 +1035,10 @@ message GetAccountBillingDetailResponse {
   BillingProvisionJob provision_job = 7;
   BillingCard card = 8;
   BillingSpend spend = 12;
+  // Dollars per month, like every other figure on this response.
+  double spend_limit_usd = 13;
+  bool has_spend_limit = 14;
+  double spend_ceiling_usd = 15;
   string metronome_url = 9;       // vendor dashboard, empty without a customer
   string stripe_url = 10;
   // warnings carries per-source failures so one vendor being down degrades the
@@ -1059,6 +1064,19 @@ message ForceBillingResumeRequest {
 
 message ForceBillingResumeResponse {
   string status = 1; // enqueued | nothing_suspended
+}
+
+// A limit above the self-serve ceiling raises that ceiling to match.
+message SetAccountSpendLimitRequest {
+  string account_id = 1;
+  double limit_usd = 2; // dollars per month, ignored when clear is set
+  bool clear = 3;       // remove the limit, leaving the account uncapped
+}
+
+message SetAccountSpendLimitResponse {
+  string status = 1;         // set | cleared
+  double limit_usd = 2;      // 0 when cleared
+  double ceiling_usd = 3;    // after any raise this write applied
 }
 
 message MetronomeAliasStatus {

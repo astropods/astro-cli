@@ -1735,14 +1735,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Response(502, &handlers.ErrorResponse{}),
 				)
 
-				api.GET(accountManage, "/billing/spend", "Get current spend and the account's own thresholds", handlers.GetBillingSpend(log, accountStore, billingProvider, cfg.BillingBackend()),
+				api.GET(accountManage, "/billing/spend", "Get current spend and the account's own thresholds", handlers.GetBillingSpend(log, db, accountStore, billingProvider, cfg.BillingBackend()),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),
 					oapispec.Response(200, &handlers.BillingDataResponse{}),
 				)
 
-				api.PUT(accountManage, "/billing/spend/thresholds", "Set the account's own spend warning and limit", handlers.SetBillingSpendThresholds(log, accountStore, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
+				api.PUT(accountManage, "/billing/spend/thresholds", "Set the account's own spend warning and limit", handlers.SetBillingSpendThresholds(log, db, accountStore, billingProvider, cfg.BillingBackend(), deps.Stores.BillingStatus, queue),
 					oapispec.Tags("Billing"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

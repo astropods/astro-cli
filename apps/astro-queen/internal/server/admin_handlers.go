@@ -16,6 +16,7 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/accounts/{id}/billing", s.handleGetAccountBillingDetail)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/billing/retry-provision", s.handleRetryBillingProvision)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/billing/force-resume", s.handleForceBillingResume)
+	mux.HandleFunc("POST /api/admin/accounts/{id}/billing/spend-limit", s.handleSetAccountSpendLimit)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/langfuse/recover", s.handleRecoverAccountLangfuse)
 	mux.HandleFunc("POST /api/admin/accounts/{id}/bifrost/recover", s.handleRecoverAccountBifrost)
 	mux.HandleFunc("PUT /api/admin/accounts/{id}/rename", s.handleRenameAccount)
@@ -118,6 +119,27 @@ func (s *Server) handleRetryBillingProvision(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleForceBillingResume(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.admin.ForceBillingResume(r.Context(), &adminv1.ForceBillingResumeRequest{
 		AccountID: r.PathValue("id"),
+	})
+	if err != nil {
+		writeGRPCErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleSetAccountSpendLimit(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		LimitUSD float64 `json:"limit_usd"`
+		Clear    bool    `json:"clear"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.admin.SetAccountSpendLimit(r.Context(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: r.PathValue("id"),
+		LimitUSD:  body.LimitUSD,
+		Clear:     body.Clear,
 	})
 	if err != nil {
 		writeGRPCErr(w, err)

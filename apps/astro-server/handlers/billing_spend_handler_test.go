@@ -63,7 +63,7 @@ func spendRequest(t *testing.T, provider billing.BillingProvider) *httptest.Resp
 	c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "acme", Type: "personal"})
 
 	var store *account.AccountStore
-	GetBillingSpend(logger.New("error", "json"), store, provider, config.BillingBackendFake)(c)
+	GetBillingSpend(logger.New("error", "json"), nil, store, provider, config.BillingBackendFake)(c)
 	return rec
 }
 

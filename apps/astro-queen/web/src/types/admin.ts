@@ -493,6 +493,10 @@ export interface GetAccountBillingDetailResponse {
   provision_job?: BillingProvisionJob;
   card?: BillingCard;
   spend?: BillingSpend;
+  /** Dollars per month, like every other figure here. */
+  spend_limit_usd?: number;
+  has_spend_limit: boolean;
+  spend_ceiling_usd?: number;
   metronome_url?: string;
   stripe_url?: string;
   warnings?: string[];
@@ -504,6 +508,12 @@ export interface RetryBillingProvisionResponse {
 
 export interface ForceBillingResumeResponse {
   status?: string;
+}
+
+export interface SetAccountSpendLimitResponse {
+  status?: string;
+  limit_usd?: number;
+  ceiling_usd?: number;
 }
 
 export interface RecoverAccountLangfuseResponse {

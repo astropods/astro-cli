@@ -5,6 +5,7 @@ import { useAccountUsage, useQuotaIncreaseRequests } from "@/api/queries";
 import { EmptyState, LoadError, LoadingRows } from "@/components/settings/SettingsShared";
 import { RequestIncreaseDialog, meterMeta } from "@/components/RequestIncreaseDialog";
 import { formatNumber } from "@/lib/format-utils";
+import { formatMoney } from "@/lib/billing-balances";
 import { formatShortDateLocal } from "@/lib/date-utils";
 import type { QuotaIncreaseListItem, UsageMeter } from "@/lib/api";
 import {
@@ -48,7 +49,11 @@ function QuotaRequestsTable({ requests }: { requests: QuotaIncreaseListItem[] })
               {req.reason}
             </TableCell>
             <TableCell className="text-right tabular-nums">
-              {req.requested_amount != null ? formatNumber(req.requested_amount, 0) : "—"}
+              {req.requested_amount == null
+                ? "—"
+                : meterMeta[req.feature_key]?.money
+                  ? formatMoney(req.requested_amount, "USD")
+                  : formatNumber(req.requested_amount, 0)}
             </TableCell>
             <TableCell>
               <StatusBadge color={statusBadgeColor[req.status] ?? "muted"}>

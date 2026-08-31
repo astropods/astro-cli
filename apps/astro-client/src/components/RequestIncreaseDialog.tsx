@@ -13,18 +13,23 @@ import {
 import { useRequestQuotaIncrease } from "@/api/queries/usage";
 import { getApiErrorMessage, type UsageMeter } from "@/lib/api";
 import { formatNumber } from "@/lib/format-utils";
+import { formatMoney } from "@/lib/billing-balances";
 
 // Display metadata for quota feature keys, shared by the feature picker and
 // the requests table. Metered features (compute, knowledge storage/compute)
 // are billing-gated, not requestable here.
-export const meterMeta: Record<string, { label: string; unit?: string; decimals?: number }> = {
+// A `money` key carries dollars, not a count.
+export const meterMeta: Record<string, { label: string; unit?: string; decimals?: number; money?: boolean }> = {
   agent_builds:        { label: "Agent Builds",         unit: "builds" },
   agent_deployments:   { label: "Deployments" },
   blueprints:          { label: "Blueprints" },
   members:             { label: "Members" },
   knowledge_stores:    { label: "Knowledge Stores" },
   knowledge_endpoints: { label: "PrivateLink Endpoints" },
+  spend_limit:         { label: "Spend limit", money: true },
 };
+
+export const SPEND_LIMIT_KEY = "spend_limit";
 
 type FixedProps = {
   /** Fixed feature — the picker is hidden. */
@@ -60,6 +65,7 @@ export function RequestIncreaseDialog({
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [reasonTouched, setReasonTouched] = useState(false);
+  const [amountTouched, setAmountTouched] = useState(false);
   const mutation = useRequestQuotaIncrease(account);
   const reasonMissing = reasonTouched && !reason.trim();
 
@@ -75,12 +81,17 @@ export function RequestIncreaseDialog({
   const activeKey = featureKey ?? selectedKey;
   const activeMeter: UsageMeter = meter ?? meters?.[activeKey] ?? { usage: 0 };
   const activeLabel = label ?? meterMeta[activeKey]?.label ?? activeKey;
+  const money = meterMeta[activeKey]?.money ?? false;
+  const amountMissing = money && amountTouched && !amount.trim();
+  const formatAmount = (value: number, decimals: number) =>
+    money ? formatMoney(value, "USD") : formatNumber(value, decimals);
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setReason("");
       setAmount("");
       setReasonTouched(false);
+      setAmountTouched(false);
       mutation.reset();
     }
     onOpenChange(next);
@@ -88,6 +99,10 @@ export function RequestIncreaseDialog({
 
   const handleSubmit = () => {
     if (!activeKey) return;
+    if (money && !amount.trim()) {
+      setAmountTouched(true);
+      return;
+    }
     if (!reason.trim()) {
       setReasonTouched(true);
       return;
@@ -115,9 +130,11 @@ export function RequestIncreaseDialog({
         <DialogHeader>
           <DialogTitle>Request quota increase</DialogTitle>
           <DialogDescription>
-            {featureKey
-              ? `Request additional ${activeLabel.toLowerCase()} quota for your account.`
-              : "Request additional quota for your account."}
+            {money
+              ? "Tell us the monthly limit you need. The Astro team reviews every request."
+              : featureKey
+                ? `Request additional ${activeLabel.toLowerCase()} quota for your account.`
+                : "Request additional quota for your account."}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
@@ -139,29 +156,37 @@ export function RequestIncreaseDialog({
           )}
           <div className="grid grid-cols-2 gap-3 text-[13px]">
             <div>
-              <span className="text-muted-foreground">Current usage</span>
-              <p className="font-medium">{formatNumber(activeMeter.usage, 1)}</p>
+              <span className="text-muted-foreground">{money ? "Spend this period" : "Current usage"}</span>
+              <p className="font-medium">{formatAmount(activeMeter.usage, 1)}</p>
             </div>
             <div>
-              <span className="text-muted-foreground">Current quota</span>
+              <span className="text-muted-foreground">{money ? "Current ceiling" : "Current quota"}</span>
               <p className="font-medium">
-                {activeMeter.quota != null ? formatNumber(activeMeter.quota, 0) : "Unlimited"}
+                {activeMeter.quota != null ? formatAmount(activeMeter.quota, 0) : "Unlimited"}
               </p>
             </div>
           </div>
           <div>
             <label className="text-[12px] font-medium text-foreground">
-              Requested amount
-              <span className="text-muted-foreground font-normal"> (optional)</span>
+              {money ? "Requested monthly limit" : "Requested amount"}
+              {!money && <span className="text-muted-foreground font-normal"> (optional)</span>}
             </label>
-            <input
-              type="number"
-              min={0}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Leave blank for admin to decide"
-              className="mt-1 w-full rounded border border-border bg-surface px-3 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary"
-            />
+            <div className="relative">
+              {money && (
+                <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[13px] text-muted-foreground">
+                  $
+                </span>
+              )}
+              <input
+                type="number"
+                min={0}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder={money ? "0.00" : "Leave blank for admin to decide"}
+                className={`mt-1 w-full rounded border border-border bg-surface py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary ${money ? "pl-6 pr-3" : "px-3"}`}
+              />
+            </div>
+            {amountMissing && <p className="mt-1 text-[12px] text-destructive">An amount is required.</p>}
           </div>
           <div>
             <label className="text-[12px] font-medium text-foreground">

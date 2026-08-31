@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/auditlog"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -120,6 +122,23 @@ func (s *Server) GetAccountBillingDetail(ctx context.Context, req *adminv1.GetAc
 				resp.Spend = spendToProto(spend)
 			}
 		}
+
+		if reader, ok := s.billingProvider.(billing.SpendThresholdReader); ok {
+			th, err := reader.CustomerSpendThresholds(ctx, resp.Billing.MetronomeCustomerID)
+			if err != nil {
+				resp.Warnings = append(resp.Warnings, "spend threshold lookup failed: "+err.Error())
+			} else if th.HasLimit {
+				resp.HasSpendLimit = true
+				resp.SpendLimitUSD = th.Limit.Amount / 100
+			}
+		}
+	}
+
+	ceiling, err := quota.SpendCeilingUSD(ctx, s.db, req.AccountID)
+	if err != nil {
+		resp.Warnings = append(resp.Warnings, "spend ceiling lookup failed: "+err.Error())
+	} else {
+		resp.SpendCeilingUSD = ceiling
 	}
 
 	if resp.Billing.StripeCustomerID != "" {
@@ -333,4 +352,99 @@ func (s *Server) ForceBillingResume(ctx context.Context, req *adminv1.ForceBilli
 	}
 
 	return &adminv1.ForceBillingResumeResponse{Status: "enqueued"}, nil
+}
+
+// SetAccountSpendLimit writes the account's spend limit to any value, raising
+// its ceiling to match. billing.MaxSelfServeSpendUSD bounds what a customer may
+// choose for itself, not what an operator grants.
+func (s *Server) SetAccountSpendLimit(ctx context.Context, req *adminv1.SetAccountSpendLimitRequest) (*adminv1.SetAccountSpendLimitResponse, error) {
+	if req.AccountID == "" {
+		return nil, status.Error(codes.InvalidArgument, "account_id is required")
+	}
+	if !req.Clear && req.LimitUSD <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "limit_usd must be positive, or set clear")
+	}
+	writer, ok := s.billingProvider.(billing.SpendThresholdWriter)
+	if !ok {
+		return nil, status.Error(codes.FailedPrecondition, "billing provider cannot write spend thresholds")
+	}
+
+	var customerID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(metronome_customer_id, '') FROM accounts WHERE id = $1`, req.AccountID,
+	).Scan(&customerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, status.Errorf(codes.NotFound, "account not found: %s", req.AccountID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get billing customer id: %w", err)
+	}
+	if customerID == "" {
+		return nil, status.Error(codes.FailedPrecondition, "account has no billing customer")
+	}
+
+	resp := &adminv1.SetAccountSpendLimitResponse{Status: "cleared"}
+	if req.Clear {
+		if err := writer.ClearCustomerSpendThreshold(ctx, customerID, billing.SpendThresholdLimit); err != nil {
+			return nil, fmt.Errorf("clear spend limit: %w", err)
+		}
+	} else {
+		if err := writer.SetCustomerSpendThreshold(ctx, customerID, billing.SpendThresholdLimit, req.LimitUSD*100); err != nil {
+			return nil, fmt.Errorf("set spend limit: %w", err)
+		}
+		resp.Status = "set"
+		resp.LimitUSD = req.LimitUSD
+		if err := s.raiseSpendCeiling(ctx, req.AccountID, req.LimitUSD); err != nil {
+			return nil, err
+		}
+	}
+
+	ceiling, err := quota.SpendCeilingUSD(ctx, s.db, req.AccountID)
+	if err != nil {
+		return nil, fmt.Errorf("read spend ceiling: %w", err)
+	}
+	resp.CeilingUSD = ceiling
+
+	// Non-fatal: the periodic sweep re-derives the gateway budget either way.
+	if s.queue != nil {
+		if err := s.queue.InsertBillingGatewayBudget(ctx, req.AccountID); err != nil {
+			s.log.Error("billing: enqueue gateway budget re-derive failed", "error", err, "account_id", req.AccountID)
+		}
+	}
+
+	s.log.Info("billing: set account spend limit",
+		"account_id", req.AccountID, "limit_usd", resp.LimitUSD, "ceiling_usd", resp.CeilingUSD, "status", resp.Status)
+
+	if s.auditStore != nil {
+		evt := auditlog.ForAdmin(req.AccountID, "grpc")
+		evt.Action = auditlog.BillingSetSpendLimit
+		evt.ResourceType = "account"
+		evt.ResourceID = req.AccountID
+		evt.Description = "Admin set the account spend limit"
+		evt.Metadata = map[string]any{"limit_usd": resp.LimitUSD, "ceiling_usd": resp.CeilingUSD, "cleared": req.Clear}
+		s.auditStore.LogAsync(s.log, evt)
+	}
+
+	return resp, nil
+}
+
+// raiseSpendCeiling lifts the ceiling to limitUSD, never lowers it: a ceiling is
+// a grant, and dropping a limit is not revoking it.
+func (s *Server) raiseSpendCeiling(ctx context.Context, accountID string, limitUSD float64) error {
+	current, err := quota.SpendCeilingUSD(ctx, s.db, accountID)
+	if err != nil {
+		return fmt.Errorf("read spend ceiling: %w", err)
+	}
+	if limitUSD <= current {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO account_limits (account_id, resource, limit_value)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (account_id, resource) DO UPDATE SET limit_value = EXCLUDED.limit_value`,
+		accountID, quota.KeySpendLimit, int64(math.Round(limitUSD)),
+	); err != nil {
+		return fmt.Errorf("raise spend ceiling: %w", err)
+	}
+	return nil
 }

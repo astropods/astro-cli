@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { linkifyEmail } from "@/lib/linkify-email";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useBillingSpend, useSetBillingSpendThresholds } from "@/api/queries/billing";
+import { RequestIncreaseDialog, SPEND_LIMIT_KEY } from "@/components/RequestIncreaseDialog";
 import { getApiErrorMessage } from "@/lib/api";
 import { formatMoney, thresholdDollars } from "@/lib/billing-balances";
 import { canManageAccountBilling } from "@/lib/billing-copy";
 import { useAuth } from "@/lib/auth";
 
 const AMOUNT_PLACEHOLDER = "0.00";
+
+// Mirrors billing.MaxSelfServeSpendUSD.
+const MAX_SELF_SERVE_SPEND_USD = 1000;
 
 function parseAmount(input: string): number | null {
   const trimmed = input.trim();
@@ -92,7 +96,7 @@ function LimitField({
   onChange: (value: string) => void;
   onRemove: () => void;
   helperText: string;
-  error?: string | null;
+  error?: ReactNode;
   notice?: string | null;
 }) {
   const messageId = `${id}-message`;
@@ -172,17 +176,34 @@ export function ManageLimitsDialog({
   const ready = !isLoading;
 
   const spendRow = useRowInputs(currentWarning, currentLimit, open, ready);
+  const [requestOpen, setRequestOpen] = useState(false);
 
   const warning = parseAmount(spendRow.warningInput);
   const limit = parseAmount(spendRow.limitInput);
+  const ceiling = thresholdDollars(spend?.spend_ceiling) ?? MAX_SELF_SERVE_SPEND_USD;
 
   // A field reports the cross-field conflict only once both parse, so a
   // half-typed "-" doesn't also claim it is above the spend limit.
   const invalid = (v: number | null) => v != null && (Number.isNaN(v) || v < 0);
   const AMOUNT_ERROR = "Enter an amount of zero or more.";
 
-  let warningError: string | null = invalid(warning) ? AMOUNT_ERROR : null;
-  const limitError: string | null = invalid(limit) ? AMOUNT_ERROR : null;
+  let warningError: ReactNode = invalid(warning) ? AMOUNT_ERROR : null;
+  let limitError: ReactNode = invalid(limit) ? AMOUNT_ERROR : null;
+  if (!limitError && limit != null && limit > ceiling) {
+    limitError = (
+      <>
+        {`Self-serve spend limits stop at ${formatMoney(ceiling, currency)} per month. `}
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-foreground"
+          onClick={() => setRequestOpen(true)}
+        >
+          Request an increase
+        </button>
+        .
+      </>
+    );
+  }
   if (!warningError && !limitError && warning != null && limit != null && warning >= limit) {
     warningError = `Agents already pause at your ${formatMoney(limit, currency)} spend limit, so you never get this alert. Enter an amount lower than the spend limit.`;
   }
@@ -220,66 +241,82 @@ export function ManageLimitsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Manage limits</DialogTitle>
-          <DialogDescription>
-            Control how much you spend on pay-as-you-go each billing period.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open && !requestOpen} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Manage limits</DialogTitle>
+            <DialogDescription>
+              Control how much you spend on pay-as-you-go each billing period.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="flex flex-col gap-5 py-2">
-          <LimitField
-            id="alert-at"
-            label="Alert threshold"
-            removeLabel="Remove alert threshold"
-            placeholder={AMOUNT_PLACEHOLDER}
-            prefix="$"
-            disabled={!canManage}
-            value={spendRow.warningInput}
-            onChange={spendRow.setWarningInput}
-            onRemove={() => spendRow.setWarningInput("")}
-            helperText="We notify you when spend reaches this amount. No interruptions to your agents."
-            error={warningError}
-          />
+          <div className="flex flex-col gap-5 py-2">
+            <LimitField
+              id="alert-at"
+              label="Alert threshold"
+              removeLabel="Remove alert threshold"
+              placeholder={AMOUNT_PLACEHOLDER}
+              prefix="$"
+              disabled={!canManage}
+              value={spendRow.warningInput}
+              onChange={spendRow.setWarningInput}
+              onRemove={() => spendRow.setWarningInput("")}
+              helperText="We notify you when spend reaches this amount. No interruptions to your agents."
+              error={warningError}
+            />
 
-          <LimitField
-            id="spend-limit"
-            label="Spend limit"
-            removeLabel="Remove spend limit"
-            placeholder={AMOUNT_PLACEHOLDER}
-            prefix="$"
-            disabled={!canManage}
-            value={spendRow.limitInput}
-            onChange={spendRow.setLimitInput}
-            onRemove={() => spendRow.setLimitInput("")}
-            helperText="Agents pause when spend reaches this amount. You won't be charged past it."
-            error={limitError}
-            notice={
-              pausesNow
-                ? `Spend this period is already ${formatMoney(currentSpend, currency)}. Saving this limit pauses your agents immediately.`
-                : null
-            }
-          />
+            <LimitField
+              id="spend-limit"
+              label="Spend limit"
+              removeLabel="Remove spend limit"
+              placeholder={AMOUNT_PLACEHOLDER}
+              prefix="$"
+              disabled={!canManage}
+              value={spendRow.limitInput}
+              onChange={spendRow.setLimitInput}
+              onRemove={() => spendRow.setLimitInput("")}
+              helperText="Agents pause when spend reaches this amount. You won't be charged past it."
+              error={limitError}
+              notice={
+                pausesNow
+                  ? `Spend this period is already ${formatMoney(currentSpend, currency)}. Saving this limit pauses your agents immediately.`
+                  : null
+              }
+            />
 
-          {!canManage && (
-            <p className="text-body-sm text-muted-foreground">Only owners and admins can change limits.</p>
-          )}
-        </div>
+            {!canManage && (
+              <p className="text-body-sm text-muted-foreground">Only owners and admins can change limits.</p>
+            )}
+          </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={onSave}
-            disabled={!canManage || isLoading || saveSpend.isPending || !spendChanged}
-          >
-            {saveSpend.isPending ? "Saving…" : "Save limits"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onSave}
+              disabled={!canManage || isLoading || saveSpend.isPending || !spendChanged}
+            >
+              {saveSpend.isPending ? "Saving…" : "Save limits"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {requestOpen && (
+        <RequestIncreaseDialog
+          account={account}
+          featureKey={SPEND_LIMIT_KEY}
+          label="Spend limit"
+          meter={{ usage: currentSpend, quota: ceiling }}
+          open
+          onOpenChange={(next) => {
+            setRequestOpen(next);
+            if (!next) onOpenChange(false);
+          }}
+        />
+      )}
+    </>
   );
 }

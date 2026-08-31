@@ -101,3 +101,39 @@ func TestApproveQuotaIncrease_NonManagedFeature(t *testing.T) {
 		t.Errorf("unmet expectations: %v", err)
 	}
 }
+
+func TestApproveQuotaIncrease_AppliesASpendLimitCeiling(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT account_id, feature_key FROM quota_increase_requests`).
+		WithArgs("req-3").
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "feature_key"}).AddRow("acct-1", "spend_limit"))
+	mock.ExpectExec(`UPDATE quota_increase_requests`).
+		WithArgs(float64(5000), "approved for the batch run", "req-3").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO account_limits`).
+		WithArgs("acct-1", "spend_limit", int64(5000)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	srv := &Server{db: db, log: logger.New("error", "json")}
+	resp, err := srv.ApproveQuotaIncrease(context.Background(), &adminv1.ApproveQuotaIncreaseRequest{
+		RequestID:   "req-3",
+		GrantAmount: 5000,
+		Note:        "approved for the batch run",
+	})
+	if err != nil {
+		t.Fatalf("ApproveQuotaIncrease: %v", err)
+	}
+	if resp.Status != "approved" {
+		t.Errorf("status = %q, want approved", resp.Status)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}

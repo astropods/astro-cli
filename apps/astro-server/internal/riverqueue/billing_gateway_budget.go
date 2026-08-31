@@ -2,6 +2,7 @@ package riverqueue
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 )
 
 // BillingGatewayBudgetArgs re-derives one account's AI gateway spend ceiling.
@@ -42,7 +44,9 @@ type BillingGatewayBudgetWorker struct {
 	// SpendThresholdReader, and the ceiling falls back to the card default.
 	provider billing.BillingProvider
 	backend  string
-	log      *logger.Logger
+	// db reads the granted spend ceiling. Nil leaves the self-serve default.
+	db  *sql.DB
+	log *logger.Logger
 }
 
 func (w *BillingGatewayBudgetWorker) Work(ctx context.Context, job *river.Job[BillingGatewayBudgetArgs]) error {
@@ -100,25 +104,29 @@ func (w *BillingGatewayBudgetWorker) ceilingUSD(ctx context.Context, accountID s
 	if err != nil {
 		return 0, "", err
 	}
+	ceiling, err := quota.SpendCeilingUSD(ctx, w.db, accountID)
+	if err != nil {
+		return 0, "", err
+	}
 
 	if exempt {
-		// The floor is the standard ceiling, not the seeded limit, which is far
+		// The floor is the account's ceiling, not the seeded limit, which is far
 		// below it. Raising an exempt account past the floor is an operator
 		// action: set a higher limit on the account and it is honoured here
 		// unclamped, because the self-serve bound governs what a customer can
 		// choose for itself, not what an operator grants.
-		if hasLimit && limitUSD > billing.MaxSelfServeSpendUSD {
+		if hasLimit && limitUSD > ceiling {
 			return limitUSD, "exempt_operator_limit", nil
 		}
-		return billing.MaxSelfServeSpendUSD, "exempt_floor", nil
+		return ceiling, "exempt_floor", nil
 	}
 
 	if hasLimit {
 		// The handler bounds what a customer can set, but a limit can reach the
 		// provider without passing it: an admin or a backfill writes there
 		// directly.
-		if limitUSD > billing.MaxSelfServeSpendUSD {
-			return billing.MaxSelfServeSpendUSD, "spend_limit_clamped", nil
+		if limitUSD > ceiling {
+			return ceiling, "spend_limit_clamped", nil
 		}
 		return limitUSD, "spend_limit", nil
 	}

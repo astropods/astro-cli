@@ -3,7 +3,7 @@
 **Status:** Authoritative for `internal/aigateway` (key minting, budget,
 metering). The Bifrost-otel section is a short overview, not a full
 architecture pass — see [Bifrost-otel](#bifrost-otel) for why.
-**Last verified:** 2026-08-26
+**Last verified:** 2026-08-31
 
 ## Summary
 
@@ -102,10 +102,13 @@ time and the billing provider does not. Ceiling derivation (`ceilingUSD`):
 
 - No Bifrost customer yet → no-op; a fresh customer already got the
   card-less default at creation.
-- Exempt account → the standard self-serve ceiling floor, or the account's
-  own limit if an operator set one above that floor.
-- Account has its own spend limit set → that limit, clamped to
-  `billing.MaxSelfServeSpendUSD`.
+- Exempt account → the account's ceiling as a floor, or the account's own
+  limit if an operator set one above that floor.
+- Account has its own spend limit set → that limit, clamped to the account's
+  ceiling (`quota.SpendCeilingUSD`: an approved `spend_limit` quota request
+  when it has one, else `billing.MaxSelfServeSpendUSD`). Clamping to the
+  shared default instead would leave a granted account refused here after
+  the billing provider already accepted the higher limit.
 - No limit set → `CardedBudgetUSD` ($20) if the account has a payment method
   on file, else `CardlessBudgetUSD` ($10).
 

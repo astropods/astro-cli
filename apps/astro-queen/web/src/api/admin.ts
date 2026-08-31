@@ -17,6 +17,7 @@ import type {
   GetAccountBillingDetailResponse,
   RetryBillingProvisionResponse,
   ForceBillingResumeResponse,
+  SetAccountSpendLimitResponse,
   RecoverAccountLangfuseResponse,
   RecoverAccountBifrostResponse,
   ListBlueprintsResponse,
@@ -275,6 +276,21 @@ export function useForceBillingResume() {
       ),
     onSuccess: (_data, id) => {
       qc.invalidateQueries({ queryKey: adminKeys.accountBilling(id) });
+    },
+  });
+}
+
+export function useSetAccountSpendLimit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, limitUSD, clear }: { id: string; limitUSD?: number; clear?: boolean }) =>
+      api.post<SetAccountSpendLimitResponse>(
+        `/api/admin/accounts/${encodeURIComponent(id)}/billing/spend-limit`,
+        { limit_usd: limitUSD ?? 0, clear: clear ?? false },
+      ),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: adminKeys.accountBilling(id) });
+      qc.invalidateQueries({ queryKey: adminKeys.account(id) });
     },
   });
 }

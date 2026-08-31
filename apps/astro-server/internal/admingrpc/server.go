@@ -59,6 +59,7 @@ type adminJobQueue interface {
 	InsertMigrateDeploymentClusterJob(ctx context.Context, deploymentID, targetClusterID, sourceClusterID string) error
 	InsertBillingProvision(ctx context.Context, accountID string) error
 	InsertBillingResume(ctx context.Context, accountID string) error
+	InsertBillingGatewayBudget(ctx context.Context, accountID string) error
 	TriggerJob(ctx context.Context, kind string, argsJSON json.RawMessage) (int64, error)
 	CancelJob(ctx context.Context, id int64) error
 	RetryJob(ctx context.Context, id int64) (bool, error)

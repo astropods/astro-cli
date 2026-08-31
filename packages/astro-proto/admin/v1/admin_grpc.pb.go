@@ -34,6 +34,7 @@ type AdminServiceClient interface {
 	GetAccountBillingDetail(ctx context.Context, in *GetAccountBillingDetailRequest, opts ...grpc.CallOption) (*GetAccountBillingDetailResponse, error)
 	RetryBillingProvision(ctx context.Context, in *RetryBillingProvisionRequest, opts ...grpc.CallOption) (*RetryBillingProvisionResponse, error)
 	ForceBillingResume(ctx context.Context, in *ForceBillingResumeRequest, opts ...grpc.CallOption) (*ForceBillingResumeResponse, error)
+	SetAccountSpendLimit(ctx context.Context, in *SetAccountSpendLimitRequest, opts ...grpc.CallOption) (*SetAccountSpendLimitResponse, error)
 	RecoverAccountLangfuse(ctx context.Context, in *RecoverAccountLangfuseRequest, opts ...grpc.CallOption) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(ctx context.Context, in *RecoverAccountBifrostRequest, opts ...grpc.CallOption) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(ctx context.Context, in *RenameAccountRequest, opts ...grpc.CallOption) (*RenameAccountResponse, error)
@@ -246,6 +247,14 @@ func (c *adminServiceClient) RetryBillingProvision(ctx context.Context, in *Retr
 func (c *adminServiceClient) ForceBillingResume(ctx context.Context, in *ForceBillingResumeRequest, opts ...grpc.CallOption) (*ForceBillingResumeResponse, error) {
 	out := new(ForceBillingResumeResponse)
 	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/ForceBillingResume", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *adminServiceClient) SetAccountSpendLimit(ctx context.Context, in *SetAccountSpendLimitRequest, opts ...grpc.CallOption) (*SetAccountSpendLimitResponse, error) {
+	out := new(SetAccountSpendLimitResponse)
+	if err := c.cc.Invoke(ctx, "/admin.v1.AdminService/SetAccountSpendLimit", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -768,6 +777,7 @@ type AdminServiceServer interface {
 	GetAccountBillingDetail(context.Context, *GetAccountBillingDetailRequest) (*GetAccountBillingDetailResponse, error)
 	RetryBillingProvision(context.Context, *RetryBillingProvisionRequest) (*RetryBillingProvisionResponse, error)
 	ForceBillingResume(context.Context, *ForceBillingResumeRequest) (*ForceBillingResumeResponse, error)
+	SetAccountSpendLimit(context.Context, *SetAccountSpendLimitRequest) (*SetAccountSpendLimitResponse, error)
 	RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error)
 	RecoverAccountBifrost(context.Context, *RecoverAccountBifrostRequest) (*RecoverAccountBifrostResponse, error)
 	RenameAccount(context.Context, *RenameAccountRequest) (*RenameAccountResponse, error)
@@ -900,6 +910,10 @@ func (UnimplementedAdminServiceServer) RetryBillingProvision(context.Context, *R
 }
 func (UnimplementedAdminServiceServer) ForceBillingResume(context.Context, *ForceBillingResumeRequest) (*ForceBillingResumeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ForceBillingResume not implemented")
+}
+
+func (UnimplementedAdminServiceServer) SetAccountSpendLimit(context.Context, *SetAccountSpendLimitRequest) (*SetAccountSpendLimitResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountSpendLimit not implemented")
 }
 func (UnimplementedAdminServiceServer) RecoverAccountLangfuse(context.Context, *RecoverAccountLangfuseRequest) (*RecoverAccountLangfuseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecoverAccountLangfuse not implemented")
@@ -1417,6 +1431,21 @@ func _AdminService_ForceBillingResume_Handler(srv interface{}, ctx context.Conte
 	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/ForceBillingResume"}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AdminServiceServer).ForceBillingResume(ctx, req.(*ForceBillingResumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AdminService_SetAccountSpendLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountSpendLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AdminServiceServer).SetAccountSpendLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{Server: srv, FullMethod: "/admin.v1.AdminService/SetAccountSpendLimit"}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AdminServiceServer).SetAccountSpendLimit(ctx, req.(*SetAccountSpendLimitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2374,6 +2403,7 @@ var AdminService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "GetAccountBillingDetail", Handler: _AdminService_GetAccountBillingDetail_Handler},
 		{MethodName: "RetryBillingProvision", Handler: _AdminService_RetryBillingProvision_Handler},
 		{MethodName: "ForceBillingResume", Handler: _AdminService_ForceBillingResume_Handler},
+		{MethodName: "SetAccountSpendLimit", Handler: _AdminService_SetAccountSpendLimit_Handler},
 		{MethodName: "RecoverAccountLangfuse", Handler: _AdminService_RecoverAccountLangfuse_Handler},
 		{MethodName: "RecoverAccountBifrost", Handler: _AdminService_RecoverAccountBifrost_Handler},
 		{MethodName: "RenameAccount", Handler: _AdminService_RenameAccount_Handler},

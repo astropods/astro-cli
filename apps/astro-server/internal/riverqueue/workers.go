@@ -634,6 +634,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 			status:   billingStatusStore,
 			provider: cfg.Billing,
 			backend:  cfg.BillingBackend,
+			db:       cfg.DB,
 			log:      log,
 		}
 		if dep != nil && dep.AIGatewayProvisioner != nil {

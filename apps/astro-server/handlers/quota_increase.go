@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -47,7 +48,7 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		if !quota.IsResource(input.FeatureKey) {
+		if !quota.IsRequestable(input.FeatureKey) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid feature_key"})
 			return
 		}
@@ -56,6 +57,24 @@ func RequestQuotaIncrease(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
 		if input.Reason == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "reason is required"})
 			return
+		}
+
+		if input.FeatureKey == quota.KeySpendLimit {
+			ceiling, err := quota.SpendCeilingUSD(c.Request.Context(), db, acct.ID)
+			if err != nil {
+				log.Error("quota increase: read spend ceiling failed", "error", err, "account_id", acct.ID)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request"})
+				return
+			}
+			if input.RequestedAmount == nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "A requested monthly spend limit is required."})
+				return
+			}
+			if *input.RequestedAmount <= ceiling {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("You can already set a spend limit up to $%.0f per month. Request a higher amount than that.", ceiling)})
+				return
+			}
 		}
 
 		var id string

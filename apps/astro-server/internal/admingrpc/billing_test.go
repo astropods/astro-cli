@@ -13,6 +13,9 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // stubInspector reports a fixed coverage verdict and spend, standing in for
@@ -62,6 +65,11 @@ func expectNoProvisionJob(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "state", "attempt", "created_at", "finalized_at", "error"}))
 }
 
+func expectNoSpendCeiling(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+}
+
 // A contract created outside provisioning must still report as covered:
 // "none" reads as safe to provision, which is the double-billing case.
 func TestGetAccountBillingDetail_ReportsContractCreatedByHand(t *testing.T) {
@@ -86,6 +94,7 @@ func TestGetAccountBillingDetail_ReportsContractCreatedByHand(t *testing.T) {
 	expectNoBillingStatusRow(mock, "acct-1")
 	expectSuspendedWorkloads(mock, "acct-1", false)
 	expectNoProvisionJob(mock)
+	expectNoSpendCeiling(mock)
 
 	resp, err := s.GetAccountBillingDetail(context.Background(), &adminv1.GetAccountBillingDetailRequest{AccountID: "acct-1"})
 	if err != nil {
@@ -135,6 +144,7 @@ func TestGetAccountBillingDetail_ContractLookupFailureWarns(t *testing.T) {
 	expectNoBillingStatusRow(mock, "acct-1")
 	expectSuspendedWorkloads(mock, "acct-1", false)
 	expectNoProvisionJob(mock)
+	expectNoSpendCeiling(mock)
 
 	resp, err := s.GetAccountBillingDetail(context.Background(), &adminv1.GetAccountBillingDetailRequest{AccountID: "acct-1"})
 	if err != nil {
@@ -203,6 +213,7 @@ func TestGetAccountBillingDetail_SpendDistinguishesZeroFromMissing(t *testing.T)
 			expectNoBillingStatusRow(mock, "acct-1")
 			expectSuspendedWorkloads(mock, "acct-1", false)
 			expectNoProvisionJob(mock)
+			expectNoSpendCeiling(mock)
 
 			resp, err := s.GetAccountBillingDetail(context.Background(), &adminv1.GetAccountBillingDetailRequest{AccountID: "acct-1"})
 			if err != nil {
@@ -335,5 +346,175 @@ func TestForceBillingResume_OnlyWhenSuspended(t *testing.T) {
 				t.Errorf("resume enqueues = %v, want %d", q.billingResumeCalls, tc.wantCalls)
 			}
 		})
+	}
+}
+
+type stubThresholdWriter struct {
+	billing.BillingProvider
+	set     []float64
+	cleared int
+	err     error
+}
+
+func (w *stubThresholdWriter) SetCustomerSpendThreshold(_ context.Context, _ string, kind billing.SpendThresholdKind, amount float64) error {
+	if kind == billing.SpendThresholdLimit {
+		w.set = append(w.set, amount)
+	}
+	return w.err
+}
+
+func (w *stubThresholdWriter) ClearCustomerSpendThreshold(_ context.Context, _ string, kind billing.SpendThresholdKind) error {
+	if kind == billing.SpendThresholdLimit {
+		w.cleared++
+	}
+	return w.err
+}
+
+func spendLimitServer(t *testing.T, writer billing.BillingProvider) (*Server, sqlmock.Sqlmock, *mockAdminJobQueue) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	q := &mockAdminJobQueue{}
+	return &Server{db: db, queue: q, billingProvider: writer, log: logger.New("error", "json")}, mock, q
+}
+
+func TestSetAccountSpendLimit_WritesTheLimitInMinorUnits(t *testing.T) {
+	w := &stubThresholdWriter{}
+	s, mock, q := spendLimitServer(t, w)
+
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+	mock.ExpectExec("INSERT INTO account_limits").
+		WithArgs("acct-1", quota.KeySpendLimit, int64(5000)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}).AddRow(5000))
+
+	resp, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 5000,
+	})
+	if err != nil {
+		t.Fatalf("SetAccountSpendLimit: %v", err)
+	}
+	if len(w.set) != 1 || w.set[0] != 500_000 {
+		t.Errorf("provider got %v, want one write of 500000 cents", w.set)
+	}
+	if resp.Status != "set" || resp.LimitUSD != 5000 || resp.CeilingUSD != 5000 {
+		t.Errorf("resp = %+v", resp)
+	}
+	if len(q.gatewayBudgetCalls) != 1 {
+		t.Errorf("gateway budget re-derives = %v, want one", q.gatewayBudgetCalls)
+	}
+}
+
+// Leaving the ceiling behind would clamp the gateway back to the lower number.
+func TestSetAccountSpendLimit_RaisesTheCeilingToMatch(t *testing.T) {
+	w := &stubThresholdWriter{}
+	s, mock, _ := spendLimitServer(t, w)
+
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+	mock.ExpectExec("INSERT INTO account_limits").
+		WithArgs("acct-1", quota.KeySpendLimit, int64(25000)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}).AddRow(25000))
+
+	resp, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 25000,
+	})
+	if err != nil {
+		t.Fatalf("SetAccountSpendLimit: %v", err)
+	}
+	if resp.CeilingUSD != 25000 {
+		t.Errorf("ceiling = %v, want 25000", resp.CeilingUSD)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("db: %v", err)
+	}
+}
+
+func TestSetAccountSpendLimit_LimitUnderTheDefaultWritesNoCeiling(t *testing.T) {
+	w := &stubThresholdWriter{}
+	s, mock, _ := spendLimitServer(t, w)
+
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+
+	if _, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 200,
+	}); err != nil {
+		t.Fatalf("SetAccountSpendLimit: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("db: %v", err)
+	}
+}
+
+func TestSetAccountSpendLimit_ClearLeavesTheCeiling(t *testing.T) {
+	w := &stubThresholdWriter{}
+	s, mock, _ := spendLimitServer(t, w)
+
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+	mock.ExpectQuery("FROM account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}).AddRow(5000))
+
+	resp, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", Clear: true,
+	})
+	if err != nil {
+		t.Fatalf("SetAccountSpendLimit: %v", err)
+	}
+	if w.cleared != 1 || len(w.set) != 0 {
+		t.Errorf("cleared = %d, set = %v", w.cleared, w.set)
+	}
+	if resp.Status != "cleared" || resp.CeilingUSD != 5000 {
+		t.Errorf("resp = %+v, want the ceiling to survive", resp)
+	}
+}
+
+func TestSetAccountSpendLimit_RejectsNonPositiveWithoutClear(t *testing.T) {
+	s, _, _ := spendLimitServer(t, &stubThresholdWriter{})
+	if _, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 0,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("err = %v, want InvalidArgument", err)
+	}
+}
+
+func TestSetAccountSpendLimit_NoBillingCustomer(t *testing.T) {
+	s, mock, _ := spendLimitServer(t, &stubThresholdWriter{})
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow(""))
+
+	if _, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 500,
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("err = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestSetAccountSpendLimit_ProviderFailureIsAnError(t *testing.T) {
+	w := &stubThresholdWriter{err: errors.New("metronome down")}
+	s, mock, _ := spendLimitServer(t, w)
+	mock.ExpectQuery("SELECT COALESCE\\(metronome_customer_id").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+
+	if _, err := s.SetAccountSpendLimit(context.Background(), &adminv1.SetAccountSpendLimitRequest{
+		AccountID: "acct-1", LimitUSD: 500,
+	}); err == nil {
+		t.Fatal("want the provider failure")
 	}
 }

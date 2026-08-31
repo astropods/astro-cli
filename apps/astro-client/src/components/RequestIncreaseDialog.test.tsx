@@ -100,3 +100,52 @@ describe("RequestIncreaseDialog reason validation", () => {
     expect(screen.queryByText("A reason is required.")).not.toBeInTheDocument();
   });
 });
+
+function renderSpendLimitDialog() {
+  return render(
+    <RequestIncreaseDialog
+      featureKey="spend_limit"
+      label="Spend limit"
+      meter={{ usage: 812.4, quota: 1000 }}
+      account="acme"
+      open
+      onOpenChange={() => {}}
+    />,
+  );
+}
+
+describe("RequestIncreaseDialog for a spend limit", () => {
+  it("reads the amounts as currency, not as a resource count", () => {
+    renderSpendLimitDialog();
+
+    expect(screen.getByText("$812.40")).toBeInTheDocument();
+    expect(screen.getByText("$1,000.00")).toBeInTheDocument();
+    expect(screen.getByText("Spend this period")).toBeInTheDocument();
+    expect(screen.getByText("Current ceiling")).toBeInTheDocument();
+  });
+
+  it("requires an amount before it submits", async () => {
+    renderSpendLimitDialog();
+    await userEvent.type(screen.getByPlaceholderText("Why do you need more quota?"), "Batch run");
+    await userEvent.click(screen.getByRole("button", { name: "Submit request" }));
+
+    expect(mockMutate).not.toHaveBeenCalled();
+    expect(screen.getByText("An amount is required.")).toBeInTheDocument();
+  });
+
+  it("submits the amount under the spend-limit key", async () => {
+    renderSpendLimitDialog();
+    await userEvent.type(screen.getByPlaceholderText("0.00"), "5000");
+    await userEvent.type(screen.getByPlaceholderText("Why do you need more quota?"), "Batch run");
+    await userEvent.click(screen.getByRole("button", { name: "Submit request" }));
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockMutate.mock.calls[0]![0]).toEqual({
+      feature_key: "spend_limit",
+      current_usage: 812.4,
+      current_quota: 1000,
+      requested_amount: 5000,
+      reason: "Batch run",
+    });
+  });
+});

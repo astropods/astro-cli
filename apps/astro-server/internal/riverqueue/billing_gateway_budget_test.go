@@ -17,6 +17,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 )
 
 // budgetHarness wires the worker to a fake gateway and returns the limit the
@@ -537,5 +538,88 @@ func TestGatewayBudget_ExemptUnreadableLimitWritesNothing(t *testing.T) {
 	}
 	if limit != 0 {
 		t.Errorf("the gateway was written to anyway: limit = %v", limit)
+	}
+}
+
+// granted of 0 stands for no approved request.
+func grantedCeilingHarness(t *testing.T, provider billing.BillingProvider, granted int64) (float64, error) {
+	t.Helper()
+
+	var limit float64
+	gw := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Budgets []struct {
+				MaxLimit float64 `json:"max_limit"`
+			} `json:"budgets"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Budgets) == 1 {
+			limit = body.Budgets[0].MaxLimit
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer gw.Close()
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectQuery("SELECT bifrost_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"bifrost_customer_id"}).AddRow("bf-1"))
+	mock.ExpectQuery("FROM account_billing_status").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"status", "reason", "dunning_since", "alert_active", "force_suspended",
+			"credits_exhausted", "has_payment_method", "pay_link", "usage_limit_active", "not_provisioned",
+		}).AddRow("active", "", nil, false, false, false, true, nil, false, false))
+	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
+		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
+	rows := sqlmock.NewRows([]string{"limit_value"})
+	if granted > 0 {
+		rows.AddRow(granted)
+	}
+	mock.ExpectQuery("FROM account_limits").WithArgs("acct-1", quota.KeySpendLimit).WillReturnRows(rows)
+
+	w := &BillingGatewayBudgetWorker{
+		accounts: account.NewAccountStore(db),
+		status:   billing.NewStatusStore(db, 7),
+		gateway:  aigateway.NewClient("https://aig.example", gw.URL, ""),
+		provider: provider,
+		backend:  "metronome",
+		db:       db,
+		log:      logger.New("error", "json"),
+	}
+	return limit, w.Work(context.Background(), &river.Job[BillingGatewayBudgetArgs]{
+		Args: BillingGatewayBudgetArgs{AccountID: "acct-1"},
+	})
+}
+
+func TestGatewayBudget_AGrantedCeilingIsHonoured(t *testing.T) {
+	limit, err := grantedCeilingHarness(t, limitProvider{hasLimit: true, limitCents: 500_000}, 5000)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit != 5000 {
+		t.Errorf("limit = %v, want the granted ceiling 5000", limit)
+	}
+}
+
+func TestGatewayBudget_ALimitAboveTheGrantedCeilingIsClamped(t *testing.T) {
+	limit, err := grantedCeilingHarness(t, limitProvider{hasLimit: true, limitCents: 900_000}, 5000)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit != 5000 {
+		t.Errorf("limit = %v, want the granted ceiling 5000 to clamp it", limit)
+	}
+}
+
+func TestGatewayBudget_NoGrantKeepsTheSelfServeCeiling(t *testing.T) {
+	limit, err := grantedCeilingHarness(t, limitProvider{hasLimit: true, limitCents: 5_000_000}, 0)
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if limit != billing.MaxSelfServeSpendUSD {
+		t.Errorf("limit = %v, want the self-serve ceiling %v", limit, billing.MaxSelfServeSpendUSD)
 	}
 }

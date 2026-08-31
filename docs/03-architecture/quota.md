@@ -1,7 +1,7 @@
 # Quota — per-account resource limits
 
 **Status:** Authoritative — describes the shipped system
-**Last verified:** 2026-08-27
+**Last verified:** 2026-08-31
 
 Quota enforces per-account *counts* on a fixed set of resources (blueprints,
 builds, deployments, members, knowledge stores, knowledge endpoints). It is
@@ -26,11 +26,48 @@ substitutes for the other:
 A resource is one or the other, never both. `quota.IsResource` reports
 whether a key is quota-managed; billing-gated features (compute, knowledge
 storage) are not resources and have no `account_limits` row, so an admin
-approving a quota-increase request whose `feature_key` isn't a managed
-resource gets rejected in `admingrpc.ApproveQuotaIncrease` rather than
-silently granted (see comment in `internal/quota/quota.go`'s package doc and
-`internal/admingrpc/quota.go`'s guard). If you need to raise a billing limit,
-that happens through the billing provider, not through this flow.
+approving a quota-increase request whose `feature_key` isn't requestable
+gets rejected in `admingrpc.ApproveQuotaIncrease` rather than silently
+granted (see comment in `internal/quota/quota.go`'s package doc and
+`internal/admingrpc/quota.go`'s guard). If you need to raise a metered
+billing limit, that happens through the billing provider, not through this
+flow.
+
+### The one exception: the spend-limit ceiling
+
+`spend_limit` (`quota.KeySpendLimit`) is a requestable key that is *not* a
+resource. It carries no count and nothing enforces it here; it exists so the
+one billing number a customer can raise on its own travels the same
+request → review → grant pipeline as a resource count, instead of an email.
+
+`quota.IsRequestable` is the wider predicate the request and approve paths
+use: every resource, plus `spend_limit`. `quota.IsResource` is unchanged, so
+the checker and the usage report never see the key.
+
+What a grant means: `account_limits` holds the **ceiling** the account may
+set its own monthly spend limit to, in whole dollars, not the limit itself.
+Approving raises what the account is allowed to choose; the account still
+picks a number under it, and nobody is charged more by the approval.
+`quota.SpendCeilingUSD` resolves it — a grant when one exists, else
+`billing.MaxSelfServeSpendUSD` ($1,000). A grant never *lowers* the ceiling,
+which also makes the `-1`/`0` sentinels resource limits carry read as the
+default here rather than as no spend at all.
+
+Two places read the ceiling, and both must, or a grant only half-lands:
+
+- `handlers.SetBillingSpendThresholds` bounds what the account may write.
+- `riverqueue.BillingGatewayBudgetWorker.ceilingUSD` clamps the AI gateway
+  budget. Without this the gateway would keep refusing spend the billing
+  provider already accepted.
+
+An operator can also move both numbers directly, without a request:
+`AdminService.SetAccountSpendLimit` writes the limit and raises the ceiling to
+match. See [`astro-queen.md`](astro-queen.md)'s "Setting an account's spend
+limit".
+
+See `internal/quota/spend_limit_test.go` and
+`internal/admingrpc/quota_spend_limit_integration_test.go` (the request →
+approve → raised-ceiling chain, real Postgres, `-tags integration`).
 
 ## Gated resources
 
@@ -78,9 +115,13 @@ request; an astro-team admin resolves it from Queen.
 1. **Request** — `POST /api/v1/accounts/:account/quota-increase`
    (`handlers.RequestQuotaIncrease`) inserts a row into
    `quota_increase_requests` with `status = 'pending'`. The handler rejects
-   any `feature_key` that isn't `quota.IsResource` and requires a non-empty
-   `reason`. `current_usage`/`current_quota` are client-reported snapshots
-   for context, not re-derived server-side.
+   any `feature_key` that isn't `quota.IsRequestable` and requires a
+   non-empty `reason`. `current_usage`/`current_quota` are client-reported
+   snapshots for context, not re-derived server-side. A `spend_limit`
+   request carries two extra rules, because a reviewer cannot read the
+   figure off a count: `requested_amount` is required, and it must exceed
+   the account's current ceiling (an amount at or under it is already the
+   account's to set).
 2. **List (self-service)** — `GET /api/v1/accounts/:account/quota-increase`
    (`handlers.ListQuotaIncreaseRequests`) returns the account's own requests,
    newest first, for the settings UI below.
@@ -93,9 +134,10 @@ request; an astro-team admin resolves it from Queen.
    `grant_amount`. In one transaction it locks the pending row
    (`FOR UPDATE`), marks it `approved` with the grant amount, resolver, and
    note, and upserts `account_limits` with the grant as the new absolute
-   limit (not an increment) for that resource. Approving a request for a
-   non-quota-managed `feature_key` fails rather than silently granting
-   anything — see the billing boundary above.
+   limit (not an increment) for that resource, or the new ceiling for
+   `spend_limit`. Approving a request for a `feature_key` that isn't
+   requestable fails rather than silently granting anything — see the
+   billing boundary above.
 5. **Deny** — `AdminService.DenyQuotaIncrease` marks the row `denied` with a
    resolution note; no `account_limits` write happens.
 
@@ -123,15 +165,35 @@ rendered from `UsageView.tsx`, is the account-facing quota UI:
 - `canRequestIncrease` is a prop passed down from `UsageView.tsx`; when false,
   the section is read-only (no button, no dialog).
 - `meterMeta` in `RequestIncreaseDialog.tsx` is the display-label map for the
-  six resource keys; it's a UI concern only; the resource identifiers
-  themselves live server-side in `quota.AllResources`.
+  six resource keys plus `spend_limit`; it's a UI concern only; the resource
+  identifiers themselves live server-side in `quota.AllResources`. A
+  `money: true` entry switches every amount in the dialog to currency and
+  makes the requested amount required.
+
+The spend-limit request is reached from the number it is about, not from this
+section: `ManageLimitsDialog.tsx` (Settings → Billing) blocks a limit above
+`spend_ceiling` from `GET /billing/spend` and offers "Request an increase",
+which swaps the limits dialog for `RequestIncreaseDialog` with
+`featureKey="spend_limit"`. The feature picker in this section stays
+resource-only, since it offers what the usage endpoint meters. Approved or
+pending spend-limit requests still appear in the requests table here,
+formatted as currency.
 
 ## Verify
 
 - `go test ./internal/quota/...` (unit tests: limit resolution, override vs.
   default, `enforce` flag, `WrapRegister`'s blueprint-exists branch, 402 body
-  wording).
+  wording, spend-ceiling resolution).
 - `go test ./handlers/... -run QuotaIncrease` (request/list handler tests).
 - `go test ./internal/admingrpc/... -run QuotaIncrease` (approve/deny
   transaction behavior, including the non-managed-resource rejection).
-- `cd apps/astro-client && bun x vitest run src/components/settings/ResourceLimitsSection.test.tsx src/components/RequestIncreaseDialog.test.tsx`
+- `go test ./handlers/... -run SetThresholds` (the per-account ceiling bounds
+  the spend-threshold write).
+- `go test ./internal/riverqueue/... -run GatewayBudget` (a granted ceiling
+  raises the gateway clamp).
+- `DATABASE_URL=... go test -tags integration ./internal/quota/... ./internal/admingrpc/... -run "AgainstPostgres|Coexists|SpendLimitRequest"`
+  (the spend-limit key on real Postgres, and the full request → approve →
+  raised-ceiling chain).
+- `cd apps/astro-client && bun x vitest run src/components/settings/ResourceLimitsSection.test.tsx src/components/RequestIncreaseDialog.test.tsx src/components/settings/ManageLimitsDialog.test.tsx`
+- `Settings/ManageLimitsDialog` in Storybook (`bun x storybook dev`) renders
+  the ceiling block, the handoff, and a granted ceiling without a backend.

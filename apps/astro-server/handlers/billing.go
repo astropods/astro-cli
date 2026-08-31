@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
+	"github.com/astropods/astro/apps/astro-server/internal/quota"
 	"github.com/gin-gonic/gin"
 )
 
@@ -374,6 +376,9 @@ type BillingSpendResponse struct {
 	Warning *SpendThresholdResponse `json:"warning,omitempty"`
 	Limit   *SpendThresholdResponse `json:"limit,omitempty"`
 
+	// Highest limit this account may set for itself, in Warning's minor units.
+	SpendCeiling float64 `json:"spend_ceiling"`
+
 	Usage map[string]UsageThresholdsResponse `json:"usage,omitempty"`
 }
 
@@ -392,7 +397,7 @@ type SpendThresholdResponse struct {
 // GetBillingSpend handles GET /api/v1/accounts/:account/billing/spend. The
 // thresholds live in the billing provider and nowhere else, so this reads
 // through rather than from a mirror that could disagree with what fires.
-func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
+func GetBillingSpend(log *logger.Logger, db *sql.DB, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string) gin.HandlerFunc {
 	return billingData(log, accountStore, billingProvider, billingBackend, "spend",
 		func(ctx context.Context, acct *account.Account, customerID string) (any, error) {
 			reporter, ok := billingProvider.(billing.SpendReporter)
@@ -440,6 +445,13 @@ func GetBillingSpend(log *logger.Logger, accountStore *account.AccountStore, bil
 					resp.Usage = usageThresholdsResponse(usage)
 				}
 			}
+			ceilingCents, cerr := spendThresholdCeilingCents(ctx, db, acct.ID)
+			if cerr != nil {
+				log.Warn("billing: read spend ceiling failed", "error", cerr, "account_id", acct.ID)
+				ceilingCents = billing.MaxSelfServeSpendUSD * 100
+			}
+			resp.SpendCeiling = ceilingCents
+
 			// Best-effort: a threshold read that fails must not hide the spend,
 			// which is the half a customer needs to set one in the first place.
 			if reader, ok := billingProvider.(billing.SpendThresholdReader); ok {
@@ -496,10 +508,14 @@ func writeSpendThresholds(
 // metric, so theirs is a typo guard rather than a product ceiling.
 const maxThresholdAmount = 1e9
 
-// Cents, matching the request body. The spend limit is the one control a
-// customer can use to raise our exposure, so it stops where self-serve does
-// instead of at a typo guard.
-const maxSpendThresholdCents = billing.MaxSelfServeSpendUSD * 100
+// Cents, matching the request body.
+func spendThresholdCeilingCents(ctx context.Context, db *sql.DB, accountID string) (float64, error) {
+	ceilingUSD, err := quota.SpendCeilingUSD(ctx, db, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return ceilingUSD * 100, nil
+}
 
 // billingReconcileTimeout bounds a reconcile that outlives its request.
 const billingReconcileTimeout = 15 * time.Second
@@ -523,7 +539,7 @@ type SetSpendThresholdsRequest struct {
 
 // SetBillingSpendThresholds handles
 // PUT /api/v1/accounts/:account/billing/spend/thresholds.
-func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string, status *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
+func SetBillingSpendThresholds(log *logger.Logger, db *sql.DB, accountStore *account.AccountStore, billingProvider billing.BillingProvider, billingBackend string, status *billing.StatusStore, queue billingReconcileQueue) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
@@ -533,6 +549,12 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 		var req SetSpendThresholdsRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+			return
+		}
+		ceilingCents, err := spendThresholdCeilingCents(c.Request.Context(), db, acct.ID)
+		if err != nil {
+			log.Error("billing: read spend ceiling failed", "error", err, "account_id", acct.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save spend controls"})
 			return
 		}
 		// A negative threshold fires the moment it exists, which reads as an
@@ -545,10 +567,10 @@ func SetBillingSpendThresholds(log *logger.Logger, accountStore *account.Account
 				c.JSON(http.StatusBadRequest, gin.H{"error": "A spend threshold cannot be negative."})
 				return
 			}
-			if *v > maxSpendThresholdCents {
+			if *v > ceilingCents {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"error": fmt.Sprintf("A spend threshold cannot exceed $%.0f per month. Contact %s about an enterprise plan to raise it.",
-						billing.MaxSelfServeSpendUSD, billing.SupportEmail)})
+					"error": fmt.Sprintf("A spend threshold cannot exceed $%.0f per month. Request a spend limit increase and the Astro team will review it.",
+						ceilingCents/100)})
 				return
 			}
 		}

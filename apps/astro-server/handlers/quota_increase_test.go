@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -173,5 +174,91 @@ func TestRequestQuotaIncrease_DBError(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequestQuotaIncrease_SpendLimit(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+
+	mock.ExpectQuery("account_limits").WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+	mock.ExpectQuery(`INSERT INTO quota_increase_requests`).
+		WithArgs(testAccount().ID, "spend_limit", 812.4, 1000.0, 5000.0, "monthly batch run", "user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("req-spend-1"))
+
+	router := setupQuotaIncreaseRouter(db)
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key":      "spend_limit",
+		"current_usage":    812.4,
+		"current_quota":    1000,
+		"requested_amount": 5000,
+		"reason":           "monthly batch run",
+	})
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
+func TestRequestQuotaIncrease_SpendLimitNeedsAnAmount(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	mock.ExpectQuery("account_limits").WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+
+	router := setupQuotaIncreaseRouter(db)
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key": "spend_limit",
+		"reason":      "monthly batch run",
+	})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRequestQuotaIncrease_SpendLimitAtTheCeilingIsRefused(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	mock.ExpectQuery("account_limits").WillReturnRows(sqlmock.NewRows([]string{"limit_value"}))
+
+	router := setupQuotaIncreaseRouter(db)
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key":      "spend_limit",
+		"requested_amount": 1000,
+		"reason":           "monthly batch run",
+	})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(got.Error, "$1000") {
+		t.Errorf("error = %q, want the ceiling named so the reader knows what to beat", got.Error)
+	}
+}
+
+func TestRequestQuotaIncrease_SpendLimitMeasuresAgainstTheGrantedCeiling(t *testing.T) {
+	db, mock, _ := sqlmock.New()
+	defer db.Close()
+	mock.ExpectQuery("account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}).AddRow(5000))
+
+	router := setupQuotaIncreaseRouter(db)
+	rec := postQuotaIncrease(router, map[string]any{
+		"feature_key":      "spend_limit",
+		"requested_amount": 4000,
+		"reason":           "monthly batch run",
+	})
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

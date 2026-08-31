@@ -506,9 +506,13 @@ type GetAccountBillingDetailResponse struct {
 	ProvisionJob       *BillingProvisionJob `json:"provision_job,omitempty"`
 	Card               *BillingCard         `json:"card,omitempty"`
 	Spend              *BillingSpend        `json:"spend,omitempty"`
-	MetronomeURL       string               `json:"metronome_url,omitempty"`
-	StripeURL          string               `json:"stripe_url,omitempty"`
-	Warnings           []string             `json:"warnings,omitempty"`
+	// Dollars per month, like every other figure here.
+	SpendLimitUSD   float64  `json:"spend_limit_usd,omitempty"`
+	HasSpendLimit   bool     `json:"has_spend_limit"`
+	SpendCeilingUSD float64  `json:"spend_ceiling_usd,omitempty"`
+	MetronomeURL    string   `json:"metronome_url,omitempty"`
+	StripeURL       string   `json:"stripe_url,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
 }
 
 type RetryBillingProvisionRequest struct {
@@ -526,6 +530,18 @@ type ForceBillingResumeRequest struct {
 
 type ForceBillingResumeResponse struct {
 	Status string `json:"status,omitempty"`
+}
+
+type SetAccountSpendLimitRequest struct {
+	AccountID string  `json:"account_id,omitempty"`
+	LimitUSD  float64 `json:"limit_usd,omitempty"`
+	Clear     bool    `json:"clear,omitempty"`
+}
+
+type SetAccountSpendLimitResponse struct {
+	Status     string  `json:"status,omitempty"`
+	LimitUSD   float64 `json:"limit_usd,omitempty"`
+	CeilingUSD float64 `json:"ceiling_usd,omitempty"`
 }
 
 type MetronomeAliasStatus struct {

@@ -1,7 +1,7 @@
 # Astro billing architecture
 
 **Status:** Authoritative — describes the shipped system
-**Last verified:** 2026-08-26
+**Last verified:** 2026-08-31
 
 For a short version, read
 [`billing-overview.md`](billing-overview.md) first. For the function-by-function
@@ -818,6 +818,18 @@ go".
 | Card form (Stripe Elements) and the payment details card (card, billing cycle, billing email) | `components/settings/PaymentMethod.tsx` |
 | Usage settings page (spend header, daily usage, agent/model breakdown, resource limits) | `components/settings/UsageView.tsx` |
 | Shared copy | `lib/billing-copy.ts` |
+
+A spend limit stops at `billing.MaxSelfServeSpendUSD` ($1,000), and past there
+`ManageLimitsDialog` hands off to the quota-request pipeline rather than an
+email: the field offers "Request an increase", which opens
+`RequestIncreaseDialog` under the `spend_limit` key for an admin to review in
+Queen. An approved request raises the account's ceiling (an `account_limits`
+row, read by `quota.SpendCeilingUSD`), not its limit, so the account still
+chooses the number under it. Both the threshold write
+(`SetBillingSpendThresholds`) and the gateway budget clamp read that ceiling;
+`GET /billing/spend` exposes it as `spend_ceiling` so the dialog bounds against
+the account's own number. Canonically documented in
+[`quota.md`](quota.md)'s "The one exception: the spend-limit ceiling".
 
 Per-metric usage limits (compute, AI Gateway) are gone from `ManageLimitsDialog`:
 the account sets one alert and one spend limit, not one per metric. This is a

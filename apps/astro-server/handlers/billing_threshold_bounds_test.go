@@ -32,8 +32,29 @@ func thresholdRouter(t *testing.T) *gin.Engine {
 		c.Next()
 	})
 	log := logger.New("error", "json")
-	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(log, nil, nil, "metronome", nil, nil))
+	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(log, nil, nil, nil, "metronome", nil, nil))
 	r.PUT("/billing/usage/thresholds", SetBillingUsageThresholds(log, nil, nil, "metronome", nil, nil))
+	return r
+}
+
+func grantedCeilingRouter(t *testing.T, granted int64) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	mock.ExpectQuery("account_limits").
+		WillReturnRows(sqlmock.NewRows([]string{"limit_value"}).AddRow(granted))
+
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(string(auth.AccountContextKey), &account.Account{ID: "acct-1", Name: "acme"})
+		c.Next()
+	})
+	r.PUT("/billing/spend/thresholds",
+		SetBillingSpendThresholds(logger.New("error", "json"), db, nil, nil, "metronome", nil, nil))
 	return r
 }
 
@@ -88,21 +109,17 @@ func TestSetThresholds_AbsurdWarningIsRefused(t *testing.T) {
 // one has to survive it.
 func TestSetThresholds_TheBoundItselfIsAllowed(t *testing.T) {
 	r := thresholdRouter(t)
-	body := fmt.Sprintf(`{"limit":%.0f}`, float64(maxSpendThresholdCents))
+	body := fmt.Sprintf(`{"limit":%.0f}`, float64(billing.MaxSelfServeSpendUSD*100))
 	rec := putThreshold(t, r, "/billing/spend/thresholds", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 }
 
-// A spend limit is the one control that raises what we have to collect, so it
-// stops where self-serve does. The reply has to name the ceiling and where to go
-// for more, and that is a conversation with us: the self-serve quota increase
-// route validates against the resource quota keys and cannot touch a spend
-// limit, so pointing there would be a dead end.
+// The reply is product copy: it has to name the ceiling and the request route.
 func TestSetThresholds_SpendLimitStopsAtTheSelfServeCeiling(t *testing.T) {
 	r := thresholdRouter(t)
-	body := fmt.Sprintf(`{"limit":%.0f}`, float64(maxSpendThresholdCents)+1)
+	body := fmt.Sprintf(`{"limit":%.0f}`, float64(billing.MaxSelfServeSpendUSD*100)+1)
 	rec := putThreshold(t, r, "/billing/spend/thresholds", body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
@@ -116,16 +133,10 @@ func TestSetThresholds_SpendLimitStopsAtTheSelfServeCeiling(t *testing.T) {
 	if want := fmt.Sprintf("$%.0f", billing.MaxSelfServeSpendUSD); !strings.Contains(got.Error, want) {
 		t.Errorf("error = %q, want the ceiling %s named", got.Error, want)
 	}
-	if !strings.Contains(got.Error, "enterprise") {
-		t.Errorf("error = %q, want the enterprise route named as the way past the ceiling", got.Error)
-	}
-	if strings.Contains(got.Error, "quota increase") {
-		t.Errorf("error = %q, points at a route that cannot raise a spend limit", got.Error)
-	}
 	// The client renders this string straight into a toast, so it is product
 	// copy rather than a Go error string.
-	if !strings.Contains(got.Error, billing.SupportEmail) {
-		t.Errorf("error = %q, want the support address %s so the reader can act on it", got.Error, billing.SupportEmail)
+	if !strings.Contains(got.Error, "Request a spend limit increase") {
+		t.Errorf("error = %q, want the request route named as the way past the ceiling", got.Error)
 	}
 	if r := []rune(got.Error); len(r) == 0 || !unicode.IsUpper(r[0]) {
 		t.Errorf("error = %q, want a capitalised sentence: it is shown to a customer verbatim", got.Error)
@@ -136,7 +147,7 @@ func TestSetThresholds_SpendLimitStopsAtTheSelfServeCeiling(t *testing.T) {
 // ceiling must not narrow them: a CU-hour budget well above $1,000 is ordinary.
 func TestSetUsageThresholds_AreNotBoundedByTheSpendCeiling(t *testing.T) {
 	r := thresholdRouter(t)
-	body := fmt.Sprintf(`{"metric":"compute","limit":%.0f}`, float64(maxSpendThresholdCents)*10)
+	body := fmt.Sprintf(`{"metric":"compute","limit":%.0f}`, float64(billing.MaxSelfServeSpendUSD*100)*10)
 	rec := putThreshold(t, r, "/billing/usage/thresholds", body)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -193,7 +204,7 @@ func TestSetSpendThresholds_RaisingTheLimitRederivesTheGatewayBudget(t *testing.
 	// actually reaches the write, rather than the no-provider early return.
 	provider := thresholdWriterProvider{}
 	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(
-		logger.New("error", "json"), account.NewAccountStore(db), provider, "metronome", nil, q))
+		logger.New("error", "json"), nil, account.NewAccountStore(db), provider, "metronome", nil, q))
 
 	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
@@ -257,7 +268,7 @@ func TestSetSpendThresholds_PartialFailureStillRederivesTheGatewayBudget(t *test
 	})
 	q := &recordingReconcileQueue{}
 	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(
-		logger.New("error", "json"), account.NewAccountStore(db), partialWriterProvider{}, "metronome", nil, q))
+		logger.New("error", "json"), nil, account.NewAccountStore(db), partialWriterProvider{}, "metronome", nil, q))
 
 	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
@@ -290,7 +301,7 @@ func TestSetSpendThresholds_LimitFailureStillRederives(t *testing.T) {
 	})
 	q := &recordingReconcileQueue{}
 	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(
-		logger.New("error", "json"), account.NewAccountStore(db), limitFailingProvider{}, "metronome", nil, q))
+		logger.New("error", "json"), nil, account.NewAccountStore(db), limitFailingProvider{}, "metronome", nil, q))
 
 	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
@@ -351,7 +362,7 @@ func TestSetSpendThresholds_CanceledRequestStillEnqueuesTheRederive(t *testing.T
 	})
 	q := &ctxRecordingQueue{}
 	r.PUT("/billing/spend/thresholds", SetBillingSpendThresholds(
-		logger.New("error", "json"), account.NewAccountStore(db), thresholdWriterProvider{}, "metronome", nil, q))
+		logger.New("error", "json"), nil, account.NewAccountStore(db), thresholdWriterProvider{}, "metronome", nil, q))
 
 	mock.ExpectQuery("SELECT metronome_customer_id FROM accounts").WithArgs("acct-1").
 		WillReturnRows(sqlmock.NewRows([]string{"metronome_customer_id"}).AddRow("cust-1"))
@@ -363,5 +374,30 @@ func TestSetSpendThresholds_CanceledRequestStillEnqueuesTheRederive(t *testing.T
 	}
 	if len(q.gatewayBudget) != 1 {
 		t.Errorf("gateway budget re-derive = %v, want [acct-1]", q.gatewayBudget)
+	}
+}
+
+func TestSetThresholds_AGrantedCeilingIsAccepted(t *testing.T) {
+	r := grantedCeilingRouter(t, 5000)
+	rec := putThreshold(t, r, "/billing/spend/thresholds", `{"limit":500000}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSetThresholds_AboveTheGrantedCeilingStillStops(t *testing.T) {
+	r := grantedCeilingRouter(t, 5000)
+	rec := putThreshold(t, r, "/billing/spend/thresholds", `{"limit":500001}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(got.Error, "$5000") {
+		t.Errorf("error = %q, want the granted ceiling named", got.Error)
 	}
 }

@@ -71,6 +71,7 @@ func (s *Server) ListQuotaIncreaseRequests(ctx context.Context, req *adminv1.Lis
 // granted amount as the account's new absolute limit for the requested
 // resource. The request update and the account_limits write happen in one
 // transaction so an approved request is never left without an applied grant.
+
 func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQuotaIncreaseRequest) (*adminv1.ApproveQuotaIncreaseResponse, error) {
 	if req.RequestID == "" || req.GrantAmount <= 0 {
 		return nil, fmt.Errorf("request_id and positive grant_amount are required")
@@ -96,10 +97,7 @@ func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQ
 		return nil, fmt.Errorf("load quota request: %w", err)
 	}
 
-	// A grant only applies to a count-enforced resource; metered features are
-	// gated by billing and have no account_limits row to raise. Such requests
-	// should never exist (rejected at request time) but guard defensively.
-	if !quota.IsResource(featureKey) {
+	if !quota.IsRequestable(featureKey) {
 		return nil, fmt.Errorf("cannot grant quota for non-managed feature %q; deny it instead", featureKey)
 	}
 
@@ -112,7 +110,7 @@ func (s *Server) ApproveQuotaIncrease(ctx context.Context, req *adminv1.ApproveQ
 		return nil, fmt.Errorf("update quota request: %w", err)
 	}
 
-	// Apply the grant as the new absolute limit (count resources are integers).
+	// An absolute limit, not an increment: whole units, or whole dollars.
 	limit := int64(math.Round(req.GrantAmount))
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO account_limits (account_id, resource, limit_value)

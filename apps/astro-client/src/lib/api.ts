@@ -2501,6 +2501,8 @@ export interface BillingSpend {
   has_last_invoice: boolean;
   warning?: SpendThreshold;
   limit?: SpendThreshold;
+  /** Highest limit this account may set for itself, in `limit`'s minor units. */
+  spend_ceiling?: number;
   usage?: Record<string, UsageThresholds>;
 }
 
