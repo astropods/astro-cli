@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,6 +54,17 @@ func TestSetUpsertsTheRow(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.Set(context.Background(), "account-1", "agent-1", "agent/abc123"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSetReturnsErrDefinitionNotFoundOnMissingDefinition(t *testing.T) {
+	store, mock := newStore(t)
+	mock.ExpectExec("INSERT INTO agent_evaluations").
+		WithArgs("account-1", "agent-1", "agent/abc123").
+		WillReturnError(&pq.Error{Code: "23503", Constraint: "agent_evaluations_definition_fkey"})
+
+	err := store.Set(context.Background(), "account-1", "agent-1", "agent/abc123")
+	assert.ErrorIs(t, err, ErrDefinitionNotFound)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

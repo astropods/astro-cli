@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/lib/pq"
 )
+
+var ErrDefinitionNotFound = errors.New("evaluation definition not found")
 
 type AgentEvaluation struct {
 	AccountID     string
@@ -46,6 +50,10 @@ func (s *Store) Set(ctx context.Context, accountID, agentName, evaluationRef str
 		ON CONFLICT (account_id, agent_name)
 		DO UPDATE SET evaluation_ref = $3, updated_at = now()
 	`, accountID, agentName, evaluationRef); err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23503" && pqErr.Constraint == "agent_evaluations_definition_fkey" {
+			return ErrDefinitionNotFound
+		}
 		return fmt.Errorf("evalagentstore set: %w", err)
 	}
 	return nil
