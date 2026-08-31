@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1055,5 +1056,137 @@ func TestListAccountAgents_PublishersPopulated(t *testing.T) {
 	}
 	if err := accountMock.ExpectationsWereMet(); err != nil {
 		t.Errorf("account mock: %v", err)
+	}
+}
+
+func setupAgentTestRouterWithDB() (*gin.Engine, *agentindex.Index, *sql.DB, sqlmock.Sqlmock) {
+	gin.SetMode(gin.TestMode)
+	db, mock, _ := sqlmock.New()
+	index := agentindex.NewIndexWithDB(db)
+	router := gin.New()
+	return router, index, db, mock
+}
+
+const registerAgentBaseBody = `{
+	"build_id": "a3f2b1c9",
+	"registry": "registry.example.com",
+	"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n"
+}`
+
+func expectAgentRegisterQueries(mock sqlmock.Sqlmock) {
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO agents").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"uid"}).AddRow("11111111-1111-1111-1111-111111111111"))
+	mock.ExpectExec("INSERT INTO agent_versions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+}
+
+func postRegisterAgent(router *gin.Engine, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/testaccount/test-agent/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestRegisterAgent_EvaluationAbsent_LeavesActivationUnchanged(t *testing.T) {
+	router, index, _, mock := setupAgentTestRouterWithDB()
+	log := logger.New("error", "json")
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", nil, nil, nil, nil, nil, false, nil, nil))
+
+	expectAgentRegisterQueries(mock)
+
+	rec := postRegisterAgent(router, registerAgentBaseBody)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestRegisterAgent_EvaluationNull_ClearsActivation(t *testing.T) {
+	router, index, db, mock := setupAgentTestRouterWithDB()
+	log := logger.New("error", "json")
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", db, nil, nil, nil, nil, false, nil, nil))
+
+	expectAgentRegisterQueries(mock)
+	mock.ExpectExec("DELETE FROM agent_evaluations").
+		WithArgs("test-account-id", "test-agent").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	body := `{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n",
+		"evaluation": null
+	}`
+	rec := postRegisterAgent(router, body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestRegisterAgent_EvaluationObject_ActivatesCustomSet(t *testing.T) {
+	router, index, db, mock := setupAgentTestRouterWithDB()
+	log := logger.New("error", "json")
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", db, nil, nil, nil, nil, false, nil, nil))
+
+	expectAgentRegisterQueries(mock)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO eval_definitions").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("INSERT INTO agent_evaluations").
+		WithArgs("test-account-id", "test-agent", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	body := `{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n",
+		"evaluation": {
+			"evaluation_yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n"
+		}
+	}`
+	rec := postRegisterAgent(router, body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusCreated, rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled mock expectations: %v", err)
+	}
+}
+
+func TestRegisterAgent_EvaluationInvalid_RejectsBeforeAnyWrite(t *testing.T) {
+	router, index, db, mock := setupAgentTestRouterWithDB()
+	log := logger.New("error", "json")
+	router.POST("/api/v1/agents/:account/:name/register", injectTestAccount(), RegisterAgent(log, index, "", db, nil, nil, nil, nil, false, nil, nil))
+
+	body := `{
+		"build_id": "a3f2b1c9",
+		"registry": "registry.example.com",
+		"spec_content": "name: test-agent\nagent:\n  image: agent:latest\n",
+		"evaluation": {
+			"evaluation_yaml": "schema: evaluation/v2\nevaluators:\n  - ref: preset/exposed-pii\n"
+		}
+	}`
+	rec := postRegisterAgent(router, body)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusBadRequest, rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("expected no DB calls for invalid evaluation content: %v", err)
 	}
 }

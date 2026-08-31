@@ -539,6 +539,46 @@ func TestPostDatasetItem_AcceptsAnyRunStatusForTheTrace(t *testing.T) {
 	}
 }
 
+func TestPostDatasetItem_AcceptsAStaleButLegitimateRun(t *testing.T) {
+	upsert := &datasetItemUpsert{}
+	f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
+	expectAuthorizedDeployment(f.traceDetailFixture)
+	expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
+	expectRunLookup(f, "dataset-dep-1", "trace-1", fakeStaleEvaluationRef, "completed")
+
+	f.itemMock.ExpectBegin()
+	f.itemMock.ExpectExec("INSERT INTO eval_dataset_items").
+		WithArgs("dataset-dep-1", "trace-1", fakeStaleEvaluationRef, "run-1", "user-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	f.itemMock.ExpectExec("INSERT INTO eval_dataset_item_evaluator_outputs").
+		WithArgs("dataset-dep-1", "trace-1", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 6))
+	f.itemMock.ExpectExec("DELETE FROM eval_dataset_dismissed_traces").
+		WithArgs("dataset-dep-1", "trace-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	f.itemMock.ExpectCommit()
+
+	rec := postDatasetItem(t, f,
+		`{"trace_id":"trace-1","evaluation_run_id":"run-1","evaluator_outputs":`+validItemOutputs+`}`)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp DatasetItemResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.EvaluationRef != fakeStaleEvaluationRef {
+		t.Errorf("evaluation_ref = %q, want the run's own ref %q", resp.EvaluationRef, fakeStaleEvaluationRef)
+	}
+	if err := f.itemMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet item expectations: %v", err)
+	}
+	if err := f.runMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet run expectations: %v", err)
+	}
+}
+
 func TestPostDatasetItem_RejectsAMismatchedRun(t *testing.T) {
 	tests := []struct {
 		name          string

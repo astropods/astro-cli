@@ -15,6 +15,8 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 )
 
+const fakeStaleEvaluationRef = "agent/stale-test-ref"
+
 type fakeEvalSetResolver struct{}
 
 func (fakeEvalSetResolver) ActiveRef(context.Context, string, string) (string, error) {
@@ -22,6 +24,9 @@ func (fakeEvalSetResolver) ActiveRef(context.Context, string, string) (string, e
 }
 
 func (fakeEvalSetResolver) Set(_ context.Context, ref string) ([]evaluator.Evaluator, error) {
+	if ref == fakeStaleEvaluationRef {
+		return evalpreset.ResolveSet(evalpreset.RefDefaultSet)
+	}
 	return evalpreset.ResolveSet(ref)
 }
 
