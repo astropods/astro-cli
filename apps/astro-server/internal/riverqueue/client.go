@@ -324,21 +324,22 @@ func (q *Queue) InsertWakeUpJob(ctx context.Context, deploymentID, clusterID str
 
 // InsertEvalDatasetEvaluationJobs enqueues one evaluation job per trace in one
 // River transaction.
-func (q *Queue) InsertEvalDatasetEvaluationJobs(ctx context.Context, evalDatasetID string, traceIDs []string) error {
+func (q *Queue) InsertEvalDatasetEvaluationJobs(ctx context.Context, evalDatasetID, evaluationRef string, traceIDs []string) error {
 	if len(traceIDs) == 0 {
 		return nil
 	}
-	_, err := q.client.InsertMany(ctx, evalDatasetEvaluationInsertManyParams(evalDatasetID, traceIDs))
+	_, err := q.client.InsertMany(ctx, evalDatasetEvaluationInsertManyParams(evalDatasetID, evaluationRef, traceIDs))
 	return err
 }
 
-func evalDatasetEvaluationInsertManyParams(evalDatasetID string, traceIDs []string) []river.InsertManyParams {
+func evalDatasetEvaluationInsertManyParams(evalDatasetID, evaluationRef string, traceIDs []string) []river.InsertManyParams {
 	params := make([]river.InsertManyParams, 0, len(traceIDs))
 	for _, traceID := range traceIDs {
 		params = append(params, river.InsertManyParams{
 			Args: EvalDatasetEvaluationArgs{
 				EvalDatasetID: evalDatasetID,
 				TraceID:       traceID,
+				EvaluationRef: evaluationRef,
 			},
 		})
 	}

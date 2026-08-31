@@ -8,7 +8,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -39,6 +38,7 @@ func GetEvalDataset(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	itemStore *evalitemstore.Store,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
@@ -67,12 +67,18 @@ func GetEvalDataset(
 			return
 		}
 
+		evaluationRef, err := resolver.ActiveRef(c.Request.Context(), dctx.Deployment.AccountID, dctx.Deployment.AgentName)
+		if err != nil {
+			log.Error("dataset summary: resolve active ref failed", "error", err, "dataset_id", ds.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return
+		}
 		// A retired evaluator still holds values, so a set that will not resolve
 		// costs labels and ordering rather than the counts themselves.
-		set, err := evalpreset.ResolveSet(activeEvaluationRef)
+		set, err := resolver.Set(c.Request.Context(), evaluationRef)
 		if err != nil {
 			log.Warn("dataset summary: resolve evaluation set failed", "error", err,
-				"dataset_id", ds.ID, "evaluation_ref", activeEvaluationRef)
+				"dataset_id", ds.ID, "evaluation_ref", evaluationRef)
 		}
 
 		c.JSON(http.StatusOK, evalDatasetSummary{

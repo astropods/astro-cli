@@ -7,7 +7,6 @@ import (
 
 	"github.com/astropods/astro/apps/astro-server/internal/account"
 	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/astropods/astro/apps/astro-server/internal/middleware"
@@ -33,6 +32,7 @@ func GetAgentEvaluationSet(
 	log *logger.Logger,
 	accountStore *account.AccountStore,
 	agentIndex *agentindex.Index,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user, exists := middleware.GetUser(c)
@@ -64,10 +64,17 @@ func GetAgentEvaluationSet(
 			return
 		}
 
-		set, err := evalpreset.ResolveSet(activeEvaluationRef)
+		evaluationRef, err := resolver.ActiveRef(c.Request.Context(), acct.ID, agentName)
+		if err != nil {
+			log.Error("evaluation set: resolve active ref failed", "error", err,
+				"account_id", acct.ID, "agent_name", agentName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return
+		}
+		set, err := resolver.Set(c.Request.Context(), evaluationRef)
 		if err != nil {
 			log.Error("evaluation set: resolve set failed", "error", err,
-				"account_id", acct.ID, "agent_name", agentName, "evaluation_ref", activeEvaluationRef)
+				"account_id", acct.ID, "agent_name", agentName, "evaluation_ref", evaluationRef)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
 			return
 		}
@@ -84,7 +91,7 @@ func GetAgentEvaluationSet(
 		}
 
 		c.JSON(http.StatusOK, EvaluationSetResponse{
-			EvaluationRef: activeEvaluationRef,
+			EvaluationRef: evaluationRef,
 			Evaluators:    evaluators,
 		})
 	}

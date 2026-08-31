@@ -890,6 +890,7 @@ func TestPostDatasetItem_RejectsInvalidOutputs(t *testing.T) {
 			upsert := &datasetItemUpsert{}
 			f := setupDatasetRouter(t, true, langfuseItemHandler(t, upsert))
 			expectAuthorizedDeployment(f.traceDetailFixture)
+			expectDatasetRow(f.datasetMock, "dep-1", "eval-dep-1")
 
 			rec := postDatasetItem(t, f, `{"trace_id":"trace-1","evaluator_outputs":`+test.outputs+`}`)
 

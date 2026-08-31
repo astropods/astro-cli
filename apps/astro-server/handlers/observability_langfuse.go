@@ -34,6 +34,8 @@ type langfuseContext struct {
 	Client       *langfuse.Client
 	DeploymentID string
 	UserID       string
+	AccountID    string
+	AgentName    string
 }
 
 // resolveLangfuseContext validates auth, looks up the deployment, and returns
@@ -68,6 +70,8 @@ func resolveLangfuseContext(
 		Client:       client,
 		DeploymentID: dctx.DeploymentID,
 		UserID:       dctx.UserID,
+		AccountID:    dctx.Deployment.AccountID,
+		AgentName:    dctx.Deployment.AgentName,
 	}, true
 }
 

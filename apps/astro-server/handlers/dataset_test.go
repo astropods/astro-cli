@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -9,8 +10,20 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldismissalstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 )
+
+type fakeEvalSetResolver struct{}
+
+func (fakeEvalSetResolver) ActiveRef(context.Context, string, string) (string, error) {
+	return evalpreset.RefDefaultSet, nil
+}
+
+func (fakeEvalSetResolver) Set(_ context.Context, ref string) ([]evaluator.Evaluator, error) {
+	return evalpreset.ResolveSet(ref)
+}
 
 // ---------------------------------------------------------------------------
 // Dataset handler fixture
@@ -44,14 +57,15 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	t.Cleanup(func() { dismissalDB.Close() })
 	dismissalStore := evaldismissalstore.NewStore(dismissalDB)
 
+	resolver := fakeEvalSetResolver{}
 	f.router.GET("/api/v1/deployments/:id/dataset",
-		GetEvalDataset(log, accountStore, deployStore, dsStore, itemStore))
+		GetEvalDataset(log, accountStore, deployStore, dsStore, itemStore, resolver))
 	f.router.GET("/api/v1/deployments/:id/dataset/items",
-		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore))
+		GetEvalDatasetItems(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, resolver))
 	f.router.POST("/api/v1/deployments/:id/dataset/items",
-		PostDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore))
+		PostDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore, resolver))
 	f.router.PUT("/api/v1/deployments/:id/dataset/items/:trace_id/evaluator-outputs",
-		PutDatasetItemEvaluatorOutputs(log, accountStore, deployStore, dsStore, itemStore))
+		PutDatasetItemEvaluatorOutputs(log, accountStore, deployStore, dsStore, itemStore, resolver))
 	f.router.DELETE("/api/v1/deployments/:id/dataset/items/:trace_id",
 		DeleteDatasetItem(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/download",
@@ -59,7 +73,7 @@ func setupDatasetRouter(t *testing.T, withUser bool, upstreamHandler http.Handle
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue",
 		GetDatasetReviewQueue(log, cfg, accountStore, deployStore, dsStore, langfuseStore, itemStore, runStore, dismissalStore))
 	f.router.GET("/api/v1/deployments/:id/dataset/review-queue/:trace_id/evaluation",
-		GetDatasetTraceEvaluation(log, cfg, accountStore, deployStore, dsStore, langfuseStore, runStore, nil))
+		GetDatasetTraceEvaluation(log, cfg, accountStore, deployStore, dsStore, langfuseStore, runStore, nil, resolver))
 	f.router.POST("/api/v1/deployments/:id/dataset/review-queue/:trace_id/dismiss",
 		PostReviewQueueDismissal(log, accountStore, deployStore, dsStore, dismissalStore))
 	f.router.DELETE("/api/v1/deployments/:id/dataset/review-queue/:trace_id/dismiss",

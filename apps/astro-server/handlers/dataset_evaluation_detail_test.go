@@ -11,6 +11,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore/datasetstoretest"
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 )
 
@@ -86,7 +87,7 @@ func TestGetTraceEvaluationReturnsEveryEvaluatorInSetOrder(t *testing.T) {
 		response.UserDetails.DisplayName != "Bob Smith" {
 		t.Fatalf("trace identity = %+v / %+v", response.UserID, response.UserDetails)
 	}
-	if response.EvaluationRef != activeEvaluationRef ||
+	if response.EvaluationRef != evalpreset.RefDefaultSet ||
 		response.Run == nil ||
 		response.Run.Status != "completed" {
 		t.Fatalf("response = %+v", response)

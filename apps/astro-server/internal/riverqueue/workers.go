@@ -15,7 +15,10 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/billing/metering"
 	"github.com/astropods/astro/apps/astro-server/internal/deployer"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalagentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldefinitionstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalresolve"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
@@ -440,6 +443,7 @@ func addWorkers(workers *river.Workers, cfg Config) wiredWorkers {
 	evaluationWorker := &EvalDatasetEvaluationWorker{
 		datasets:       evaldatasetstore.NewStore(cfg.DB),
 		runs:           evalrunstore.NewStore(cfg.DB),
+		resolver:       evalresolve.NewResolver(evalagentstore.NewStore(cfg.DB), evaldefinitionstore.NewStore(cfg.DB)),
 		loadLangfuse:   loadLangfuse,
 		ensureJudgeKey: ensureJudgeKey,
 		billing:        evalBillingGate,

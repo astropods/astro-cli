@@ -23,8 +23,20 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 func (s *Store) Create(ctx context.Context, evaluationRef string, definitionJSON json.RawMessage) error {
-	if _, err := s.db.ExecContext(ctx, `
+	return createDefinition(ctx, s.db, evaluationRef, definitionJSON)
+}
+
+func CreateTx(ctx context.Context, tx *sql.Tx, evaluationRef string, definitionJSON json.RawMessage) error {
+	return createDefinition(ctx, tx, evaluationRef, definitionJSON)
+}
+
+func createDefinition(ctx context.Context, db execer, evaluationRef string, definitionJSON json.RawMessage) error {
+	if _, err := db.ExecContext(ctx, `
 		INSERT INTO eval_definitions (evaluation_ref, definition_json)
 		VALUES ($1, $2)
 		ON CONFLICT (evaluation_ref) DO NOTHING

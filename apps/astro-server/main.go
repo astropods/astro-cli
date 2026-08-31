@@ -56,9 +56,12 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/deployment"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/envelope"
+	"github.com/astropods/astro/apps/astro-server/internal/evalagentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evaldefinitionstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldismissalstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
+	"github.com/astropods/astro/apps/astro-server/internal/evalresolve"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/eventstream"
 	"github.com/astropods/astro/apps/astro-server/internal/experiment"
@@ -2329,7 +2332,10 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("name", "Agent name"),
 				oapispec.Response(200, &handlers.DeploymentHistoryResponse{}),
 			)
-			api.GET(protected, "/agents/:account/:name/evaluation-set", "Get the agent's evaluation set", handlers.GetAgentEvaluationSet(log, accountStore, agentIndex),
+			evalAgentStore := evalagentstore.NewStore(db)
+			evalDefinitionStore := evaldefinitionstore.NewStore(db)
+			evalResolver := evalresolve.NewResolver(evalAgentStore, evalDefinitionStore)
+			api.GET(protected, "/agents/:account/:name/evaluation-set", "Get the agent's evaluation set", handlers.GetAgentEvaluationSet(log, accountStore, agentIndex, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("account", "Account name"),
@@ -2620,13 +2626,13 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 			evalItemStore := evalitemstore.NewStore(db)
 			evalRunStore := evalrunstore.NewStore(db)
 			evalDismissalStore := evaldismissalstore.NewStore(db)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, evalItemStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset", "Get deployment dataset", handlers.GetEvalDataset(log, accountStore, deploymentStore, datasetStore, evalItemStore, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/items", "List dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/items", "List dataset items", handlers.GetEvalDatasetItems(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2634,14 +2640,14 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("limit", "Page size (default 50, max 100)", false),
 				oapispec.Response(200, nil),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/items", "Add a trace to the dataset", handlers.PostDatasetItem(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/items", "Add a trace to the dataset", handlers.PostDatasetItem(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Body(&handlers.DatasetItemRequest{}),
 				oapispec.Response(201, &handlers.DatasetItemResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPUT("/deployments/:id/dataset/items/:trace_id/evaluator-outputs", "Replace a dataset item's evaluator outputs", handlers.PutDatasetItemEvaluatorOutputs(log, accountStore, deploymentStore, datasetStore, evalItemStore),
+			deploymentRoutes.ModelDeferredPUT("/deployments/:id/dataset/items/:trace_id/evaluator-outputs", "Replace a dataset item's evaluator outputs", handlers.PutDatasetItemEvaluatorOutputs(log, accountStore, deploymentStore, datasetStore, evalItemStore, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2671,7 +2677,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.QueryParam("cursor", "Opaque continuation cursor returned by the previous page", false),
 				oapispec.Response(200, &handlers.DatasetReviewQueueResponse{}),
 			)
-			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue/:trace_id/evaluation", "Get a trace's evaluator results", handlers.GetDatasetTraceEvaluation(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalRunStore, slackIdentityStore),
+			deploymentRoutes.ModelDeferredGET("/deployments/:id/dataset/review-queue/:trace_id/evaluation", "Get a trace's evaluator results", handlers.GetDatasetTraceEvaluation(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalRunStore, slackIdentityStore, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),
@@ -2698,7 +2704,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 				oapispec.PathParam("id", "Deployment ID"),
 				oapispec.Response(200, &handlers.DatasetEvaluationStatusResponse{}),
 			)
-			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, evalDismissalStore, queue, ent),
+			deploymentRoutes.ModelDeferredPOST("/deployments/:id/dataset/evaluations", "Queue dataset evaluations", handlers.PostDatasetEvaluations(log, cfg, accountStore, deploymentStore, datasetStore, langfuseStore, evalItemStore, evalRunStore, evalDismissalStore, queue, ent, evalResolver),
 				oapispec.Tags("Dataset"),
 				oapispec.BearerAuth(),
 				oapispec.PathParam("id", "Deployment ID"),

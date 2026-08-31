@@ -176,7 +176,7 @@ type fakeDatasetEvaluationQueue struct {
 
 func (f *fakeDatasetEvaluationQueue) InsertEvalDatasetEvaluationJobs(
 	_ context.Context,
-	evalDatasetID string,
+	evalDatasetID, _ string,
 	traceIDs []string,
 ) error {
 	first := len(f.jobs) + 1
@@ -247,6 +247,7 @@ func setupDatasetEvaluationsRouter(
 			dismissals,
 			queue,
 			fixtureEntCheck,
+			fakeEvalSetResolver{},
 		),
 	)
 

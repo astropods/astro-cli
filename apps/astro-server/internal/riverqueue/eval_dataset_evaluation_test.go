@@ -42,7 +42,7 @@ func TestEvalDatasetEvaluationArgsInsertOpts(t *testing.T) {
 }
 
 func TestEvalDatasetEvaluationInsertManyParams(t *testing.T) {
-	params := evalDatasetEvaluationInsertManyParams("dataset-1", []string{"trace-1", "trace-2"})
+	params := evalDatasetEvaluationInsertManyParams("dataset-1", "preset/default-evaluation", []string{"trace-1", "trace-2"})
 	require.Len(t, params, 2)
 
 	for index, traceID := range []string{"trace-1", "trace-2"} {
@@ -50,11 +50,12 @@ func TestEvalDatasetEvaluationInsertManyParams(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "dataset-1", args.EvalDatasetID)
 		assert.Equal(t, traceID, args.TraceID)
+		assert.Equal(t, "preset/default-evaluation", args.EvaluationRef)
 	}
 }
 
 func TestEvalDatasetEvaluationInsertManyParamsEmpty(t *testing.T) {
-	assert.Empty(t, evalDatasetEvaluationInsertManyParams("dataset-1", nil))
+	assert.Empty(t, evalDatasetEvaluationInsertManyParams("dataset-1", "preset/default-evaluation", nil))
 }
 
 type fakeEvaluationDatasetStore struct {
@@ -228,6 +229,12 @@ func evaluationTraceFixture() *langfuse.TraceDetail {
 	return trace
 }
 
+type fakeEvaluationSetResolver struct{}
+
+func (fakeEvaluationSetResolver) Set(_ context.Context, ref string) ([]evaluator.Evaluator, error) {
+	return evalpreset.ResolveSet(ref)
+}
+
 func newEvaluationWorker(
 	runs *fakeEvaluationRunStore,
 	client *fakeEvaluationTraceClient,
@@ -237,7 +244,8 @@ func newEvaluationWorker(
 		datasets: &fakeEvaluationDatasetStore{dataset: &evaldatasetstore.EvalDataset{
 			ID: "dataset-1", DeploymentID: "dep-1", AccountID: "account-1",
 		}},
-		runs: runs,
+		runs:     runs,
+		resolver: fakeEvaluationSetResolver{},
 		loadLangfuse: func(context.Context, string) (*langfuse.AccountLangfuse, error) {
 			return &langfuse.AccountLangfuse{PublicKey: "pk", SecretKey: "sk"}, nil
 		},
@@ -255,7 +263,11 @@ func evaluationJob(attempt int) *river.Job[EvalDatasetEvaluationArgs] {
 			Attempt:     attempt,
 			MaxAttempts: 3,
 		},
-		Args: EvalDatasetEvaluationArgs{EvalDatasetID: "dataset-1", TraceID: "trace-1"},
+		Args: EvalDatasetEvaluationArgs{
+			EvalDatasetID: "dataset-1",
+			TraceID:       "trace-1",
+			EvaluationRef: evalpreset.RefDefaultSet,
+		},
 	}
 }
 

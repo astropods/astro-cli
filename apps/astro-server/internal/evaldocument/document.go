@@ -290,6 +290,40 @@ func resolveOutput(o *rawOutput) evaluator.Output {
 	}
 }
 
+// ResolveDocument expands a normalized Document (as stored in eval_definitions)
+// into its executable evaluator set, resolving any embedded preset references
+// against the current registry.
+func ResolveDocument(doc Document) ([]evaluator.Evaluator, error) {
+	out := make([]evaluator.Evaluator, 0, len(doc.Evaluators))
+	for _, entry := range doc.Evaluators {
+		if entry.Ref != "" {
+			def, err := evalpreset.Lookup(entry.Ref)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, def)
+			continue
+		}
+		config := evaluator.Config{}
+		if entry.Config != nil {
+			config = *entry.Config
+		}
+		output := evaluator.Output{}
+		if entry.Output != nil {
+			output = *entry.Output
+		}
+		out = append(out, evaluator.Evaluator{
+			Key:    entry.Key,
+			Label:  entry.Label,
+			Type:   evaluator.Type(entry.Type),
+			Config: config,
+			Prompt: entry.Prompt,
+			Output: output,
+		})
+	}
+	return out, nil
+}
+
 func totalBytes(yamlText string, promptFiles map[string]string) int {
 	total := len(yamlText)
 	for _, contents := range promptFiles {

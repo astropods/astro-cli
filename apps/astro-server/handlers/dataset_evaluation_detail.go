@@ -12,7 +12,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/config"
 	"github.com/astropods/astro/apps/astro-server/internal/deploymentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -61,6 +60,7 @@ func GetDatasetTraceEvaluation(
 	langfuseStore *langfuse.Store,
 	runStore datasetTraceEvaluationStore,
 	slackStore *slackidentity.Store,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -131,7 +131,7 @@ func GetDatasetTraceEvaluation(
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load evaluator results"})
 			return
 		}
-		response.Evaluators = orderedTraceEvaluators(run.EvaluationRef, results)
+		response.Evaluators = orderedTraceEvaluators(c.Request.Context(), resolver, run.EvaluationRef, results)
 		c.JSON(http.StatusOK, response)
 	}
 }
@@ -139,10 +139,12 @@ func GetDatasetTraceEvaluation(
 // orderedTraceEvaluators returns one entry per result. A reference this build
 // cannot resolve costs labels and ordering rather than failing the read.
 func orderedTraceEvaluators(
+	ctx context.Context,
+	resolver evalSetResolver,
 	evaluationRef string,
 	results []evalrunstore.Result,
 ) []DatasetTraceEvaluator {
-	set, _ := evalpreset.ResolveSet(evaluationRef)
+	set, _ := resolver.Set(ctx, evaluationRef)
 	groups := evaluatorsBySet(set, results,
 		func(result evalrunstore.Result) string { return result.EvaluatorKey })
 

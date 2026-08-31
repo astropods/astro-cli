@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalitemstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
+	"github.com/astropods/astro/apps/astro-server/internal/evalresolve"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -132,6 +133,7 @@ func GetEvalDatasetItems(
 	datasetStore *evaldatasetstore.Store,
 	langfuseStore *langfuse.Store,
 	itemStore *evalitemstore.Store,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -174,12 +176,18 @@ func GetEvalDatasetItems(
 			return
 		}
 
+		evaluationRef, err := resolver.ActiveRef(c.Request.Context(), lctx.AccountID, lctx.AgentName)
+		if err != nil {
+			log.Error("dataset items: resolve active ref failed", "error", err, "dataset_id", ds.ID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return
+		}
 		// A retired evaluator still holds values, so a set that will not resolve
 		// costs labels and ordering rather than the values themselves.
-		set, err := evalpreset.ResolveSet(activeEvaluationRef)
+		set, err := resolver.Set(c.Request.Context(), evaluationRef)
 		if err != nil {
 			log.Warn("dataset items: resolve evaluation set failed", "error", err,
-				"dataset_id", ds.ID, "evaluation_ref", activeEvaluationRef)
+				"dataset_id", ds.ID, "evaluation_ref", evaluationRef)
 		}
 
 		rows := make([]evalDatasetItemRow, 0, len(resp.Data))
@@ -257,6 +265,7 @@ func PostDatasetItem(
 	langfuseStore *langfuse.Store,
 	itemStore *evalitemstore.Store,
 	runStore *evalrunstore.Store,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		lctx, ok := resolveLangfuseContext(c, log, cfg, accountStore, deploymentStore, langfuseStore)
@@ -272,11 +281,6 @@ func PostDatasetItem(
 		body.TraceID = strings.TrimSpace(body.TraceID)
 		if body.TraceID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "trace_id is required"})
-			return
-		}
-
-		outputs, ok := resolveSubmittedOutputs(c, log, lctx.DeploymentID, body.EvaluatorOutputs)
-		if !ok {
 			return
 		}
 
@@ -300,7 +304,12 @@ func PostDatasetItem(
 			return
 		}
 
-		sourceRunID, ok := resolveItemSourceRun(c, log, runStore, ds.ID, body)
+		sourceRunID, evaluationRef, ok := resolveItemProvenance(c, log, runStore, resolver, ds.ID, lctx.AccountID, lctx.AgentName, body)
+		if !ok {
+			return
+		}
+
+		outputs, ok := resolveSubmittedOutputs(c, log, resolver, evaluationRef, body.EvaluatorOutputs)
 		if !ok {
 			return
 		}
@@ -308,7 +317,7 @@ func PostDatasetItem(
 		item := evalitemstore.Item{
 			EvalDatasetID:         ds.ID,
 			TraceID:               body.TraceID,
-			EvaluationRef:         activeEvaluationRef,
+			EvaluationRef:         evaluationRef,
 			SourceEvaluationRunID: sourceRunID,
 			VerifiedByUserID:      lctx.UserID,
 		}
@@ -345,7 +354,7 @@ func PostDatasetItem(
 		c.JSON(http.StatusCreated, DatasetItemResponse{
 			EvalDatasetID: ds.ID,
 			TraceID:       body.TraceID,
-			EvaluationRef: activeEvaluationRef,
+			EvaluationRef: evaluationRef,
 		})
 	}
 }
@@ -373,6 +382,7 @@ func PutDatasetItemEvaluatorOutputs(
 	deploymentStore *deploymentstore.Store,
 	datasetStore *evaldatasetstore.Store,
 	itemStore *evalitemstore.Store,
+	resolver evalSetResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
@@ -406,14 +416,21 @@ func PutDatasetItemEvaluatorOutputs(
 			c.JSON(http.StatusNotFound, gin.H{"error": "dataset item not found"})
 			return
 		}
+
+		activeRef, err := resolver.ActiveRef(c.Request.Context(), dctx.Deployment.AccountID, dctx.Deployment.AgentName)
+		if err != nil {
+			log.Error("dataset items: resolve active ref failed", "error", err, "trace_id", traceID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return
+		}
 		// A retired set has no resolvable output contract to validate against, so
 		// its outputs stay as admitted until the item is removed and re-added.
-		if item.EvaluationRef != activeEvaluationRef {
+		if item.EvaluationRef != activeRef {
 			c.JSON(http.StatusConflict, gin.H{"error": "dataset item does not use the active evaluation set"})
 			return
 		}
 
-		outputs, ok := resolveSubmittedOutputs(c, log, dctx.DeploymentID, body.Values)
+		outputs, ok := resolveSubmittedOutputs(c, log, resolver, item.EvaluationRef, body.Values)
 		if !ok {
 			return
 		}
@@ -508,41 +525,52 @@ func DeleteDatasetItem(
 	}
 }
 
-func resolveItemSourceRun(
+func resolveItemProvenance(
 	c *gin.Context,
 	log *logger.Logger,
 	runStore *evalrunstore.Store,
-	evalDatasetID string,
+	resolver evalSetResolver,
+	evalDatasetID, accountID, agentName string,
 	body DatasetItemRequest,
-) (*string, bool) {
+) (sourceRunID *string, evaluationRef string, ok bool) {
 	runID := strings.TrimSpace(body.EvaluationRunID)
 	if runID == "" {
-		return nil, true
+		ref, err := resolver.ActiveRef(c.Request.Context(), accountID, agentName)
+		if err != nil {
+			log.Error("dataset items: resolve active ref failed", "error", err,
+				"account_id", accountID, "agent_name", agentName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
+			return nil, "", false
+		}
+		return nil, ref, true
 	}
 	run, err := runStore.GetRun(c.Request.Context(), runID)
 	if err != nil {
 		log.Error("dataset items: load evaluation run failed", "error", err, "evaluation_run_id", runID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load the evaluation run"})
-		return nil, false
+		return nil, "", false
 	}
-	if run == nil || run.EvalDatasetID != evalDatasetID || run.TraceID != body.TraceID ||
-		run.EvaluationRef != activeEvaluationRef {
+	if run == nil || run.EvalDatasetID != evalDatasetID || run.TraceID != body.TraceID {
 		c.JSON(http.StatusConflict, gin.H{"error": "evaluation run does not match this trace"})
-		return nil, false
+		return nil, "", false
 	}
-	return &run.ID, true
+	return &run.ID, run.EvaluationRef, true
 }
 
 func resolveSubmittedOutputs(
 	c *gin.Context,
 	log *logger.Logger,
-	deploymentID string,
+	resolver evalSetResolver,
+	evaluationRef string,
 	submitted []datasetItemEvaluatorOutput,
 ) ([]evalitemstore.Output, bool) {
-	set, err := evalpreset.ResolveSet(activeEvaluationRef)
+	set, err := resolver.Set(c.Request.Context(), evaluationRef)
 	if err != nil {
-		log.Error("dataset items: resolve evaluation set failed", "error", err,
-			"deployment_id", deploymentID, "evaluation_ref", activeEvaluationRef)
+		if errors.Is(err, evalresolve.ErrUnresolvable) || errors.Is(err, evalpreset.ErrUnknownRef) {
+			c.JSON(http.StatusConflict, gin.H{"error": "evaluation run does not match this trace"})
+			return nil, false
+		}
+		log.Error("dataset items: resolve evaluation set failed", "error", err, "evaluation_ref", evaluationRef)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
 		return nil, false
 	}

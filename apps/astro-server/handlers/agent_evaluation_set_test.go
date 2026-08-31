@@ -25,7 +25,7 @@ func evaluationSetRouter(t *testing.T) (*httptest.ResponseRecorder, sqlmock.Sqlm
 
 	router := authenticatedDeploymentVisibilityRouter()
 	router.GET("/agents/:account/:name/evaluation-set",
-		GetAgentEvaluationSet(logger.New("error", "json"), account.NewAccountStore(db), agentindex.NewIndexWithDB(db)))
+		GetAgentEvaluationSet(logger.New("error", "json"), account.NewAccountStore(db), agentindex.NewIndexWithDB(db), fakeEvalSetResolver{}))
 
 	recorder := httptest.NewRecorder()
 	serve := func() {

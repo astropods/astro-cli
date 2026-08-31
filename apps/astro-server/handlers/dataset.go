@@ -1,16 +1,21 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/astropods/astro/apps/astro-server/internal/evaldataset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 	"github.com/gin-gonic/gin"
 )
+
+type evalSetResolver interface {
+	ActiveRef(ctx context.Context, accountID, agentName string) (string, error)
+	Set(ctx context.Context, evaluationRef string) ([]evaluator.Evaluator, error)
+}
 
 // loadDataset fetches the dataset row for a deployment and writes the matching
 // error response when missing or unreadable. Returns (nil, false) if the caller
@@ -61,8 +66,6 @@ func loadDatasetEnsured(
 	}
 	return ensured, true
 }
-
-const activeEvaluationRef = evalpreset.RefDefaultSet
 
 func requireTraceIDParam(c *gin.Context) (string, bool) {
 	traceID := strings.TrimSpace(c.Param("trace_id"))

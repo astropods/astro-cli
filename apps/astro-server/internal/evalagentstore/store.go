@@ -43,8 +43,20 @@ func (s *Store) Get(ctx context.Context, accountID, agentName string) (*AgentEva
 	return &ae, nil
 }
 
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 func (s *Store) Set(ctx context.Context, accountID, agentName, evaluationRef string) error {
-	if _, err := s.db.ExecContext(ctx, `
+	return setAgentEvaluation(ctx, s.db, accountID, agentName, evaluationRef)
+}
+
+func SetTx(ctx context.Context, tx *sql.Tx, accountID, agentName, evaluationRef string) error {
+	return setAgentEvaluation(ctx, tx, accountID, agentName, evaluationRef)
+}
+
+func setAgentEvaluation(ctx context.Context, db execer, accountID, agentName, evaluationRef string) error {
+	if _, err := db.ExecContext(ctx, `
 		INSERT INTO agent_evaluations (account_id, agent_name, evaluation_ref, updated_at)
 		VALUES ($1, $2, $3, now())
 		ON CONFLICT (account_id, agent_name)
@@ -60,7 +72,15 @@ func (s *Store) Set(ctx context.Context, accountID, agentName, evaluationRef str
 }
 
 func (s *Store) Clear(ctx context.Context, accountID, agentName string) error {
-	if _, err := s.db.ExecContext(ctx, `
+	return clearAgentEvaluation(ctx, s.db, accountID, agentName)
+}
+
+func ClearTx(ctx context.Context, tx *sql.Tx, accountID, agentName string) error {
+	return clearAgentEvaluation(ctx, tx, accountID, agentName)
+}
+
+func clearAgentEvaluation(ctx context.Context, db execer, accountID, agentName string) error {
+	if _, err := db.ExecContext(ctx, `
 		DELETE FROM agent_evaluations
 		WHERE account_id = $1 AND agent_name = $2
 	`, accountID, agentName); err != nil {

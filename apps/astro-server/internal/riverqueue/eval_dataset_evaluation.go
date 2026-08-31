@@ -14,7 +14,6 @@ import (
 	"github.com/astropods/astro/apps/astro-server/internal/aigateway"
 	"github.com/astropods/astro/apps/astro-server/internal/billing"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldatasetstore"
-	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaluator"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
@@ -24,6 +23,7 @@ import (
 type EvalDatasetEvaluationArgs struct {
 	EvalDatasetID string `json:"eval_dataset_id"`
 	TraceID       string `json:"trace_id"`
+	EvaluationRef string `json:"evaluation_ref"`
 }
 
 func (EvalDatasetEvaluationArgs) Kind() string { return "eval_dataset.evaluation" }
@@ -89,10 +89,15 @@ type evaluationRunner interface {
 	Evaluate(context.Context, string, evaluator.Evaluator, evaluator.Input) (evaluator.Result, error)
 }
 
+type evaluationSetResolver interface {
+	Set(ctx context.Context, evaluationRef string) ([]evaluator.Evaluator, error)
+}
+
 type EvalDatasetEvaluationWorker struct {
 	river.WorkerDefaults[EvalDatasetEvaluationArgs]
 	datasets       evaluationDatasetStore
 	runs           evaluationRunStore
+	resolver       evaluationSetResolver
 	loadLangfuse   func(context.Context, string) (*langfuse.AccountLangfuse, error)
 	newTraceClient func(*langfuse.AccountLangfuse) evaluationTraceClient
 	ensureJudgeKey func(context.Context, string) (string, string, error)
@@ -121,14 +126,12 @@ func (w *EvalDatasetEvaluationWorker) Work(ctx context.Context, job *river.Job[E
 	if dataset == nil {
 		return river.JobCancel(fmt.Errorf("eval dataset %q no longer exists", args.EvalDatasetID))
 	}
-	if w.loadLangfuse == nil || w.newTraceClient == nil || w.ensureJudgeKey == nil || w.newRunner == nil {
+	if w.loadLangfuse == nil || w.newTraceClient == nil || w.ensureJudgeKey == nil || w.newRunner == nil || w.resolver == nil {
 		return river.JobCancel(fmt.Errorf("eval dataset evaluation: %w", errEvaluationNotConfigured))
 	}
 
-	// Resolve before claiming the run so an unresolvable set never leaves an
-	// orphaned in-progress row.
-	evaluationRef := evalpreset.RefDefaultSet
-	set, err := evalpreset.ResolveSet(evaluationRef)
+	evaluationRef := args.EvaluationRef
+	set, err := w.resolver.Set(ctx, evaluationRef)
 	if err != nil {
 		return river.JobCancel(fmt.Errorf("resolve evaluation set %q: %w", evaluationRef, err))
 	}

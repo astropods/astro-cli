@@ -60,7 +60,11 @@ type datasetEvaluationRunStore interface {
 }
 
 type datasetEvaluationQueue interface {
-	InsertEvalDatasetEvaluationJobs(ctx context.Context, evalDatasetID string, traceIDs []string) error
+	InsertEvalDatasetEvaluationJobs(ctx context.Context, evalDatasetID, evaluationRef string, traceIDs []string) error
+}
+
+type datasetEvaluationRefResolver interface {
+	ActiveRef(ctx context.Context, accountID, agentName string) (string, error)
 }
 
 // GetDatasetEvaluationStatus returns deployment-wide evaluation run counts
@@ -112,6 +116,7 @@ func PostDatasetEvaluations(
 	dismissalStore reviewQueueDismissalStore,
 	queue datasetEvaluationQueue,
 	entCheck EntitlementChecker,
+	resolver datasetEvaluationRefResolver,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dctx, ok := resolveDeploymentAccess(c, accountStore, deploymentStore)
@@ -132,8 +137,16 @@ func PostDatasetEvaluations(
 			itemStore == nil ||
 			runStore == nil ||
 			dismissalStore == nil ||
-			queue == nil {
+			queue == nil ||
+			resolver == nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dataset evaluation is not configured"})
+			return
+		}
+
+		evaluationRef, err := resolver.ActiveRef(c.Request.Context(), dctx.Deployment.AccountID, dctx.Deployment.AgentName)
+		if err != nil {
+			log.Error("dataset evaluations: resolve active evaluation set failed", "error", err, "deployment_id", deploymentID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve the evaluation set"})
 			return
 		}
 
@@ -208,7 +221,7 @@ func PostDatasetEvaluations(
 		queuedTraceIDs, err := runStore.CreateQueuedRuns(
 			c.Request.Context(),
 			dataset.ID,
-			activeEvaluationRef,
+			evaluationRef,
 			eligible,
 		)
 		if err != nil {
@@ -217,12 +230,12 @@ func PostDatasetEvaluations(
 			c.JSON(http.StatusInternalServerError, response)
 			return
 		}
-		if err := queue.InsertEvalDatasetEvaluationJobs(c.Request.Context(), dataset.ID, traceIDs); err != nil {
+		if err := queue.InsertEvalDatasetEvaluationJobs(c.Request.Context(), dataset.ID, evaluationRef, traceIDs); err != nil {
 			log.Error("dataset evaluations: enqueue evaluation jobs failed", "error", err, "deployment_id", deploymentID)
 			if failErr := runStore.FailQueuedRuns(
 				c.Request.Context(),
 				dataset.ID,
-				activeEvaluationRef,
+				evaluationRef,
 				queuedTraceIDs,
 				evaluationEnqueueFailureMessage,
 			); failErr != nil {

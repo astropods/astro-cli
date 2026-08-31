@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/astropods/astro/apps/astro-server/internal/evalpreset"
 	"github.com/astropods/astro/apps/astro-server/internal/evalrunstore"
 	"github.com/astropods/astro/apps/astro-server/internal/langfuse"
 )
@@ -579,7 +580,7 @@ func traceIDRows(traceIDs []string) *sqlmock.Rows {
 func expectLatestRuns(mock sqlmock.Sqlmock, runs map[string]string) {
 	rows := sqlmock.NewRows([]string{"trace_id", "id", "evaluation_ref", "status", "error_message"})
 	for traceID, status := range runs {
-		rows.AddRow(traceID, "run-"+traceID, activeEvaluationRef, status, nil)
+		rows.AddRow(traceID, "run-"+traceID, evalpreset.RefDefaultSet, status, nil)
 	}
 	mock.ExpectQuery("DISTINCT ON").WillReturnRows(rows)
 }
