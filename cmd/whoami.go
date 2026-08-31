@@ -45,11 +45,11 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	// Load current profile
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return errAccountNotLoggedIn()
 	}
 
 	if profile.AccessToken == "" {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return errAccountNotLoggedIn()
 	}
 
 	// Validate token is still valid (this will refresh if needed)

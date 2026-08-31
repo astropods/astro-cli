@@ -127,7 +127,7 @@ func TestAccountList_NotLoggedIn(t *testing.T) {
 		CurrentProfile: "default",
 		Profiles:       map[string]*auth.Profile{},
 	})
-	require.Error(t, runAccountList(accountListCmd, nil))
+	require.Equal(t, errAccountNotLoggedIn(), runAccountList(accountListCmd, nil))
 }
 
 // ─── account switch ───────────────────────────────────────────────────────────
@@ -301,43 +301,10 @@ func TestAccountRefresh_FallsBackToCacheWhenFetchFails(t *testing.T) {
 	}
 }
 
-func TestAccountRefresh_FallsBackToCacheWhenTokenRefreshFails(t *testing.T) {
-	for name, run := range refreshEntryPoints {
-		if name == "switch" {
-			continue
-		}
-		t.Run(name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
-			t.Setenv("NO_COLOR", "1")
-			writeAccountTestCredentials(t, &auth.Credentials{
-				CurrentProfile: "default",
-				Profiles: map[string]*auth.Profile{
-					"default": {
-						AccessToken:    "stale-token",
-						RefreshToken:   "refresh-tok",
-						ExpiresAt:      time.Now().Add(2 * time.Minute),
-						CurrentAccount: "alice",
-						Accounts: []auth.StoredAccount{
-							{ID: "acct_personal", Name: "alice", Type: "personal", Role: "owner"},
-							{ID: "acct_acme", Name: "acme-corp", Type: "organization", Role: "member", OrganizationID: "org_acme"},
-						},
-					},
-				},
-			})
-
-			workOSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusBadRequest)
-			}))
-			t.Cleanup(workOSServer.Close)
-			auth.SetWorkOSBaseURLOverride(workOSServer.URL)
-			t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
-
-			require.Contains(t, run(t), "acme-corp")
-		})
-	}
-}
-
-func TestAccountRefresh_RefreshesExpiringAccessTokenFirst(t *testing.T) {
+// setupExpiringTokenTest writes credentials with an access token close to
+// expiry and points the WorkOS client at a mock token-refresh server.
+func setupExpiringTokenTest(t *testing.T, workOSHandler http.Handler) {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("NO_COLOR", "1")
 	writeAccountTestCredentials(t, &auth.Credentials{
@@ -350,17 +317,36 @@ func TestAccountRefresh_RefreshesExpiringAccessTokenFirst(t *testing.T) {
 				CurrentAccount: "alice",
 				Accounts: []auth.StoredAccount{
 					{ID: "acct_personal", Name: "alice", Type: "personal", Role: "owner"},
+					{ID: "acct_acme", Name: "acme-corp", Type: "organization", Role: "member", OrganizationID: "org_acme"},
 				},
 			},
 		},
 	})
 
-	workOSServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "fresh-token", ExpiresIn: 3600}) //nolint:errcheck
-	}))
+	workOSServer := httptest.NewServer(workOSHandler)
 	t.Cleanup(workOSServer.Close)
 	auth.SetWorkOSBaseURLOverride(workOSServer.URL)
 	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+}
+
+func TestAccountRefresh_FallsBackToCacheWhenTokenRefreshFails(t *testing.T) {
+	for name, run := range refreshEntryPoints {
+		if name == "switch" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			setupExpiringTokenTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+			}))
+			require.Contains(t, run(t), "acme-corp")
+		})
+	}
+}
+
+func TestAccountRefresh_RefreshesExpiringAccessTokenFirst(t *testing.T) {
+	setupExpiringTokenTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "fresh-token", ExpiresIn: 3600}) //nolint:errcheck
+	}))
 
 	var sawAuth string
 	accountServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

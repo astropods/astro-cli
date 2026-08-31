@@ -81,9 +81,6 @@ func init() {
 func runAccountList(cmd *cobra.Command, args []string) error {
 	storage := accountNewStorage()
 
-	if _, err := storage.GetCurrentProfile(); err != nil {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
-	}
 	accounts, err := accountsForSelection(cmd.Context(), storage)
 	if err != nil {
 		return err
@@ -188,12 +185,12 @@ func refreshAccountsIfMissing(ctx context.Context, storage *auth.Storage, name s
 
 // Unlike refreshAccountsIfMissing, always refreshes, falling back to the cache on failure.
 func accountsForSelection(ctx context.Context, storage *auth.Storage) ([]auth.StoredAccount, error) {
-	if accounts, err := refreshAccounts(ctx, storage); err == nil {
-		return accounts, nil
-	}
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return nil, err
+		return nil, errAccountNotLoggedIn()
+	}
+	if accounts, err := refreshAccounts(ctx, storage); err == nil {
+		return accounts, nil
 	}
 	return profile.Accounts, nil
 }
@@ -257,7 +254,7 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	storage := accountNewStorage()
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return "", errAccountNotLoggedIn()
 	}
 	orgID := accountOrgID(profile.Accounts, account)
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
@@ -276,10 +273,6 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 }
 
 func selectAccountInteractive(ctx context.Context, storage *auth.Storage) (string, error) {
-	if _, err := storage.GetCurrentProfile(); err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
-	}
-
 	accounts, err := accountsForSelection(ctx, storage)
 	if err != nil {
 		return "", err
