@@ -534,8 +534,9 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
-	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), ingProject, api.RunOptions{
-		Service:    fmt.Sprintf("ingestion-%s", name),
+	triggerService := fmt.Sprintf("ingestion-%s", name)
+	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
+		Service:    triggerService,
 		AutoRemove: true,
 		NoDeps:     true,
 	})
@@ -588,11 +589,12 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 			fmt.Printf("❌ Failed to init compose service for ingestion '%s': %v\n", name, err)
 			continue
 		}
+		startupService := fmt.Sprintf("ingestion-%s", name)
 		var exitCode int
 		if err := withSpinner(fmt.Sprintf("Running ingestion: %s...", name), fmt.Sprintf("Ingestion %s complete", name), verbose, func() error {
 			var runErr error
-			exitCode, runErr = startupSvc.RunOneOffContainer(context.Background(), project, api.RunOptions{
-				Service:    fmt.Sprintf("ingestion-%s", name),
+			exitCode, runErr = startupSvc.RunOneOffContainer(context.Background(), projectForRun(project, startupService), api.RunOptions{
+				Service:    startupService,
 				AutoRemove: true,
 				NoDeps:     true,
 			})

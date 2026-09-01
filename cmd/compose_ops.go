@@ -99,6 +99,19 @@ func projectForUp(p *types.Project) *types.Project {
 	return &up
 }
 
+// projectForRun returns a copy of p with the services `up` starts plus the target.
+// Compose starts everything left in the project, and RunOptions.NoDeps does not gate it.
+func projectForRun(p *types.Project, service string) *types.Project {
+	run := *p
+	run.Services = make(types.Services)
+	for name, svc := range p.Services {
+		if len(svc.Profiles) == 0 || name == service {
+			run.Services[name] = svc
+		}
+	}
+	return &run
+}
+
 // groupStartupServices splits services into the ones `up` starts and the
 // profiled ingestions it does not, tagging each ingestion with when it runs.
 func groupStartupServices(p *types.Project, s *spec.AstroSpec) (services, ingestion []string) {
