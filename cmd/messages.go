@@ -24,6 +24,10 @@ func errNoSpecFile() error {
 	)
 }
 
+func errNoEvaluationFile() error {
+	return fmt.Errorf("%s not found beside astropods.yml", strings.Join(evaluationFilenameAliases, " or "))
+}
+
 func errAgentTargetRequired() error {
 	return fmt.Errorf(
 		"required: --name <display-or-blueprint-name> or --id <deployment-id> (from %s agent list; IDs only with --id)",
