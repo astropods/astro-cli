@@ -28,7 +28,9 @@ func ParseAgentName(raw string) (account, name string) {
 // If the file exists but cannot be read, returns (nil, err). Otherwise returns (envMap, nil).
 func LoadEnvFile(workingDir, envFile string) (map[string]string, error) {
 	path := filepath.Join(workingDir, envFile)
-	if _, err := os.Stat(path); err != nil {
+	// An empty envFile joins to workingDir, so only a regular file counts.
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() {
 		return nil, nil
 	}
 	m, err := godotenv.Read(path)

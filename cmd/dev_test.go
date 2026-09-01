@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/utils"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDevStatePath(t *testing.T) {
@@ -62,4 +65,10 @@ func TestReadDevProjectName(t *testing.T) {
 			t.Fatal("expected error when state file is missing")
 		}
 	})
+}
+
+func TestDevTriggerHasEnvFlag(t *testing.T) {
+	f := devTriggerCmd.Flags().Lookup("env")
+	require.NotNil(t, f, "dev trigger is missing the --env flag")
+	assert.Equal(t, utils.DefaultEnvFile, f.DefValue)
 }
