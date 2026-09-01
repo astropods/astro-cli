@@ -127,10 +127,7 @@ func PutAgentEvaluationSet(log *logger.Logger, db *sql.DB, agentIndex *agentinde
 
 		if err := applyEvaluationActivation(c.Request.Context(), db, acct.ID, agentName, activation); err != nil {
 			log.Error("agent evaluation set: activate evaluation set failed", "error", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to activate the evaluation set",
-				"details": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to activate the evaluation set"})
 			return
 		}
 
