@@ -786,7 +786,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 			hostKey := prov.EnvPrefix + "_HOST"
 			portKey := prov.EnvPrefix + "_PORT"
 			env[hostKey] = &serviceName
-			port := fmt.Sprintf("%d", prov.DefaultPort)
+			port := fmt.Sprintf("%d", prov.ConnectPort())
 			env[portKey] = &port
 
 			// For postgres, mirror prod and inject the full USER/PASSWORD/DB

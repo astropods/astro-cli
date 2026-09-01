@@ -1320,3 +1320,34 @@ func TestBuildProject_AgentCoreRuntime(t *testing.T) {
 		}
 	})
 }
+
+// neo4j serves bolt on 7687 and its browser on 7474, so an agent handed the
+// default port has nothing to connect to.
+func TestBuildProject_KnowledgePortIsTheOneAgentsConnectOn(t *testing.T) {
+	tests := []struct {
+		provider string
+		hostKey  string
+		portKey  string
+		wantPort string
+	}{
+		{provider: "neo4j", hostKey: "NEO4J_HOST", portKey: "NEO4J_PORT", wantPort: "7687"},
+		{provider: "qdrant", hostKey: "QDRANT_HOST", portKey: "QDRANT_PORT", wantPort: "6333"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			s := &spec.AstroSpec{
+				Name:      "graph-agent",
+				Agent:     spec.Container{Image: "agent:latest"},
+				Knowledge: map[string]spec.Knowledge{"graph": {Provider: tt.provider}},
+			}
+
+			project, err := BuildProject(s, "/work", nil)
+			require.NoError(t, err)
+
+			agent := project.Services["agent"]
+			assert.Equal(t, "knowledge-graph", envVal(agent.Environment, tt.hostKey))
+			assert.Equal(t, tt.wantPort, envVal(agent.Environment, tt.portKey))
+		})
+	}
+}
