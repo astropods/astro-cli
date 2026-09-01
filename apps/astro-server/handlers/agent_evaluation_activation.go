@@ -136,9 +136,7 @@ func PutAgentEvaluationSet(log *logger.Logger, db *sql.DB, agentIndex *agentinde
 }
 
 // PostValidateAgentEvaluationSet validates an EVALUATION.yaml document and its
-// referenced prompt files without persisting anything. No account/agent
-// dependency, so no path params. Remove once evaldocument is shared with
-// astro-cli and ast eval validate can run this check locally.
+// referenced prompt files without persisting anything.
 // POST /api/v1/evaluation-set/validate
 func PostValidateAgentEvaluationSet(log *logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
