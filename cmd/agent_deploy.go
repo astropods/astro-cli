@@ -85,7 +85,7 @@ type agentDeployResult struct {
 var blueprintDeployCmd = &cobra.Command{
 	Use:   "deploy <name>",
 	Short: "Deploy a blueprint",
-	Args:  exactValidAgentName,
+	Args:  optionalValidAgentName,
 	RunE:  runBlueprintDeploy,
 }
 
@@ -105,6 +105,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 func registerDeployFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("name", "n", "", "Display name for the deployment")
 	registerDeployCommonFlags(cmd)
+	registerAgentCoreDeployFlags(cmd)
 }
 
 func init() {
@@ -114,7 +115,7 @@ func init() {
 	topLevelDeployCmd := &cobra.Command{
 		Use:   blueprintDeployCmd.Use,
 		Short: blueprintDeployCmd.Short,
-		Args:  exactValidAgentName,
+		Args:  optionalValidAgentName,
 		RunE:  runBlueprintDeploy,
 	}
 	registerDeployFlags(topLevelDeployCmd)
@@ -285,6 +286,18 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 }
 
 func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
+	// The spec picks the runtime: a local astropods.yml with
+	// agent.annotations.runtime: agentcore deploys to AWS Bedrock AgentCore
+	// instead of taking the server-mediated path. There is no target flag.
+	if handled, err := maybeAgentCoreDeploy(cmd, args); handled || err != nil {
+		return err
+	}
+	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got 0")
+	}
 	name := args[0]
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {

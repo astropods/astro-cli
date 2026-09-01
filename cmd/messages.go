@@ -161,6 +161,50 @@ func errLoginAccountsLoadEmpty() error {
 	)
 }
 
+func errAgentCoreRejected(name, reason string) error {
+	return fmt.Errorf("cannot deploy %q to AgentCore Runtime: %s", name, reason)
+}
+
+func errAgentCoreMissingSecrets(names []string) error {
+	return fmt.Errorf(
+		"missing secret value(s) %s: supply them with --secret NAME=VALUE or --secrets-file",
+		strings.Join(names, ", "),
+	)
+}
+
+func errAgentCoreOnlyFlags(flags []string) error {
+	return fmt.Errorf(
+		"cannot honor %s: this deploy goes to Astro, and those flags apply only when the spec sets agent.annotations.runtime: agentcore",
+		strings.Join(flags, ", "),
+	)
+}
+
+func errAgentCoreDeployTakesNoName(name, specName string) error {
+	return fmt.Errorf(
+		"cannot deploy %q: this spec sets agent.annotations.runtime: agentcore, which deploys %q from the local spec. Drop the name, or pass -f to select another spec",
+		name, specName,
+	)
+}
+
+func errAgentCoreMissingImage() error {
+	return fmt.Errorf("an agentcore deploy needs --image <ecr-uri> (use --dry-run to preview without it)")
+}
+
+func errAgentCoreMissingExecRole() error {
+	return fmt.Errorf(
+		"an agentcore deploy needs %s set to the execution role ARN (use --dry-run to preview without it)",
+		execRoleEnv,
+	)
+}
+
+func errAgentCoreInvalidSecret(pair string) error {
+	return fmt.Errorf("invalid --secret %q: expected NAME=VALUE", pair)
+}
+
+func errAgentCoreSecretsFileLine(line int) error {
+	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
+
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
 	return fmt.Errorf(`the agent never bound :%d, so no turn can be delivered
 
