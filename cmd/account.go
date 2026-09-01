@@ -21,6 +21,16 @@ import (
 // accountNewStorage is the storage constructor used by account commands. Overridable in tests.
 var accountNewStorage = func() *auth.Storage { return auth.NewStorage(buildinfo.BinaryName) }
 
+// accountServerURLOverride is set in tests to redirect API calls to a test server.
+var accountServerURLOverride string
+
+func accountBaseURL() string {
+	if accountServerURLOverride != "" {
+		return strings.TrimSuffix(accountServerURLOverride, "/")
+	}
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
+}
+
 var accountCmd = &cobra.Command{
 	Use:   "account",
 	Short: "Manage accounts",
@@ -71,9 +81,9 @@ func init() {
 func runAccountList(cmd *cobra.Command, args []string) error {
 	storage := accountNewStorage()
 
-	profile, err := storage.GetCurrentProfile()
+	accounts, err := accountsForSelection(cmd.Context(), storage)
 	if err != nil {
-		return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return err
 	}
 
 	currentAccount, err := storage.GetCurrentAccount()
@@ -85,7 +95,7 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
 	cyan := color.New(theme.PrimaryFatihAttr)
 
-	for _, a := range profile.Accounts {
+	for _, a := range accounts {
 		name := a.Name
 		if a.Type == "personal" {
 			name = fmt.Sprintf("%s (personal)", a.Name)
@@ -114,7 +124,7 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 
 	if name == "" {
 		var err error
-		name, err = selectAccountInteractive(storage)
+		name, err = selectAccountInteractive(cmd.Context(), storage)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {
 				printCancelled(w)
@@ -134,6 +144,7 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	refreshAccountsIfMissing(cmd.Context(), storage, name)
 	if err := storage.SetCurrentAccount(name); err != nil {
 		return err
 	}
@@ -141,6 +152,47 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 	green.Fprint(w, "✓ ")                            //nolint:errcheck,gosec
 	fmt.Fprintf(w, "Switched to account %q\n", name) //nolint:errcheck,gosec
 	return nil
+}
+
+// refreshAccounts fetches and persists the live account list, refreshing the
+// access token first if it's close to expiry.
+func refreshAccounts(ctx context.Context, storage *auth.Storage) ([]auth.StoredAccount, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	token, err := auth.NewTokenManager(buildinfo.BinaryName).GetValidAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts, err := fetchUserAccounts(accountBaseURL(), token)
+	if err != nil {
+		return nil, err
+	}
+	if err := storage.SetAccounts(accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
+
+// Best-effort: a failed refresh falls through to SetCurrentAccount's own error.
+func refreshAccountsIfMissing(ctx context.Context, storage *auth.Storage, name string) {
+	profile, err := storage.GetCurrentProfile()
+	if err != nil || auth.HasAccount(profile.Accounts, name) {
+		return
+	}
+	_, _ = refreshAccounts(ctx, storage)
+}
+
+// Unlike refreshAccountsIfMissing, always refreshes, falling back to the cache on failure.
+func accountsForSelection(ctx context.Context, storage *auth.Storage) ([]auth.StoredAccount, error) {
+	profile, err := storage.GetCurrentProfile()
+	if err != nil {
+		return nil, errAccountNotLoggedIn()
+	}
+	if accounts, err := refreshAccounts(ctx, storage); err == nil {
+		return accounts, nil
+	}
+	return profile.Accounts, nil
 }
 
 func runAccountToken(cmd *cobra.Command, args []string) error {
@@ -202,7 +254,7 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	storage := accountNewStorage()
 	profile, err := storage.GetCurrentProfile()
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return "", errAccountNotLoggedIn()
 	}
 	orgID := accountOrgID(profile.Accounts, account)
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
@@ -220,16 +272,16 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	return token, nil
 }
 
-func selectAccountInteractive(storage *auth.Storage) (string, error) {
-	profile, err := storage.GetCurrentProfile()
+func selectAccountInteractive(ctx context.Context, storage *auth.Storage) (string, error) {
+	accounts, err := accountsForSelection(ctx, storage)
 	if err != nil {
-		return "", fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+		return "", err
 	}
 
 	currentAccount, _ := storage.GetCurrentAccount()
 
-	options := make([]huh.Option[string], 0, len(profile.Accounts))
-	for _, a := range profile.Accounts {
+	options := make([]huh.Option[string], 0, len(accounts))
+	for _, a := range accounts {
 		label := a.Name
 		if a.Type == "personal" {
 			label = fmt.Sprintf("%s (personal)", a.Name)

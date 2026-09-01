@@ -90,6 +90,10 @@ func msgLaunchURLReady() string {
 	return "URL status:  ready"
 }
 
+func errAccountNotLoggedIn() error {
+	return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+}
+
 func errAccountMismatch(specAccount, currentAccount string) error {
 	return fmt.Errorf(
 		"spec account %q does not match current account %q\n\n"+
