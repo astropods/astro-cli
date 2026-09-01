@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/logger"
 )
 
@@ -24,8 +25,13 @@ func setupPutAgentEvaluationSetRouter(t *testing.T) (*gin.Engine, sqlmock.Sqlmoc
 
 	router := gin.New()
 	log := logger.New("error", "json")
-	router.PUT("/api/v1/agents/:account/:name/evaluation-set", injectTestAccount(), PutAgentEvaluationSet(log, db))
+	router.PUT("/api/v1/agents/:account/:name/evaluation-set", injectTestAccount(), PutAgentEvaluationSet(log, db, agentindex.NewIndexWithDB(db)))
 	return router, mock
+}
+
+func expectPutAgentEvaluationSetAgent(mock sqlmock.Sqlmock, exists bool) {
+	mock.ExpectQuery("SELECT EXISTS").WithArgs("test-account-id", "test-agent").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(exists))
 }
 
 func putAgentEvaluationSet(router *gin.Engine, body string) *httptest.ResponseRecorder {
@@ -39,6 +45,7 @@ func putAgentEvaluationSet(router *gin.Engine, body string) *httptest.ResponseRe
 func TestPutAgentEvaluationSet_ActivatesCustomSet(t *testing.T) {
 	router, mock := setupPutAgentEvaluationSetRouter(t)
 
+	expectPutAgentEvaluationSetAgent(mock, true)
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO eval_definitions").
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -60,9 +67,24 @@ func TestPutAgentEvaluationSet_ActivatesCustomSet(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestPutAgentEvaluationSet_AgentNotFound(t *testing.T) {
+	router, mock := setupPutAgentEvaluationSetRouter(t)
+
+	expectPutAgentEvaluationSetAgent(mock, false)
+
+	body := `{
+		"evaluation_yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n"
+	}`
+	rec := putAgentEvaluationSet(router, body)
+
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPutAgentEvaluationSet_RejectsInvalidContent(t *testing.T) {
 	router, mock := setupPutAgentEvaluationSetRouter(t)
 
+	expectPutAgentEvaluationSetAgent(mock, true)
 	body := `{
 		"evaluation_yaml": "schema: evaluation/v2\nevaluators:\n  - ref: preset/exposed-pii\n"
 	}`
@@ -75,6 +97,7 @@ func TestPutAgentEvaluationSet_RejectsInvalidContent(t *testing.T) {
 func TestPutAgentEvaluationSet_RejectsNullBody(t *testing.T) {
 	router, mock := setupPutAgentEvaluationSetRouter(t)
 
+	expectPutAgentEvaluationSetAgent(mock, true)
 	rec := putAgentEvaluationSet(router, "null")
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
@@ -84,6 +107,7 @@ func TestPutAgentEvaluationSet_RejectsNullBody(t *testing.T) {
 func TestPutAgentEvaluationSet_RejectsEmptyBody(t *testing.T) {
 	router, mock := setupPutAgentEvaluationSetRouter(t)
 
+	expectPutAgentEvaluationSetAgent(mock, true)
 	rec := putAgentEvaluationSet(router, `{}`)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())

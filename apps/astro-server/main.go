@@ -2171,7 +2171,7 @@ func setupRoutes(router *gin.Engine, deps *Deps) {
 					oapispec.Body(&handlers.SetAgentVisibilityRequest{}),
 					oapispec.Response(200, &handlers.SetVisibilityResponse{}),
 				)
-				api.PUT(agentWriteRoutes, "/evaluation-set", "Activate a custom evaluation set", handlers.PutAgentEvaluationSet(log, db),
+				api.PUT(agentWriteRoutes, "/evaluation-set", "Activate a custom evaluation set", handlers.PutAgentEvaluationSet(log, db, agentIndex),
 					oapispec.Tags("Agents"),
 					oapispec.BearerAuth(),
 					oapispec.PathParam("account", "Account name"),

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/astropods/astro/apps/astro-server/internal/agentindex"
 	"github.com/astropods/astro/apps/astro-server/internal/evalagentstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldefinitionstore"
 	"github.com/astropods/astro/apps/astro-server/internal/evaldocument"
@@ -82,13 +83,25 @@ func applyEvaluationActivation(
 // PutAgentEvaluationSet activates a custom evaluation set for an agent,
 // independently of any build or registration.
 // PUT /api/v1/agents/:account/:name/evaluation-set
-func PutAgentEvaluationSet(log *logger.Logger, db *sql.DB) gin.HandlerFunc {
+func PutAgentEvaluationSet(log *logger.Logger, db *sql.DB, agentIndex *agentindex.Index) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		agentName := c.Param("name")
 
 		acct, ok := middleware.GetAccountFromContext(c)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "account not resolved"})
+			return
+		}
+
+		exists, err := agentIndex.Exists(acct.ID, agentName)
+		if err != nil {
+			log.Error("agent evaluation set: look up agent failed", "error", err,
+				"account_id", acct.ID, "agent_name", agentName)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to look up the agent"})
+			return
+		}
+		if !exists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
 			return
 		}
 
