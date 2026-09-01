@@ -1757,6 +1757,7 @@ describe("review queue view", () => {
         {
           key: "exposed_pii",
           label: "Exposed PII",
+          output: { type: "boolean" },
           status: "completed",
           value: false,
           confidence: 0.9,
