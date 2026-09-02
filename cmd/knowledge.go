@@ -205,22 +205,34 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 	jsonOut := flagBool(cmd, "json")
 
 	var stores []knowledgeStoreResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet,
-		apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge"),
-		nil, at.Token, verbose, &stores); err != nil {
-		return err
+	cursor := ""
+	for {
+		u := apiPath(knowledgeBaseURL(), at.Account, "accounts", "knowledge")
+		if cursor != "" {
+			u += "?cursor=" + url.QueryEscape(cursor)
+		}
+		var page knowledgeListResponse
+		if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &page); err != nil {
+			return err
+		}
+		stores = append(stores, page.Stores...)
+		if page.Page.NextCursor == "" {
+			break
+		}
+		cursor = page.Page.NextCursor
 	}
 
+	out := cmd.OutOrStdout()
 	if jsonOut {
-		return writeJSON(os.Stdout, stores)
+		return writeJSON(out, stores)
 	}
 
 	if len(stores) == 0 {
-		fmt.Printf("%sNo knowledge stores found.%s\n", colorDim, colorReset)
+		fmt.Fprintf(out, "%sNo knowledge stores found.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tPROVIDER\tSTATUS\tARN")
 	for _, s := range stores {
 		var statusStr string
@@ -414,6 +426,17 @@ type knowledgeStoreEndpointResponse struct {
 }
 
 // knowledgeStoreResponse mirrors the server's knowledge response shape.
+// knowledgeListResponse is the account list's page envelope. The server moved
+// from a bare array to this shape when /me/knowledge was retired; NextCursor
+// is empty on the last page.
+type knowledgeListResponse struct {
+	Stores []knowledgeStoreResponse `json:"stores"`
+	Page   struct {
+		Limit      int    `json:"limit"`
+		NextCursor string `json:"next_cursor,omitempty"`
+	} `json:"page"`
+}
+
 type knowledgeStoreResponse struct {
 	ID        string                          `json:"id"`
 	ARN       string                          `json:"arn"`
