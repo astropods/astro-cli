@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,6 +119,8 @@ const (
 	subnetsEnv         = "AGENTCORE_SUBNETS"
 	securityGroupsEnv  = "AGENTCORE_SECURITY_GROUPS"
 	dependencyHostsEnv = "AGENTCORE_DEPENDENCY_HOSTS"
+	idleTimeoutEnv     = "AGENTCORE_IDLE_TIMEOUT"
+	maxLifetimeEnv     = "AGENTCORE_MAX_LIFETIME"
 )
 
 // A create or update is accepted before the runtime is usable, so the deploy
@@ -145,6 +148,14 @@ func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath 
 	if err != nil {
 		return fmt.Errorf("%s: %w", dependencyHostsEnv, err)
 	}
+	idleTimeout, err := parseSeconds(os.Getenv(idleTimeoutEnv))
+	if err != nil {
+		return fmt.Errorf("%s: %w", idleTimeoutEnv, err)
+	}
+	maxLifetime, err := parseSeconds(os.Getenv(maxLifetimeEnv))
+	if err != nil {
+		return fmt.Errorf("%s: %w", maxLifetimeEnv, err)
+	}
 	subnets := splitCSV(os.Getenv(subnetsEnv))
 	groups := splitCSV(os.Getenv(securityGroupsEnv))
 	// Subnets alone build a VPC plan AWS rejects, and drop the ingress rules
@@ -160,6 +171,9 @@ func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath 
 		Subnets:         subnets,
 		SecurityGroups:  groups,
 		DependencyHosts: depHosts,
+
+		IdleTimeoutSeconds: idleTimeout,
+		MaxLifetimeSeconds: maxLifetime,
 	}
 	plan, err := agentcore.Build(astroSpec, opts)
 	if err != nil {
@@ -285,6 +299,20 @@ func splitCSV(v string) []string {
 		}
 	}
 	return out
+}
+
+// parseSeconds reads a positive whole number of seconds. Empty means unset, so
+// the plan keeps its default.
+func parseSeconds(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid duration %q, want a positive number of seconds", v)
+	}
+	return n, nil
 }
 
 // parseHostPairs reads "from=to,from=to" host rewrites. A malformed entry is an

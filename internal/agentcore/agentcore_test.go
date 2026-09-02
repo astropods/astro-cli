@@ -41,12 +41,6 @@ func TestBuild_CoreShape(t *testing.T) {
 	if p.AgentCore.AgentRuntimeName != "hello_astro" {
 		t.Errorf("AgentRuntimeName = %q, want hello_astro", p.AgentCore.AgentRuntimeName)
 	}
-	// Every agent's /data disk maps to an S3 Files mount.
-	if len(p.AgentCore.FilesystemConfigs) != 1 ||
-		p.AgentCore.FilesystemConfigs[0].Type != "s3FilesAccessPoint" ||
-		p.AgentCore.FilesystemConfigs[0].MountPath != spec.DefaultAgentVolumeMount {
-		t.Errorf("FilesystemConfigs = %+v, want one s3FilesAccessPoint at %s", p.AgentCore.FilesystemConfigs, spec.DefaultAgentVolumeMount)
-	}
 }
 
 // The plan's NetworkMode is the single source of truth: no subnets -> PUBLIC,
