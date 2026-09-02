@@ -536,17 +536,7 @@ func getAgentFromServer(ctx context.Context, serverURL, accountName, agentName s
 // Returns (false, tui.ErrCancelled) when the user presses esc / ctrl+c, so
 // callers can distinguish cancellation from an explicit "No".
 func confirmVisibilityChange(current, desired string) (bool, error) {
-	var title, description string
-	if desired == string(VisibilityPublic) {
-		title = "Make blueprint public?"
-		description = "This will make the blueprint available to everyone."
-		if current == string(VisibilityPrivate) {
-			description = "This will change the blueprint from private to public, making it available to everyone."
-		}
-	} else {
-		title = "Make blueprint private?"
-		description = fmt.Sprintf("This will change the blueprint from %s to private.", current)
-	}
+	title, description := visibilityChangePrompt(current, desired)
 
 	var confirmed bool
 	form := huh.NewForm(
@@ -563,4 +553,19 @@ func confirmVisibilityChange(current, desired string) (bool, error) {
 	}
 
 	return confirmed, nil
+}
+
+func visibilityChangePrompt(current, desired string) (string, string) {
+	var title, description string
+	if desired == string(VisibilityPublic) {
+		title = "Make blueprint public?"
+		description = "This will make the blueprint available to everyone."
+		if current == string(VisibilityPrivate) {
+			description = "This will change the blueprint from private to public, making it available to everyone."
+		}
+	} else {
+		title = "Make blueprint private?"
+		description = msgMakeBlueprintPrivateDescription(current)
+	}
+	return title, description
 }

@@ -777,6 +777,13 @@ func TestVisibilityNeedsConfirm(t *testing.T) {
 	}
 }
 
+func TestVisibilityChangePromptPrivateWarnsAboutExistingDeployments(t *testing.T) {
+	title, description := visibilityChangePrompt("public", "private")
+
+	assert.Equal(t, "Make blueprint private?", title)
+	assert.Equal(t, msgMakeBlueprintPrivateDescription("public"), description)
+}
+
 func TestTransformSpecForRegistry_UsesAgentName(t *testing.T) {
 	tests := []struct {
 		name         string
