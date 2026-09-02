@@ -38,6 +38,21 @@ type ScaffoldConfig struct {
 	IntegrationKeys map[string]string // integration name -> API key (optional, user-provided)
 	Ingestions      []string          // e.g. ["schedule", "webhook"]
 	AIGateway       bool              // opt into the Astro AI Gateway (managed model access, no provider key)
+	Author          CardAuthor        // AGENT.md attribution for whoever runs the scaffold
+	Repository      CardRepository    // AGENT.md source pointer, when the project lands in a git repository
+}
+
+// CardAuthor is an AGENT.md author entry. Account is an Astro account handle.
+type CardAuthor struct {
+	Name    string
+	Account string
+}
+
+// CardRepository is an AGENT.md repository entry. Directory is the project's
+// path inside the repository, empty when the project is the repository root.
+type CardRepository struct {
+	URL       string
+	Directory string
 }
 
 // HasKnowledge returns true if the given knowledge type is selected.

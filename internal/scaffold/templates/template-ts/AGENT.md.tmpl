@@ -1,7 +1,30 @@
 ---
 description: "{{.Description}}"
 tags: []
+{{- if or .Author.Name .Author.Account}}
+authors:
+{{- if .Author.Name}}
+  - name: "{{.Author.Name}}"
+{{- if .Author.Account}}
+    account: "{{.Author.Account}}"
+{{- end}}
+{{- else}}
+  - account: "{{.Author.Account}}"
+{{- end}}
+{{- else}}
 authors: []
+{{- end}}
+{{- if .Repository.URL}}
+{{- if .Repository.Directory}}
+repository:
+  url: "{{.Repository.URL}}"
+  directory: "{{.Repository.Directory}}"
+{{- else}}
+repository: "{{.Repository.URL}}"
+{{- end}}
+{{- else}}
+# repository: github:your-org/your-repo
+{{- end}}
 capabilities: []
 integrations:
 {{- if gt (len .Integrations) 0}}

@@ -253,12 +253,26 @@ func getDeploymentDetail(cmd *cobra.Command, id string, at AccountToken, verbose
 }
 
 type deploymentHistoryRecord struct {
-	ID         string `json:"id"`
-	AgentName  string `json:"agent_name"`
-	Revision   int    `json:"revision"`
-	BuildID    string `json:"build_id"`
-	Status     string `json:"status"`
-	DeployedAt string `json:"deployed_at"`
+	ID               string `json:"id"`
+	AgentName        string `json:"agent_name"`
+	Revision         int    `json:"revision"`
+	BuildID          string `json:"build_id"`
+	Status           string `json:"status"`
+	DeployedAt       string `json:"deployed_at"`
+	DeployedByName   string `json:"deployed_by_name"`
+	DeployedByHandle string `json:"deployed_by_handle"`
+}
+
+// deployer names whoever pushed the revision. The account handle wins over
+// the display name.
+func (d deploymentHistoryRecord) deployer() string {
+	if d.DeployedByHandle != "" {
+		return d.DeployedByHandle
+	}
+	if d.DeployedByName != "" {
+		return d.DeployedByName
+	}
+	return "-"
 }
 
 type deploymentHistoryResponse struct {
@@ -549,13 +563,16 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen)
 	red := color.New(color.FgRed)
 
-	dim.Fprintf(w, "%-*s  %-*s  %-4s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", "Rev", "Status") //nolint:errcheck,gosec
+	const tableByWidth = 16
+
+	dim.Fprintf(w, "%-*s  %-*s  %-4s  %-*s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", "Rev", tableByWidth, "By", "Status") //nolint:errcheck,gosec
 
 	for _, d := range result.Deployments {
 		deployed := truncate(d.DeployedAt, tableTimeWidth)
 		buildID := truncate(d.BuildID, tableBuildWidth)
+		by := truncate(d.deployer(), tableByWidth)
 
-		dim.Fprintf(w, "%-*s  %-*s  %-4d  ", tableTimeWidth, deployed, tableBuildWidth, buildID, d.Revision) //nolint:errcheck,gosec
+		dim.Fprintf(w, "%-*s  %-*s  %-4d  %-*s  ", tableTimeWidth, deployed, tableBuildWidth, buildID, d.Revision, tableByWidth, by) //nolint:errcheck,gosec
 
 		switch d.Status {
 		case "active":

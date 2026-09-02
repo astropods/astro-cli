@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/gitinfo"
 	"github.com/astropods/astro-cli/internal/scaffold"
 	"github.com/astropods/astro-cli/internal/theme"
 	spec "github.com/astropods/astro-spec"
@@ -139,6 +140,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	config.Author = localCardAuthor(targetDir)
+	config.Repository = localCardRepository(targetDir)
+
 	// Generate files
 	if err := scaffold.GenerateFiles(targetDir, config, template); err != nil {
 		_ = os.RemoveAll(targetDir)
@@ -148,6 +152,27 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	printSuccess(name, targetDir, config.AIGateway)
 	printCodingPrompt(targetDir, config, yes)
 	return nil
+}
+
+// localCardAuthor builds the AGENT.md author entry from the logged-in profile,
+// falling back to the local git identity when nobody is logged in.
+func localCardAuthor(targetDir string) scaffold.CardAuthor {
+	var author scaffold.CardAuthor
+	if profile, err := accountNewStorage().GetCurrentProfile(); err == nil && profile.User != nil {
+		author.Name = strings.TrimSpace(profile.User.FirstName + " " + profile.User.LastName)
+		author.Account = profile.User.AccountName
+	}
+	if author.Name == "" {
+		author.Name = gitinfo.UserName(filepath.Dir(targetDir))
+	}
+	return author
+}
+
+// localCardRepository points the AGENT.md repository field at the git origin
+// that will hold the new project, when there is one.
+func localCardRepository(targetDir string) scaffold.CardRepository {
+	repo := gitinfo.For(targetDir)
+	return scaffold.CardRepository{URL: repo.URL, Directory: repo.Directory}
 }
 
 func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {

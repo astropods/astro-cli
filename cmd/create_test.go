@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,4 +77,58 @@ func TestRunCreate_InvalidModelFlag(t *testing.T) {
 	err := rootCmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown model provider")
+}
+
+// ── AGENT.md attribution ──────────────────────────────────────────────────────
+
+func TestLocalCardAuthor(t *testing.T) {
+	t.Run("uses the logged-in name and personal account", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		creds := accountTestCreds("acme-corp")
+		creds.Profiles["default"].User.FirstName = "Jane"
+		creds.Profiles["default"].User.LastName = "Doe"
+		writeAccountTestCredentials(t, creds)
+
+		author := localCardAuthor(filepath.Join(t.TempDir(), "scout"))
+
+		assert.Equal(t, scaffold.CardAuthor{Name: "Jane Doe", Account: "alice"}, author)
+	})
+
+	t.Run("keeps the account when the profile carries no name", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		writeAccountTestCredentials(t, accountTestCreds("alice"))
+
+		author := localCardAuthor(filepath.Join(t.TempDir(), "scout"))
+
+		assert.Equal(t, scaffold.CardAuthor{Account: "alice"}, author)
+	})
+
+	t.Run("falls back to the git identity when nobody is logged in", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		dir := t.TempDir()
+		require.NoError(t, exec.Command("git", "-C", dir, "init", "--quiet").Run())
+		require.NoError(t, exec.Command("git", "-C", dir, "config", "user.name", "Jane Doe").Run())
+
+		author := localCardAuthor(filepath.Join(dir, "scout"))
+
+		assert.Equal(t, scaffold.CardAuthor{Name: "Jane Doe"}, author)
+	})
+}
+
+func TestLocalCardRepository(t *testing.T) {
+	t.Run("points at the origin that will hold the project", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, exec.Command("git", "-C", dir, "init", "--quiet").Run())
+		require.NoError(t, exec.Command("git", "-C", dir, "remote", "add", "origin", "git@github.com:astropods/agents.git").Run())
+
+		repo := localCardRepository(filepath.Join(dir, "scout"))
+
+		assert.Equal(t, scaffold.CardRepository{URL: "https://github.com/astropods/agents", Directory: "scout"}, repo)
+	})
+
+	t.Run("stays empty outside a git repository", func(t *testing.T) {
+		repo := localCardRepository(filepath.Join(t.TempDir(), "scout"))
+
+		assert.Equal(t, scaffold.CardRepository{}, repo)
+	})
 }

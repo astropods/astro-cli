@@ -252,3 +252,19 @@ func msgUsageControlsSaved(metric string) string {
 func errGrantNeedsAdapterOnRedeploy() error {
 	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
 }
+
+func msgAgentCardMissing() string {
+	return "No AGENT.md found. Create one next to your astropods.yml to make your agent more discoverable"
+}
+
+func msgAgentCardParseWarning(warning string) string {
+	return fmt.Sprintf("AGENT.md: %s", warning)
+}
+
+func msgAgentCardMissingAuthors() string {
+	return `AGENT.md has no authors. Add "authors: [{name: Your Name, account: your-handle}]" so the platform can credit the author`
+}
+
+func msgAgentCardMissingRepository() string {
+	return `AGENT.md has no repository. Add "repository: github:your-org/your-repo" so people can find the source`
+}

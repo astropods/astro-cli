@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/amplitude/analytics-go v1.3.0
 	github.com/anthropics/anthropic-sdk-go v1.38.0
-	github.com/astropods/astro-spec v0.2.1-0.20260902224450-09699a60bed9
+	github.com/astropods/astro-spec v0.2.1-0.20260903151557-a42e2d3dab7c
 	github.com/aymanbagabas/go-udiff v0.3.1
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
