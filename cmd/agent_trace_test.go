@@ -483,7 +483,7 @@ func TestAgentTraceSummary(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch {
-				case strings.Contains(r.URL.Path, "/observability/deployment-summaries"):
+				case strings.HasSuffix(r.URL.Path, "/agents/usage"):
 					jsonHandler(http.StatusOK, tc.body)(w, r)
 				default:
 					jsonHandler(http.StatusOK, listPayload)(w, r)
@@ -507,6 +507,45 @@ func TestAgentTraceSummary(t *testing.T) {
 	}
 }
 
+// The server serves the summary at /agents/usage. The old
+// /observability/deployment-summaries path survives only as a deprecated
+// alias for already-released binaries, so a regression here would leave this
+// CLI on a path scheduled for removal.
+func TestAgentTraceSummaryCallsTheAgentUsageEndpoint(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	var requested []string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/agents/usage"):
+			jsonHandler(http.StatusOK, map[string]any{"summaries": map[string]any{
+				"dep-abc-123": map[string]any{"total_traces": 3},
+			}})(w, r)
+		default:
+			jsonHandler(http.StatusOK, map[string]any{"deployments": []any{dep}, "count": 1})(w, r)
+		}
+	})
+	setupAgentTest(t, handler)
+	setAgentTargetName(t, agentTraceCmd, "coach")
+	require.NoError(t, agentTraceCmd.Flags().Set("summary", "true"))
+	t.Cleanup(func() { _ = agentTraceCmd.Flags().Set("summary", "false") })
+
+	buf := &bytes.Buffer{}
+	agentTraceCmd.SetOut(buf)
+	agentTraceCmd.SetContext(context.Background())
+	require.NoError(t, runAgentTrace(agentTraceCmd, nil))
+
+	assert.Contains(t, requested, "/api/v1/accounts/testaccount/agents/usage")
+	for _, path := range requested {
+		assert.NotContains(t, path, "deployment-summaries",
+			"the deprecated alias must not be called")
+	}
+	assert.Contains(t, buf.String(), "Total traces:  3")
+}
+
 func TestAgentTraceSummarySkipsListFlagValidation(t *testing.T) {
 	dep := map[string]any{
 		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
@@ -524,7 +563,7 @@ func TestAgentTraceSummarySkipsListFlagValidation(t *testing.T) {
 		case strings.Contains(r.URL.Path, "/observability/traces"):
 			tracesCalled = true
 			jsonHandler(http.StatusOK, map[string]any{"traces": []any{}, "total": 0})(w, r)
-		case strings.Contains(r.URL.Path, "/observability/deployment-summaries"):
+		case strings.HasSuffix(r.URL.Path, "/agents/usage"):
 			jsonHandler(http.StatusOK, summariesPayload)(w, r)
 		default:
 			jsonHandler(http.StatusOK, listPayload)(w, r)
@@ -550,15 +589,44 @@ func TestFormatObsLastActive(t *testing.T) {
 	require.NoError(t, err)
 	_, err = parseObsTimestamp(time.Now().Add(-time.Hour).Format(time.RFC3339Nano))
 	require.NoError(t, err)
-	assert.Equal(t, "not-a-date", formatObsLastActive("not-a-date"))
 
-	got := formatObsLastActive(time.Now().Add(-2 * time.Hour).Format(time.RFC3339Nano))
-	assert.Contains(t, got, "hour")
-	assert.NotContains(t, got, "T") // parsed, not raw timestamp
+	// The server sends UTC midnight, so the day is the only honest unit. An
+	// agent that ran minutes ago must not read as most of a day stale.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	cases := []struct {
+		name string
+		day  time.Time
+		want string
+	}{
+		{name: "active today", day: today, want: "today (" + today.Format(time.DateOnly) + ")"},
+		{
+			name: "active yesterday",
+			day:  today.AddDate(0, 0, -1),
+			want: "yesterday (" + today.AddDate(0, 0, -1).Format(time.DateOnly) + ")",
+		},
+		{
+			name: "active earlier",
+			day:  today.AddDate(0, 0, -5),
+			want: "5 days ago (" + today.AddDate(0, 0, -5).Format(time.DateOnly) + ")",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, formatObsLastActive(tc.day.Format(time.RFC3339)))
+		})
+	}
 
-	// Avoid Round() pushing sub-hour durations to "60 minutes ago".
-	assert.Equal(t, "59 minutes ago", formatObsLastActive(time.Now().Add(-59*time.Minute-time.Second).Format(time.RFC3339)))
-	assert.Equal(t, "1 hour ago", formatObsLastActive(time.Now().Add(-90*time.Minute).Format(time.RFC3339)))
+	t.Run("an unparseable value passes through", func(t *testing.T) {
+		assert.Equal(t, "not-a-date", formatObsLastActive("not-a-date"))
+	})
+
+	// A timestamp with a time of day still resolves to its day rather than
+	// leaking an hour count the server cannot actually support.
+	t.Run("a mid-day timestamp still reports the day", func(t *testing.T) {
+		got := formatObsLastActive(today.Add(9 * time.Hour).Format(time.RFC3339Nano))
+		assert.Equal(t, "today ("+today.Format(time.DateOnly)+")", got)
+		assert.NotContains(t, got, "hour")
+	})
 }
 
 func TestAgentTraceSummaryRejectsTraceID(t *testing.T) {

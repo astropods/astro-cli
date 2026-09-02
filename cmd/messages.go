@@ -148,7 +148,11 @@ func errAgentTraceSummaryWithTraceID() error {
 }
 
 func msgNoObsSummaryForAgent(target string) string {
-	return fmt.Sprintf("No activity summary for %s yet (updates about every 10m)", target)
+	return fmt.Sprintf("No activity summary for %s yet", target)
+}
+
+func msgActivitySummaryFooter() string {
+	return "\nActivity summary (matches /agents sparkline). Today updates within a minute; earlier days roll up daily."
 }
 
 func msgLoginPriorAccountUnavailable(account string) string {

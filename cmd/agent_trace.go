@@ -20,7 +20,7 @@ import (
 // Parity with the web UI:
 //   - default: list recent traces (Agents → Monitor)
 //   - --trace-id: single trace Overview
-//   - --summary: agents-page activity snapshot (deployment-summaries)
+//   - --summary: agents-page activity snapshot (agents/usage)
 
 var agentTraceCmd = &cobra.Command{
 	Use:   "trace",
@@ -61,21 +61,21 @@ type tracesListResponse struct {
 	Offset int          `json:"offset"`
 }
 
-type deploymentSummaryEntry struct {
+type agentUsageEntry struct {
 	TotalTraces   int    `json:"total_traces"`
 	LastTraceAt   string `json:"last_trace_at"`
 	RequestSeries []int  `json:"request_series,omitempty"`
 	TokenSeries   []int  `json:"token_series,omitempty"`
 }
 
-type deploymentSummariesResponse struct {
-	Summaries map[string]deploymentSummaryEntry `json:"summaries"`
+type agentUsageResponse struct {
+	Summaries map[string]agentUsageEntry `json:"summaries"`
 }
 
 type agentTraceSummaryJSON struct {
-	DeploymentID string                  `json:"deployment_id"`
-	DisplayName  string                  `json:"display_name,omitempty"`
-	Summary      *deploymentSummaryEntry `json:"summary"`
+	DeploymentID string           `json:"deployment_id"`
+	DisplayName  string           `json:"display_name,omitempty"`
+	Summary      *agentUsageEntry `json:"summary"`
 }
 
 type traceObservation struct {
@@ -264,9 +264,8 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 }
 
 func runAgentTraceSummary(cmd *cobra.Command, label, depID string, at AccountToken, verbose bool) error {
-	u := fmt.Sprintf("%s/api/v1/accounts/%s/observability/deployment-summaries",
-		agentBaseURL(), url.PathEscape(at.Account))
-	var result deploymentSummariesResponse
+	u := apiPath(agentBaseURL(), at.Account, "accounts", "agents", "usage")
+	var result agentUsageResponse
 	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
 		return err
 	}
@@ -294,8 +293,7 @@ func runAgentTraceSummary(cmd *cobra.Command, label, depID string, at AccountTok
 	fmt.Fprintf(w, "  ID:            %s\n", depID)             //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Total traces:  %d\n", entry.TotalTraces) //nolint:errcheck,gosec
 	if entry.LastTraceAt != "" {
-		rel := formatObsLastActive(entry.LastTraceAt)
-		fmt.Fprintf(w, "  Last active:   %s (%s)\n", rel, entry.LastTraceAt) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "  Last active:   %s\n", formatObsLastActive(entry.LastTraceAt)) //nolint:errcheck,gosec
 	}
 	if len(entry.RequestSeries) > 0 {
 		printObsSeriesBlock(w, "Requests", entry.RequestSeries)
@@ -303,7 +301,7 @@ func runAgentTraceSummary(cmd *cobra.Command, label, depID string, at AccountTok
 	if len(entry.TokenSeries) > 0 {
 		printObsSeriesBlock(w, "Tokens", entry.TokenSeries)
 	}
-	dim.Fprintln(w, "\nActivity summary (matches /agents sparkline). Updates about every 10m.") //nolint:errcheck,gosec
+	dim.Fprintln(w, msgActivitySummaryFooter()) //nolint:errcheck,gosec
 	return nil
 }
 
@@ -316,33 +314,26 @@ func parseObsTimestamp(ts string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid timestamp %q", ts)
 }
 
+// formatObsLastActive renders the day an agent last recorded a request, with
+// the date alongside it.
+//
+// The server resolves this no finer than a day, so it arrives as UTC midnight.
+// Reporting hours or minutes against that instant would read as half a day
+// stale for an agent that ran moments ago.
 func formatObsLastActive(ts string) string {
 	t, err := parseObsTimestamp(ts)
 	if err != nil {
 		return ts
 	}
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		m := int(d / time.Minute)
-		if m <= 1 {
-			return "1 minute ago"
-		}
-		return fmt.Sprintf("%d minutes ago", m)
-	case d < 24*time.Hour:
-		h := int(d / time.Hour)
-		if h <= 1 {
-			return "1 hour ago"
-		}
-		return fmt.Sprintf("%d hours ago", h)
+	day := t.UTC().Truncate(24 * time.Hour)
+	date := day.Format(time.DateOnly)
+	switch elapsed := int(time.Now().UTC().Truncate(24*time.Hour).Sub(day) / (24 * time.Hour)); {
+	case elapsed <= 0:
+		return fmt.Sprintf("today (%s)", date)
+	case elapsed == 1:
+		return fmt.Sprintf("yesterday (%s)", date)
 	default:
-		days := int(d / (24 * time.Hour))
-		if days <= 1 {
-			return "1 day ago"
-		}
-		return fmt.Sprintf("%d days ago", days)
+		return fmt.Sprintf("%d days ago (%s)", elapsed, date)
 	}
 }
 
