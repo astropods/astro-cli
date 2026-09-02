@@ -751,12 +751,12 @@ func TestMastraTemplate_Dockerfile_SDKChannel(t *testing.T) {
 			},
 		},
 		{
-			name: "overrides the transitive platform packages",
+			name: "overrides messaging only",
 			assert: func(t *testing.T) {
-				for _, pkg := range []string{"@astropods/messaging", "@astropods/adapter-core"} {
-					assert.Contains(t, content, `"`+pkg+`":c`,
-						"a prerelease does not satisfy a caret range, so an unoverridden package resolves from latest")
-				}
+				assert.Contains(t, content, `"@astropods/messaging":c`,
+					"messaging sits outside the adapters workspace, so no adapter release pins it to the channel")
+				assert.NotContains(t, content, `"@astropods/adapter-core":c`,
+					"an adapter release already pins adapter-core exactly, and an override would replace that tested pin")
 			},
 		},
 	}
