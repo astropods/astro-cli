@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	evalspec "github.com/astropods/astro-spec/eval"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -54,7 +55,7 @@ var evalPushCmd = &cobra.Command{
 var evalValidateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate EVALUATION.yaml without activating it",
-	Long:  "Reads EVALUATION.yaml (or EVALUATION.yml) beside astropods.yml and validates it against the server without activating anything.",
+	Long:  "Reads EVALUATION.yaml (or EVALUATION.yml) beside astropods.yml and validates it locally, without contacting the server.",
 	Args:  cobra.NoArgs,
 	RunE:  runEvalValidate,
 }
@@ -119,11 +120,6 @@ func runEvalValidate(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	at, verbose, err := cmdAuth(cmd)
-	if err != nil {
-		return err
-	}
-
 	workingDir := filepath.Dir(specPath)
 	evaluationYAML, promptFiles, err := loadEvaluationDocument(workingDir)
 	if err != nil {
@@ -134,20 +130,13 @@ func runEvalValidate(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(w, "%s→%s Validating evaluation set\n", //nolint:errcheck,gosec
 		colorCyan, colorReset)
 
-	u := evalBaseURL() + "/api/v1/evaluation-set/validate"
-	var resp struct {
-		EvaluationRef string `json:"evaluation_ref"`
-	}
-	_, err = apiCall(cmd.Context(), http.MethodPost, u, map[string]any{
-		"evaluation_yaml": evaluationYAML,
-		"prompt_files":    promptFiles,
-	}, at.Token, verbose, &resp)
+	result, err := evalspec.Parse(evaluationYAML, promptFiles)
 	if err != nil {
 		return err
 	}
 
 	fmt.Fprintf(w, "  %s✓%s valid %s%s%s\n", //nolint:errcheck,gosec
-		colorGreen, colorReset, colorDim, resp.EvaluationRef, colorReset)
+		colorGreen, colorReset, colorDim, result.EvaluationRef, colorReset)
 	return nil
 }
 

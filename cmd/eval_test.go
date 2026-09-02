@@ -236,52 +236,34 @@ func TestEvalValidate_AcceptsValidFile(t *testing.T) {
 		"EVALUATION.yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/exposed-pii\n",
 	})
 
-	var gotBody map[string]any
-	called := false
-	setupEvalTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.True(t, strings.HasSuffix(r.URL.Path, "/evaluation-set/validate"))
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"evaluation_ref": "agent/abc123"}) //nolint:errcheck
-	}))
-
 	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
 	require.NoError(t, err)
-	require.True(t, called)
-	assert.Contains(t, gotBody["evaluation_yaml"], "preset/exposed-pii")
 }
 
-func TestEvalValidate_ServerRejectsInvalidContent(t *testing.T) {
+func TestEvalValidate_RejectsInvalidContent(t *testing.T) {
 	dir := writeEvalProject(t, map[string]string{
 		"EVALUATION.yaml": "schema: evaluation/v2\nevaluators:\n  - ref: preset/exposed-pii\n",
 	})
-
-	setupEvalTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"error":   "Invalid evaluation configuration",
-			"details": "invalid evaluation document: schema must be \"evaluation/v1\", got \"evaluation/v2\"",
-		})
-	}))
 
 	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema must be")
 }
 
+func TestEvalValidate_RejectsAnUnknownPresetRef(t *testing.T) {
+	dir := writeEvalProject(t, map[string]string{
+		"EVALUATION.yaml": "schema: evaluation/v1\nevaluators:\n  - ref: preset/does-not-exist\n",
+	})
+
+	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown preset reference")
+}
+
 func TestEvalValidate_MissingFile(t *testing.T) {
 	dir := writeEvalProject(t, nil)
-
-	called := false
-	setupEvalTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-	}))
 
 	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
 	require.Error(t, err)
 	assert.Equal(t, errNoEvaluationFile(), err)
-	assert.False(t, called)
 }
