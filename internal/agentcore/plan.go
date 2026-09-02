@@ -73,16 +73,15 @@ type Plan struct {
 
 // CreateAgentRuntime is the (subset of the) bedrock-agentcore-control request.
 type CreateAgentRuntime struct {
-	AgentRuntimeName  string             `json:"agentRuntimeName"`
-	Protocol          string             `json:"protocol"` // "HTTP"
-	Container         ContainerConfig    `json:"container"`
-	NetworkMode       string             `json:"networkMode"` // "PUBLIC" or "VPC"
-	NetworkConfig     NetworkConfig      `json:"networkConfiguration"`
-	Env               map[string]string  `json:"environment"`
-	RoleArn           string             `json:"roleArn"`
-	InboundAuth       string             `json:"inboundAuth"` // "SIGV4" for POC
-	SessionConfig     SessionConfig      `json:"sessionConfiguration"`
-	FilesystemConfigs []FilesystemConfig `json:"filesystemConfigurations,omitempty"`
+	AgentRuntimeName string            `json:"agentRuntimeName"`
+	Protocol         string            `json:"protocol"` // "HTTP"
+	Container        ContainerConfig   `json:"container"`
+	NetworkMode      string            `json:"networkMode"` // "PUBLIC" or "VPC"
+	NetworkConfig    NetworkConfig     `json:"networkConfiguration"`
+	Env              map[string]string `json:"environment"`
+	RoleArn          string            `json:"roleArn"`
+	InboundAuth      string            `json:"inboundAuth"` // "SIGV4" for POC
+	Lifecycle        LifecycleConfig   `json:"lifecycleConfiguration"`
 }
 
 type ContainerConfig struct {
@@ -95,15 +94,19 @@ type NetworkConfig struct {
 	SecurityGroups []string `json:"securityGroups"`
 }
 
-type SessionConfig struct {
-	IdleTimeoutSeconds int `json:"idleRuntimeSessionTimeoutSeconds"`
-	MaxLifetimeSeconds int `json:"maxLifetimeSeconds"`
+// LifecycleConfig bounds a runtime session. Both are seconds, and the API
+// accepts 60 to 1209600 inclusive.
+type LifecycleConfig struct {
+	IdleRuntimeSessionTimeout int `json:"idleRuntimeSessionTimeout"`
+	MaxLifetime               int `json:"maxLifetime"`
 }
 
-type FilesystemConfig struct {
-	Type      string `json:"type"` // "s3FilesAccessPoint"
-	MountPath string `json:"mountPath"`
-}
+// MinSessionSeconds and MaxSessionSeconds are the API's own bounds on both
+// lifecycle values, so an out-of-range value fails here instead of at AWS.
+const (
+	MinSessionSeconds = 60
+	MaxSessionSeconds = 1209600
+)
 
 // EKSPatch is what changes on the cluster side; everything else stays as today.
 type EKSPatch struct {
@@ -220,17 +223,11 @@ func Build(s *spec.AstroSpec, opts Options) (*Plan, error) {
 		Env:              env,
 		RoleArn:          opts.ExecutionRole,
 		InboundAuth:      "SIGV4",
-		SessionConfig: SessionConfig{
-			IdleTimeoutSeconds: orDefault(opts.IdleTimeoutSeconds, 900),
-			MaxLifetimeSeconds: orDefault(opts.MaxLifetimeSeconds, 28800),
+		Lifecycle: LifecycleConfig{
+			IdleRuntimeSessionTimeout: orDefault(opts.IdleTimeoutSeconds, 900),
+			MaxLifetime:               orDefault(opts.MaxLifetimeSeconds, 28800),
 		},
 	}
-	// Every Astro agent gets a persistent /data disk; map it to an S3 Files
-	// access-point mount so durable state survives per-session runtimes.
-	p.AgentCore.FilesystemConfigs = []FilesystemConfig{
-		{Type: "s3FilesAccessPoint", MountPath: spec.DefaultAgentVolumeMount},
-	}
-
 	// --- EKS-side patch ---
 	// The signed AWS backend is selected by ASTRO_DEPLOY_TARGET=aws +
 	// AGENT_RUNTIME_ARN. The ARN doesn't exist at plan time — it materializes

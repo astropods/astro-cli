@@ -74,6 +74,7 @@ func (a *AWSCLIRuntime) Create(req CreateAgentRuntime, name, region string) (arn
 		"--role-arn", req.RoleArn,
 		"--network-configuration", a.networkJSON(req),
 		"--protocol-configuration", `{"serverProtocol":"HTTP"}`,
+		"--lifecycle-configuration", lifecycleJSON(req),
 		"--environment-variables", envJSON(req.Env),
 	)
 	out, err := a.run(args)
@@ -103,6 +104,7 @@ func (a *AWSCLIRuntime) Update(id string, req CreateAgentRuntime, region string)
 		"--role-arn", req.RoleArn,
 		"--network-configuration", a.networkJSON(req),
 		"--protocol-configuration", `{"serverProtocol":"HTTP"}`,
+		"--lifecycle-configuration", lifecycleJSON(req),
 		"--environment-variables", envJSON(req.Env),
 	)
 	out, err := a.run(args)
@@ -151,6 +153,11 @@ func (a *AWSCLIRuntime) networkJSON(req CreateAgentRuntime) string {
 		},
 	}
 	b, _ := json.Marshal(nc)
+	return string(b)
+}
+
+func lifecycleJSON(req CreateAgentRuntime) string {
+	b, _ := json.Marshal(req.Lifecycle)
 	return string(b)
 }
 

@@ -354,3 +354,62 @@ agent:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `cannot deploy "hello-astro" to AgentCore Runtime:`)
 }
+
+func TestAgentCoreDeploy_SessionTimeoutsFromEnv(t *testing.T) {
+	t.Setenv(idleTimeoutEnv, "1200")
+	t.Setenv(maxLifetimeEnv, "14400")
+
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	require.NoError(t, c.Execute())
+
+	got := out.String()
+	assert.Contains(t, got, `"idleRuntimeSessionTimeout": 1200`)
+	assert.Contains(t, got, `"maxLifetime": 14400`)
+	// The plan is only half of it; the create call has to carry the values too.
+	assert.Contains(t, got, `--lifecycle-configuration '{"idleRuntimeSessionTimeout":1200,"maxLifetime":14400}'`)
+}
+
+func TestAgentCoreDeploy_UnsetSessionTimeoutsKeepTheDefaults(t *testing.T) {
+	t.Setenv(idleTimeoutEnv, "")
+	t.Setenv(maxLifetimeEnv, "")
+
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	require.NoError(t, c.Execute())
+
+	got := out.String()
+	assert.Contains(t, got, `"idleRuntimeSessionTimeout": 900`)
+	assert.Contains(t, got, `"maxLifetime": 28800`)
+}
+
+func TestAgentCoreDeploy_RejectsAnUnusableSessionTimeout(t *testing.T) {
+	for _, value := range []string{"0", "-5", "twenty", "20m", "59", "1209601"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv(idleTimeoutEnv, value)
+
+			var out bytes.Buffer
+			c := newDeployTestCmd(&out)
+			c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+
+			err := c.Execute()
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), idleTimeoutEnv)
+		})
+	}
+}
+
+// The plan carried a /data mount that the create call never sent and nothing
+// provisions, so a dry-run promised durability the runtime would not have.
+func TestAgentCoreDeploy_PlanMakesNoFilesystemPromise(t *testing.T) {
+	var out bytes.Buffer
+	c := newDeployTestCmd(&out)
+	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	require.NoError(t, c.Execute())
+
+	assert.NotContains(t, out.String(), "filesystemConfigurations")
+	assert.NotContains(t, out.String(), "s3FilesAccessPoint")
+}
