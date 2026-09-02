@@ -309,8 +309,12 @@ func parseSeconds(v string) (int, error) {
 		return 0, nil
 	}
 	n, err := strconv.Atoi(v)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid duration %q, want a positive number of seconds", v)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration %q, want a number of seconds", v)
+	}
+	if n < agentcore.MinSessionSeconds || n > agentcore.MaxSessionSeconds {
+		return 0, fmt.Errorf("%d seconds is out of range, want %d to %d",
+			n, agentcore.MinSessionSeconds, agentcore.MaxSessionSeconds)
 	}
 	return n, nil
 }

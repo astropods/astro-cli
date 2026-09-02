@@ -81,7 +81,7 @@ type CreateAgentRuntime struct {
 	Env              map[string]string `json:"environment"`
 	RoleArn          string            `json:"roleArn"`
 	InboundAuth      string            `json:"inboundAuth"` // "SIGV4" for POC
-	SessionConfig    SessionConfig     `json:"sessionConfiguration"`
+	Lifecycle        LifecycleConfig   `json:"lifecycleConfiguration"`
 }
 
 type ContainerConfig struct {
@@ -94,10 +94,19 @@ type NetworkConfig struct {
 	SecurityGroups []string `json:"securityGroups"`
 }
 
-type SessionConfig struct {
-	IdleTimeoutSeconds int `json:"idleRuntimeSessionTimeoutSeconds"`
-	MaxLifetimeSeconds int `json:"maxLifetimeSeconds"`
+// LifecycleConfig bounds a runtime session. Both are seconds, and the API
+// accepts 60 to 1209600 inclusive.
+type LifecycleConfig struct {
+	IdleRuntimeSessionTimeout int `json:"idleRuntimeSessionTimeout"`
+	MaxLifetime               int `json:"maxLifetime"`
 }
+
+// MinSessionSeconds and MaxSessionSeconds are the API's own bounds on both
+// lifecycle values, so an out-of-range value fails here instead of at AWS.
+const (
+	MinSessionSeconds = 60
+	MaxSessionSeconds = 1209600
+)
 
 // EKSPatch is what changes on the cluster side; everything else stays as today.
 type EKSPatch struct {
@@ -214,9 +223,9 @@ func Build(s *spec.AstroSpec, opts Options) (*Plan, error) {
 		Env:              env,
 		RoleArn:          opts.ExecutionRole,
 		InboundAuth:      "SIGV4",
-		SessionConfig: SessionConfig{
-			IdleTimeoutSeconds: orDefault(opts.IdleTimeoutSeconds, 900),
-			MaxLifetimeSeconds: orDefault(opts.MaxLifetimeSeconds, 28800),
+		Lifecycle: LifecycleConfig{
+			IdleRuntimeSessionTimeout: orDefault(opts.IdleTimeoutSeconds, 900),
+			MaxLifetime:               orDefault(opts.MaxLifetimeSeconds, 28800),
 		},
 	}
 	// --- EKS-side patch ---

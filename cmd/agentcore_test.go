@@ -365,8 +365,10 @@ func TestAgentCoreDeploy_SessionTimeoutsFromEnv(t *testing.T) {
 	require.NoError(t, c.Execute())
 
 	got := out.String()
-	assert.Contains(t, got, `"idleRuntimeSessionTimeoutSeconds": 1200`)
-	assert.Contains(t, got, `"maxLifetimeSeconds": 14400`)
+	assert.Contains(t, got, `"idleRuntimeSessionTimeout": 1200`)
+	assert.Contains(t, got, `"maxLifetime": 14400`)
+	// The plan is only half of it; the create call has to carry the values too.
+	assert.Contains(t, got, `--lifecycle-configuration '{"idleRuntimeSessionTimeout":1200,"maxLifetime":14400}'`)
 }
 
 func TestAgentCoreDeploy_UnsetSessionTimeoutsKeepTheDefaults(t *testing.T) {
@@ -379,12 +381,12 @@ func TestAgentCoreDeploy_UnsetSessionTimeoutsKeepTheDefaults(t *testing.T) {
 	require.NoError(t, c.Execute())
 
 	got := out.String()
-	assert.Contains(t, got, `"idleRuntimeSessionTimeoutSeconds": 900`)
-	assert.Contains(t, got, `"maxLifetimeSeconds": 28800`)
+	assert.Contains(t, got, `"idleRuntimeSessionTimeout": 900`)
+	assert.Contains(t, got, `"maxLifetime": 28800`)
 }
 
 func TestAgentCoreDeploy_RejectsAnUnusableSessionTimeout(t *testing.T) {
-	for _, value := range []string{"0", "-5", "twenty", "20m"} {
+	for _, value := range []string{"0", "-5", "twenty", "20m", "59", "1209601"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv(idleTimeoutEnv, value)
 
