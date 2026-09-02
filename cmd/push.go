@@ -393,6 +393,15 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), buildinfo.BinaryName)
 	}
 
+	// A 403 here is a role problem, not a bad request. Say which role is
+	// missing rather than surfacing the raw body.
+	if resp.StatusCode == http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf(
+			"you do not have permission to push to %s/%s.\nPushing a new build needs Writer access or higher on the agent, and %s.\nAsk an admin of this organization to change your role.%s",
+			account, agentName, "membership in the account", serverDetail(body))
+	}
+
 	if resp.StatusCode != http.StatusCreated {
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
@@ -563,4 +572,24 @@ func confirmVisibilityChange(current, desired string) (bool, error) {
 	}
 
 	return confirmed, nil
+}
+
+// serverDetail renders the server's human-readable message, when it sent one,
+// as an indented trailer under a CLI error.
+func serverDetail(body []byte) string {
+	var apiErr struct {
+		Error   string `json:"error"`
+		Details string `json:"details"`
+	}
+	if json.Unmarshal(body, &apiErr) != nil {
+		return ""
+	}
+	message := apiErr.Details
+	if message == "" {
+		message = apiErr.Error
+	}
+	if message == "" {
+		return ""
+	}
+	return "\nServer said: " + message
 }

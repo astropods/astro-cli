@@ -390,6 +390,13 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 		if status == http.StatusConflict {
 			return errDeployNameConflict(displayName)
 		}
+		// Deploying a private blueprint needs Maintainer on that blueprint;
+		// redeploying an existing agent needs Maintainer on the deployment.
+		if status == http.StatusForbidden {
+			return fmt.Errorf(
+				"you do not have permission to deploy %q.\nDeploying needs Maintainer access on the agent.\nAsk an admin of this organization to change your role.\n%w",
+				displayName, err)
+		}
 		return err
 	}
 
