@@ -620,6 +620,9 @@ func runBlueprintSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if vis == VisibilityPrivate {
+		fmt.Fprintf(w, "  %s⚠%s  %s\n", colorYellow, colorReset, msgPrivateVisibilityExistingDeploymentsWarning()) //nolint:errcheck,gosec
+	}
 	fmt.Fprintf(w, "  %s✓%s %s%s%s is now %s\n", colorGreen, colorReset, colorBold, name, colorReset, visibility) //nolint:errcheck,gosec
 	return nil
 }

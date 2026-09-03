@@ -103,6 +103,18 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 	)
 }
 
+func msgPrivateVisibilityExistingDeploymentsWarning() string {
+	return "Existing deployments retain their current access. People with permission to edit those deployments can continue to configure their deployed versions."
+}
+
+func msgMakeBlueprintPrivateDescription(current string) string {
+	return fmt.Sprintf(
+		"This will change the blueprint from %s to private. %s",
+		current,
+		msgPrivateVisibilityExistingDeploymentsWarning(),
+	)
+}
+
 func errNoAgentWorkload(available []string) error {
 	return fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", strings.Join(available, ", "))
 }
