@@ -1,11 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +14,7 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/scaffold"
 	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -117,6 +118,22 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	printBanner()
+
+	// The provider decides the models block in astropods.yml and the model the
+	// generated agent uses, so ask before anything is written. --model skips this,
+	// and --yes takes the default rather than blocking a non-interactive run.
+	if model == "" && !yes {
+		chosen, err := promptModelProvider()
+		if err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				printCancelled(cmd.OutOrStdout())
+				return nil
+			}
+			return err
+		}
+		model = chosen
+	}
+
 	config := scaffold.DefaultConfig(name)
 	applyModelOverride(&config, model)
 
@@ -146,7 +163,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	printSuccess(name, targetDir, config.AIGateway)
-	printCodingPrompt(targetDir, config, yes)
+	printCodingPrompt(targetDir, config)
 	return nil
 }
 
@@ -161,6 +178,16 @@ func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {
 			return s == "anthropic" || s == "openai"
 		})
 	case "anthropic", "openai":
+		// The choice is exclusive: drop the other model provider (DefaultConfig seeds
+		// anthropic) so the spec declares one, and `project configure` asks for one
+		// key rather than both.
+		other := "openai"
+		if provider == "openai" {
+			other = "anthropic"
+		}
+		config.Integrations = slices.DeleteFunc(config.Integrations, func(s string) bool {
+			return s == other
+		})
 		if !slices.Contains(config.Integrations, provider) {
 			config.Integrations = append(config.Integrations, provider)
 		}
@@ -203,29 +230,38 @@ func printSuccess(name, targetDir string, aiGateway bool) {
 	fmt.Println()
 }
 
-func printCodingPrompt(targetDir string, config scaffold.ScaffoldConfig, skipPrompt bool) {
-	// Verify the project was actually created before prompting.
+// promptModelProvider asks which LLM to wire up. The gateway leads because it
+// needs no provider key: the platform injects the credential at deploy.
+func promptModelProvider() (string, error) {
+	provider := "gateway"
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("Which model provider should this agent use?").
+			Description("Sets the models block in astropods.yml and the model the agent code uses.").
+			Options(
+				huh.NewOption("Astro AI Gateway  (managed models, no API key)", "gateway"),
+				huh.NewOption("OpenAI           (needs OPENAI_API_KEY)", "openai"),
+				huh.NewOption("Anthropic        (needs ANTHROPIC_API_KEY)", "anthropic"),
+			).
+			Value(&provider),
+	))
+	if err := runForm(form); err != nil {
+		return "", err
+	}
+	return provider, nil
+}
+
+// printCodingPrompt emits a prompt to paste into a coding agent. It deliberately
+// asks the user nothing: the goal is gathered by that agent, which can ask better
+// follow-ups than a single input field.
+func printCodingPrompt(targetDir string, config scaffold.ScaffoldConfig) {
+	// Verify the project was actually created before printing.
 	if _, err := os.Stat(filepath.Join(targetDir, "astropods.yml")); os.IsNotExist(err) {
 		return
 	}
 
 	dim := lipgloss.NewStyle().Faint(true)
-
-	var goal string
-	if !skipPrompt {
-		form := huh.NewForm(huh.NewGroup(
-			huh.NewInput().
-				Title("What should " + config.Name + " do?").
-				Description("Describe the agent logic and we'll build a prompt for your coding agent.").
-				Value(&goal),
-		))
-		if err := runForm(form); err != nil {
-			return // includes tui.ErrCancelled — skip the prompt entirely on cancel
-		}
-		goal = strings.TrimSpace(goal)
-	}
-
-	prompt := buildCodingPrompt(config.Name, goal)
+	prompt := buildCodingPrompt(config.Name, "")
 
 	fmt.Println()
 	fmt.Println(dim.Render("Paste this into Claude or another coding agent to get started:"))

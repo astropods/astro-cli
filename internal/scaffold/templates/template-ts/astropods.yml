@@ -27,9 +27,22 @@ models:
 {{- end}}
 {{- end}}
 {{- end}}
-{{- if gt (len .Knowledge) 0}}
+{{- if or (eq .Template "mastra") (gt (len .Knowledge) 0)}}
 
 knowledge:
+{{- if eq .Template "mastra"}}
+  # Platform-managed Postgres, holding agent memory, the task list, schedules, and
+  # traces. The container filesystem is read-only, so none of that can live in a
+  # local SQLite/DuckDB file. Injects POSTGRES_HOST, PORT, USER, PASSWORD, and DB
+  # (this provider has no single POSTGRES_URL).
+  #
+  # The key is project-scoped on purpose: locally the volume is named
+  # `knowledge-<key>-data` with no project prefix, so two projects sharing a key
+  # share one PGDATA directory — Postgres then skips initdb, ignores the injected
+  # POSTGRES_DB, and the agent fails with `3D000 database does not exist`.
+  {{.Name}}-db:
+    provider: postgres
+{{- end}}
 {{- if .HasKnowledge "qdrant"}}
   docs:
     provider: qdrant

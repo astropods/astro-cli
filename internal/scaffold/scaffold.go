@@ -32,6 +32,7 @@ type ScaffoldConfig struct {
 	Name            string            // Agent name (required)
 	Description     string            // Agent description
 	Lang            string            // "ts" | "py" (set by GenerateFiles)
+	Template        string            // "mastra" | "langchain" (set by GenerateFiles)
 	Interfaces      []string          // ["web", "slack"]
 	Knowledge       []string          // ["qdrant", "redis", "neo4j"]
 	Integrations    []string          // ["anthropic", "openai", "github"]
@@ -176,9 +177,13 @@ func (c ScaffoldConfig) CollectEnvVars() map[string]string {
 // AstroSpec. This is the single source of truth for what the spec will look
 // like at runtime, so AgentEnvVars never drifts from the actual generated file.
 func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
-	templateName := "mastra"
-	if c.Lang == "py" {
-		templateName = "langchain"
+	templateName := c.Template
+	if templateName == "" {
+		// Called before GenerateFiles set it (e.g. AgentEnvVars on a bare config).
+		templateName = "mastra"
+		if c.Lang == "py" {
+			templateName = "langchain"
+		}
 	}
 	paths, err := GetTemplatePaths(templateName)
 	if err != nil {
@@ -212,8 +217,9 @@ func GenerateFiles(targetDir string, config ScaffoldConfig, templateName string)
 
 func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateName string) error {
 	lang, _ := LangForTemplate(templateName)
-	// Set lang in config so templates can reference {{.Lang}}
+	// Set lang/template in config so templates can branch on them.
 	config.Lang = lang
+	config.Template = templateName
 
 	paths, err := GetTemplatePaths(templateName)
 	if err != nil {
@@ -223,8 +229,10 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateNam
 	// Create directory structure
 	dirs := []string{
 		targetDir,
-		filepath.Join(targetDir, "agent"),
 		filepath.Join(targetDir, "postman", "collections"),
+	}
+	if paths.AgentIndex != "" || paths.AgentMain != "" {
+		dirs = append(dirs, filepath.Join(targetDir, "agent"))
 	}
 	if len(config.Ingestions) > 0 {
 		dirs = append(dirs, filepath.Join(targetDir, "ingestion"))
@@ -259,8 +267,19 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateNam
 		files = append(files,
 			struct{ path, templatePath string }{filepath.Join(targetDir, "package.json"), paths.PackageJson},
 			struct{ path, templatePath string }{filepath.Join(targetDir, "tsconfig.json"), paths.Tsconfig},
-			struct{ path, templatePath string }{filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex},
 		)
+		if paths.AgentIndex != "" {
+			files = append(files, struct{ path, templatePath string }{
+				filepath.Join(targetDir, "agent", "index.ts"), paths.AgentIndex,
+			})
+		}
+		if paths.SrcTree != "" {
+			treeFiles, err := srcTreeFiles(paths.SrcTree, targetDir)
+			if err != nil {
+				return err
+			}
+			files = append(files, treeFiles...)
+		}
 		for _, ing := range config.Ingestions {
 			ingestionTemplate := paths.IngestionIndex
 			if ing == "webhook" {
@@ -296,6 +315,9 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateNam
 	}
 
 	for _, f := range files {
+		if err := fsys.MkdirAll(filepath.Dir(f.path), 0755); err != nil {
+			return err
+		}
 		if err := writeTemplateFromEmbed(fsys, f.path, f.templatePath, config); err != nil {
 			return err
 		}
@@ -312,6 +334,34 @@ func generateFiles(fsys Fs, targetDir string, config ScaffoldConfig, templateNam
 	}
 
 	return nil
+}
+
+// srcTreeFiles lists every file under an embedded template directory, paired with
+// the path it should be written to. The tree's own layout is preserved, so adding a
+// file to the template needs no change here.
+func srcTreeFiles(treeRoot, targetDir string) ([]struct{ path, templatePath string }, error) {
+	var out []struct{ path, templatePath string }
+	err := fs.WalkDir(templateFS, treeRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(treeRoot, p)
+		if err != nil {
+			return err
+		}
+		out = append(out, struct{ path, templatePath string }{
+			filepath.Join(targetDir, "src", rel), p,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk template tree %s: %w", treeRoot, err)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
+	return out, nil
 }
 
 // RenderIngestionDockerfile renders the ingestion Dockerfile template for a specific type.
