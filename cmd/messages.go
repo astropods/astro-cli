@@ -143,18 +143,6 @@ func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }
 
-func errAgentTraceSummaryWithTraceID() error {
-	return fmt.Errorf("--summary cannot be used with --trace-id")
-}
-
-func msgNoObsSummaryForAgent(target string) string {
-	return fmt.Sprintf("No activity summary for %s yet", target)
-}
-
-func msgActivitySummaryFooter() string {
-	return "\nActivity summary (matches /agents sparkline). Today updates within a minute; earlier days roll up daily."
-}
-
 func msgLoginPriorAccountUnavailable(account string) string {
 	return fmt.Sprintf("  Note: previous account %q is no longer available; using personal account.\n", account)
 }

@@ -3,11 +3,9 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,11 +18,10 @@ import (
 // Parity with the web UI:
 //   - default: list recent traces (Agents → Monitor)
 //   - --trace-id: single trace Overview
-//   - --summary: agents-page activity snapshot (agents/usage)
 
 var agentTraceCmd = &cobra.Command{
 	Use:   "trace",
-	Short: "List traces, show trace detail, or print agents-page activity summary",
+	Short: "List traces or show a single trace",
 	Args:  agentTargetArgs,
 	RunE:  runAgentTrace,
 }
@@ -38,7 +35,6 @@ func init() {
 	agentTraceCmd.Flags().Int("offset", 0, "Pagination offset for list")
 	agentTraceCmd.Flags().String("start", "", "List window start (RFC3339)")
 	agentTraceCmd.Flags().String("end", "", "List window end (RFC3339)")
-	agentTraceCmd.Flags().Bool("summary", false, "Show agents-page activity summary (30-day series). Ignores --limit, --offset, --start, and --end")
 }
 
 type traceEntry struct {
@@ -59,23 +55,6 @@ type tracesListResponse struct {
 	Total  int          `json:"total"`
 	Limit  int          `json:"limit"`
 	Offset int          `json:"offset"`
-}
-
-type agentUsageEntry struct {
-	TotalTraces   int    `json:"total_traces"`
-	LastTraceAt   string `json:"last_trace_at"`
-	RequestSeries []int  `json:"request_series,omitempty"`
-	TokenSeries   []int  `json:"token_series,omitempty"`
-}
-
-type agentUsageResponse struct {
-	Summaries map[string]agentUsageEntry `json:"summaries"`
-}
-
-type agentTraceSummaryJSON struct {
-	DeploymentID string           `json:"deployment_id"`
-	DisplayName  string           `json:"display_name,omitempty"`
-	Summary      *agentUsageEntry `json:"summary"`
 }
 
 type traceObservation struct {
@@ -122,22 +101,16 @@ type traceDetailResponse struct {
 
 func runAgentTrace(cmd *cobra.Command, args []string) error {
 	traceID, _ := cmd.Flags().GetString("trace-id")
-	summary, _ := cmd.Flags().GetBool("summary")
-	if summary && traceID != "" {
-		return errAgentTraceSummaryWithTraceID()
-	}
 
-	if !summary {
-		limit, _ := cmd.Flags().GetInt("limit")
-		offset, _ := cmd.Flags().GetInt("offset")
-		if err := validateTracePagination(limit, offset); err != nil {
-			return err
-		}
-		start, _ := cmd.Flags().GetString("start")
-		end, _ := cmd.Flags().GetString("end")
-		if err := validateTraceTimeWindow(start, end); err != nil {
-			return err
-		}
+	limit, _ := cmd.Flags().GetInt("limit")
+	offset, _ := cmd.Flags().GetInt("offset")
+	if err := validateTracePagination(limit, offset); err != nil {
+		return err
+	}
+	start, _ := cmd.Flags().GetString("start")
+	end, _ := cmd.Flags().GetString("end")
+	if err := validateTraceTimeWindow(start, end); err != nil {
+		return err
 	}
 
 	at, verbose, err := cmdAuth(cmd)
@@ -151,9 +124,6 @@ func runAgentTrace(cmd *cobra.Command, args []string) error {
 	}
 
 	label := deploymentLabel(dep)
-	if summary {
-		return runAgentTraceSummary(cmd, label, dep.ID, at, verbose)
-	}
 	if traceID != "" {
 		return runAgentTraceDetail(cmd, label, dep.ID, traceID, at, verbose)
 	}
@@ -261,167 +231,6 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 			offset+1, offset+len(result.Traces), result.Total, offset+limit)
 	}
 	return nil
-}
-
-func runAgentTraceSummary(cmd *cobra.Command, label, depID string, at AccountToken, verbose bool) error {
-	u := apiPath(agentBaseURL(), at.Account, "accounts", "agents", "usage")
-	var result agentUsageResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
-		return err
-	}
-
-	entry, ok := result.Summaries[depID]
-	w := cmd.OutOrStdout()
-	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		out := agentTraceSummaryJSON{DeploymentID: depID, DisplayName: label}
-		if ok {
-			e := entry
-			out.Summary = &e
-		}
-		return writeJSON(w, out)
-	}
-
-	dim := color.New(color.Faint)
-	accent := color.New(theme.PrimaryFatihAttr)
-
-	if !ok {
-		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoObsSummaryForAgent(label), colorReset) //nolint:errcheck,gosec
-		return nil
-	}
-
-	accent.Fprintf(w, "%s\n", label)                           //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  ID:            %s\n", depID)             //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Total traces:  %d\n", entry.TotalTraces) //nolint:errcheck,gosec
-	if entry.LastTraceAt != "" {
-		fmt.Fprintf(w, "  Last active:   %s\n", formatObsLastActive(entry.LastTraceAt)) //nolint:errcheck,gosec
-	}
-	if len(entry.RequestSeries) > 0 {
-		printObsSeriesBlock(w, "Requests", entry.RequestSeries)
-	}
-	if len(entry.TokenSeries) > 0 {
-		printObsSeriesBlock(w, "Tokens", entry.TokenSeries)
-	}
-	dim.Fprintln(w, msgActivitySummaryFooter()) //nolint:errcheck,gosec
-	return nil
-}
-
-func parseObsTimestamp(ts string) (time.Time, error) {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
-		if t, err := time.Parse(layout, ts); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("invalid timestamp %q", ts)
-}
-
-// formatObsLastActive renders the day an agent last recorded a request, with
-// the date alongside it.
-//
-// The server resolves this no finer than a day, so it arrives as UTC midnight.
-// Reporting hours or minutes against that instant would read as half a day
-// stale for an agent that ran moments ago.
-func formatObsLastActive(ts string) string {
-	t, err := parseObsTimestamp(ts)
-	if err != nil {
-		return ts
-	}
-	day := t.UTC().Truncate(24 * time.Hour)
-	date := day.Format(time.DateOnly)
-	switch elapsed := int(time.Now().UTC().Truncate(24*time.Hour).Sub(day) / (24 * time.Hour)); {
-	case elapsed <= 0:
-		return fmt.Sprintf("today (%s)", date)
-	case elapsed == 1:
-		return fmt.Sprintf("yesterday (%s)", date)
-	default:
-		return fmt.Sprintf("%d days ago (%s)", elapsed, date)
-	}
-}
-
-// obsSparkBlocks mirrors the agents-page sparkline: one glyph per day, oldest → newest.
-var obsSparkBlocks = []rune("▁▂▃▄▅▆▇█")
-
-func printObsSeriesBlock(w io.Writer, label string, series []int) {
-	const pad = "  "
-	const labelWidth = 9
-	const seriesSuffix = " (30d):  "
-	spark := formatObsSparkline(series)
-	stats := formatObsSeriesStats(series)
-	fmt.Fprintf(w, "%s%-*s%s%s\n", pad, labelWidth, label, seriesSuffix, spark)               //nolint:errcheck,gosec
-	fmt.Fprintf(w, "%s%s%s\n", pad, strings.Repeat(" ", labelWidth+len(seriesSuffix)), stats) //nolint:errcheck,gosec
-}
-
-func formatObsSparkline(series []int) string {
-	if len(series) == 0 {
-		return ""
-	}
-	max := 0
-	for _, n := range series {
-		if n > max {
-			max = n
-		}
-	}
-	var b strings.Builder
-	b.Grow(len(series))
-	if max == 0 {
-		for range series {
-			b.WriteRune(obsSparkBlocks[0])
-		}
-		return b.String()
-	}
-	for _, n := range series {
-		level := 0
-		if n > 0 {
-			level = (n * (len(obsSparkBlocks) - 1)) / max
-			if level >= len(obsSparkBlocks) {
-				level = len(obsSparkBlocks) - 1
-			}
-		}
-		b.WriteRune(obsSparkBlocks[level])
-	}
-	return b.String()
-}
-
-func formatObsSeriesStats(series []int) string {
-	total, peak, active := 0, 0, 0
-	for _, n := range series {
-		total += n
-		if n > peak {
-			peak = n
-		}
-		if n > 0 {
-			active++
-		}
-	}
-	if total == 0 {
-		return "no activity in window"
-	}
-	dayWord := "days"
-	if active == 1 {
-		dayWord = "day"
-	}
-	return fmt.Sprintf("%s total · %s peak/day · %s active %s",
-		formatObsCount(total), formatObsCount(peak), strconv.Itoa(active), dayWord)
-}
-
-func formatObsCount(n int) string {
-	const (
-		kilo = 1000
-		mega = 1000 * kilo
-	)
-	switch {
-	case n >= mega:
-		if n%mega == 0 {
-			return fmt.Sprintf("%dM", n/mega)
-		}
-		return fmt.Sprintf("%.1fM", float64(n)/float64(mega))
-	case n >= kilo:
-		if n%kilo == 0 {
-			return fmt.Sprintf("%dk", n/kilo)
-		}
-		return fmt.Sprintf("%.1fk", float64(n)/float64(kilo))
-	default:
-		return strconv.Itoa(n)
-	}
 }
 
 func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at AccountToken, verbose bool) error {
