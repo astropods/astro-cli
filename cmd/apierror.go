@@ -61,12 +61,20 @@ func (e *apiError) isBillingSuspended() bool {
 	return e != nil && e.Code == billingSuspendedCode
 }
 
+func (e *apiError) isStructured() bool {
+	return e != nil && e.Code != ""
+}
+
 func (e *apiError) Error() string {
 	if e.isBillingSuspended() {
 		return e.billingMessage()
 	}
-	// The shape every other command already prints. Changing it would break
-	// scripts that match on it, for no gain.
+	if e.isStructured() {
+		if detail := e.detailSentence(); detail != "" {
+			return detail
+		}
+	}
+	// Uncoded responses keep the shape older commands and scripts expect.
 	return fmt.Sprintf("server returned status %d: %s", e.StatusCode, e.Body)
 }
 

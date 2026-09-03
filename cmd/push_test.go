@@ -79,23 +79,27 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 		name       string
 		statusCode int
 		body       string
-		wantErr    error
+		wantErr    string
 	}{
 		{
 			name:       "allowed",
 			statusCode: http.StatusNoContent,
 		},
 		{
-			name:       "concealed denial",
-			statusCode: http.StatusNotFound,
-			body:       `{"error":"resource not found"}`,
-			wantErr:    errBlueprintPushPermissionDenied("acme", "daily-driver"),
+			name:       "server-owned denial",
+			statusCode: http.StatusForbidden,
+			body:       `{"error":"authorization denied","code":"AUTHORIZATION_DENIED","action":"blueprint:create","details":"Your access does not grant blueprint:create."}`,
+			wantErr:    "Your access does not grant blueprint:create.",
 		},
 		{
-			name:       "explicit denial",
-			statusCode: http.StatusForbidden,
-			body:       `{"error":"forbidden"}`,
-			wantErr:    errBlueprintPushPermissionDenied("acme", "daily-driver"),
+			name:       "legacy concealed response is not interpreted as policy",
+			statusCode: http.StatusNotFound,
+			body:       `{"error":"resource not found"}`,
+			wantErr: errBlueprintPushPermissionCheck(
+				"acme",
+				"daily-driver",
+				newAPIError(http.StatusNotFound, []byte(`{"error":"resource not found"}`)),
+			).Error(),
 		},
 		{
 			name:       "authorization unavailable",
@@ -105,13 +109,13 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 				"acme",
 				"daily-driver",
 				newAPIError(http.StatusServiceUnavailable, []byte(`{"error":"authorization temporarily unavailable"}`)),
-			),
+			).Error(),
 		},
 		{
 			name:       "non-verdict success",
 			statusCode: http.StatusCreated,
 			body:       `{"message":"registered"}`,
-			wantErr:    errBlueprintPushPermissionVerdict("acme", "daily-driver", http.StatusCreated),
+			wantErr:    errBlueprintPushPermissionVerdict("acme", "daily-driver", http.StatusCreated).Error(),
 		},
 	}
 
@@ -137,10 +141,10 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 				false,
 			)
 
-			if tt.wantErr == nil {
+			if tt.wantErr == "" {
 				require.NoError(t, err)
 			} else {
-				require.EqualError(t, err, tt.wantErr.Error())
+				require.EqualError(t, err, tt.wantErr)
 			}
 			assert.Equal(t, http.MethodPost, method)
 			assert.Equal(t, "/api/v1/agents/acme/daily-driver/register", path)
@@ -155,8 +159,8 @@ func TestRunPush_PermissionDenialStopsBeforeThePipeline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"error":"resource not found"}`))
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"authorization denied","code":"AUTHORIZATION_DENIED","action":"blueprint:create","details":"Your access does not grant blueprint:create."}`))
 	}))
 	t.Cleanup(srv.Close)
 	pushServerURLOverride = srv.URL
@@ -173,39 +177,35 @@ func TestRunPush_PermissionDenialStopsBeforeThePipeline(t *testing.T) {
 		},
 	)
 
-	require.EqualError(t, err, errBlueprintPushPermissionDenied("acme", "daily-driver").Error())
+	require.EqualError(t, err, "Your access does not grant blueprint:create.")
 	assert.Equal(t, 1, requests)
 	assert.NotContains(t, out.String(), "Pushing")
 }
 
 func TestRegisterAgent_PermissionRaceIsActionable(t *testing.T) {
-	for _, statusCode := range []int{http.StatusForbidden, http.StatusNotFound} {
-		t.Run(http.StatusText(statusCode), func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(statusCode)
-				_, _ = w.Write([]byte(`{"error":"resource not found"}`))
-			}))
-			t.Cleanup(srv.Close)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"authorization denied","code":"AUTHORIZATION_DENIED","action":"blueprint:edit","details":"Your access does not grant blueprint:edit."}`))
+	}))
+	t.Cleanup(srv.Close)
 
-			err := registerAgentWithServer(
-				context.Background(),
-				srv.URL,
-				"daily-driver",
-				"build-id",
-				"registry.example.com/acme",
-				"spec: blueprint/v1",
-				"",
-				nil,
-				"private",
-				false,
-				true,
-				"acme",
-			)
+	err := registerAgentWithServer(
+		context.Background(),
+		srv.URL,
+		"daily-driver",
+		"build-id",
+		"registry.example.com/acme",
+		"spec: blueprint/v1",
+		"",
+		nil,
+		"private",
+		false,
+		true,
+		"acme",
+	)
 
-			require.EqualError(t, err, errBlueprintPushPermissionDenied("acme", "daily-driver").Error())
-		})
-	}
+	require.EqualError(t, err, "Your access does not grant blueprint:edit.")
 }
 
 func TestGenerateBuildID(t *testing.T) {

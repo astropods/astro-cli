@@ -53,10 +53,11 @@ func checkBlueprintPushPermission(ctx context.Context, serverURL string, at Acco
 	if status == http.StatusNoContent && err == nil {
 		return nil
 	}
-	if status == http.StatusForbidden || status == http.StatusNotFound {
-		return errBlueprintPushPermissionDenied(at.Account, agentName)
-	}
 	if err != nil {
+		var response *apiError
+		if errors.As(err, &response) && response.isStructured() {
+			return response
+		}
 		return errBlueprintPushPermissionCheck(at.Account, agentName, err)
 	}
 	return errBlueprintPushPermissionVerdict(at.Account, agentName, status)
@@ -411,10 +412,6 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), buildinfo.BinaryName)
 	}
 
-	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
-		return errBlueprintPushPermissionDenied(account, agentName)
-	}
-
 	if resp.StatusCode != http.StatusCreated {
 		body, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
@@ -424,20 +421,15 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 			log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body)) //nolint:gosec
 		}
 
-		// Prefer the server's human-readable message (quota/entitlement limits,
-		// validation) over the raw body or a Go-map dump. Unmarshalling also
-		// decodes escapes like > back to '>'.
-		var apiErr struct {
-			Error   string `json:"error"`
-			Details string `json:"details"`
+		apiErr := newAPIError(resp.StatusCode, body)
+		if apiErr.isStructured() {
+			return apiErr
 		}
-		if json.Unmarshal(body, &apiErr) == nil {
-			if apiErr.Details != "" {
-				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
-			}
-			if apiErr.Error != "" {
-				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Error)
-			}
+		if apiErr.Details != "" {
+			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
+		}
+		if apiErr.Message != "" {
+			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Message)
 		}
 		return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, string(body))
 	}
