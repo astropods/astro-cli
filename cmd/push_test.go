@@ -74,6 +74,140 @@ func TestPushRegistryURL(t *testing.T) {
 	}
 }
 
+func TestCheckBlueprintPushPermission(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		wantErr    error
+	}{
+		{
+			name:       "allowed",
+			statusCode: http.StatusNoContent,
+		},
+		{
+			name:       "concealed denial",
+			statusCode: http.StatusNotFound,
+			body:       `{"error":"resource not found"}`,
+			wantErr:    errBlueprintPushPermissionDenied("acme", "daily-driver"),
+		},
+		{
+			name:       "explicit denial",
+			statusCode: http.StatusForbidden,
+			body:       `{"error":"forbidden"}`,
+			wantErr:    errBlueprintPushPermissionDenied("acme", "daily-driver"),
+		},
+		{
+			name:       "authorization unavailable",
+			statusCode: http.StatusServiceUnavailable,
+			body:       `{"error":"authorization temporarily unavailable"}`,
+			wantErr: errBlueprintPushPermissionCheck(
+				"acme",
+				"daily-driver",
+				newAPIError(http.StatusServiceUnavailable, []byte(`{"error":"authorization temporarily unavailable"}`)),
+			),
+		},
+		{
+			name:       "non-verdict success",
+			statusCode: http.StatusCreated,
+			body:       `{"message":"registered"}`,
+			wantErr:    errBlueprintPushPermissionVerdict("acme", "daily-driver", http.StatusCreated),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var method, path, query, authorization string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				method = r.Method
+				path = r.URL.Path
+				query = r.URL.RawQuery
+				authorization = r.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+
+			err := checkBlueprintPushPermission(
+				context.Background(),
+				srv.URL,
+				AccountToken{Account: "acme", Token: "token"},
+				"daily-driver",
+				false,
+			)
+
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tt.wantErr.Error())
+			}
+			assert.Equal(t, http.MethodPost, method)
+			assert.Equal(t, "/api/v1/agents/acme/daily-driver/register", path)
+			assert.Equal(t, "dryrun=true", query)
+			assert.Equal(t, "Bearer token", authorization)
+		})
+	}
+}
+
+func TestRunPush_PermissionDenialStopsBeforeThePipeline(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"resource not found"}`))
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	var out bytes.Buffer
+	err := runPush(
+		context.Background(),
+		&out,
+		AccountToken{Account: "acme", Token: "token"},
+		PushPipelineConfig{
+			SpecPath:  filepath.Join(t.TempDir(), "missing.yml"),
+			AgentName: "daily-driver",
+		},
+	)
+
+	require.EqualError(t, err, errBlueprintPushPermissionDenied("acme", "daily-driver").Error())
+	assert.Equal(t, 1, requests)
+	assert.NotContains(t, out.String(), "Pushing")
+}
+
+func TestRegisterAgent_PermissionRaceIsActionable(t *testing.T) {
+	for _, statusCode := range []int{http.StatusForbidden, http.StatusNotFound} {
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(statusCode)
+				_, _ = w.Write([]byte(`{"error":"resource not found"}`))
+			}))
+			t.Cleanup(srv.Close)
+
+			err := registerAgentWithServer(
+				context.Background(),
+				srv.URL,
+				"daily-driver",
+				"build-id",
+				"registry.example.com/acme",
+				"spec: blueprint/v1",
+				"",
+				nil,
+				"private",
+				false,
+				true,
+				"acme",
+			)
+
+			require.EqualError(t, err, errBlueprintPushPermissionDenied("acme", "daily-driver").Error())
+		})
+	}
+}
+
 func TestGenerateBuildID(t *testing.T) {
 	id := generateBuildID()
 
@@ -888,6 +1022,10 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 	registerCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
 			registerCalled = true
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
@@ -1059,6 +1197,10 @@ func TestRunBlueprintPush(t *testing.T) {
 			var registeredName string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+					if r.URL.Query().Get("dryrun") == "true" {
+						w.WriteHeader(http.StatusNoContent)
+						return
+					}
 					parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
 					registeredName = parts[len(parts)-1]
 					w.Header().Set("Content-Type", "application/json")

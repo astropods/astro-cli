@@ -47,6 +47,21 @@ func pushRegistryURL() string {
 	return auth.RegistryURLFromServerURL(buildinfo.DefaultServerURL)
 }
 
+func checkBlueprintPushPermission(ctx context.Context, serverURL string, at AccountToken, agentName string, verbose bool) error {
+	reqURL := apiPath(serverURL, at.Account, "agents", agentName, "register") + "?dryrun=true"
+	status, err := apiCall(ctx, http.MethodPost, reqURL, nil, at.Token, verbose, nil)
+	if status == http.StatusNoContent && err == nil {
+		return nil
+	}
+	if status == http.StatusForbidden || status == http.StatusNotFound {
+		return errBlueprintPushPermissionDenied(at.Account, agentName)
+	}
+	if err != nil {
+		return errBlueprintPushPermissionCheck(at.Account, agentName, err)
+	}
+	return errBlueprintPushPermissionVerdict(at.Account, agentName, status)
+}
+
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
 // w is the destination for human-readable output (typically cmd.OutOrStdout()); tests can
 // redirect by passing a custom writer. Pipeline-internal prints still go to os.Stdout
@@ -65,6 +80,9 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 	}
 	if serverURL == "" {
 		return fmt.Errorf("server URL required: run '%s login'", buildinfo.BinaryName)
+	}
+	if err := checkBlueprintPushPermission(ctx, serverURL, at, cfg.AgentName, cfg.Verbose); err != nil {
+		return err
 	}
 
 	registryHost, err := getRegistryHost(registryURL)
@@ -391,6 +409,10 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), buildinfo.BinaryName)
+	}
+
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+		return errBlueprintPushPermissionDenied(account, agentName)
 	}
 
 	if resp.StatusCode != http.StatusCreated {

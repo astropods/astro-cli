@@ -103,6 +103,26 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 	)
 }
 
+func errBlueprintPushPermissionDenied(account, name string) error {
+	return fmt.Errorf(
+		"you do not have permission to push Blueprint %q to account %q\n\n"+
+			"Creating a Blueprint requires blueprint:create on the account. Updating one requires blueprint:edit on the Blueprint.\n"+
+			"Ask an account admin to grant the required access.",
+		name, account,
+	)
+}
+
+func errBlueprintPushPermissionCheck(account, name string, cause error) error {
+	return fmt.Errorf("could not check permission to push Blueprint %q to account %q: %w", name, account, cause)
+}
+
+func errBlueprintPushPermissionVerdict(account, name string, status int) error {
+	return fmt.Errorf(
+		"could not check permission to push Blueprint %q to account %q: server returned unexpected status %d",
+		name, account, status,
+	)
+}
+
 func errNoAgentWorkload(available []string) error {
 	return fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", strings.Join(available, ", "))
 }
