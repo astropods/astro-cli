@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- GetTemplatePaths tests ---
@@ -712,5 +715,55 @@ func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported template") {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
+	}
+}
+
+func TestMastraTemplate_Dockerfile_SDKChannel(t *testing.T) {
+	paths, _ := GetTemplatePaths("mastra")
+	content, err := GetTemplate(paths.Dockerfile)
+	require.NoError(t, err, "read Dockerfile template")
+
+	tests := []struct {
+		name   string
+		assert func(t *testing.T)
+	}{
+		{
+			name: "defaults to latest",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, "ARG ASTRO_SDK_CHANNEL=latest",
+					"any default but latest ships every scaffolded agent onto preview's prerelease stream")
+			},
+		},
+		{
+			name: "leaves dependencies untouched on the latest channel",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, `"$ASTRO_SDK_CHANNEL" != "latest"`,
+					"a customer build must resolve the same versions it did before this arg existed")
+			},
+		},
+		{
+			name: "applies the channel before dependencies resolve",
+			assert: func(t *testing.T) {
+				assert.Less(t,
+					strings.Index(content, "ARG ASTRO_SDK_CHANNEL"),
+					strings.Index(content, "RUN bun install"),
+					"bun install resolves versions, so a later rewrite has no effect")
+			},
+		},
+		{
+			name: "overrides messaging only",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, `"@astropods/messaging":c`,
+					"messaging sits outside the adapters workspace, so no adapter release pins it to the channel")
+				assert.NotContains(t, content, `"@astropods/adapter-core":c`,
+					"an adapter release already pins adapter-core exactly, and an override would replace that tested pin")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.assert(t)
+		})
 	}
 }
