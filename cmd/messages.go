@@ -308,3 +308,18 @@ func msgAlertLine(severity, title, state, since string) string {
 	}
 	return line
 }
+
+func errInvalidSchedule(raw string) error {
+	return fmt.Errorf(`invalid --schedule %q: expected <ingestion>=<cron expression>, e.g. --schedule weekly-sync="0 3 * * *"`, raw)
+}
+
+func errDuplicateSchedule(name string) error {
+	return fmt.Errorf("--schedule %s was given more than once", name)
+}
+
+func errUnknownIngestionSchedule(unknown, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
+	}
+	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+}

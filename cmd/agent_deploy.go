@@ -22,6 +22,7 @@ type deployTemplateRequest struct {
 	DeploymentID string                    `json:"deployment_id,omitempty"`
 	Interfaces   *deployTemplateInterfaces `json:"interfaces,omitempty"`
 	Variables    map[string]deployVarInput `json:"variables,omitempty"`
+	Schedules    map[string]string         `json:"schedules,omitempty"`
 	Finalize     bool                      `json:"finalize,omitempty"`
 	ClusterID    string                    `json:"cluster_id,omitempty"`
 }
@@ -73,6 +74,7 @@ type deployTemplateResponse struct {
 	Template   json.RawMessage          `json:"template"`
 	Validation deployTemplateValidation `json:"validation"`
 	Signature  string                   `json:"signature,omitempty"`
+	Schedules  map[string]string        `json:"schedules,omitempty"`
 }
 
 type agentDeployResult struct {
@@ -95,6 +97,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
+	cmd.Flags().StringArray("schedule", nil, "Ingestion schedule: <ingestion>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
 	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
@@ -285,6 +288,51 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 	return vars, nil
 }
 
+func parseDeploySchedules(values []string) (map[string]string, error) {
+	result := make(map[string]string, len(values))
+	for _, raw := range values {
+		name, cron, ok := strings.Cut(raw, "=")
+		name = strings.TrimSpace(name)
+		cron = strings.TrimSpace(cron)
+		if !ok || name == "" || cron == "" {
+			return nil, errInvalidSchedule(raw)
+		}
+		if _, exists := result[name]; exists {
+			return nil, errDuplicateSchedule(name)
+		}
+		result[name] = cron
+	}
+	return result, nil
+}
+
+func parseDeploySchedulesFromCmd(cmd *cobra.Command) (map[string]string, error) {
+	values, _ := cmd.Flags().GetStringArray("schedule")
+	return parseDeploySchedules(values)
+}
+
+// The server ignores a schedule aimed at an unknown ingestion silently.
+func checkScheduleTargets(requested, available map[string]string) error {
+	if len(requested) == 0 {
+		return nil
+	}
+	unknown := make([]string, 0, len(requested))
+	for name := range requested {
+		if _, ok := available[name]; !ok {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(available))
+	for name := range available {
+		names = append(names, name)
+	}
+	slices.Sort(unknown)
+	slices.Sort(names)
+	return errUnknownIngestionSchedule(unknown, names)
+}
+
 func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	// The spec picks the runtime: a local astropods.yml with
 	// agent.annotations.runtime: agentcore deploys to AWS Bedrock AgentCore
@@ -318,6 +366,11 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	schedules, err := parseDeploySchedulesFromCmd(cmd)
+	if err != nil {
+		return err
+	}
+
 	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {
 		return err
@@ -335,6 +388,9 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	req := deployTemplateRequest{Build: build, Interfaces: iface, ClusterID: clusterID}
 	if len(vars) > 0 {
 		req.Variables = vars
+	}
+	if len(schedules) > 0 {
+		req.Schedules = schedules
 	}
 
 	return runDeployWithRequest(cmd, at, verbose, name, displayName, req, dryRun)
@@ -366,6 +422,10 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 				return clusterErr
 			}
 		}
+		return err
+	}
+
+	if err := checkScheduleTargets(req.Schedules, tmplResp.Schedules); err != nil {
 		return err
 	}
 
