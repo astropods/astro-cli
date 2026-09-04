@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	minBoxWidth   = 24
-	boxBorderCols = 2
-	boxFrameWidth = 6
+	minBoxWidth          = 24
+	boxBorderCols        = 2
+	boxFrameWidth        = 6
+	defaultTerminalWidth = 80
 )
 
 func boxStyle() lipgloss.Style {
@@ -28,7 +29,7 @@ func Box(lines []string) string {
 	rendered := style.Render(content)
 
 	avail := TerminalWidth()
-	if avail <= 0 || lipgloss.Width(rendered) <= avail {
+	if lipgloss.Width(rendered) <= avail {
 		return rendered
 	}
 
@@ -40,9 +41,6 @@ func Box(lines []string) string {
 
 func BoxContentWidth() int {
 	w := TerminalWidth()
-	if w <= 0 {
-		return 0
-	}
 	if w < minBoxWidth {
 		w = minBoxWidth
 	}
@@ -50,12 +48,22 @@ func BoxContentWidth() int {
 }
 
 func TerminalWidth() int {
-	if env := os.Getenv("COLUMNS"); env != "" {
-		if w, err := strconv.Atoi(env); err == nil && w > 0 {
-			return w
-		}
-	}
+	return resolveTerminalWidth(ttyWidth(), os.Getenv("COLUMNS"))
+}
 
+// An exported COLUMNS goes stale when a pane is split or resized, so the live
+// terminal size wins.
+func resolveTerminalWidth(tty int, columns string) int {
+	if tty > 0 {
+		return tty
+	}
+	if w, err := strconv.Atoi(columns); err == nil && w > 0 {
+		return w
+	}
+	return defaultTerminalWidth
+}
+
+func ttyWidth() int {
 	fd := int(os.Stdout.Fd()) //nolint:gosec
 	if !term.IsTerminal(fd) {
 		return 0
