@@ -51,12 +51,14 @@ type deploymentRuntime struct {
 }
 
 type deploymentAlert struct {
-	Name        string  `json:"name"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Severity    string  `json:"severity"`
-	State       string  `json:"state"`
-	ActiveSince *string `json:"active_since,omitempty"`
+	Workload    string `json:"workload,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Severity    string `json:"severity"`
+	State       string `json:"state"`
+	// The alerts endpoint spells this one field in camelCase.
+	ActiveSince *string `json:"activeSince,omitempty"`
 }
 
 type deploymentAlertsResponse struct {
@@ -94,13 +96,31 @@ func getDeploymentRuntime(ctx context.Context, id string, at AccountToken, verbo
 	return &result.Runtime, nil
 }
 
-func getDeploymentAlerts(ctx context.Context, id string, at AccountToken, verbose bool) ([]deploymentAlert, error) {
-	u := fmt.Sprintf("%s/api/v1/deployments/%s/alerts", agentBaseURL(), url.PathEscape(id))
-	var result deploymentAlertsResponse
-	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
-		return nil, err
+// Alert state is tracked per workload, and the endpoint matches the workload
+// query exactly, so a deployment-wide read has to ask per component.
+func getDeploymentAlerts(ctx context.Context, id string, components []string, at AccountToken, verbose bool) ([]deploymentAlert, error) {
+	var all []deploymentAlert
+	var firstErr error
+	for _, component := range components {
+		q := url.Values{}
+		q.Set("workload", component)
+		u := fmt.Sprintf("%s/api/v1/deployments/%s/alerts?%s", agentBaseURL(), url.PathEscape(id), q.Encode())
+		var result deploymentAlertsResponse
+		if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, a := range result.Alerts {
+			a.Workload = component
+			all = append(all, a)
+		}
 	}
-	return result.Alerts, nil
+	if all == nil && firstErr != nil {
+		return nil, firstErr
+	}
+	return all, nil
 }
 
 func (c runtimeContainer) healthy() bool {
@@ -186,7 +206,7 @@ func printAlerts(out io.Writer, alerts []deploymentAlert) {
 		if a.ActiveSince != nil {
 			since = *a.ActiveSince
 		}
-		fmt.Fprintf(out, "    %s\n", style.Render(msgAlertLine(a.Severity, a.Title, a.State, since))) //nolint:errcheck,gosec
+		fmt.Fprintf(out, "    %s\n", style.Render(msgAlertLine(a.Severity, a.Title, a.Workload, a.State, since))) //nolint:errcheck,gosec
 		if a.Description != "" {
 			fmt.Fprintf(out, "      %s\n", lipgloss.NewStyle().Faint(true).Render(a.Description)) //nolint:errcheck,gosec
 		}
@@ -204,4 +224,21 @@ func warnIfRestarting(out io.Writer, cmd *cobra.Command, at AccountToken, verbos
 	}
 	yellow := lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	fmt.Fprintf(out, "%s\n", yellow.Render(msgContainerRestartWarning(c.Name, c.State, c.RestartCount, c.Message))) //nolint:errcheck,gosec
+}
+
+func workloadComponents(workloads []workloadDetail) []string {
+	seen := make(map[string]bool, len(workloads))
+	components := make([]string, 0, len(workloads))
+	for _, wl := range workloads {
+		component := wl.Component
+		if component == "" {
+			component = wl.Name
+		}
+		if component == "" || seen[component] {
+			continue
+		}
+		seen[component] = true
+		components = append(components, component)
+	}
+	return components
 }

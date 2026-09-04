@@ -301,8 +301,11 @@ func msgContainerRestartWarning(container, state string, restarts int32, message
 	return line + ". Earlier crashes may be missing from the lines below."
 }
 
-func msgAlertLine(severity, title, state, since string) string {
+func msgAlertLine(severity, title, workload, state string, since string) string {
 	line := fmt.Sprintf("%s  %s  %s", severity, title, state)
+	if workload != "" {
+		line = fmt.Sprintf("%s  %s  %s  %s", severity, title, workload, state)
+	}
 	if since != "" {
 		line = fmt.Sprintf("%s since %s", line, since)
 	}
