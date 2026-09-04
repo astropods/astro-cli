@@ -252,3 +252,59 @@ func msgUsageControlsSaved(metric string) string {
 func errGrantNeedsAdapterOnRedeploy() error {
 	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
 }
+
+func msgWorkloadIssueLine(workload, component, phase, message string) string {
+	name := workload
+	if component != "" && component != workload {
+		name = fmt.Sprintf("%s (%s)", workload, component)
+	}
+	detail := message
+	if detail == "" {
+		detail = phase
+	}
+	if detail == "" {
+		return name
+	}
+	return fmt.Sprintf("%s: %s", name, detail)
+}
+
+func msgRestartCount(restarts int32) string {
+	if restarts == 1 {
+		return "1 restart"
+	}
+	return fmt.Sprintf("%d restarts", restarts)
+}
+
+func msgContainerStateLine(container, state string, restarts int32, message string) string {
+	parts := []string{container}
+	if state != "" {
+		parts = append(parts, state)
+	}
+	if restarts > 0 {
+		parts = append(parts, msgRestartCount(restarts))
+	}
+	line := strings.Join(parts, ", ")
+	if message != "" {
+		return fmt.Sprintf("%s: %s", line, message)
+	}
+	return line
+}
+
+func msgContainerRestartWarning(container, state string, restarts int32, message string) string {
+	line := fmt.Sprintf("! %s is %s", container, strings.ToLower(state))
+	if restarts > 0 {
+		line = fmt.Sprintf("! %s is %s after %s", container, strings.ToLower(state), msgRestartCount(restarts))
+	}
+	if message != "" {
+		line = fmt.Sprintf("%s: %s", line, message)
+	}
+	return line + ". The lines below come from the current container."
+}
+
+func msgAlertLine(severity, title, state, since string) string {
+	line := fmt.Sprintf("%s  %s  %s", severity, title, state)
+	if since != "" {
+		line = fmt.Sprintf("%s since %s", line, since)
+	}
+	return line
+}
