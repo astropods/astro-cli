@@ -298,7 +298,7 @@ func msgContainerRestartWarning(container, state string, restarts int32, message
 	if message != "" {
 		line = fmt.Sprintf("%s: %s", line, message)
 	}
-	return line + ". The lines below come from the current container."
+	return line + ". Earlier crashes may be missing from the lines below."
 }
 
 func msgAlertLine(severity, title, state, since string) string {
