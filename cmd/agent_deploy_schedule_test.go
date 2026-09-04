@@ -243,3 +243,44 @@ func TestRunBlueprintDeployPrintsIngestionValidationErrors(t *testing.T) {
 	assert.NotContains(t, out, "variable ingestion")
 	assert.Contains(t, out, "variable OPENAI_API_KEY: required variable is empty")
 }
+
+func TestAgentGetShowsIngestionSchedule(t *testing.T) {
+	list := map[string]any{
+		"deployments": []any{map[string]any{
+			"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent",
+			"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active",
+			"created_at": "2026-01-01T10:00:00Z",
+		}},
+		"count": 1,
+	}
+	detail := map[string]any{
+		"deployment": map[string]any{
+			"id": "dep-abc-123",
+			"workloads": []any{
+				map[string]any{"name": "my-agent-agent", "kind": "Deployment", "component": "agent"},
+				map[string]any{
+					"name": "my-agent-ingestion-nightly", "kind": "CronJob",
+					"component": "ingestion-nightly", "schedule": "0 5 * * *",
+				},
+			},
+		},
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/deployments/dep-abc-123") {
+			jsonHandler(http.StatusOK, detail)(w, r)
+			return
+		}
+		jsonHandler(http.StatusOK, list)(w, r)
+	})
+	setupAgentTest(t, handler)
+
+	buf := &bytes.Buffer{}
+	agentGetCmd.SetOut(buf)
+	agentGetCmd.SetContext(context.Background())
+	setAgentTargetName(t, agentGetCmd, "my-agent")
+
+	require.NoError(t, runAgentGet(agentGetCmd, nil))
+	out := stripANSI(buf.String())
+	assert.Contains(t, out, "ingestion-nightly (my-agent-ingestion-nightly)  0 5 * * *")
+	assert.Contains(t, out, "agent (my-agent-agent)")
+}
