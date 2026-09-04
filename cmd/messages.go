@@ -263,3 +263,22 @@ func msgUsageControlsSaved(metric string) string {
 func errGrantNeedsAdapterOnRedeploy() error {
 	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
 }
+
+func msgUsageWindow(days int) string {
+	if days <= 0 {
+		return "No usage window reported"
+	}
+	return fmt.Sprintf("Last %d days", days)
+}
+
+func msgUsageDollars(amount float64) string {
+	return fmt.Sprintf("$%.2f", amount)
+}
+
+func msgUsageComputeHours(cuHours float64) string {
+	return fmt.Sprintf("%.3f CU-hours", cuHours)
+}
+
+func msgUsageLastTrace(at string) string {
+	return fmt.Sprintf("Last trace %s", at)
+}
