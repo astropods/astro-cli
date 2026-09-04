@@ -86,9 +86,10 @@ Spec types and parsing come from the
    `ast dev` runs it locally.
 3. **Build** — for each component with `container.build`, the CLI invokes
    Docker/BuildKit with the right context, Dockerfile, secrets, and platform.
-4. **Push** — each push generates a random 8-character build ID used as the image
-   tag. Images are tagged and pushed (single or multi-platform); the spec is
-   pushed as an OCI artifact and optionally registered with an Astro server.
+4. **Push** — the CLI checks registration access before starting Docker. Each
+   allowed push generates a random 8-character build ID used as the image tag.
+   Images are tagged and pushed (single or multi-platform); the spec is pushed
+   as an OCI artifact and optionally registered with an Astro server.
 
 ### Local push (local astro-server)
 

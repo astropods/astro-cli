@@ -103,6 +103,17 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 	)
 }
 
+func errBlueprintPushPermissionCheck(account, name string, cause error) error {
+	return fmt.Errorf("could not check permission to push Blueprint %q to account %q: %w", name, account, cause)
+}
+
+func errBlueprintPushPermissionVerdict(account, name string, status int) error {
+	return fmt.Errorf(
+		"could not check permission to push Blueprint %q to account %q: server returned unexpected status %d",
+		name, account, status,
+	)
+}
+
 func errNoAgentWorkload(available []string) error {
 	return fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", strings.Join(available, ", "))
 }
@@ -310,4 +321,23 @@ func msgAlertLine(severity, title, workload, state string, since string) string 
 		line = fmt.Sprintf("%s since %s", line, since)
 	}
 	return line
+}
+
+func msgUsageWindow(days int) string {
+	if days <= 0 {
+		return "No usage window reported"
+	}
+	return fmt.Sprintf("Last %d days", days)
+}
+
+func msgUsageDollars(amount float64) string {
+	return fmt.Sprintf("$%.2f", amount)
+}
+
+func msgUsageComputeHours(cuHours float64) string {
+	return fmt.Sprintf("%.3f CU-hours", cuHours)
+}
+
+func msgUsageLastTrace(at string) string {
+	return fmt.Sprintf("Last trace %s", at)
 }
