@@ -333,6 +333,16 @@ func checkScheduleTargets(requested, available map[string]string) error {
 	return errUnknownIngestionSchedule(unknown, names)
 }
 
+// deployValidationSubject splits a template validation field into the label to
+// print and the subject to emphasize. Only variables.* names read as a
+// variable; every other field is an API path, so it stays intact.
+func deployValidationSubject(field string) (label, subject string) {
+	if name, ok := strings.CutPrefix(field, "variables."); ok {
+		return "variable ", strings.ReplaceAll(name, ".", " ")
+	}
+	return "", field
+}
+
 func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	// The spec picks the runtime: a local astropods.yml with
 	// agent.annotations.runtime: agentcore deploys to AWS Bedrock AgentCore
@@ -432,9 +442,8 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	if !tmplResp.Validation.Valid {
 		fmt.Fprintf(w, "  %s✗%s validation failed:\n", colorRed, colorReset) //nolint:errcheck,gosec
 		for _, e := range tmplResp.Validation.Errors {
-			field := strings.TrimPrefix(e.Field, "variables.")
-			field = strings.ReplaceAll(field, ".", " ")
-			fmt.Fprintf(w, "    %svariable %s%s%s%s:%s %s\n", colorDim, colorReset, colorBold, field, colorDim, colorReset, e.Message) //nolint:errcheck,gosec
+			label, subject := deployValidationSubject(e.Field)
+			fmt.Fprintf(w, "    %s%s%s%s%s%s:%s %s\n", colorDim, label, colorReset, colorBold, subject, colorDim, colorReset, e.Message) //nolint:errcheck,gosec
 		}
 		return fmt.Errorf("deployment validation failed")
 	}

@@ -191,3 +191,55 @@ func TestRunAgentRedeployPassesSchedules(t *testing.T) {
 	assert.Equal(t, "dep-1", captured.DeploymentID)
 	assert.True(t, deployed)
 }
+
+func TestDeployValidationSubject(t *testing.T) {
+	cases := []struct {
+		name        string
+		field       string
+		wantLabel   string
+		wantSubject string
+	}{
+		{name: "variable", field: "variables.OPENAI_API_KEY", wantLabel: "variable ", wantSubject: "OPENAI_API_KEY"},
+		{name: "nested variable", field: "variables.slack.token", wantLabel: "variable ", wantSubject: "slack token"},
+		{name: "ingestion schedule", field: "ingestion.weekly-sync.trigger.schedule", wantSubject: "ingestion.weekly-sync.trigger.schedule"},
+		{name: "ingestion name", field: "ingestion.weekly-sync", wantSubject: "ingestion.weekly-sync"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			label, subject := deployValidationSubject(tc.field)
+			assert.Equal(t, tc.wantLabel, label)
+			assert.Equal(t, tc.wantSubject, subject)
+		})
+	}
+}
+
+func TestRunBlueprintDeployPrintsIngestionValidationErrors(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/deployment-template") {
+			jsonHandler(http.StatusOK, map[string]any{
+				"template":  json.RawMessage(`{}`),
+				"schedules": map[string]string{"weekly-sync": "0 3 * * *"},
+				"validation": map[string]any{
+					"valid": false,
+					"errors": []any{
+						map[string]any{"field": "ingestion.weekly-sync.trigger.schedule", "message": "invalid cron expression"},
+						map[string]any{"field": "variables.OPENAI_API_KEY", "message": "required variable is empty"},
+					},
+				},
+			})(w, r)
+		}
+	})
+	setupBlueprintDeployTest(t, handler)
+
+	setDeployFlag(t, "schedule", "weekly-sync=not-a-cron")
+	buf := &bytes.Buffer{}
+	blueprintDeployCmd.SetOut(buf)
+	blueprintDeployCmd.SetContext(context.Background())
+
+	require.Error(t, runBlueprintDeploy(blueprintDeployCmd, []string{"my-agent"}))
+	out := stripANSI(buf.String())
+	assert.Contains(t, out, "ingestion.weekly-sync.trigger.schedule: invalid cron expression")
+	assert.NotContains(t, out, "variable ingestion")
+	assert.Contains(t, out, "variable OPENAI_API_KEY: required variable is empty")
+}
