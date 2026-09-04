@@ -80,13 +80,18 @@ func getDeploymentStatus(ctx context.Context, id string, at AccountToken, verbos
 	return &result, nil
 }
 
+// The runtime endpoint wraps its payload; the status endpoint does not.
+type deploymentRuntimeResponse struct {
+	Runtime deploymentRuntime `json:"runtime"`
+}
+
 func getDeploymentRuntime(ctx context.Context, id string, at AccountToken, verbose bool) (*deploymentRuntime, error) {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/runtime", agentBaseURL(), url.PathEscape(id))
-	var result deploymentRuntime
+	var result deploymentRuntimeResponse
 	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.Runtime, nil
 }
 
 func getDeploymentAlerts(ctx context.Context, id string, at AccountToken, verbose bool) ([]deploymentAlert, error) {
