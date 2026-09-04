@@ -144,8 +144,10 @@ type containerStatus struct {
 
 type workloadDetail struct {
 	Name       string            `json:"name"`
+	Kind       string            `json:"kind"`
 	Component  string            `json:"component"`
 	PodName    string            `json:"pod_name"`
+	Schedule   string            `json:"schedule"`
 	Containers []containerStatus `json:"containers"`
 }
 
@@ -347,11 +349,14 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 			}
 			// Show workload name alongside component so users can pass it to
 			// `agent logs --workload <name>` for non-agent components.
+			suffix := ""
 			if wl.Name != "" && wl.Name != component {
-				fmt.Fprintf(w, "    %s %s\n", dim.Render(component), dim.Render("("+wl.Name+")")) //nolint:errcheck,gosec
-			} else {
-				fmt.Fprintf(w, "    %s\n", dim.Render(component)) //nolint:errcheck,gosec
+				suffix = " " + dim.Render("("+wl.Name+")")
 			}
+			if wl.Schedule != "" {
+				suffix += "  " + accent.Render(wl.Schedule)
+			}
+			fmt.Fprintf(w, "    %s%s\n", dim.Render(component), suffix) //nolint:errcheck,gosec
 			printContainerStates(w, wl.Name, runtime)
 		}
 	}
