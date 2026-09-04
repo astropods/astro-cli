@@ -34,7 +34,7 @@ func crashLoopingRuntime() map[string]any {
 
 func runtimeTestHandler(list, detail, status, runtime, alerts any, failing map[string]bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for suffix, body := range map[string]any{"/status": status, "/runtime": runtime, "/alerts": alerts} {
+		for suffix, body := range map[string]any{"/status": status, "/runtime": map[string]any{"runtime": runtime}, "/alerts": alerts} {
 			if !strings.HasSuffix(r.URL.Path, suffix) {
 				continue
 			}
