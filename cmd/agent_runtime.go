@@ -51,13 +51,14 @@ type deploymentRuntime struct {
 }
 
 type deploymentAlert struct {
-	Workload    string  `json:"workload,omitempty"`
-	Name        string  `json:"name"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Severity    string  `json:"severity"`
-	State       string  `json:"state"`
-	ActiveSince *string `json:"active_since,omitempty"`
+	Workload    string `json:"workload,omitempty"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Severity    string `json:"severity"`
+	State       string `json:"state"`
+	// The alerts endpoint spells this one field in camelCase.
+	ActiveSince *string `json:"activeSince,omitempty"`
 }
 
 type deploymentAlertsResponse struct {

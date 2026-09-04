@@ -89,8 +89,8 @@ func TestAgentGetSurfacesRuntimeState(t *testing.T) {
 	alerts := map[string]any{"alerts": []any{
 		map[string]any{
 			"name": "crash_loop", "title": "Crash loop", "severity": "critical", "state": "firing",
-			"description":  "The agent crashes every time it starts, so it can't serve requests.",
-			"active_since": activeSince,
+			"description": "The agent crashes every time it starts, so it can't serve requests.",
+			"activeSince": activeSince,
 		},
 		map[string]any{"name": "oom", "title": "Out of memory", "severity": "critical", "state": "ok"},
 	}}
