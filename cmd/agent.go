@@ -279,10 +279,17 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 
 	full, fullErr := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
 
+	var workloads []workloadDetail
+	if fullErr == nil {
+		workloads = full.Workloads
+	} else if legacy, legacyErr := getDeploymentDetail(cmd, dep.ID, at, verbose); legacyErr == nil {
+		workloads = legacy.Workloads
+	}
+
 	// A failed read drops its own section instead of failing the command.
 	status, _ := getDeploymentStatus(cmd.Context(), dep.ID, at, verbose)
 	runtime, _ := getDeploymentRuntime(cmd.Context(), dep.ID, at, verbose)
-	alerts, _ := getDeploymentAlerts(cmd.Context(), dep.ID, at, verbose)
+	alerts, _ := getDeploymentAlerts(cmd.Context(), dep.ID, workloadComponents(workloads), at, verbose)
 
 	w := cmd.OutOrStdout()
 
@@ -331,12 +338,6 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var workloads []workloadDetail
-	if fullErr == nil {
-		workloads = full.Workloads
-	} else if legacy, legacyErr := getDeploymentDetail(cmd, dep.ID, at, verbose); legacyErr == nil {
-		workloads = legacy.Workloads
-	}
 	if len(workloads) > 0 {
 		fmt.Fprintf(w, "  Components:\n") //nolint:errcheck,gosec
 		for _, wl := range workloads {

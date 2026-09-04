@@ -32,8 +32,13 @@ func crashLoopingRuntime() map[string]any {
 	}
 }
 
+var alertWorkloadQueries []string
+
 func runtimeTestHandler(list, detail, status, runtime, alerts any, failing map[string]bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/alerts") {
+			alertWorkloadQueries = append(alertWorkloadQueries, r.URL.Query().Get("workload"))
+		}
 		for suffix, body := range map[string]any{"/status": status, "/runtime": map[string]any{"runtime": runtime}, "/alerts": alerts} {
 			if !strings.HasSuffix(r.URL.Path, suffix) {
 				continue
@@ -111,8 +116,8 @@ func TestAgentGetSurfacesRuntimeState(t *testing.T) {
 			},
 		},
 		{
-			name:       "lists firing alerts only",
-			wantOut:    []string{msgAlertLine("critical", "Crash loop", "firing", activeSince)},
+			name:       "lists firing alerts only, naming the workload",
+			wantOut:    []string{msgAlertLine("critical", "Crash loop", "agent", "firing", activeSince)},
 			wantAbsent: []string{"Out of memory"},
 		},
 		{
@@ -234,6 +239,75 @@ func TestRuntimeContainerHealthy(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.container.healthy())
+		})
+	}
+}
+
+func TestAgentGetScopesAlertsToEachWorkload(t *testing.T) {
+	list := map[string]any{
+		"deployments": []any{map[string]any{
+			"id": "dep-abc-123", "name": "my-agent", "display_name": "my-agent",
+			"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active",
+			"created_at": "2026-01-01T10:00:00Z",
+		}},
+		"count": 1,
+	}
+	detail := map[string]any{
+		"deployment": map[string]any{
+			"id": "dep-abc-123",
+			"workloads": []any{
+				map[string]any{"name": "my-agent-agent", "component": "agent"},
+				map[string]any{"name": "my-agent-collector", "component": "collector"},
+			},
+		},
+	}
+	alerts := map[string]any{"alerts": []any{
+		map[string]any{"name": "crash_loop", "title": "Crash loop", "severity": "critical", "state": "ok"},
+	}}
+
+	alertWorkloadQueries = nil
+	setupAgentTest(t, runtimeTestHandler(list, detail, nil, nil, alerts, nil))
+
+	agentGetCmd.SetOut(&bytes.Buffer{})
+	agentGetCmd.SetContext(context.Background())
+	setAgentTargetName(t, agentGetCmd, "my-agent")
+
+	require.NoError(t, runAgentGet(agentGetCmd, nil))
+	assert.Equal(t, []string{"agent", "collector"}, alertWorkloadQueries,
+		"alert state is per workload, so every component must be asked for by name")
+}
+
+func TestWorkloadComponents(t *testing.T) {
+	cases := []struct {
+		name      string
+		workloads []workloadDetail
+		want      []string
+	}{
+		{
+			name:      "component per workload",
+			workloads: []workloadDetail{{Name: "a-agent", Component: "agent"}, {Name: "a-collector", Component: "collector"}},
+			want:      []string{"agent", "collector"},
+		},
+		{
+			name:      "falls back to the workload name",
+			workloads: []workloadDetail{{Name: "a-agent"}},
+			want:      []string{"a-agent"},
+		},
+		{
+			name:      "drops duplicates",
+			workloads: []workloadDetail{{Name: "a-k-one", Component: "knowledge"}, {Name: "a-k-two", Component: "knowledge"}},
+			want:      []string{"knowledge"},
+		},
+		{
+			name:      "no workloads",
+			workloads: nil,
+			want:      []string{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, workloadComponents(tc.workloads))
 		})
 	}
 }
