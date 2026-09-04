@@ -327,6 +327,15 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		)
 	}
 
+	// Teams credentials from dev interfaces; optional — blank values run the
+	// adapter unauthenticated (Agents Playground only, never a real tenant).
+	if slices.Contains(astroSpec.Dev.MessagingAdapters(), "teams") {
+		messagingVars = append(messagingVars,
+			varEntry{key: "TEAMS_APP_ID", description: "Entra ID app ID for the Teams bot registration (optional; leave blank for Agents Playground only)", secret: false},
+			varEntry{key: "TEAMS_APP_PASSWORD", description: "Entra ID app client secret (optional; leave blank for Agents Playground only)", secret: true},
+		)
+	}
+
 	// Top-level inputs
 	topInputKeys := make([]string, 0, len(astroSpec.Inputs))
 	for k := range astroSpec.Inputs {

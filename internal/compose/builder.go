@@ -38,6 +38,11 @@ const (
 	AgentCorePort     = 8080
 	AgentCoreHostPort = "3120"
 
+	// MessagingTeamsHostPort is the host port for the sidecar's Bot Framework
+	// endpoint; a real Teams tenant needs a dev tunnel pointed at it too, not
+	// just local Agents Playground.
+	MessagingTeamsHostPort = "3130"
+
 	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
 	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
 	// persistent volume); locally it's a named volume so history survives
@@ -442,7 +447,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		adapters := s.Dev.MessagingAdapters()
 		hasMessagingAdapter := false
 		for _, name := range adapters {
-			if name == "slack" || name == "web" {
+			if name == "slack" || name == "web" || name == "teams" {
 				hasMessagingAdapter = true
 			}
 		}
@@ -886,6 +891,16 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 		})
 	}
 
+	// Unlike Slack's Socket Mode, Teams has no outbound-only transport, so
+	// this port must be reachable — by Agents Playground locally, or a dev
+	// tunnel for a real tenant.
+	if slices.Contains(s.Dev.MessagingAdapters(), "teams") {
+		ports = append(ports, types.ServicePortConfig{
+			Target:    3978,
+			Published: MessagingTeamsHostPort,
+		})
+	}
+
 	return ports
 }
 
@@ -970,6 +985,28 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			// volume. Without CHAT_DB_PATH the sidecar disables persistence.
 			dbPath := chatDBPath
 			env["CHAT_DB_PATH"] = &dbPath
+
+		case "teams":
+			// Unlike Slack, an empty TEAMS_APP_ID just runs unauthenticated
+			// (Agents Playground only), so this doesn't skip enabling like
+			// the Slack case above.
+			enabled := "true"
+			env["TEAMS_ENABLED"] = &enabled
+			listenAddr := ":3978"
+			env["TEAMS_LISTEN_ADDR"] = &listenAddr
+			if appID, ok := envVars["TEAMS_APP_ID"]; ok && appID != "" {
+				env["TEAMS_APP_ID"] = &appID
+				if appPassword, ok := envVars["TEAMS_APP_PASSWORD"]; ok {
+					env["TEAMS_APP_PASSWORD"] = &appPassword
+				}
+			} else {
+				fmt.Printf("⚠ Teams adapter running unauthenticated (no TEAMS_APP_ID configured) — local dev via Microsoft 365 Agents Playground only, never a real Teams tenant (run '%s configure' to add credentials)\n", buildinfo.BinaryName)
+				// host.docker.internal is Docker Desktop's standard
+				// host-reachable name; "localhost" inside this container
+				// means the container, not the host Agents Playground runs on.
+				devHostOverride := "host.docker.internal"
+				env["TEAMS_DEV_HOST_OVERRIDE"] = &devHostOverride
+			}
 		}
 	}
 
