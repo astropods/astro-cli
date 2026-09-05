@@ -244,6 +244,14 @@ func msgNoAgentSpend() string {
 	return "No metered compute this period"
 }
 
+func errUnknownNetworkDirection(direction string) error {
+	return fmt.Errorf("--direction %q is not a network direction; use inbound, outbound, or database", direction)
+}
+
+func msgNoNetworkFlows() string {
+	return "No peers in this window"
+}
+
 func errBillingSetConflict(name string) error {
 	return fmt.Errorf("--%s and --clear-%s cannot be used together", name, name)
 }
