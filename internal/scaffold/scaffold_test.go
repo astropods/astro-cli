@@ -697,7 +697,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 		{
 			name: "anthropic only",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "anthropic-agent", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{},
 			},
@@ -705,7 +705,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 		{
 			name: "all ingestion types",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ingestion-agent", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{"schedule", "webhook", "manual", "startup"},
 			},
