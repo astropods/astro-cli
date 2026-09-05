@@ -23,6 +23,7 @@ type agentDeploymentFull struct {
 	ID                 string                `json:"id"`
 	Name               string                `json:"name"`
 	DisplayName        string                `json:"display_name,omitempty"`
+	EvalDatasetID      string                `json:"eval_dataset_id,omitempty"`
 	BuildID            string                `json:"build_id"`
 	Namespace          string                `json:"namespace"`
 	Status             string                `json:"status"`

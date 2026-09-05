@@ -240,6 +240,26 @@ func msgNoInvoices() string {
 	return "No invoices yet"
 }
 
+func errNoEvalDataset(target string) error {
+	return fmt.Errorf("%q has no evaluation dataset", target)
+}
+
+func msgNoDatasetItems() string {
+	return "No dataset items yet"
+}
+
+func errUnknownEvaluationFilter(value string) error {
+	return fmt.Errorf("--evaluation %q must be evaluated or not_evaluated", value)
+}
+
+func msgNoQueueItems() string {
+	return "No traces in the review queue"
+}
+
+func msgMoreQueueItems() string {
+	return "more available; rerun with a higher --limit to see more"
+}
+
 func errBillingSetConflict(name string) error {
 	return fmt.Errorf("--%s and --clear-%s cannot be used together", name, name)
 }
