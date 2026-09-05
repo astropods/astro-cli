@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func suspendedBody(reason, action, details string) []byte {
@@ -85,6 +87,14 @@ func TestAPIError_TheCodeIdentifiesTheRefusal(t *testing.T) {
 			t.Errorf("status %d was not recognised as a billing refusal", status)
 		}
 	}
+}
+
+func TestAPIError_StructuredFailureUsesTheServerExplanation(t *testing.T) {
+	body := []byte(`{"error":"authorization denied","code":"AUTHORIZATION_DENIED","action":"resource:future_action","details":"The server selected this explanation."}`)
+	e := newAPIError(http.StatusForbidden, body)
+
+	require.True(t, e.isStructured())
+	require.Equal(t, "The server selected this explanation.", e.Error())
 }
 
 // Every other error keeps the shape the CLI has always printed. Scripts match on

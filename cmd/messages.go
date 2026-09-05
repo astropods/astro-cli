@@ -103,6 +103,17 @@ func errAccountMismatch(specAccount, currentAccount string) error {
 	)
 }
 
+func errBlueprintPushPermissionCheck(account, name string, cause error) error {
+	return fmt.Errorf("could not check permission to push Blueprint %q to account %q: %w", name, account, cause)
+}
+
+func errBlueprintPushPermissionVerdict(account, name string, status int) error {
+	return fmt.Errorf(
+		"could not check permission to push Blueprint %q to account %q: server returned unexpected status %d",
+		name, account, status,
+	)
+}
+
 func errNoAgentWorkload(available []string) error {
 	return fmt.Errorf("no agent workload found — pass --workload to pick another one (available: %s)", strings.Join(available, ", "))
 }
@@ -267,4 +278,97 @@ func msgAgentCardMissingAuthors() string {
 
 func msgAgentCardMissingRepository() string {
 	return `AGENT.md has no repository. Add "repository: github:your-org/your-repo" so people can find the source`
+}
+
+func msgWorkloadIssueLine(workload, component, phase, message string) string {
+	name := workload
+	if component != "" && component != workload {
+		name = fmt.Sprintf("%s (%s)", workload, component)
+	}
+	detail := message
+	if detail == "" {
+		detail = phase
+	}
+	if detail == "" {
+		return name
+	}
+	return fmt.Sprintf("%s: %s", name, detail)
+}
+
+func msgRestartCount(restarts int32) string {
+	if restarts == 1 {
+		return "1 restart"
+	}
+	return fmt.Sprintf("%d restarts", restarts)
+}
+
+func msgContainerStateLine(container, state string, restarts int32, message string) string {
+	parts := []string{container}
+	if state != "" {
+		parts = append(parts, state)
+	}
+	if restarts > 0 {
+		parts = append(parts, msgRestartCount(restarts))
+	}
+	line := strings.Join(parts, ", ")
+	if message != "" {
+		return fmt.Sprintf("%s: %s", line, message)
+	}
+	return line
+}
+
+func msgContainerRestartWarning(container, state string, restarts int32, message string) string {
+	line := fmt.Sprintf("! %s is %s", container, strings.ToLower(state))
+	if restarts > 0 {
+		line = fmt.Sprintf("! %s is %s after %s", container, strings.ToLower(state), msgRestartCount(restarts))
+	}
+	if message != "" {
+		line = fmt.Sprintf("%s: %s", line, message)
+	}
+	return line + ". Earlier crashes may be missing from the lines below."
+}
+
+func msgAlertLine(severity, title, workload, state string, since string) string {
+	line := fmt.Sprintf("%s  %s  %s", severity, title, state)
+	if workload != "" {
+		line = fmt.Sprintf("%s  %s  %s  %s", severity, title, workload, state)
+	}
+	if since != "" {
+		line = fmt.Sprintf("%s since %s", line, since)
+	}
+	return line
+}
+
+func msgUsageWindow(days int) string {
+	if days <= 0 {
+		return "No usage window reported"
+	}
+	return fmt.Sprintf("Last %d days", days)
+}
+
+func msgUsageDollars(amount float64) string {
+	return fmt.Sprintf("$%.2f", amount)
+}
+
+func msgUsageComputeHours(cuHours float64) string {
+	return fmt.Sprintf("%.3f CU-hours", cuHours)
+}
+
+func msgUsageLastTrace(at string) string {
+	return fmt.Sprintf("Last trace %s", at)
+}
+
+func errInvalidSchedule(raw string) error {
+	return fmt.Errorf(`invalid --schedule %q: expected <ingestion>=<cron expression>, e.g. --schedule weekly-sync="0 3 * * *"`, raw)
+}
+
+func errDuplicateSchedule(name string) error {
+	return fmt.Errorf("--schedule %s was given more than once", name)
+}
+
+func errUnknownIngestionSchedule(unknown, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
+	}
+	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
 }

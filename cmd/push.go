@@ -47,6 +47,22 @@ func pushRegistryURL() string {
 	return auth.RegistryURLFromServerURL(buildinfo.DefaultServerURL)
 }
 
+func checkBlueprintPushPermission(ctx context.Context, serverURL string, at AccountToken, agentName string, verbose bool) error {
+	reqURL := apiPath(serverURL, at.Account, "agents", agentName, "register") + "?dryrun=true"
+	status, err := apiCall(ctx, http.MethodPost, reqURL, nil, at.Token, verbose, nil)
+	if status == http.StatusNoContent && err == nil {
+		return nil
+	}
+	if err != nil {
+		var response *apiError
+		if errors.As(err, &response) && response.isStructured() {
+			return response
+		}
+		return errBlueprintPushPermissionCheck(at.Account, agentName, err)
+	}
+	return errBlueprintPushPermissionVerdict(at.Account, agentName, status)
+}
+
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
 // w is the destination for human-readable output (typically cmd.OutOrStdout()); tests can
 // redirect by passing a custom writer. Pipeline-internal prints still go to os.Stdout
@@ -65,6 +81,9 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 	}
 	if serverURL == "" {
 		return fmt.Errorf("server URL required: run '%s login'", buildinfo.BinaryName)
+	}
+	if err := checkBlueprintPushPermission(ctx, serverURL, at, cfg.AgentName, cfg.Verbose); err != nil {
+		return err
 	}
 
 	registryHost, err := getRegistryHost(registryURL)
@@ -402,20 +421,15 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 			log.Printf("Registration failed with status %d. Response body: %s", resp.StatusCode, string(body)) //nolint:gosec
 		}
 
-		// Prefer the server's human-readable message (quota/entitlement limits,
-		// validation) over the raw body or a Go-map dump. Unmarshalling also
-		// decodes escapes like > back to '>'.
-		var apiErr struct {
-			Error   string `json:"error"`
-			Details string `json:"details"`
+		apiErr := newAPIError(resp.StatusCode, body)
+		if apiErr.isStructured() {
+			return apiErr
 		}
-		if json.Unmarshal(body, &apiErr) == nil {
-			if apiErr.Details != "" {
-				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
-			}
-			if apiErr.Error != "" {
-				return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Error)
-			}
+		if apiErr.Details != "" {
+			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
+		}
+		if apiErr.Message != "" {
+			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Message)
 		}
 		return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, string(body))
 	}

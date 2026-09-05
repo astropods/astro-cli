@@ -144,8 +144,10 @@ type containerStatus struct {
 
 type workloadDetail struct {
 	Name       string            `json:"name"`
+	Kind       string            `json:"kind"`
 	Component  string            `json:"component"`
 	PodName    string            `json:"pod_name"`
+	Schedule   string            `json:"schedule"`
 	Containers []containerStatus `json:"containers"`
 }
 
@@ -293,11 +295,28 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 
 	full, fullErr := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
 
+	var workloads []workloadDetail
+	if fullErr == nil {
+		workloads = full.Workloads
+	} else if legacy, legacyErr := getDeploymentDetail(cmd, dep.ID, at, verbose); legacyErr == nil {
+		workloads = legacy.Workloads
+	}
+
+	// A failed read drops its own section instead of failing the command.
+	status, _ := getDeploymentStatus(cmd.Context(), dep.ID, at, verbose)
+	runtime, _ := getDeploymentRuntime(cmd.Context(), dep.ID, at, verbose)
+	alerts, _ := getDeploymentAlerts(cmd.Context(), dep.ID, workloadComponents(workloads), at, verbose)
+
 	w := cmd.OutOrStdout()
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		if fullErr == nil {
-			return writeJSON(w, full)
+			return writeJSON(w, agentGetOutput{
+				agentDeploymentFull: *full,
+				Status:              status,
+				Runtime:             runtime,
+				Alerts:              alerts,
+			})
 		}
 		return writeJSON(w, dep)
 	}
@@ -318,10 +337,11 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintln(w, bold.Render(deploymentLabel(dep))+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))           //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID))               //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                                 //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)                            //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  ID:         %s\n", dim.Render(dep.ID))                       //nolint:errcheck,gosec
+	printStatusDetail(w, status)
+	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID)) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                   //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)              //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  ID:         %s\n", dim.Render(dep.ID))         //nolint:errcheck,gosec
 
 	if fullErr == nil {
 		if messaging := messagingEndpoint(full.ExternalURLs); messaging != nil && messaging.URL != "" {
@@ -334,12 +354,6 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var workloads []workloadDetail
-	if fullErr == nil {
-		workloads = full.Workloads
-	} else if legacy, legacyErr := getDeploymentDetail(cmd, dep.ID, at, verbose); legacyErr == nil {
-		workloads = legacy.Workloads
-	}
 	if len(workloads) > 0 {
 		fmt.Fprintf(w, "  Components:\n") //nolint:errcheck,gosec
 		for _, wl := range workloads {
@@ -349,13 +363,18 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 			}
 			// Show workload name alongside component so users can pass it to
 			// `agent logs --workload <name>` for non-agent components.
+			suffix := ""
 			if wl.Name != "" && wl.Name != component {
-				fmt.Fprintf(w, "    %s %s\n", dim.Render(component), dim.Render("("+wl.Name+")")) //nolint:errcheck,gosec
-			} else {
-				fmt.Fprintf(w, "    %s\n", dim.Render(component)) //nolint:errcheck,gosec
+				suffix = " " + dim.Render("("+wl.Name+")")
 			}
+			if wl.Schedule != "" {
+				suffix += "  " + accent.Render(wl.Schedule)
+			}
+			fmt.Fprintf(w, "    %s%s\n", dim.Render(component), suffix) //nolint:errcheck,gosec
+			printContainerStates(w, wl.Name, runtime)
 		}
 	}
+	printAlerts(w, alerts)
 	return nil
 }
 
@@ -662,6 +681,8 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 	tail, _ := cmd.Flags().GetBool("tail")
 
 	w := cmd.OutOrStdout()
+
+	warnIfRestarting(w, cmd, at, verbose, dep.ID, workload, container)
 
 	if tail {
 		q := url.Values{}
