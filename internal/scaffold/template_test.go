@@ -6,6 +6,11 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	spec "github.com/astropods/astro-spec"
 )
 
 // --- GetTemplatePaths tests ---
@@ -713,4 +718,73 @@ func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
 	if !strings.Contains(err.Error(), "unsupported template") {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
 	}
+}
+
+// --- AGENT.md attribution tests ---
+
+func TestRenderAgentCard_Attribution(t *testing.T) {
+	paths, err := GetTemplatePaths("mastra")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		author         CardAuthor
+		repository     CardRepository
+		wantAuthors    []spec.AgentCardAuthor
+		wantRepository *spec.AgentCardRepo
+		wantContains   string
+	}{
+		{
+			name:           "name, account and nested repository",
+			author:         CardAuthor{Name: "Jane Doe", Account: "janedoe"},
+			repository:     CardRepository{URL: "https://github.com/astropods/agents", Directory: "scout"},
+			wantAuthors:    []spec.AgentCardAuthor{{Name: "Jane Doe", Account: "janedoe"}},
+			wantRepository: &spec.AgentCardRepo{URL: "https://github.com/astropods/agents", Directory: "scout"},
+		},
+		{
+			name:           "account only and repository root",
+			author:         CardAuthor{Account: "janedoe"},
+			repository:     CardRepository{URL: "https://github.com/astropods/scout"},
+			wantAuthors:    []spec.AgentCardAuthor{{Account: "janedoe"}},
+			wantRepository: &spec.AgentCardRepo{Type: "git", URL: "https://github.com/astropods/scout"},
+		},
+		{
+			name:         "no attribution available leaves a repository example",
+			wantContains: "# repository: github:your-org/your-repo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := DefaultConfig("scout")
+			config.Author = tt.author
+			config.Repository = tt.repository
+
+			rendered, err := RenderTemplate(paths.AgentMd, config)
+			require.NoError(t, err)
+
+			card := spec.ParseAgentCard(rendered)
+			assert.Empty(t, card.Warnings, "scaffolded card must parse without warnings")
+			assert.Equal(t, tt.wantAuthors, card.Authors)
+			assert.Equal(t, tt.wantRepository, card.Repository)
+			if tt.wantContains != "" {
+				assert.Contains(t, rendered, tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestRenderAgentCard_AttributionSatisfiesTheSpecCheck(t *testing.T) {
+	paths, err := GetTemplatePaths("mastra")
+	require.NoError(t, err)
+
+	config := DefaultConfig("scout")
+	config.Author = CardAuthor{Name: "Jane Doe", Account: "janedoe"}
+	config.Repository = CardRepository{URL: "https://github.com/astropods/agents", Directory: "scout"}
+
+	rendered, err := RenderTemplate(paths.AgentMd, config)
+	require.NoError(t, err)
+
+	card := spec.ParseAgentCard(rendered)
+	assert.Empty(t, spec.MissingAttribution(&card.AgentCard))
 }

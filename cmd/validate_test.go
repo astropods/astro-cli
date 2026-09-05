@@ -102,3 +102,47 @@ func TestValidateSpecFile_YAMLSyntaxError(t *testing.T) {
 		t.Errorf("expected YAML syntax error in output, got: %q", out)
 	}
 }
+
+func TestRunValidate_ReportsAgentCardAttribution(t *testing.T) {
+	const validSpec = "spec: blueprint/v1\nname: demo\nmeta: {}\nagent:\n  image: demo:latest\n"
+
+	t.Run("warns when the card carries no attribution", func(t *testing.T) {
+		specPath := writeSpecFile(t, validSpec)
+		workingDir := filepath.Dir(specPath)
+		if err := os.WriteFile(filepath.Join(workingDir, "AGENT.md"), []byte("---\ndescription: demo\n---\nBody.\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		out := captureStdout(t, func() {
+			if err := runValidate(specPath, workingDir); err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+		})
+
+		if !strings.Contains(out, msgAgentCardMissingAuthors()) {
+			t.Errorf("expected the authors warning, got: %q", out)
+		}
+		if !strings.Contains(out, msgAgentCardMissingRepository()) {
+			t.Errorf("expected the repository warning, got: %q", out)
+		}
+	})
+
+	t.Run("stays quiet when the card is complete", func(t *testing.T) {
+		specPath := writeSpecFile(t, validSpec)
+		workingDir := filepath.Dir(specPath)
+		card := "---\ndescription: demo\nauthors:\n  - name: Jane Doe\n    account: janedoe\nrepository: github:astropods/demo\n---\nBody.\n"
+		if err := os.WriteFile(filepath.Join(workingDir, "AGENT.md"), []byte(card), 0600); err != nil {
+			t.Fatal(err)
+		}
+
+		out := captureStdout(t, func() {
+			if err := runValidate(specPath, workingDir); err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+		})
+
+		if strings.Contains(out, "AGENT.md") {
+			t.Errorf("expected no AGENT.md warning, got: %q", out)
+		}
+	})
+}

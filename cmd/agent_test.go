@@ -374,20 +374,23 @@ func TestAgentHistory(t *testing.T) {
 	payload := map[string]any{
 		"deployments": []any{
 			map[string]any{
-				"id":          "dep-3",
-				"agent_name":  "my-agent",
-				"revision":    3,
-				"build_id":    "abc12345",
-				"status":      "active",
-				"deployed_at": "2026-03-01T12:00:00Z",
+				"id":                 "dep-3",
+				"agent_name":         "my-agent",
+				"revision":           3,
+				"build_id":           "abc12345",
+				"status":             "active",
+				"deployed_at":        "2026-03-01T12:00:00Z",
+				"deployed_by_name":   "Manu Deep",
+				"deployed_by_handle": "manudeep",
 			},
 			map[string]any{
-				"id":          "dep-2",
-				"agent_name":  "my-agent",
-				"revision":    2,
-				"build_id":    "def67890",
-				"status":      "stopped",
-				"deployed_at": "2026-02-01T08:00:00Z",
+				"id":               "dep-2",
+				"agent_name":       "my-agent",
+				"revision":         2,
+				"build_id":         "def67890",
+				"status":           "stopped",
+				"deployed_at":      "2026-02-01T08:00:00Z",
+				"deployed_by_name": "Jane Doe",
 			},
 		},
 		"count": 2,
@@ -405,6 +408,9 @@ func TestAgentHistory(t *testing.T) {
 		{name: "shows revision", statusCode: http.StatusOK, body: payload, wantOut: "3"},
 		{name: "shows status", statusCode: http.StatusOK, body: payload, wantOut: "active"},
 		{name: "shows deployed date", statusCode: http.StatusOK, body: payload, wantOut: "2026-03-01"},
+		{name: "shows the deployer handle", statusCode: http.StatusOK, body: payload, wantOut: "manudeep"},
+		{name: "falls back to the deployer name", statusCode: http.StatusOK, body: payload, wantOut: "Jane Doe"},
+		{name: "labels the deployer column", statusCode: http.StatusOK, body: payload, wantOut: "By"},
 		{name: "empty history", statusCode: http.StatusOK, body: map[string]any{"deployments": []any{}, "count": 0}, wantOut: "No deployment history"},
 		{name: "json output", statusCode: http.StatusOK, body: payload, jsonOutput: true, wantOut: `"revision"`},
 		{name: "server error", statusCode: http.StatusInternalServerError, body: map[string]any{"error": "internal error"}, wantErr: true},
@@ -436,6 +442,24 @@ func TestAgentHistory(t *testing.T) {
 				require.NoError(t, err)
 				assert.Contains(t, buf.String(), tc.wantOut)
 			}
+		})
+	}
+}
+
+func TestDeploymentHistoryRecord_Deployer(t *testing.T) {
+	tests := []struct {
+		name   string
+		record deploymentHistoryRecord
+		want   string
+	}{
+		{name: "handle wins", record: deploymentHistoryRecord{DeployedByName: "Manu Deep", DeployedByHandle: "manudeep"}, want: "manudeep"},
+		{name: "name without handle", record: deploymentHistoryRecord{DeployedByName: "Manu Deep"}, want: "Manu Deep"},
+		{name: "server resolved nobody", record: deploymentHistoryRecord{}, want: "-"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.record.deployer())
 		})
 	}
 }

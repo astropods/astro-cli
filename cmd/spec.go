@@ -55,11 +55,11 @@ var specValidateCmd = &cobra.Command{
 Reports all schema violations and semantic errors.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		specPath, _, err := resolveSpecPathAndCwd(flagString(cmd, "file"))
+		specPath, workingDir, err := resolveSpecPathAndCwd(flagString(cmd, "file"))
 		if err != nil {
 			return err
 		}
-		return runValidate(specPath)
+		return runValidate(specPath, workingDir)
 	},
 }
 

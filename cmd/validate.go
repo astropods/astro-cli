@@ -20,7 +20,7 @@ type validationError struct {
 	line    int
 }
 
-func runValidate(specPath string) error {
+func runValidate(specPath, workingDir string) error {
 	fmt.Println()
 	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
 
@@ -28,7 +28,11 @@ func runValidate(specPath string) error {
 		return err
 	}
 
-	fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
+	fmt.Printf("%s✓%s %s is valid\n", colorGreen, colorReset, filepath.Base(specPath))
+	for _, w := range agentCardWarnings(workingDir) {
+		fmt.Printf("  %s⚠%s %s\n", colorYellow, colorReset, w)
+	}
+	fmt.Println()
 	return nil
 }
 
