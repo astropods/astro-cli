@@ -90,6 +90,14 @@ ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
 ast project trigger <name>         # manually trigger an ingestion job
+ast project trigger               # list the ingestion jobs in the spec
+```
+
+`project trigger` accepts the same `--env` and `-f/--file` flags as
+`project start`, so a job can be run against an alternative env file:
+
+```bash
+ast project trigger docs-sync --env .env.staging
 ```
 
 **Ingestion behavior:**

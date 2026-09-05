@@ -94,6 +94,14 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
 	}
 
+	// runDevTrigger reads both of these, so they have to be registered here too.
+	// They were not, and because flagString swallows the lookup error an
+	// unregistered flag reads as "" rather than failing — which is what made
+	// every `project trigger` invocation die on the env file. Registering them
+	// also makes `--env` actually passable to a trigger.
+	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
+
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
 }
 
