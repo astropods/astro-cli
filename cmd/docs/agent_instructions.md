@@ -167,7 +167,7 @@ Each framework adapter also connects your agent to Astropods messaging — the s
 
 ### Mastra
 
-`@astropods/adapter-mastra` — the same package used in the Quick Start above — auto-wires OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Calling `serve(agent)` registers the agent and configures observability in the same step. The agent's `name` is sent as `service.name`; no additional setup is required. Requires `@mastra/core >= 1.14.0`.
+`@astropods/adapter-mastra` — the same package used in the Quick Start above — auto-wires OpenTelemetry when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Calling `serve(agent)` registers the agent and configures observability in the same step. The agent's `name` is sent as `service.name`; no additional setup is required. Requires `@mastra/core >= 1.63.0`.
 
 If your project constructs its own `Mastra` instance, `serve()` registers Astro's OpenTelemetry observability alongside any existing observability instances on that Mastra.
 
