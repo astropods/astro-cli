@@ -240,6 +240,10 @@ func msgNoInvoices() string {
 	return "No invoices yet"
 }
 
+func msgNoAgentSpend() string {
+	return "No metered compute this period"
+}
+
 func errBillingSetConflict(name string) error {
 	return fmt.Errorf("--%s and --clear-%s cannot be used together", name, name)
 }
