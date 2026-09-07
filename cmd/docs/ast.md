@@ -101,6 +101,12 @@ ast project trigger <name>         # manually trigger an ingestion job
 | `webhook` | Started alongside the agent; port exposed (default 3001) |
 | `manual` | Prints `ast project trigger <name>` |
 
+A `schedule` trigger has no cadence locally. Set the cron when you deploy:
+`ast deploy <name> --schedule <ingestion>="*/15 * * * *"`. The flag is
+repeatable, takes a five-field cron expression, and is required for every
+`schedule` entry on a first deploy. A redeploy keeps the cadence it already
+has.
+
 ### `push` — Build, package, and register with Astropods
 
 `ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **adds the agent to the Astropods registry**. If images aren’t already built, a build is run automatically unless you pass `--skip-build`.
