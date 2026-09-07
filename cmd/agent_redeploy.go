@@ -18,6 +18,11 @@ func init() {
 }
 
 func runAgentRedeploy(cmd *cobra.Command, args []string) error {
+	schedules, err := parseDeploySchedulesFromCmd(cmd)
+	if err != nil {
+		return err
+	}
+
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
@@ -54,10 +59,6 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	schedules, err := parseDeploySchedulesFromCmd(cmd)
-	if err != nil {
-		return err
-	}
 
 	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
