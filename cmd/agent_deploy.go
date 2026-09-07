@@ -11,6 +11,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"
+	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/tui"
@@ -288,6 +289,10 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 	return vars, nil
 }
 
+// scheduleCronParser matches the server's parser, so a cron the CLI accepts is
+// one the server accepts.
+var scheduleCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
 func parseDeploySchedules(values []string) (map[string]string, error) {
 	result := make(map[string]string, len(values))
 	for _, raw := range values {
@@ -299,6 +304,9 @@ func parseDeploySchedules(values []string) (map[string]string, error) {
 		}
 		if _, exists := result[name]; exists {
 			return nil, errDuplicateSchedule(name)
+		}
+		if _, err := scheduleCronParser.Parse(cron); err != nil {
+			return nil, errInvalidCronExpression(name, cron)
 		}
 		result[name] = cron
 	}
@@ -357,6 +365,12 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got 0")
 	}
 	name := args[0]
+
+	schedules, err := parseDeploySchedulesFromCmd(cmd)
+	if err != nil {
+		return err
+	}
+
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
@@ -376,10 +390,6 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	schedules, err := parseDeploySchedulesFromCmd(cmd)
-	if err != nil {
-		return err
-	}
 
 	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {

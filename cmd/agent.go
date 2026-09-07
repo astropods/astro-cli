@@ -105,6 +105,7 @@ func init() {
 	agentCmd.AddCommand(agentHistoryCmd)
 	agentCmd.AddCommand(agentRestartCmd)
 	agentCmd.AddCommand(agentLogsCmd)
+	agentCmd.AddCommand(agentTriggerCmd)
 
 	agentListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	agentGetCmd.Flags().Bool("json", false, "Print raw JSON output")
@@ -115,6 +116,7 @@ func init() {
 	registerAgentTargetFlags(agentHistoryCmd)
 	registerAgentTargetFlags(agentRestartCmd)
 	registerAgentTargetFlags(agentLogsCmd)
+	registerAgentTargetFlags(agentTriggerCmd)
 	agentDeleteCmd.Flags().String("confirm", "", "Skip prompt by passing the agent name or ID as confirmation")
 	agentHistoryCmd.Flags().Bool("json", false, "Print raw JSON output")
 	agentRestartCmd.Flags().String("component", "", "Component to restart (agent)")

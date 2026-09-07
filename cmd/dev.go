@@ -87,6 +87,7 @@ Use -b/--background to start in the background and exit immediately.`
 
 	// trigger reads the same env file as start, but shares no other flags.
 	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {

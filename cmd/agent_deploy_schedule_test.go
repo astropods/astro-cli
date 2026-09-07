@@ -54,6 +54,36 @@ func TestParseDeploySchedules(t *testing.T) {
 			flags:   []string{"weekly-sync=0 3 * * *", "weekly-sync=0 4 * * *"},
 			wantErr: errDuplicateSchedule("weekly-sync"),
 		},
+		{
+			name:  "step and range syntax",
+			flags: []string{"weekly-sync=*/15 9-17 * * 1-5"},
+			want:  map[string]string{"weekly-sync": "*/15 9-17 * * 1-5"},
+		},
+		{
+			name:    "not a cron expression",
+			flags:   []string{"weekly-sync=not a cron"},
+			wantErr: errInvalidCronExpression("weekly-sync", "not a cron"),
+		},
+		{
+			name:    "too few fields",
+			flags:   []string{"weekly-sync=0 3 * *"},
+			wantErr: errInvalidCronExpression("weekly-sync", "0 3 * *"),
+		},
+		{
+			name:    "six fields, seconds are not accepted",
+			flags:   []string{"weekly-sync=0 0 3 * * *"},
+			wantErr: errInvalidCronExpression("weekly-sync", "0 0 3 * * *"),
+		},
+		{
+			name:    "descriptors are not accepted",
+			flags:   []string{"weekly-sync=@daily"},
+			wantErr: errInvalidCronExpression("weekly-sync", "@daily"),
+		},
+		{
+			name:    "minute out of range",
+			flags:   []string{"weekly-sync=99 3 * * *"},
+			wantErr: errInvalidCronExpression("weekly-sync", "99 3 * * *"),
+		},
 	}
 
 	for _, tc := range cases {
@@ -232,7 +262,7 @@ func TestRunBlueprintDeployPrintsIngestionValidationErrors(t *testing.T) {
 	})
 	setupBlueprintDeployTest(t, handler)
 
-	setDeployFlag(t, "schedule", "weekly-sync=not-a-cron")
+	setDeployFlag(t, "schedule", "weekly-sync=0 3 * * *")
 	buf := &bytes.Buffer{}
 	blueprintDeployCmd.SetOut(buf)
 	blueprintDeployCmd.SetContext(context.Background())
