@@ -39,8 +39,8 @@ func TestBillingGet(t *testing.T) {
 		"has_usage_spend":    true,
 		"credit_remaining":   3.43,
 		"has_credit":         true,
-		"warning":            map[string]any{"amount": 8.0, "in_alarm": false},
-		"limit":              map[string]any{"amount": 20.0, "in_alarm": true},
+		"warning":            map[string]any{"amount": 800.0, "in_alarm": false},
+		"limit":              map[string]any{"amount": 2000.0, "in_alarm": true},
 	}
 
 	cases := []struct {
@@ -67,6 +67,11 @@ func TestBillingGet(t *testing.T) {
 			statusCode: http.StatusOK, wantOut: msgBillingUnavailable()},
 		{name: "json output", body: spendPayload(full), statusCode: http.StatusOK,
 			jsonOutput: true, wantOut: `"usage_spend": 6.57`},
+		// Metronome reports the limit in cents (2000.0 in the mock above); the
+		// JSON output must scale it to dollars like the table output does, not
+		// pass the wire value through raw.
+		{name: "json output scales the limit to dollars", body: spendPayload(full), statusCode: http.StatusOK,
+			jsonOutput: true, wantOut: `"amount": 20`},
 		{name: "server error", body: map[string]any{"error": "boom"},
 			statusCode: http.StatusInternalServerError, wantErr: true},
 	}
@@ -222,19 +227,19 @@ func TestBillingSetPreservesTheUnnamedControl(t *testing.T) {
 	cases := []struct {
 		name        string
 		flags       map[string]string
-		wantWarning *float64
-		wantLimit   *float64
+		wantWarning *float64 // sent value, in the wire's cents
+		wantLimit   *float64 // sent value, in the wire's cents
 	}{
 		{
 			name:        "setting only the limit keeps the warning",
 			flags:       map[string]string{"limit": "50"},
 			wantWarning: ptrFloat(8),
-			wantLimit:   ptrFloat(50),
+			wantLimit:   ptrFloat(5000),
 		},
 		{
 			name:        "setting only the warning keeps the limit",
 			flags:       map[string]string{"warning": "5"},
-			wantWarning: ptrFloat(5),
+			wantWarning: ptrFloat(500),
 			wantLimit:   ptrFloat(20),
 		},
 		{
@@ -246,8 +251,8 @@ func TestBillingSetPreservesTheUnnamedControl(t *testing.T) {
 		{
 			name:        "setting both replaces both",
 			flags:       map[string]string{"warning": "1", "limit": "2"},
-			wantWarning: ptrFloat(1),
-			wantLimit:   ptrFloat(2),
+			wantWarning: ptrFloat(100),
+			wantLimit:   ptrFloat(200),
 		},
 	}
 
@@ -282,6 +287,34 @@ func TestBillingSetPreservesTheUnnamedControl(t *testing.T) {
 			assert.Contains(t, buf.String(), msgSpendControlsSaved())
 		})
 	}
+}
+
+// Metronome's spend endpoint is denominated in cents. Sending a dollar amount
+// unconverted set a limit 100x smaller than the one the caller typed.
+func TestBillingSetConvertsDollarsToCentsOnTheWire(t *testing.T) {
+	var sent struct {
+		Warning *float64 `json:"warning"`
+		Limit   *float64 `json:"limit"`
+	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&sent))
+			jsonHandler(http.StatusOK, map[string]any{"available": true})(w, r)
+			return
+		}
+		jsonHandler(http.StatusOK, spendPayload(map[string]any{"currency": "USD"}))(w, r)
+	})
+	setupBillingTest(t, handler)
+
+	require.NoError(t, billingSetCmd.Flags().Set("limit", "9"))
+	t.Cleanup(func() { resetBillingSetFlags(t) })
+
+	billingSetCmd.SetOut(&bytes.Buffer{})
+	billingSetCmd.SetContext(context.Background())
+
+	require.NoError(t, runBillingSet(billingSetCmd, nil))
+	assert.Equal(t, ptrFloat(900), sent.Limit)
+	assert.Nil(t, sent.Warning)
 }
 
 // An empty invocation would send two nulls, which removes the account's spend
