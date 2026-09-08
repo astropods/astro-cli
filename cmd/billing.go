@@ -34,7 +34,9 @@ func billingBaseURL() string {
 //   - set:      the spend controls
 //
 // Every read prints dollars. The provider reports money as a decimal amount in
-// the currency the response names, so nothing here converts.
+// the currency the response names, except the spend Warning/Limit thresholds:
+// Metronome stores those in its USD-cents credit type (see spend_thresholds.go
+// on the server), so scaleSpendThresholds and toCents convert at the boundary.
 
 var billingCmd = &cobra.Command{
 	Use:   "billing",
@@ -212,6 +214,7 @@ func runBillingGet(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	scaleSpendThresholds(&spend)
 
 	w := cmd.OutOrStdout()
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -468,6 +471,7 @@ func runBillingSet(cmd *cobra.Command, _ []string) error {
 	if !available {
 		return errBillingUnavailable()
 	}
+	scaleSpendThresholds(&current)
 
 	body := struct {
 		Metric  string   `json:"metric,omitempty"`
@@ -495,11 +499,18 @@ func runBillingSet(cmd *cobra.Command, _ []string) error {
 		body.Limit = nil
 	}
 
+	// body stays in dollars for the confirmation print below; the wire copy is
+	// what actually goes to Metronome's cents-denominated spend endpoint.
+	wireBody := body
+	if metric == "" {
+		wireBody.Warning, wireBody.Limit = toCents(body.Warning), toCents(body.Limit)
+	}
+
 	u := apiPath(billingBaseURL(), at.Account, "accounts", "billing", "spend", "thresholds")
 	if metric != "" {
 		u = apiPath(billingBaseURL(), at.Account, "accounts", "billing", "usage", "thresholds")
 	}
-	if _, err := apiCall(cmd.Context(), http.MethodPut, u, body, at.Token, verbose, nil); err != nil {
+	if _, err := apiCall(cmd.Context(), http.MethodPut, u, wireBody, at.Token, verbose, nil); err != nil {
 		return err
 	}
 
@@ -523,6 +534,34 @@ var usageMetrics = []string{"compute", "gateway"}
 
 func validUsageMetric(s string) bool {
 	return slices.Contains(usageMetrics, s)
+}
+
+// spendThresholdCentsPerDollar converts the account's own spend Warning/Limit
+// between the dollars this command shows and Metronome's USD-cents credit
+// type (see spend_thresholds.go on the server). Usage-metric thresholds reuse
+// the same spendThreshold struct for a raw quantity (CU-hours, or gateway's
+// own USD metric) and are never scaled.
+const spendThresholdCentsPerDollar = 100
+
+// scaleSpendThresholds converts a decoded spend response's top-level Warning
+// and Limit from cents to dollars in place.
+func scaleSpendThresholds(spend *billingSpend) {
+	if spend.Warning != nil {
+		spend.Warning.Amount /= spendThresholdCentsPerDollar
+	}
+	if spend.Limit != nil {
+		spend.Limit.Amount /= spendThresholdCentsPerDollar
+	}
+}
+
+// toCents converts a dollar amount back to what the threshold endpoint
+// expects. A clear (nil) stays nil.
+func toCents(dollars *float64) *float64 {
+	if dollars == nil {
+		return nil
+	}
+	v := *dollars * spendThresholdCentsPerDollar
+	return &v
 }
 
 func existingThreshold(t *spendThreshold) *float64 {
