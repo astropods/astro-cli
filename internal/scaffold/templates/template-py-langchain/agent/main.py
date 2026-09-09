@@ -1,5 +1,5 @@
 """
-{{.Name}} - {{.Description}}
+{{.Name}} - {{.DocDescription | pyDoc}}
 
 Environment variables (automatically injected by 'astro dev'):
 {{- range .AgentEnvVars}}
@@ -37,7 +37,7 @@ llm = ChatOpenAI(model="gpt-4o")
 llm = ChatAnthropic(model="claude-sonnet-4-5")
 {{- end}}
 
-system_prompt = "You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | pyStr}}"
+system_prompt = "You are {{.Name | humanName}}, a helpful AI assistant.{{with .Description}} {{. | dqStr}}{{end}}"
 agent = create_agent(llm, tools=[], system_prompt=system_prompt)
 
 adapter = LangChainAdapter(agent, name="{{.Name}}", system_prompt=system_prompt)

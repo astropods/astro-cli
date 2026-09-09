@@ -1,5 +1,5 @@
 ---
-description: "{{.Description}}"
+description: "{{.DocDescription | dqStr}}"
 tags: []
 authors: []
 capabilities: []
@@ -13,4 +13,4 @@ integrations:
 {{- end}}
 ---
 
-{{.Description}}
+{{.DocDescription}}

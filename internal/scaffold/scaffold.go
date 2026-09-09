@@ -40,6 +40,20 @@ type ScaffoldConfig struct {
 	AIGateway       bool              // opt into the Astro AI Gateway (managed model access, no provider key)
 }
 
+// DescriptionPlaceholder stands in for a missing description in generated docs
+// and metadata. It must never reach the agent's instructions, which read
+// Description directly so an unset description leaves the prompt alone.
+const DescriptionPlaceholder = "Describe what your agent does in one sentence."
+
+// DocDescription returns the description to show in generated docs and
+// metadata, falling back to DescriptionPlaceholder.
+func (c ScaffoldConfig) DocDescription() string {
+	if c.Description == "" {
+		return DescriptionPlaceholder
+	}
+	return c.Description
+}
+
 // HasKnowledge returns true if the given knowledge type is selected.
 func (c ScaffoldConfig) HasKnowledge(k string) bool {
 	for _, v := range c.Knowledge {
@@ -195,7 +209,6 @@ func (c ScaffoldConfig) specFromTemplate() (*spec.AstroSpec, error) {
 func DefaultConfig(name string) ScaffoldConfig {
 	return ScaffoldConfig{
 		Name:            name,
-		Description:     "Describe what your agent does in one sentence.",
 		Interfaces:      []string{"web"},
 		Knowledge:       []string{},
 		Integrations:    []string{"anthropic"},
@@ -331,19 +344,39 @@ func RenderIngestionDockerfile(templatePath string, config ScaffoldConfig, ingTy
 	return buf.String(), nil
 }
 
+// escapeNewlines rewrites literal line breaks as their escape sequence, which
+// the single-line quoted forms below require: a raw line break ends the literal.
+func escapeNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", `\n`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	return s
+}
+
 // templateFuncs returns the FuncMap available to all scaffold templates.
 var templateFuncs = template.FuncMap{
 	// jsStr escapes a string for safe embedding in a JS/TS single-quoted literal.
 	"jsStr": func(s string) string {
 		s = strings.ReplaceAll(s, `\`, `\\`)
 		s = strings.ReplaceAll(s, `'`, `\'`)
-		return s
+		return escapeNewlines(s)
 	},
-	// pyStr escapes a string for safe embedding in a Python double-quoted string literal.
-	"pyStr": func(s string) string {
+	// dqStr escapes a string for safe embedding in a double-quoted literal. The
+	// JSON, YAML 1.2 and Python escape forms agree, so one func covers all three.
+	"dqStr": func(s string) string {
 		s = strings.ReplaceAll(s, `\`, `\\`)
 		s = strings.ReplaceAll(s, `"`, `\"`)
-		return s
+		return escapeNewlines(s)
+	},
+	// jsComment neutralizes the sequence that would close a /* */ block early.
+	"jsComment": func(s string) string {
+		return strings.ReplaceAll(s, "*/", `*\/`)
+	},
+	// pyDoc escapes backslashes, which Python warns about as unknown escapes
+	// inside a docstring, and quote runs that would close the docstring early.
+	"pyDoc": func(s string) string {
+		s = strings.ReplaceAll(s, `\`, `\\`)
+		return strings.ReplaceAll(s, `"""`, `\"\"\"`)
 	},
 	// humanName converts a kebab-case name to title-cased words (e.g. "my-agent" → "My Agent").
 	"humanName": func(s string) string {
