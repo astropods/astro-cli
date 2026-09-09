@@ -149,7 +149,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prompt before any write or removal, so cancelling leaves the disk untouched.
-	if description == "" && !yes {
+	if description == "" && !yes && interactiveTerminal() {
 		answer, err := promptDescription(name)
 		if err != nil {
 			if errors.Is(err, tui.ErrCancelled) {

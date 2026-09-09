@@ -155,7 +155,7 @@ func runCreateInTempDir(t *testing.T, name string, args ...string) (projectDir, 
 	parent := t.TempDir()
 	var out bytes.Buffer
 
-	require.NoError(t, newCreateCmd(&out, append([]string{name, "--path", parent, "--yes"}, args...)...).Execute())
+	require.NoError(t, newCreateCmd(&out, append([]string{name, "--path", parent}, args...)...).Execute())
 
 	return filepath.Join(parent, name), out.String()
 }
@@ -179,7 +179,8 @@ func readGenerated(t *testing.T, projectDir, name string) string {
 }
 
 func TestRunCreate_DescriptionReachesGeneratedAgent(t *testing.T) {
-	dir, out := runCreateInTempDir(t, "described-agent", "--description", "Summarise tech talks")
+	stubInteractiveTerminal(t, true)
+	dir, out := runCreateInTempDir(t, "described-agent", "--yes", "--description", "Summarise tech talks")
 
 	assert.Contains(t, readGenerated(t, dir, "agent/index.ts"),
 		"a helpful AI assistant. Summarise tech talks.",
@@ -193,13 +194,36 @@ func TestRunCreate_DescriptionReachesGeneratedAgent(t *testing.T) {
 }
 
 func TestRunCreate_WithoutDescriptionKeepsPlaceholderOutOfInstructions(t *testing.T) {
-	dir, _ := runCreateInTempDir(t, "plain-agent")
+	stubInteractiveTerminal(t, true)
+	dir, _ := runCreateInTempDir(t, "plain-agent", "--yes")
 
 	index := readGenerated(t, dir, "agent/index.ts")
 	instructions := findLine(t, index, "instructions:")
 	assert.NotContains(t, instructions, scaffold.DescriptionPlaceholder,
 		"the docs placeholder must never become an instruction to the model")
 	assert.Equal(t, "  instructions: 'You are Plain Agent, a helpful AI assistant.',", instructions)
+	assert.Contains(t, readGenerated(t, dir, "AGENT.md"), scaffold.DescriptionPlaceholder,
+		"the agent card should still prompt the reader to fill a description in")
+}
+
+// The prompt asks only for what --description already answers, so a terminal
+// being available must not make the command ask twice.
+func TestRunCreate_DescriptionFlagSkipsPrompt(t *testing.T) {
+	stubInteractiveTerminal(t, true)
+	dir, _ := runCreateInTempDir(t, "flagged-agent", "--description", "Summarise tech talks")
+
+	assert.Contains(t, findLine(t, readGenerated(t, dir, "agent/index.ts"), "instructions:"),
+		"a helpful AI assistant. Summarise tech talks.")
+}
+
+// A scripted or CI run has no TTY to prompt on, and must still get a project.
+func TestRunCreate_WithoutTerminalSkipsPrompt(t *testing.T) {
+	stubInteractiveTerminal(t, false)
+	dir, _ := runCreateInTempDir(t, "scripted-agent")
+
+	assert.Equal(t, "  instructions: 'You are Scripted Agent, a helpful AI assistant.',",
+		findLine(t, readGenerated(t, dir, "agent/index.ts"), "instructions:"),
+		"a skipped prompt should leave the instructions describing the agent by name only")
 	assert.Contains(t, readGenerated(t, dir, "AGENT.md"), scaffold.DescriptionPlaceholder,
 		"the agent card should still prompt the reader to fill a description in")
 }
