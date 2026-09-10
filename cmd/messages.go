@@ -409,3 +409,27 @@ func errDescriptionTooLong(length int) error {
 func msgPasteToCodingAgent() string {
 	return "Paste this into Claude or another coding agent to get started:"
 }
+
+func msgGitRepoInitialized() string {
+	return "Initialized a git repository with the scaffold as its first commit."
+}
+
+func msgInitialCommitSubject() string {
+	return fmt.Sprintf("Initial commit from %s project create", buildinfo.BinaryName)
+}
+
+func msgGitInitSkipped(reason string) string {
+	return fmt.Sprintf("Skipped git init: %s", reason)
+}
+
+func msgGitCommitSkipped(reason string) string {
+	return fmt.Sprintf("Initialized a git repository, but the initial commit failed: %s", reason)
+}
+
+func msgGitNotInstalled() string {
+	return "git is not installed"
+}
+
+func msgGitAlreadyInRepo() string {
+	return "the project is already inside a git repository"
+}

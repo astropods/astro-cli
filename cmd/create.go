@@ -66,6 +66,7 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("force", false, "Recreate in place if directory already exists")
 	cmd.Flags().StringP("model", "m", "", "LLM provider: gateway, anthropic, or openai")
 	cmd.Flags().StringP("description", "d", "", "One-sentence description of what the agent does")
+	cmd.Flags().Bool("no-git", false, "Skip git repository initialization")
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		return []cobra.Completion{
 			cobra.CompletionWithDesc("gateway", "Astro AI Gateway (managed models, no provider key)"),
@@ -82,6 +83,7 @@ func initExamples(cmd string) string {
   %[1]s my-agent --model anthropic
   %[1]s my-agent --template langchain
   %[1]s my-agent --path /path/to/projects
+  %[1]s my-agent --no-git
   %[1]s my-agent --force`, cmd)
 }
 
@@ -108,6 +110,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	template := flagString(cmd, "template")
 	force := flagBool(cmd, "force")
 	model := flagString(cmd, "model")
+	noGit := flagBool(cmd, "no-git")
 	description := normalizeDescription(flagString(cmd, "description"))
 	name := args[0] // validated by exactValidProjectName
 
@@ -176,6 +179,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	w := cmd.OutOrStdout()
 	printSuccess(w, name, targetDir, config.AIGateway)
+	if !noGit {
+		initGitRepo(cmd.Context(), w, targetDir)
+	}
 	printCodingPrompt(w, targetDir, config)
 	return nil
 }
