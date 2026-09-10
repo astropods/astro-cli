@@ -185,7 +185,6 @@ func TestRunCreate_DescriptionReachesGeneratedAgent(t *testing.T) {
 	assert.Contains(t, readGenerated(t, dir, "agent/index.ts"),
 		"a helpful AI assistant. Summarise tech talks.",
 		"the description should become part of the agent's instructions")
-	assert.Contains(t, readGenerated(t, dir, "AGENT.md"), `description: "Summarise tech talks."`)
 	assert.Contains(t, readGenerated(t, dir, "README.md"), "Summarise tech talks.")
 	assert.Contains(t, out, msgPasteToCodingAgent(),
 		"the coding-agent prompt should still be offered after the project is created")
@@ -226,6 +225,19 @@ func TestRunCreate_WithoutTerminalSkipsPrompt(t *testing.T) {
 		"a skipped prompt should leave the instructions describing the agent by name only")
 	assert.Contains(t, readGenerated(t, dir, "AGENT.md"), scaffold.DescriptionPlaceholder,
 		"the agent card should still prompt the reader to fill a description in")
+}
+
+// The agent card is a published registry listing, so a description written
+// before the agent exists must not be pre-published as one.
+func TestRunCreate_DescriptionStaysOutOfTheAgentCard(t *testing.T) {
+	stubInteractiveTerminal(t, false)
+	dir, _ := runCreateInTempDir(t, "carded-agent", "--yes", "--no-git",
+		"--description", "Summarise tech talks")
+
+	card := readGenerated(t, dir, spec.AgentReadmeFilename)
+	assert.NotContains(t, card, "Summarise tech talks",
+		"the card must be written deliberately, not filled from the scaffold prompt")
+	assert.Contains(t, card, `description: "`+scaffold.DescriptionPlaceholder+`"`)
 }
 
 func TestRunCreate_DescriptionTooLong(t *testing.T) {

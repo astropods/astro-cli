@@ -40,9 +40,11 @@ type ScaffoldConfig struct {
 	AIGateway       bool              // opt into the Astro AI Gateway (managed model access, no provider key)
 }
 
-// DescriptionPlaceholder stands in for a missing description in generated docs
-// and metadata. It must never reach the agent's instructions, which read
-// Description directly so an unset description leaves the prompt alone.
+// DescriptionPlaceholder stands in for a description the scaffold does not
+// have. It must never reach the agent's instructions, which read Description
+// directly so an unset description leaves the prompt alone. AGENT.md uses it
+// unconditionally: the agent card is a published registry listing, not a
+// restatement of what the project was scaffolded to do.
 const DescriptionPlaceholder = "Describe what your agent does in one sentence."
 
 // DocDescription returns the description to show in generated docs and
@@ -368,6 +370,9 @@ var templateFuncs = template.FuncMap{
 		s = strings.ReplaceAll(s, `"`, `\"`)
 		return escapeNewlines(s)
 	},
+	// descriptionPlaceholder exposes the fill-me-in sentence to templates that
+	// must show it whatever the config carries.
+	"descriptionPlaceholder": func() string { return DescriptionPlaceholder },
 	// jsComment neutralizes the sequence that would close a /* */ block early.
 	"jsComment": func(s string) string {
 		return strings.ReplaceAll(s, "*/", `*\/`)

@@ -65,7 +65,7 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("template", "t", "mastra", "Agent template (mastra, langchain)")
 	cmd.Flags().Bool("force", false, "Recreate in place if directory already exists")
 	cmd.Flags().StringP("model", "m", "", "LLM provider: gateway, anthropic, or openai")
-	cmd.Flags().StringP("description", "d", "", "One-sentence description of what the agent does")
+	cmd.Flags().StringP("description", "d", "", "One sentence on what the agent does, used for its instructions")
 	cmd.Flags().Bool("no-git", false, "Skip git repository initialization")
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		return []cobra.Completion{

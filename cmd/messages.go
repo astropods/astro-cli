@@ -399,7 +399,7 @@ func msgDescribeAgentTitle(name string) string {
 }
 
 func msgDescribeAgentHelp() string {
-	return "One sentence, used for the agent's instructions and its AGENT.md. Press enter to skip."
+	return "One sentence, used for the agent's instructions. Press enter to skip."
 }
 
 func errDescriptionTooLong(length int) error {

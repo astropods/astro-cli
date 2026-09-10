@@ -158,7 +158,7 @@ func TestGeneratedFiles_ParseWithHostileDescription(t *testing.T) {
 			"the description should survive JSON escaping unchanged")
 	})
 
-	t.Run("AGENT.md frontmatter stays parseable", func(t *testing.T) {
+	t.Run("AGENT.md keeps its placeholder", func(t *testing.T) {
 		paths, err := GetTemplatePaths("mastra")
 		require.NoError(t, err)
 		content, err := RenderTemplate(paths.AgentMd, config)
@@ -166,8 +166,8 @@ func TestGeneratedFiles_ParseWithHostileDescription(t *testing.T) {
 
 		card := spec.ParseAgentCard(content)
 		assert.Empty(t, card.Warnings)
-		assert.Equal(t, hostileDescription, card.Description,
-			"the description should survive YAML escaping unchanged")
+		assert.Equal(t, DescriptionPlaceholder, card.Description,
+			"the card is a published listing, so the scaffold never fills it in")
 	})
 
 	t.Run("agent prompt stays inside its string literal", func(t *testing.T) {
