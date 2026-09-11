@@ -366,3 +366,110 @@ func TestRunAgentRedeployGrantWithAdapterReachesTheWire(t *testing.T) {
 	require.Len(t, captured.Interfaces.Auth.Web.Grants, 1)
 	assert.True(t, captured.Interfaces.Auth.Web.Grants[0].Anyone)
 }
+
+func makeRedeployBlueprintHandler(t *testing.T, deployments []agentDeployment, versions []blueprintVersionSummary, captured *deployTemplateRequest) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/deployments":
+			jsonHandler(http.StatusOK, listDeploymentsResponse{Deployments: deployments, Count: len(deployments)})(w, r)
+		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
+			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
+				http.Error(w, "bad body", http.StatusBadRequest)
+				return
+			}
+			jsonHandler(http.StatusOK, map[string]any{
+				"template":   json.RawMessage(`{}`),
+				"validation": map[string]any{"valid": true},
+			})(w, r)
+		case r.URL.Path == "/api/v1/deploy":
+			jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": deployments[0].ID})(w, r)
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agents/"):
+			jsonHandler(http.StatusOK, blueprintItem{Account: "testaccount", Name: "my-bp", Versions: versions})(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+func TestRunAgentRedeployLatestPinsNewestPublishedBuild(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", BuildID: "build-old", Status: "active"},
+	}
+	// Deliberately out of order: the newest build is resolved by published_at,
+	// not by the server's array order.
+	versions := []blueprintVersionSummary{
+		{BuildID: "build-old", PublishedAt: "2026-09-01T00:00:00Z"},
+		{BuildID: "build-new", PublishedAt: "2026-09-10T00:00:00Z"},
+		{BuildID: "build-mid", PublishedAt: "2026-09-05T00:00:00Z"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, &captured))
+
+	setRedeployFlag(t, "latest", "true")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Equal(t, "build-new", captured.Build)
+}
+
+func TestRunAgentRedeployWithoutLatestLeavesBuildUnset(t *testing.T) {
+	// The default stays "re-run whatever the deployment pins": an unset Build
+	// tells the server to leave the pin alone.
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", BuildID: "build-old", Status: "active"},
+	}
+	versions := []blueprintVersionSummary{
+		{BuildID: "build-new", PublishedAt: "2026-09-10T00:00:00Z"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, &captured))
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Empty(t, captured.Build)
+}
+
+func TestRunAgentRedeployLatestWithBuildIsRejectedBeforeAPICall(t *testing.T) {
+	apiCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiCalled = true
+		http.NotFound(w, r)
+	})
+	setupAgentRedeployTest(t, handler)
+
+	setRedeployFlag(t, "latest", "true")
+	setRedeployFlag(t, "build", "build-pinned")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	err := runAgentRedeploy(agentRedeployCmd, nil)
+	require.ErrorContains(t, err, "mutually exclusive")
+	assert.False(t, apiCalled, "conflicting build selectors should fail before any API call")
+}
+
+func TestRunAgentRedeployLatestNeedsAPublishedBuild(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, nil, &captured))
+
+	setRedeployFlag(t, "latest", "true")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	err := runAgentRedeploy(agentRedeployCmd, nil)
+	require.ErrorContains(t, err, "no published build")
+	assert.Empty(t, captured.Build)
+}
