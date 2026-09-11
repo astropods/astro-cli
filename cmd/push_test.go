@@ -1290,3 +1290,46 @@ func TestFindAgentReadme(t *testing.T) {
 		})
 	}
 }
+
+func TestWritePushResultCarriesTheBuildID(t *testing.T) {
+	// The build ID is the whole point: without it a caller has to scrape the
+	// tag out of the ANSI success box to redeploy what it just pushed.
+	buf := &bytes.Buffer{}
+	require.NoError(t, writePushResult(buf, "testaccount", "weather-agent", "b70f7e77", "private"))
+
+	var got pushResult
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
+	assert.Equal(t, pushResult{
+		Account:    "testaccount",
+		Name:       "weather-agent",
+		BuildID:    "b70f7e77",
+		Visibility: "private",
+	}, got)
+}
+
+func TestWritePushResultIsParseableOnItsOwn(t *testing.T) {
+	buf := &bytes.Buffer{}
+	require.NoError(t, writePushResult(buf, "acct", "agent", "deadbeef", ""))
+
+	// No ANSI, no banner: the stream has to survive a pipe into jq.
+	out := buf.String()
+	assert.NotContains(t, out, "\033[")
+	assert.NotContains(t, out, "Pushed successfully")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, "deadbeef", got["build_id"])
+	assert.NotContains(t, got, "visibility", "an unresolved visibility is omitted, not empty-stringed")
+}
+
+func TestRedirectProgressRestoresPreviousDestination(t *testing.T) {
+	original := progressOut
+	buf := &bytes.Buffer{}
+
+	restore := redirectProgress(buf)
+	printStep("Building images")
+	restore()
+
+	assert.Contains(t, stripANSI(buf.String()), "Building images")
+	assert.Equal(t, original, progressOut, "progress destination must be restored")
+}

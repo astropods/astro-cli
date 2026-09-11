@@ -30,6 +30,37 @@ import (
 // pushServerURLOverride is set in tests to redirect API calls to a test server.
 var pushServerURLOverride string
 
+// progressOut receives the human-readable push progress. --json points it at
+// stderr so stdout carries the result object and nothing else.
+var progressOut io.Writer = os.Stdout
+
+// redirectProgress points push progress at w and returns a restore func.
+func redirectProgress(w io.Writer) func() {
+	prev := progressOut
+	progressOut = w
+	return func() { progressOut = prev }
+}
+
+// pushResult is the --json payload: everything a caller needs to deploy what
+// was just pushed, chiefly the build ID that otherwise only appears in the
+// success box.
+type pushResult struct {
+	Account    string `json:"account"`
+	Name       string `json:"name"`
+	BuildID    string `json:"build_id"`
+	Visibility string `json:"visibility,omitempty"`
+}
+
+// writePushResult emits the push result as JSON.
+func writePushResult(w io.Writer, account, name, buildID, visibility string) error {
+	return writeJSON(w, pushResult{
+		Account:    account,
+		Name:       name,
+		BuildID:    buildID,
+		Visibility: visibility,
+	})
+}
+
 func pushBaseURL() string {
 	if pushServerURLOverride != "" {
 		return strings.TrimSuffix(pushServerURLOverride, "/")
@@ -65,15 +96,23 @@ func checkBlueprintPushPermission(ctx context.Context, serverURL string, at Acco
 
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
 // w is the destination for human-readable output (typically cmd.OutOrStdout()); tests can
-// redirect by passing a custom writer. Pipeline-internal prints still go to os.Stdout
-// because the pipeline doesn't take a writer yet — those are a follow-up.
+// redirect by passing a custom writer. Pipeline-internal prints go to progressOut.
+//
+// With cfg.JSON, every human line moves to stderr and w receives only the
+// result object, so `ast push --json | jq -r .build_id` is safe to pipe.
 func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipelineConfig) error {
 	serverURL := pushBaseURL()
 	registryURL := pushRegistryURL()
 
+	humanW := w
+	if cfg.JSON {
+		humanW = os.Stderr
+		defer redirectProgress(os.Stderr)()
+	}
+
 	if cfg.Verbose {
-		fmt.Fprintf(w, "%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, serverURL, colorReset)   //nolint:errcheck,gosec
-		fmt.Fprintf(w, "%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, registryURL, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(humanW, "%s→%s Server URL:   %s%s%s\n", colorCyan, colorReset, colorDim, serverURL, colorReset)   //nolint:errcheck,gosec
+		fmt.Fprintf(humanW, "%s→%s Registry URL: %s%s%s\n", colorCyan, colorReset, colorDim, registryURL, colorReset) //nolint:errcheck,gosec
 	}
 
 	if registryURL == "" {
@@ -97,7 +136,7 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 
 	pipeline := NewPushPipeline(ctx, cfg)
 
-	fmt.Fprintf(w, "%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", //nolint:errcheck,gosec
+	fmt.Fprintf(humanW, "%s→%s Pushing %s%s%s to %s%s%s build %s\n\n", //nolint:errcheck,gosec
 		colorCyan, colorReset, colorBold, cfg.AgentName, colorReset,
 		colorCyan, at.Account, colorReset, pipeline.Tag())
 
@@ -117,10 +156,14 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 		// explicit-"No" abort paths on the visibility prompt — exit 0 instead
 		// of bubbling the raw sentinel out to cobra as a failure.
 		if errors.Is(err, tui.ErrCancelled) {
-			printCancelled(w)
+			printCancelled(humanW)
 			return nil
 		}
 		return err
+	}
+
+	if cfg.JSON {
+		return writePushResult(w, cfg.Account, cfg.AgentName, pipeline.Tag(), string(pipeline.visibility))
 	}
 
 	pipeline.PrintSuccess()
@@ -129,30 +172,30 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 
 // Progress output helpers
 func printStep(message string) {
-	fmt.Printf("%s→%s %s", colorCyan, colorReset, message)
+	fmt.Fprintf(progressOut, "%s→%s %s", colorCyan, colorReset, message) //nolint:errcheck,gosec
 }
 
 func printStepDone(detail string) {
 	if detail != "" {
-		fmt.Printf(" %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, detail, colorReset)
+		fmt.Fprintf(progressOut, " %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, detail, colorReset) //nolint:errcheck,gosec
 	} else {
-		fmt.Printf(" %s✓%s\n", colorGreen, colorReset)
+		fmt.Fprintf(progressOut, " %s✓%s\n", colorGreen, colorReset) //nolint:errcheck,gosec
 	}
 }
 
 func printStepFail() {
-	fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+	fmt.Fprintf(progressOut, " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
 }
 
 func printPushStart(componentType, name string) {
-	fmt.Printf("%s→%s %s%s%s [%s]\n", colorCyan, colorReset, colorBold, name, colorReset, componentType)
+	fmt.Fprintf(progressOut, "%s→%s %s%s%s [%s]\n", colorCyan, colorReset, colorBold, name, colorReset, componentType) //nolint:errcheck,gosec
 }
 
 func printPushComplete(success bool, _ int64) {
 	if success {
-		fmt.Printf("  %s✓%s done\n", colorGreen, colorReset)
+		fmt.Fprintf(progressOut, "  %s✓%s done\n", colorGreen, colorReset) //nolint:errcheck,gosec
 	} else {
-		fmt.Printf("  %s✗%s failed\n", colorRed, colorReset)
+		fmt.Fprintf(progressOut, "  %s✗%s failed\n", colorRed, colorReset) //nolint:errcheck,gosec
 	}
 }
 
