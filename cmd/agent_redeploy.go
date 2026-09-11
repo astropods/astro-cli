@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +18,7 @@ func init() {
 	agentCmd.AddCommand(agentRedeployCmd)
 	registerDeployCommonFlags(agentRedeployCmd)
 	registerAgentTargetFlags(agentRedeployCmd)
+	agentRedeployCmd.Flags().Bool("latest", false, "Redeploy the blueprint's newest published build")
 }
 
 func runAgentRedeploy(cmd *cobra.Command, args []string) error {
@@ -31,8 +35,13 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
 	grants, _ := cmd.Flags().GetStringArray("grant")
 	build, _ := cmd.Flags().GetString("build")
+	latest, _ := cmd.Flags().GetBool("latest")
 	clusterID, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	if latest && build != "" {
+		return fmt.Errorf("--latest and --build are mutually exclusive: --latest resolves the newest build, --build pins one")
+	}
 
 	// A redeploy with no --adapter must PRESERVE the deployment's existing
 	// adapters. buildDeployInterfaces defaults an empty list to
@@ -65,6 +74,13 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if latest {
+		build, err = latestBlueprintBuild(cmd, at, dep.Name, verbose)
+		if err != nil {
+			return err
+		}
+	}
+
 	req := deployTemplateRequest{
 		Build:        build,
 		DeploymentID: dep.ID,
@@ -79,4 +95,28 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	return runDeployWithRequest(cmd, at, verbose, dep.Name, dep.DisplayName, req, dryRun)
+}
+
+// latestBlueprintBuild returns the build ID of the blueprint's most recently
+// published version.
+//
+// A redeploy without --build re-runs whatever build the deployment already
+// pins, so shipping a fresh push means passing that push's tag back in. The
+// tag is only printed in the push banner, which leaves scripted deploys
+// scraping it back out of ANSI-formatted output. --latest looks it up instead.
+func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, name string, verbose bool) (string, error) {
+	u := apiPath(blueprintBaseURL(), at.Account, "agents", name)
+	var bp blueprintItem
+	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
+	if status == http.StatusNotFound {
+		return "", fmt.Errorf("blueprint %q not found in account %q", name, at.Account)
+	}
+	if err != nil {
+		return "", err
+	}
+	v := blueprintLatestVersion(bp.Versions)
+	if v == nil || v.BuildID == "" {
+		return "", fmt.Errorf("blueprint %q has no published build to redeploy", name)
+	}
+	return v.BuildID, nil
 }
