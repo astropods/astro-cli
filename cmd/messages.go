@@ -15,6 +15,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
+	spec "github.com/astropods/astro-spec"
 )
 
 func errNoSpecFile() error {
@@ -391,4 +392,44 @@ func errUnknownIngestionSchedule(unknown, available []string) error {
 		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
 	}
 	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+}
+
+func msgDescribeAgentTitle(name string) string {
+	return fmt.Sprintf("What should %s do?", name)
+}
+
+func msgDescribeAgentHelp() string {
+	return "One sentence, used for the agent's instructions. Press enter to skip."
+}
+
+func errDescriptionTooLong(length int) error {
+	return fmt.Errorf("description is %d characters, the maximum is %d", length, spec.MaxDescriptionLength)
+}
+
+func msgPasteToCodingAgent() string {
+	return "Paste this into Claude or another coding agent to get started:"
+}
+
+func msgGitRepoInitialized() string {
+	return "Initialized a git repository with the scaffold as its first commit."
+}
+
+func msgInitialCommitSubject() string {
+	return fmt.Sprintf("Initial commit from %s project create", buildinfo.BinaryName)
+}
+
+func msgGitInitSkipped(reason string) string {
+	return fmt.Sprintf("Skipped git init: %s", reason)
+}
+
+func msgGitCommitSkipped(reason string) string {
+	return fmt.Sprintf("Initialized a git repository, but the initial commit failed: %s", reason)
+}
+
+func msgGitNotInstalled() string {
+	return "git is not installed"
+}
+
+func msgGitAlreadyInRepo() string {
+	return "the project is already inside a git repository"
 }

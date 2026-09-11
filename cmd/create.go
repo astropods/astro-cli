@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +16,7 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/scaffold"
 	"github.com/astropods/astro-cli/internal/theme"
+	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -62,6 +65,8 @@ func registerCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("template", "t", "mastra", "Agent template (mastra, langchain)")
 	cmd.Flags().Bool("force", false, "Recreate in place if directory already exists")
 	cmd.Flags().StringP("model", "m", "", "LLM provider: gateway, anthropic, or openai")
+	cmd.Flags().StringP("description", "d", "", "One sentence on what the agent does, used for its instructions")
+	cmd.Flags().Bool("no-git", false, "Skip git repository initialization")
 	_ = cmd.RegisterFlagCompletionFunc("model", func(_ *cobra.Command, _ []string, _ string) ([]cobra.Completion, cobra.ShellCompDirective) {
 		return []cobra.Completion{
 			cobra.CompletionWithDesc("gateway", "Astro AI Gateway (managed models, no provider key)"),
@@ -73,10 +78,12 @@ func registerCreateFlags(cmd *cobra.Command) {
 
 func initExamples(cmd string) string {
 	return fmt.Sprintf(`  %[1]s my-agent
+  %[1]s my-agent --description "Summarise tech talks"
   %[1]s my-agent --model gateway
   %[1]s my-agent --model anthropic
   %[1]s my-agent --template langchain
   %[1]s my-agent --path /path/to/projects
+  %[1]s my-agent --no-git
   %[1]s my-agent --force`, cmd)
 }
 
@@ -103,6 +110,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	template := flagString(cmd, "template")
 	force := flagBool(cmd, "force")
 	model := flagString(cmd, "model")
+	noGit := flagBool(cmd, "no-git")
+	description := normalizeDescription(flagString(cmd, "description"))
 	name := args[0] // validated by exactValidProjectName
 
 	// Validate template
@@ -113,6 +122,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	// Validate model flag
 	if _, err := parseModelFlag(model); err != nil {
+		return err
+	}
+
+	// Validate description flag
+	if err := validateDescription(description); err != nil {
 		return err
 	}
 
@@ -130,13 +144,31 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		targetDir = filepath.Join(path, name)
 	}
 
-	// Validate directory doesn't exist (or remove it if --force)
+	// Validate directory doesn't exist (--force recreates it in place below)
+	if !force {
+		if err := scaffold.ValidateDirectory(targetDir); err != nil {
+			return err
+		}
+	}
+
+	// Prompt before any write or removal, so cancelling leaves the disk untouched.
+	if description == "" && !yes && interactiveTerminal() {
+		answer, err := promptDescription(name)
+		if err != nil {
+			if errors.Is(err, tui.ErrCancelled) {
+				printCancelled(cmd.OutOrStdout())
+				return nil
+			}
+			return err
+		}
+		description = answer
+	}
+	config.Description = description
+
 	if force {
 		if err := os.RemoveAll(targetDir); err != nil {
 			return fmt.Errorf("failed to remove existing directory: %w", err)
 		}
-	} else if err := scaffold.ValidateDirectory(targetDir); err != nil {
-		return err
 	}
 
 	// Generate files
@@ -145,9 +177,52 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate files: %w", err)
 	}
 
-	printSuccess(name, targetDir, config.AIGateway)
-	printCodingPrompt(targetDir, config, yes)
+	w := cmd.OutOrStdout()
+	printSuccess(w, name, targetDir, config.AIGateway)
+	if !noGit {
+		initGitRepo(cmd.Context(), w, targetDir)
+	}
+	printCodingPrompt(w, targetDir, config)
 	return nil
+}
+
+// normalizeDescription collapses whitespace and terminates the sentence, so one
+// description reads the same in the agent card, the docs, and the agent's prompt.
+// The period is dropped rather than pushing a legal description over the limit.
+func normalizeDescription(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if s == "" || strings.HasSuffix(s, ".") || strings.HasSuffix(s, "!") || strings.HasSuffix(s, "?") {
+		return s
+	}
+	if len([]rune(s)) >= spec.MaxDescriptionLength {
+		return s
+	}
+	return s + "."
+}
+
+// validateDescription rejects a description the agent card would truncate.
+func validateDescription(s string) error {
+	if n := len([]rune(s)); n > spec.MaxDescriptionLength {
+		return errDescriptionTooLong(n)
+	}
+	return nil
+}
+
+// promptDescription asks what the agent should do. An empty answer is valid:
+// the scaffold then omits the description rather than inventing one.
+func promptDescription(name string) (string, error) {
+	var description string
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title(msgDescribeAgentTitle(name)).
+			Description(msgDescribeAgentHelp()).
+			Value(&description).
+			Validate(func(s string) error { return validateDescription(normalizeDescription(s)) }),
+	))
+	if err := runForm(form); err != nil {
+		return "", err
+	}
+	return normalizeDescription(description), nil
 }
 
 func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {
@@ -167,7 +242,7 @@ func applyModelOverride(config *scaffold.ScaffoldConfig, modelOverride string) {
 	}
 }
 
-func printSuccess(name, targetDir string, aiGateway bool) {
+func printSuccess(w io.Writer, name, targetDir string, aiGateway bool) {
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
 	dim := lipgloss.NewStyle().Faint(true)
@@ -198,38 +273,23 @@ func printSuccess(name, targetDir string, aiGateway bool) {
 
 	box := theme.Box(lines)
 
-	fmt.Println()
-	fmt.Println(box)
-	fmt.Println()
+	fmt.Fprintln(w)      //nolint:errcheck,gosec
+	fmt.Fprintln(w, box) //nolint:errcheck,gosec
+	fmt.Fprintln(w)      //nolint:errcheck,gosec
 }
 
-func printCodingPrompt(targetDir string, config scaffold.ScaffoldConfig, skipPrompt bool) {
-	// Verify the project was actually created before prompting.
+func printCodingPrompt(w io.Writer, targetDir string, config scaffold.ScaffoldConfig) {
+	// Verify the project was actually created before printing the prompt.
 	if _, err := os.Stat(filepath.Join(targetDir, "astropods.yml")); os.IsNotExist(err) {
 		return
 	}
 
 	dim := lipgloss.NewStyle().Faint(true)
+	prompt := buildCodingPrompt(config.Name, config.Description)
 
-	var goal string
-	if !skipPrompt {
-		form := huh.NewForm(huh.NewGroup(
-			huh.NewInput().
-				Title("What should " + config.Name + " do?").
-				Description("Describe the agent logic and we'll build a prompt for your coding agent.").
-				Value(&goal),
-		))
-		if err := runForm(form); err != nil {
-			return // includes tui.ErrCancelled — skip the prompt entirely on cancel
-		}
-		goal = strings.TrimSpace(goal)
-	}
-
-	prompt := buildCodingPrompt(config.Name, goal)
-
-	fmt.Println()
-	fmt.Println(dim.Render("Paste this into Claude or another coding agent to get started:"))
-	fmt.Println()
-	fmt.Println(prompt)
-	fmt.Println()
+	fmt.Fprintln(w)                                      //nolint:errcheck,gosec
+	fmt.Fprintln(w, dim.Render(msgPasteToCodingAgent())) //nolint:errcheck,gosec
+	fmt.Fprintln(w)                                      //nolint:errcheck,gosec
+	fmt.Fprintln(w, prompt)                              //nolint:errcheck,gosec
+	fmt.Fprintln(w)                                      //nolint:errcheck,gosec
 }
