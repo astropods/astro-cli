@@ -141,6 +141,7 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
+	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
 }
 
 func init() {
@@ -253,6 +254,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
+	jsonOut, _ := cmd.Flags().GetBool("json")
 	return runPush(cmd.Context(), cmd.OutOrStdout(), at, PushPipelineConfig{
 		SpecPath:   specPath,
 		AgentName:  agentName,
@@ -262,6 +264,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Visibility: vis,
 		Yes:        yes,
 		Verbose:    verbose,
+		JSON:       jsonOut,
 	})
 }
 

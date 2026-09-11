@@ -29,6 +29,7 @@ type PushPipelineConfig struct {
 	Verbose      bool
 	Yes          bool
 	Visibility   Visibility
+	JSON         bool
 }
 
 // PushPipeline orchestrates the build-push-register flow as a chainable sequence.
@@ -132,7 +133,7 @@ func (p *PushPipeline) Build() *PushPipeline {
 		}
 
 		printStep("Building images")
-		fmt.Println()
+		fmt.Fprintln(progressW())
 
 		workingDir := filepath.Dir(p.cfg.SpecPath)
 		cli, err := newDockerClient()
@@ -151,13 +152,13 @@ func (p *PushPipeline) Build() *PushPipeline {
 			}
 
 			platTag := platformImageTag(comp.ImageName, p.tag, p.cfg.Platform)
-			fmt.Printf("%s→%s Building %s[%s %s]%s %s%s%s",
+			fmt.Fprintf(progressW(), "%s→%s Building %s[%s %s]%s %s%s%s",
 				colorCyan, colorReset, colorDim, comp.Kind, p.cfg.Platform, colorReset, colorBold, platTag, colorReset)
 
 			if err := buildImageBuildKit(p.ctx, cli, contextPath, dockerfile, platTag,
 				comp.Build.Args, comp.Build.Secrets, envVars,
 				false, p.cfg.Verbose, false, p.cfg.Platform); err != nil {
-				fmt.Printf(" %s✗%s\n", colorRed, colorReset)
+				fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset)
 				return fmt.Errorf("failed to build %s for %s: %w", comp.Suffix(), p.cfg.Platform, err)
 			}
 			imagesBuilt++
@@ -166,7 +167,7 @@ func (p *PushPipeline) Build() *PushPipeline {
 		// Print skip messages for image-only components
 		p.printSkippedComponents()
 
-		fmt.Printf("%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset)
+		fmt.Fprintf(progressW(), "%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset)
 		return nil
 	})
 }
@@ -205,11 +206,11 @@ func (p *PushPipeline) pushToRegistry() error {
 func (p *PushPipeline) retagLocal() error {
 	if p.cfg.SkipBuild {
 		// Nothing to retag if we didn't build
-		fmt.Printf("%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
+		fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
 		return nil
 	}
 
-	fmt.Printf("%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
+	fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
 
 	dockerCli, err := newDockerClient()
 	if err != nil {
@@ -222,7 +223,7 @@ func (p *PushPipeline) retagLocal() error {
 		if _, err := dockerCli.ImageTag(p.ctx, client.ImageTagOptions{Source: local, Target: remote}); err != nil {
 			return fmt.Errorf("failed to retag %s → %s: %w", local, remote, err)
 		}
-		fmt.Printf("  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
+		fmt.Fprintf(progressW(), "  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
 	}
 	return nil
 }
@@ -293,7 +294,7 @@ func (p *PushPipeline) UploadReadmeAssets() *PushPipeline {
 		assets, err := uploadReadmeAssets(p.ctx, pushBaseURL(), p.cfg.Account, p.cfg.AgentName, workingDir, images, p.cfg.Verbose)
 		if err != nil {
 			printStepFail()
-			fmt.Printf("  %s!%s could not upload images, continuing with relative links: %v\n", colorYellow, colorReset, err)
+			fmt.Fprintf(progressW(), "  %s!%s could not upload images, continuing with relative links: %v\n", colorYellow, colorReset, err)
 			return nil
 		}
 		printStepDone(fmt.Sprintf("%d image(s)", len(assets)))
@@ -363,14 +364,14 @@ func (p *PushPipeline) Register() *PushPipeline {
 // printSkippedComponents prints skip messages for components that use pre-built images.
 func (p *PushPipeline) printSkippedComponents() {
 	if p.astroSpec.Agent.Build == nil && p.astroSpec.Agent.Image != "" {
-		fmt.Printf("%s→%s Skipping %s[agent]%s using image: %s%s%s\n",
+		fmt.Fprintf(progressW(), "%s→%s Skipping %s[agent]%s using image: %s%s%s\n",
 			colorCyan, colorReset, colorDim, colorReset, colorDim, p.astroSpec.Agent.Image, colorReset)
 	}
 	for name, model := range p.astroSpec.Models {
 		resolved := model.ResolvedContainer()
 		if model.Container == nil || model.Container.Build == nil {
 			if resolved.Image != "" {
-				fmt.Printf("%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n",
+				fmt.Fprintf(progressW(), "%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n",
 					colorCyan, colorReset, colorDim, name, colorReset, colorDim, resolved.Image, colorReset)
 			}
 		}
@@ -378,21 +379,21 @@ func (p *PushPipeline) printSkippedComponents() {
 	for name, knowledge := range p.astroSpec.Knowledge {
 		container := knowledge.ResolvedContainer()
 		if container.Build == nil && container.Image != "" {
-			fmt.Printf("%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n",
+			fmt.Fprintf(progressW(), "%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n",
 				colorCyan, colorReset, colorDim, name, colorReset, colorDim, container.Image, colorReset)
 		}
 	}
 	for name, tool := range p.astroSpec.Integrations {
 		if tool.Container == nil || tool.Container.Build == nil {
 			if tool.Container != nil && tool.Container.Image != "" {
-				fmt.Printf("%s→%s Skipping %s[integration: %s]%s using image: %s%s%s\n",
+				fmt.Fprintf(progressW(), "%s→%s Skipping %s[integration: %s]%s using image: %s%s%s\n",
 					colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 			}
 		}
 	}
 	for name, ingestion := range p.astroSpec.Ingestion {
 		if ingestion.Container.Build == nil && ingestion.Container.Image != "" {
-			fmt.Printf("%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n",
+			fmt.Fprintf(progressW(), "%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n",
 				colorCyan, colorReset, colorDim, name, colorReset, colorDim, ingestion.Container.Image, colorReset)
 		}
 	}
@@ -421,10 +422,10 @@ func (p *PushPipeline) PrintSuccess() {
 	}
 	lines = append(lines, urlLine)
 
-	fmt.Println()
-	fmt.Println(theme.Box(lines))
+	fmt.Fprintln(progressW())
+	fmt.Fprintln(progressW(), theme.Box(lines))
 	if urlBelowBox != "" {
-		fmt.Println(urlBelowBox)
+		fmt.Fprintln(progressW(), urlBelowBox)
 	}
-	fmt.Println()
+	fmt.Fprintln(progressW())
 }
