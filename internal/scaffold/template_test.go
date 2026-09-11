@@ -1,11 +1,16 @@
 package scaffold
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // --- GetTemplatePaths tests ---
@@ -713,4 +718,146 @@ func TestGenerateFiles_Python_UnsupportedTemplate(t *testing.T) {
 	if !strings.Contains(err.Error(), "unsupported template") {
 		t.Errorf("error = %q, want message containing 'unsupported template'", err.Error())
 	}
+}
+
+func TestMastraTemplate_Dockerfile_SDKChannel(t *testing.T) {
+	paths, _ := GetTemplatePaths("mastra")
+	content, err := GetTemplate(paths.Dockerfile)
+	require.NoError(t, err, "read Dockerfile template")
+
+	tests := []struct {
+		name   string
+		assert func(t *testing.T)
+	}{
+		{
+			name: "defaults to latest",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, "ARG ASTRO_SDK_CHANNEL=latest",
+					"any default but latest ships every scaffolded agent onto preview's prerelease stream")
+			},
+		},
+		{
+			name: "leaves dependencies untouched on the latest channel",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, `"$ASTRO_SDK_CHANNEL" != "latest"`,
+					"a customer build must resolve the same versions it did before this arg existed")
+			},
+		},
+		{
+			name: "applies the channel before dependencies resolve",
+			assert: func(t *testing.T) {
+				assert.Less(t,
+					strings.Index(content, "ARG ASTRO_SDK_CHANNEL"),
+					strings.Index(content, "RUN bun install"),
+					"bun install resolves versions, so a later rewrite has no effect")
+			},
+		},
+		{
+			name: "overrides messaging only",
+			assert: func(t *testing.T) {
+				assert.Contains(t, content, `"@astropods/messaging":c`,
+					"messaging sits outside the adapters workspace, so no adapter release pins it to the channel")
+				assert.NotContains(t, content, `"@astropods/adapter-core":c`,
+					"an adapter release already pins adapter-core exactly, and an override would replace that tested pin")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.assert(t)
+		})
+	}
+}
+
+// rewriteSnippet lifts the channel rewrite out of the Dockerfile so this test
+// exercises the shipped one-liner rather than a copy of it.
+func rewriteSnippet(t *testing.T) string {
+	t.Helper()
+	paths, _ := GetTemplatePaths("mastra")
+	content, err := GetTemplate(paths.Dockerfile)
+	require.NoError(t, err, "read Dockerfile template")
+
+	const open = "bun -e '"
+	i := strings.Index(content, open)
+	require.GreaterOrEqual(t, i, 0, "Dockerfile no longer rewrites the manifest with bun -e")
+	rest := content[i+len(open):]
+	j := strings.Index(rest, "'")
+	require.GreaterOrEqual(t, j, 0, "unterminated bun -e snippet")
+	return rest[:j]
+}
+
+func runRewrite(t *testing.T, manifest, channel string) map[string]any {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(manifest), 0o600))
+
+	cmd := exec.Command("bun", "-e", rewriteSnippet(t))
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "ASTRO_SDK_CHANNEL="+channel)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "rewrite failed: %s", out)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(raw, &got), "rewrite produced invalid JSON: %s", raw)
+	return got
+}
+
+// The rewrite runs against every scaffolded agent's manifest, so a mistake in it
+// reaches every preview build rather than one.
+func TestMastraTemplate_SDKChannelRewrite(t *testing.T) {
+	if _, err := exec.LookPath("bun"); err != nil {
+		t.Skip("bun is not on PATH, and the rewrite is a bun one-liner")
+	}
+
+	t.Run("moves astropods dependencies to the channel and leaves the rest", func(t *testing.T) {
+		got := runRewrite(t, `{
+			"dependencies": {
+				"@astropods/adapter-mastra": "latest",
+				"@astropods/adapter-core": "^0.10.0",
+				"@mastra/core": "^1.2.3",
+				"zod": "3.x"
+			}
+		}`, "next")
+
+		deps := got["dependencies"].(map[string]any)
+		assert.Equal(t, "next", deps["@astropods/adapter-mastra"])
+		assert.Equal(t, "next", deps["@astropods/adapter-core"])
+		assert.Equal(t, "^1.2.3", deps["@mastra/core"], "a non-astropods range must survive untouched")
+		assert.Equal(t, "3.x", deps["zod"], "a non-astropods range must survive untouched")
+	})
+
+	// messaging arrives transitively under an adapter's own caret range, which
+	// does not admit the channel, so the override is the only thing that moves it.
+	t.Run("overrides messaging even when nothing depends on it directly", func(t *testing.T) {
+		got := runRewrite(t, `{"dependencies": {"@astropods/adapter-mastra": "latest"}}`, "next")
+
+		overrides, ok := got["overrides"].(map[string]any)
+		require.True(t, ok, "no overrides block, so a transitive messaging stays on the adapter's range")
+		assert.Equal(t, "next", overrides["@astropods/messaging"])
+	})
+
+	t.Run("keeps overrides the agent already declared", func(t *testing.T) {
+		got := runRewrite(t, `{
+			"dependencies": {"@astropods/adapter-mastra": "latest"},
+			"overrides": {"left-pad": "1.3.0"}
+		}`, "next")
+
+		overrides := got["overrides"].(map[string]any)
+		assert.Equal(t, "1.3.0", overrides["left-pad"], "dropping an agent's own override would change what it builds")
+		assert.Equal(t, "next", overrides["@astropods/messaging"])
+	})
+
+	t.Run("survives a manifest with no dependencies", func(t *testing.T) {
+		got := runRewrite(t, `{"name": "bare", "version": "0.1.0"}`, "next")
+		assert.Equal(t, "bare", got["name"])
+	})
+
+	t.Run("writes the channel it is given", func(t *testing.T) {
+		got := runRewrite(t, `{"dependencies": {"@astropods/adapter-mastra": "latest"}}`, "canary-7")
+		deps := got["dependencies"].(map[string]any)
+		assert.Equal(t, "canary-7", deps["@astropods/adapter-mastra"])
+	})
 }
