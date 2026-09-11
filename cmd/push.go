@@ -30,9 +30,18 @@ import (
 // pushServerURLOverride is set in tests to redirect API calls to a test server.
 var pushServerURLOverride string
 
-// progressOut receives the human-readable push progress. --json points it at
-// stderr so stdout carries the result object and nothing else.
-var progressOut io.Writer = os.Stdout
+// progressOut overrides where the human-readable push progress goes. nil means
+// os.Stdout, resolved per call so tests that swap os.Stdout still capture it.
+// --json points this at stderr so stdout carries the result object alone.
+var progressOut io.Writer
+
+// progressW resolves the current progress destination.
+func progressW() io.Writer {
+	if progressOut != nil {
+		return progressOut
+	}
+	return os.Stdout
+}
 
 // redirectProgress points push progress at w and returns a restore func.
 func redirectProgress(w io.Writer) func() {
@@ -172,30 +181,30 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 
 // Progress output helpers
 func printStep(message string) {
-	fmt.Fprintf(progressOut, "%s→%s %s", colorCyan, colorReset, message) //nolint:errcheck,gosec
+	fmt.Fprintf(progressW(), "%s→%s %s", colorCyan, colorReset, message) //nolint:errcheck,gosec
 }
 
 func printStepDone(detail string) {
 	if detail != "" {
-		fmt.Fprintf(progressOut, " %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, detail, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(progressW(), " %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, detail, colorReset) //nolint:errcheck,gosec
 	} else {
-		fmt.Fprintf(progressOut, " %s✓%s\n", colorGreen, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(progressW(), " %s✓%s\n", colorGreen, colorReset) //nolint:errcheck,gosec
 	}
 }
 
 func printStepFail() {
-	fmt.Fprintf(progressOut, " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
 }
 
 func printPushStart(componentType, name string) {
-	fmt.Fprintf(progressOut, "%s→%s %s%s%s [%s]\n", colorCyan, colorReset, colorBold, name, colorReset, componentType) //nolint:errcheck,gosec
+	fmt.Fprintf(progressW(), "%s→%s %s%s%s [%s]\n", colorCyan, colorReset, colorBold, name, colorReset, componentType) //nolint:errcheck,gosec
 }
 
 func printPushComplete(success bool, _ int64) {
 	if success {
-		fmt.Fprintf(progressOut, "  %s✓%s done\n", colorGreen, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(progressW(), "  %s✓%s done\n", colorGreen, colorReset) //nolint:errcheck,gosec
 	} else {
-		fmt.Fprintf(progressOut, "  %s✗%s failed\n", colorRed, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(progressW(), "  %s✗%s failed\n", colorRed, colorReset) //nolint:errcheck,gosec
 	}
 }
 
