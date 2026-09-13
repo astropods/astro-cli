@@ -259,7 +259,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 		{
 			name: "anthropic only",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
 			wantModels: []string{"anthropic"},
@@ -267,7 +267,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 		{
 			name: "openai only",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
 			wantModels: []string{"openai"},
@@ -275,7 +275,7 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 		{
 			name: "anthropic and openai",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{"anthropic", "openai"}, IntegrationKeys: map[string]string{}, Knowledge: nil, Ingestions: []string{},
 			},
 			wantModels: []string{"anthropic", "openai"},
@@ -308,12 +308,12 @@ func TestAstroYml_ModelDeclarationPerModelChoice(t *testing.T) {
 func TestAstroYml_ModelKeyMatchesProvider(t *testing.T) {
 	configs := []ScaffoldConfig{
 		{
-			Name: "a", Description: "d", Interfaces: []string{"web"},
+			Name: "ag", Description: "d", Interfaces: []string{"web"},
 			Integrations: []string{"anthropic", "openai"}, IntegrationKeys: map[string]string{},
 			Knowledge: nil, Ingestions: []string{},
 		},
 		{
-			Name: "a", Description: "d", Interfaces: []string{"web"},
+			Name: "ag", Description: "d", Interfaces: []string{"web"},
 			Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{},
 			Knowledge: nil, Ingestions: []string{},
 		},
@@ -453,7 +453,7 @@ func TestAllTemplatesRender(t *testing.T) {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
 								cfg := ScaffoldConfig{
-									Name:            "a",
+									Name:            "ag",
 									Description:     "d",
 									Interfaces:      ifaces,
 									AIGateway:       aiGateway,
@@ -478,7 +478,7 @@ func TestAllTemplatesRender(t *testing.T) {
 
 	// Ingestion Dockerfile is rendered with RenderIngestionDockerfile (requires IngestionType).
 	t.Run("ingestion/<type>/Dockerfile", func(t *testing.T) {
-		cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+		cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 		for _, ingType := range ingestionDockerfileTypes {
 			if _, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType); err != nil {
 				t.Errorf("ingestionType=%q: %v", ingType, err)
@@ -501,7 +501,7 @@ func TestGenerateFiles_IngestionPerTypeFolderStructure(t *testing.T) {
 	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
 		t.Run(ingType, func(t *testing.T) {
 			memfs := generateWithMemFs(t, ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{ingType},
 			})
@@ -525,7 +525,7 @@ func TestGenerateFiles_IngestionPerTypeFolderStructure(t *testing.T) {
 func TestGenerateFiles_MultipleIngestions_EachGetsOwnFolder(t *testing.T) {
 	ingestions := []string{"schedule", "webhook", "manual", "startup"}
 	memfs := generateWithMemFs(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: ingestions,
 	})
@@ -548,7 +548,7 @@ func TestGenerateFiles_MultipleIngestions_EachGetsOwnFolder(t *testing.T) {
 
 func TestGenerateFiles_NoIngestion_NoIngestionSubdirs(t *testing.T) {
 	memfs := generateWithMemFs(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: []string{},
 	})
@@ -564,7 +564,7 @@ func TestAstroYml_IngestionDockerfilePath(t *testing.T) {
 	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
 		t.Run(ingType, func(t *testing.T) {
 			yaml := renderAstroYml(t, ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{ingType},
 			})
@@ -594,7 +594,7 @@ func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
-	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 
 	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
 		t.Run(ingType, func(t *testing.T) {
@@ -620,7 +620,7 @@ func TestIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
 func TestAstroYml_MultipleIngestions_DockerfilePaths(t *testing.T) {
 	ingestions := []string{"schedule", "webhook", "manual", "startup"}
 	yaml := renderAstroYml(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: ingestions,
 	})
@@ -697,7 +697,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 		{
 			name: "anthropic only",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{},
 			},
@@ -705,7 +705,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 		{
 			name: "all ingestion types",
 			config: ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{"schedule", "webhook", "manual", "startup"},
 			},
@@ -722,7 +722,7 @@ func TestAstroYml_PassesSpecValidate(t *testing.T) {
 
 // TestAgentEnvVars_AlwaysIncludesGRPC verifies GRPC_SERVER_ADDR is always present.
 func TestAgentEnvVars_AlwaysIncludesGRPC(t *testing.T) {
-	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 	found := false
 	for _, v := range cfg.AgentEnvVars() {
 		if v.Key == "GRPC_SERVER_ADDR" {
@@ -749,7 +749,7 @@ func TestAgentEnvVars_CloudCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := ScaffoldConfig{
-				Name:            "a",
+				Name:            "ag",
 				Integrations:    tt.integrations,
 				IntegrationKeys: map[string]string{},
 			}
@@ -783,7 +783,7 @@ func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.wantKey, func(t *testing.T) {
 			cfg := ScaffoldConfig{
-				Name:            "a",
+				Name:            "ag",
 				Knowledge:       tt.knowledge,
 				IntegrationKeys: map[string]string{},
 			}
@@ -804,7 +804,7 @@ func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
 // TestAgentEnvVars_AllHaveDescriptions verifies every returned var has a non-empty description.
 func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
 	cfg := ScaffoldConfig{
-		Name:            "a",
+		Name:            "ag",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		Knowledge:       []string{"qdrant", "redis", "neo4j"},
 		IntegrationKeys: map[string]string{},
@@ -820,7 +820,7 @@ func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
 // keys that AllAgentAutoEnvKeys returns for the rendered spec.
 func TestAgentEnvVars_MatchesSpecEnvResolver(t *testing.T) {
 	cfg := ScaffoldConfig{
-		Name:            "a",
+		Name:            "ag",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		Knowledge:       []string{"qdrant", "redis"},
 		IntegrationKeys: map[string]string{},
@@ -897,7 +897,7 @@ func TestGetTemplatePaths_Python_HasIngestionRequirementsTxt(t *testing.T) {
 // and not the TypeScript agent/index.ts.
 func TestGenerateFiles_Python_AgentMainPy(t *testing.T) {
 	memfs := generateWithPyMemFs(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: []string{},
 	})
@@ -914,7 +914,7 @@ func TestGenerateFiles_Python_AgentMainPy(t *testing.T) {
 // not generated for Python scaffolds.
 func TestGenerateFiles_Python_NoTypescriptFiles(t *testing.T) {
 	memfs := generateWithPyMemFs(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: []string{},
 	})
@@ -932,7 +932,7 @@ func TestGenerateFiles_Python_IngestionRequirementsTxt(t *testing.T) {
 	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
 		t.Run(ingType, func(t *testing.T) {
 			memfs := generateWithPyMemFs(t, ScaffoldConfig{
-				Name: "a", Description: "d", Interfaces: []string{"web"},
+				Name: "ag", Description: "d", Interfaces: []string{"web"},
 				Integrations: []string{}, IntegrationKeys: map[string]string{},
 				Knowledge: []string{}, Ingestions: []string{ingType},
 			})
@@ -960,7 +960,7 @@ func TestPythonIngestionDockerfile_CorrectPathsPerType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
-	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 
 	for _, ingType := range []string{"schedule", "webhook", "manual", "startup"} {
 		t.Run(ingType, func(t *testing.T) {
@@ -990,7 +990,7 @@ func TestPythonIngestionDockerfile_HasRequirementsInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
-	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 
 	content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, "schedule")
 	if err != nil {
@@ -1011,7 +1011,7 @@ func TestPythonIngestionDockerfile_HasPythonUnbuffered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTemplatePaths: %v", err)
 	}
-	cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+	cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 
 	content, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, "schedule")
 	if err != nil {
@@ -1063,7 +1063,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
 								cfg := ScaffoldConfig{
-									Name:            "a",
+									Name:            "ag",
 									Description:     "d",
 									Interfaces:      ifaces,
 									AIGateway:       aiGateway,
@@ -1087,7 +1087,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 	}
 
 	t.Run("ingestion/<type>/Dockerfile", func(t *testing.T) {
-		cfg := ScaffoldConfig{Name: "a", Description: "d", IntegrationKeys: map[string]string{}}
+		cfg := ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}}
 		for _, ingType := range ingestionDockerfileTypes {
 			if _, err := RenderIngestionDockerfile(paths.DockerfileIngestion, cfg, ingType); err != nil {
 				t.Errorf("ingestionType=%q: %v", ingType, err)
@@ -1100,7 +1100,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 // not include a dev.schedules block — triggering is handled via `ast dev trigger`.
 func TestAstroYml_ScheduleIngestion_NoDevSchedules(t *testing.T) {
 	yaml := renderAstroYml(t, ScaffoldConfig{
-		Name: "a", Description: "d", Interfaces: []string{"web"},
+		Name: "ag", Description: "d", Interfaces: []string{"web"},
 		Integrations: []string{}, IntegrationKeys: map[string]string{},
 		Knowledge: []string{}, Ingestions: []string{"schedule"},
 	})

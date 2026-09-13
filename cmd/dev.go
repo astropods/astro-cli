@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -149,6 +150,110 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	return composeBuilder.ProjectName(astroSpec), nil
 }
 
+// devEnvStage names a source assembleDevEnv has finished reading, so a caller
+// can narrate progress in the order the work happens.
+type devEnvStage int
+
+const (
+	devEnvStageFile  devEnvStage = iota // the env file
+	devEnvStageStore                    // the stored project vars
+)
+
+// devEnvCounts reports what each source contributed.
+//
+// FileFound separates an absent env file from an empty one: the start command
+// words those differently, and len() alone cannot tell them apart.
+type devEnvCounts struct {
+	FromFile  int
+	FileFound bool
+	FromStore int
+}
+
+// devEnvOptions are the inputs to assembleDevEnv.
+//
+// A struct rather than positional arguments because Verbose and Export are
+// adjacent booleans: swapped positionally they would compile and silently mint
+// a gateway key in quiet mode while skipping the process-env export.
+type devEnvOptions struct {
+	Spec       *spec.AstroSpec
+	WorkingDir string
+	EnvFile    string
+	Verbose    bool
+	// Export mirrors the assembled vars into this process's environment. The
+	// start command relies on it; a triggered job receives its env through the
+	// compose project instead, so it leaves this off.
+	Export bool
+	// OnStage, when set, is called as each source is read, before the gateway
+	// key is minted, with the counts known so far. A caller that printed from
+	// the returned counts instead would emit its own lines after the gateway
+	// notice rather than before it.
+	OnStage func(devEnvStage, devEnvCounts)
+}
+
+// assembleDevEnv builds the env a dev container runs with: the env file, the
+// stored project vars layered over it, and the AI Gateway dev key when the spec
+// uses the gateway. Stored project vars win over the env file.
+//
+// This is the canonical ordering for both dev paths. Extracted so a test can
+// assert the gateway key is present without driving a command past its
+// state-file and compose dependencies.
+func assembleDevEnv(
+	ctx context.Context,
+	w io.Writer,
+	opts devEnvOptions,
+) (map[string]string, devEnvCounts, error) {
+	var counts devEnvCounts
+
+	envVars, err := utils.LoadEnvFile(opts.WorkingDir, opts.EnvFile)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to read .env file: %w", err)
+	}
+	counts.FileFound = envVars != nil
+	if envVars == nil {
+		envVars = make(map[string]string)
+	}
+	counts.FromFile = len(envVars)
+
+	if opts.Export {
+		if err := exportEnv(envVars); err != nil {
+			return nil, counts, err
+		}
+	}
+	if opts.OnStage != nil {
+		opts.OnStage(devEnvStageFile, counts)
+	}
+
+	// Stored project vars take priority over the env file.
+	storedVars := config.GetProjectVars(buildinfo.BinaryName, opts.WorkingDir)
+	counts.FromStore = len(storedVars)
+	for k, v := range storedVars {
+		envVars[k] = v
+	}
+	if opts.Export {
+		if err := exportEnv(storedVars); err != nil {
+			return nil, counts, err
+		}
+	}
+	if opts.OnStage != nil {
+		opts.OnStage(devEnvStageStore, counts)
+	}
+
+	// An ingestion job reaches the gateway through the same env the agent does.
+	if err := injectAIGatewayDevKey(ctx, w, opts.Spec, envVars, opts.Verbose); err != nil {
+		return nil, counts, err
+	}
+	return envVars, counts, nil
+}
+
+func exportEnv(vars map[string]string) error {
+	for k, v := range vars {
+		if err := os.Setenv(k, v); err != nil {
+			return fmt.Errorf("failed to set env var %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
 func runDevStart(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
 	rebuild := flagBool(cmd, "rebuild")
@@ -160,7 +265,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -184,53 +289,29 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
-	// Load .env file
-	envVars, err := utils.LoadEnvFile(workingDir, envFile)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	} else {
-		fmt.Printf("%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, len(envVars), envFile)
-		for key, val := range envVars {
-			if err := os.Setenv(key, val); err != nil {
-				return fmt.Errorf("failed to set env var %s: %w", key, err)
+	// Narrated through OnStage rather than from the returned counts, so these
+	// lines keep printing before the gateway notice.
+	w := cmd.OutOrStdout()
+	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
+		Spec:       astroSpec,
+		WorkingDir: workingDir,
+		EnvFile:    envFile,
+		Verbose:    verbose,
+		Export:     true,
+		OnStage: func(stage devEnvStage, c devEnvCounts) {
+			switch {
+			case stage == devEnvStageFile && c.FileFound:
+				fmt.Fprintf(w, "%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, c.FromFile, envFile)
+			case stage == devEnvStageStore && c.FromStore > 0:
+				fmt.Fprintf(w, "%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, c.FromStore)
 			}
-		}
+		},
+	})
+	if err != nil {
+		return err
 	}
-
-	// Load stored project config and merge (config store takes priority over .env)
-	storedVars := config.GetProjectVars(buildinfo.BinaryName, workingDir)
-	for k, v := range storedVars {
-		envVars[k] = v
-		if err := os.Setenv(k, v); err != nil {
-			return fmt.Errorf("failed to set env var %s: %w", k, err)
-		}
-	}
-	if len(storedVars) > 0 {
-		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
-	} else if len(envVars) == 0 {
-		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
-	}
-
-	// AI Gateway: if the spec uses provider:astro-gateway, fetch a short-lived
-	// dev key from astro-server and inject the resolver-derived env vars into
-	// the local container env. The key auto-expires upstream — no cleanup
-	// needed on stop.
-	if specUsesAIGateway(astroSpec) {
-		at, atErr := getCurrentAccountToken(cmd.Context())
-		if atErr != nil {
-			return fmt.Errorf("provider:astro-gateway requires login — run '%s login': %w", buildinfo.BinaryName, atErr)
-		}
-		keyResp, keyErr := fetchAIGatewayDevKey(cmd.Context(), at, astroSpec, verbose)
-		if keyErr != nil {
-			return keyErr
-		}
-		if err := applyAIGatewayDevKey(astroSpec, keyResp, envVars); err != nil {
-			return err
-		}
-		fmt.Printf("%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	if counts.FromStore == 0 && len(envVars) == 0 {
+		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -518,16 +599,15 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
-	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
+		Spec:       astroSpec,
+		WorkingDir: workingDir,
+		EnvFile:    envFile,
+		Verbose:    triggerVerbose,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	}
-	// Merge stored project vars (same as runDevStart — takes priority over .env)
-	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
-		envVars[k] = v
+		return err
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
 	if err != nil {

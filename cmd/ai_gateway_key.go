@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -82,4 +83,36 @@ func applyAIGatewayDevKey(s *spec.AstroSpec, resp *aiGatewayDevKeyResponse, envV
 // model with provider: gateway or the deprecated agent.astro_ai_gateway: true.
 func specUsesAIGateway(s *spec.AstroSpec) bool {
 	return s != nil && s.UsesGateway()
+}
+
+// injectAIGatewayDevKey mints a short-lived AI Gateway dev key and adds the
+// resolver-derived env vars to envVars, when the spec uses the gateway. A no-op
+// otherwise. The key auto-expires upstream, so nothing has to clean it up.
+//
+// Shared by `project start` and `project trigger`: an ingestion job reaches the
+// gateway through the same env the agent does, so a path that assembles env
+// without calling this starts a container that cannot reach the gateway.
+func injectAIGatewayDevKey(
+	ctx context.Context,
+	w io.Writer,
+	s *spec.AstroSpec,
+	envVars map[string]string,
+	verbose bool,
+) error {
+	if !specUsesAIGateway(s) {
+		return nil
+	}
+	at, err := getCurrentAccountToken(ctx)
+	if err != nil {
+		return errAIGatewayRequiresLogin(err)
+	}
+	keyResp, err := fetchAIGatewayDevKey(ctx, at, s, verbose)
+	if err != nil {
+		return err
+	}
+	if err := applyAIGatewayDevKey(s, keyResp, envVars); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	return nil
 }
