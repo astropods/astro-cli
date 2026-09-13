@@ -123,3 +123,22 @@ func TestFetchAIGatewayDevKey_Success(t *testing.T) {
 	assert.Equal(t, "sk-astro-x", resp.APIKey)
 	assert.Equal(t, "https://aig.test", resp.BaseURL)
 }
+
+func TestInjectAIGatewayDevKey_NoOpWhenMarkerOff(t *testing.T) {
+	// A spec that does not use the gateway must not need a login, so the no-op
+	// has to come before getCurrentAccountToken rather than after it.
+	s := &spec.AstroSpec{Agent: spec.Container{Image: "x", AIGateway: false}}
+	envVars := map[string]string{"EXISTING": "1"}
+
+	err := injectAIGatewayDevKey(context.Background(), s, envVars, false)
+
+	assert.NoError(t, err, "a spec without the gateway marker must not require login")
+	assert.Equal(t, map[string]string{"EXISTING": "1"}, envVars, "env must be untouched")
+}
+
+func TestInjectAIGatewayDevKey_NoOpWhenSpecNil(t *testing.T) {
+	envVars := map[string]string{}
+
+	assert.NoError(t, injectAIGatewayDevKey(context.Background(), nil, envVars, false))
+	assert.Empty(t, envVars)
+}
