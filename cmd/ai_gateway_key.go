@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -93,6 +94,7 @@ func specUsesAIGateway(s *spec.AstroSpec) bool {
 // without calling this starts a container that cannot reach the gateway.
 func injectAIGatewayDevKey(
 	ctx context.Context,
+	w io.Writer,
 	s *spec.AstroSpec,
 	envVars map[string]string,
 	verbose bool,
@@ -102,7 +104,7 @@ func injectAIGatewayDevKey(
 	}
 	at, err := getCurrentAccountToken(ctx)
 	if err != nil {
-		return fmt.Errorf("provider:astro-gateway requires login — run '%s login': %w", buildinfo.BinaryName, err)
+		return errAIGatewayRequiresLogin(err)
 	}
 	keyResp, err := fetchAIGatewayDevKey(ctx, at, s, verbose)
 	if err != nil {
@@ -111,6 +113,6 @@ func injectAIGatewayDevKey(
 	if err := applyAIGatewayDevKey(s, keyResp, envVars); err != nil {
 		return err
 	}
-	fmt.Printf("%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	fmt.Fprintf(w, "%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
 	return nil
 }
