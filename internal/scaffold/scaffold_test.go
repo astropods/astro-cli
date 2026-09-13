@@ -453,7 +453,7 @@ func TestAllTemplatesRender(t *testing.T) {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
 								cfg := ScaffoldConfig{
-									Name:            "a",
+									Name:            "ag",
 									Description:     "d",
 									Interfaces:      ifaces,
 									AIGateway:       aiGateway,
@@ -749,7 +749,7 @@ func TestAgentEnvVars_CloudCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := ScaffoldConfig{
-				Name:            "a",
+				Name:            "ag",
 				Integrations:    tt.integrations,
 				IntegrationKeys: map[string]string{},
 			}
@@ -783,7 +783,7 @@ func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.wantKey, func(t *testing.T) {
 			cfg := ScaffoldConfig{
-				Name:            "a",
+				Name:            "ag",
 				Knowledge:       tt.knowledge,
 				IntegrationKeys: map[string]string{},
 			}
@@ -804,7 +804,7 @@ func TestAgentEnvVars_SelfHostedKnowledgeConnections(t *testing.T) {
 // TestAgentEnvVars_AllHaveDescriptions verifies every returned var has a non-empty description.
 func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
 	cfg := ScaffoldConfig{
-		Name:            "a",
+		Name:            "ag",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		Knowledge:       []string{"qdrant", "redis", "neo4j"},
 		IntegrationKeys: map[string]string{},
@@ -820,7 +820,7 @@ func TestAgentEnvVars_AllHaveDescriptions(t *testing.T) {
 // keys that AllAgentAutoEnvKeys returns for the rendered spec.
 func TestAgentEnvVars_MatchesSpecEnvResolver(t *testing.T) {
 	cfg := ScaffoldConfig{
-		Name:            "a",
+		Name:            "ag",
 		Integrations:    []string{"anthropic", "openai", "github"},
 		Knowledge:       []string{"qdrant", "redis"},
 		IntegrationKeys: map[string]string{},
@@ -1063,7 +1063,7 @@ func TestAllPythonTemplatesRender(t *testing.T) {
 						for _, know := range knowledgeSubsets {
 							for _, ings := range ingestionSubsets {
 								cfg := ScaffoldConfig{
-									Name:            "a",
+									Name:            "ag",
 									Description:     "d",
 									Interfaces:      ifaces,
 									AIGateway:       aiGateway,
