@@ -16,7 +16,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
-	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -196,7 +195,7 @@ func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name, runt
 	if err != nil {
 		return
 	}
-	_, name = utils.ParseAgentName(astroSpec.Name)
+	_, name = spec.SplitAgentName(astroSpec.Name)
 	if len(args) > 0 {
 		name = args[0]
 	}
@@ -233,7 +232,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve name: arg overrides spec; account always comes from the login token.
-	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
+	specAccount, agentName := spec.SplitAgentName(astroSpec.Name)
 
 	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
 	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
