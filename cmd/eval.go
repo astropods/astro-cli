@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	spec "github.com/astropods/astro-spec"
 	evalspec "github.com/astropods/astro-spec/eval"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/utils"
 )
 
 // evaluationFilenameAliases are filenames checked in order when discovering
@@ -156,7 +156,7 @@ func resolveEvalAgentName(specPath string, args []string) (string, error) {
 		return "", fmt.Errorf("failed to parse %s: %w", filepath.Base(specPath), err)
 	}
 
-	_, name := utils.ParseAgentName(doc.Name)
+	_, name := spec.SplitAgentName(doc.Name)
 	if name == "" {
 		return "", fmt.Errorf("%s has no name field; pass the agent name explicitly", filepath.Base(specPath))
 	}

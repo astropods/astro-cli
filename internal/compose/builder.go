@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
@@ -172,7 +171,7 @@ func postgresDevCredentials(s *spec.AstroSpec, envVars map[string]string) (user,
 // Exposed separately so callers that only have the raw string (e.g. a legacy
 // `.running` state file) can normalize it without constructing a full spec.
 func ProjectNameFromSpecName(raw string) string {
-	_, agentName := utils.ParseAgentName(raw)
+	_, agentName := spec.SplitAgentName(raw)
 	return agentName
 }
 
