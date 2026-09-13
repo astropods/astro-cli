@@ -214,23 +214,8 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
 	}
 
-	// AI Gateway: if the spec uses provider:astro-gateway, fetch a short-lived
-	// dev key from astro-server and inject the resolver-derived env vars into
-	// the local container env. The key auto-expires upstream — no cleanup
-	// needed on stop.
-	if specUsesAIGateway(astroSpec) {
-		at, atErr := getCurrentAccountToken(cmd.Context())
-		if atErr != nil {
-			return fmt.Errorf("provider:astro-gateway requires login — run '%s login': %w", buildinfo.BinaryName, atErr)
-		}
-		keyResp, keyErr := fetchAIGatewayDevKey(cmd.Context(), at, astroSpec, verbose)
-		if keyErr != nil {
-			return keyErr
-		}
-		if err := applyAIGatewayDevKey(astroSpec, keyResp, envVars); err != nil {
-			return err
-		}
-		fmt.Printf("%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	if err := injectAIGatewayDevKey(cmd.Context(), astroSpec, envVars, verbose); err != nil {
+		return err
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -528,6 +513,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	// Merge stored project vars (same as runDevStart — takes priority over .env)
 	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
 		envVars[k] = v
+	}
+	// An ingestion job reaches the gateway through the same env the agent does.
+	triggerVerbose, _ := cmd.Flags().GetBool("verbose")
+	if err := injectAIGatewayDevKey(cmd.Context(), astroSpec, envVars, triggerVerbose); err != nil {
+		return err
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
 	if err != nil {
