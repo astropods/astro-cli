@@ -36,6 +36,8 @@ github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3d
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
 github.com/astropods/astro-spec v0.2.1-0.20260904235528-f898c86105e9 h1:zEnzb7mllDOotny6RIVN0gie1pQJzIFv2tO5UE1V1Q0=
 github.com/astropods/astro-spec v0.2.1-0.20260904235528-f898c86105e9/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
+github.com/astropods/astro-spec v0.2.1-0.20260913075831-85e2b23322d9 h1:DZV9LyeYY3eD/ofCkF/+E7uEFliNp6uo49/JdXg/HyM=
+github.com/astropods/astro-spec v0.2.1-0.20260913075831-85e2b23322d9/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
