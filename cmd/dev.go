@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -149,6 +150,40 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	return composeBuilder.ProjectName(astroSpec), nil
 }
 
+// assembleDevEnv builds the env a dev container runs with: the env file, the
+// stored project vars layered over it, and the AI Gateway dev key when the spec
+// uses the gateway.
+//
+// Extracted so a test can assert the gateway key is present without driving a
+// command past its state-file and compose dependencies. runDevStart keeps its
+// own inline copy, because it prints per-stage counts between these steps that
+// a shared helper would have to either lose or take callbacks for.
+func assembleDevEnv(
+	ctx context.Context,
+	w io.Writer,
+	astroSpec *spec.AstroSpec,
+	workingDir string,
+	envFile string,
+	verbose bool,
+) (map[string]string, error) {
+	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read .env file: %w", err)
+	}
+	if envVars == nil {
+		envVars = make(map[string]string)
+	}
+	// Stored project vars take priority over the env file.
+	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
+		envVars[k] = v
+	}
+	// An ingestion job reaches the gateway through the same env the agent does.
+	if err := injectAIGatewayDevKey(ctx, w, astroSpec, envVars, verbose); err != nil {
+		return nil, err
+	}
+	return envVars, nil
+}
+
 func runDevStart(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
 	rebuild := flagBool(cmd, "rebuild")
@@ -160,7 +195,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -214,7 +249,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
 	}
 
-	if err := injectAIGatewayDevKey(cmd.Context(), astroSpec, envVars, verbose); err != nil {
+	if err := injectAIGatewayDevKey(cmd.Context(), cmd.OutOrStdout(), astroSpec, envVars, verbose); err != nil {
 		return err
 	}
 	// Build Docker Compose project
@@ -503,20 +538,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
-	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	envVars, err := assembleDevEnv(
+		cmd.Context(), cmd.OutOrStdout(), astroSpec, workingDir, envFile, triggerVerbose,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	}
-	// Merge stored project vars (same as runDevStart — takes priority over .env)
-	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
-		envVars[k] = v
-	}
-	// An ingestion job reaches the gateway through the same env the agent does.
-	triggerVerbose, _ := cmd.Flags().GetBool("verbose")
-	if err := injectAIGatewayDevKey(cmd.Context(), astroSpec, envVars, triggerVerbose); err != nil {
 		return err
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
