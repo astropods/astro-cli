@@ -102,3 +102,36 @@ func TestValidateSpecFile_YAMLSyntaxError(t *testing.T) {
 		t.Errorf("expected YAML syntax error in output, got: %q", out)
 	}
 }
+
+// The name check lives in astro-spec's ParseSpec, so it only reaches the CLI
+// through go.mod. A pin that predates it compiles and passes every other test
+// while letting an invalid name through to a 400 after build and push.
+func TestValidateSpecFile_RejectsInvalidAgentName(t *testing.T) {
+	// validateSpecFile prints the rule and the offending line to stdout and
+	// returns a generic error, so the assertion is that it refuses at all.
+	tests := []struct {
+		name string
+		spec string
+	}{
+		{name: "underscore and punctuation", spec: "spec: blueprint/v1\nname: \"Bad_Name!\"\nagent:\n  image: x\n"},
+		{name: "single character", spec: "spec: blueprint/v1\nname: \"a\"\nagent:\n  image: x\n"},
+		{name: "leading digit", spec: "spec: blueprint/v1\nname: \"1abc\"\nagent:\n  image: x\n"},
+		{name: "trailing hyphen", spec: "spec: blueprint/v1\nname: \"abc-\"\nagent:\n  image: x\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := validateSpecFile(writeSpecFile(t, tc.spec)); err == nil {
+				t.Fatal("an invalid name must be rejected before any build or push")
+			}
+		})
+	}
+}
+
+func TestValidateSpecFile_AcceptsValidAgentName(t *testing.T) {
+	for _, name := range []string{"good-name", "ok-2", "ab"} {
+		spec := "spec: blueprint/v1\nname: \"" + name + "\"\nagent:\n  image: x\n"
+		if _, err := validateSpecFile(writeSpecFile(t, spec)); err != nil {
+			t.Errorf("%q is a valid name but was rejected: %v", name, err)
+		}
+	}
+}
