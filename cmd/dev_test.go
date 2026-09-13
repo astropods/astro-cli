@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 	"github.com/stretchr/testify/assert"
@@ -133,9 +135,9 @@ func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 			))
 
 			var out strings.Builder
-			envVars, err := assembleDevEnv(
-				context.Background(), &out, tc.spec, workingDir, ".env", false,
-			)
+			envVars, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+				Spec: tc.spec, WorkingDir: workingDir, EnvFile: ".env",
+			})
 			require.NoError(t, err)
 
 			assert.Equal(t, "1", envVars["FROM_ENV_FILE"],
@@ -165,29 +167,37 @@ func TestAssembleDevEnv_StoredVarsOverrideEnvFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workingDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
-		filepath.Join(workingDir, ".env"), []byte("SHARED=from-env-file\n"), 0o600,
+		filepath.Join(workingDir, ".env"),
+		[]byte("SHARED=from-env-file\nONLY_FILE=1\n"), 0o600,
+	))
+	require.NoError(t, config.SetProjectVars(
+		buildinfo.BinaryName, workingDir, "ag",
+		map[string]string{"SHARED": "from-store", "ONLY_STORE": "2"},
 	))
 
 	var out strings.Builder
-	envVars, err := assembleDevEnv(
-		context.Background(), &out,
-		&spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
-		workingDir, ".env", false,
-	)
+	envVars, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: workingDir, EnvFile: ".env",
+	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "from-env-file", envVars["SHARED"])
+	assert.Equal(t, "from-store", envVars["SHARED"],
+		"the project store wins over the env file, which is what configure relies on")
+	assert.Equal(t, "1", envVars["ONLY_FILE"], "a file-only value survives the overlay")
+	assert.Equal(t, "2", envVars["ONLY_STORE"], "a store-only value is added")
+	assert.Equal(t, 2, counts.FromFile)
+	assert.Equal(t, 2, counts.FromStore)
 }
 
 func TestAssembleDevEnv_ReportsMissingLoginForGatewaySpec(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // no credentials written
 
 	var out strings.Builder
-	_, err := assembleDevEnv(
-		context.Background(), &out,
-		&spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x", AIGateway: true}},
-		t.TempDir(), ".env", false,
-	)
+	_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x", AIGateway: true}},
+		WorkingDir: t.TempDir(), EnvFile: ".env",
+	})
 
 	require.Error(t, err)
 	// Exact-string comparison against the message function, per CLAUDE.md:
@@ -195,4 +205,94 @@ func TestAssembleDevEnv_ReportsMissingLoginForGatewaySpec(t *testing.T) {
 	// different string at the call site.
 	assert.Equal(t, errAIGatewayRequiresLogin(errors.Unwrap(err)).Error(), err.Error(),
 		"the login error must come from errAIGatewayRequiresLogin")
+}
+
+func TestAssembleDevEnv_ReportsAnAbsentFileDistinctlyFromAnEmptyOne(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var out strings.Builder
+	_, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: t.TempDir(), EnvFile: ".env", // no file written
+	})
+	require.NoError(t, err)
+
+	assert.False(t, counts.FileFound,
+		"an absent file must be distinguishable from an empty one, which start words differently")
+	assert.Zero(t, counts.FromFile)
+}
+
+func TestAssembleDevEnv_ExportsToProcessEnvOnlyWhenAsked(t *testing.T) {
+	const key = "ASTRO_TEST_EXPORTED"
+
+	for _, tc := range []struct {
+		name   string
+		export bool
+		want   string
+	}{
+		{name: "export on", export: true, want: "yes"},
+		{name: "export off", export: false, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv(key, "")
+			workingDir := t.TempDir()
+			require.NoError(t, os.WriteFile(
+				filepath.Join(workingDir, ".env"), []byte(key+"=yes\n"), 0o600,
+			))
+
+			var out strings.Builder
+			envVars, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+				Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+				WorkingDir: workingDir, EnvFile: ".env", Export: tc.export,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, "yes", envVars[key], "the returned map carries it either way")
+			assert.Equal(t, tc.want, os.Getenv(key),
+				"only the start path mirrors env into this process; a triggered job gets it via compose")
+		})
+	}
+}
+
+// The gateway notice is written from inside assembleDevEnv, so a caller that
+// printed from the returned counts would emit its own lines after it. OnStage
+// exists to keep start's narration in front, and this pins that order.
+func TestAssembleDevEnv_OnStageRunsBeforeTheGatewayNotice(t *testing.T) {
+	t.Setenv("ASTRO_GATEWAY_API_KEY", "")
+	t.Setenv("ASTRO_GATEWAY_URL", "")
+	t.Setenv("HOME", t.TempDir())
+	writeAccountTestCredentials(t, accountTestCreds("alice"))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"key_id":"k1","api_key":"sk","base_url":"u","expires_at":"t"}`))
+	}))
+	defer srv.Close()
+	prev := aiGatewayServerURLOverride
+	aiGatewayServerURLOverride = srv.URL
+	defer func() { aiGatewayServerURLOverride = prev }()
+
+	workingDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workingDir, ".env"), []byte("A=1\n"), 0o600,
+	))
+
+	var out strings.Builder
+	var stages []devEnvStage
+	_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x", AIGateway: true}},
+		WorkingDir: workingDir, EnvFile: ".env",
+		OnStage: func(stage devEnvStage, _ devEnvCounts) {
+			stages = append(stages, stage)
+			fmt.Fprintf(&out, "stage-%d\n", stage)
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []devEnvStage{devEnvStageFile, devEnvStageStore}, stages,
+		"the file is read before the store, which is what gives the store priority")
+	got := out.String()
+	assert.Less(t, strings.Index(got, "stage-1"), strings.Index(got, "AI Gateway"),
+		"both stage callbacks must fire before the gateway notice is written")
 }
