@@ -122,12 +122,15 @@ func TestRunAgentRedeploy(t *testing.T) {
 			wantNoDep:  true,
 		},
 		{
-			name:       "deploy endpoint 404 reports deployment no longer exists",
+			// A 404 covers a deleted deployment and a concealed denial on the
+			// deployment or its blueprint alike, so the message names the
+			// server's reason rather than asserting the row is gone.
+			name:       "deploy endpoint 404 surfaces the server reason and both causes",
 			tmplStatus: http.StatusOK,
 			tmplResp:   validTmplResp,
 			deplStatus: http.StatusNotFound,
 			deplResp:   map[string]any{"error": "not found"},
-			wantErr:    `agent deployment "weather-agent" no longer exists`,
+			wantErr:    `could not deploy "weather-agent"`,
 		},
 	}
 
