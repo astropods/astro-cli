@@ -138,6 +138,11 @@ func TestClusterRegionLabel(t *testing.T) {
 			want:    "🌐  Europe (Ireland)",
 		},
 		{
+			name:    "display name wins over the region label",
+			cluster: allowedCluster{ClusterID: "eu", Region: "eu-west-1", DisplayName: "Europe shared", RegionLabel: "Europe (Ireland)", RegionFlag: "🇮🇪"},
+			want:    "🇮🇪  Europe shared",
+		},
+		{
 			name:    "missing label falls back to the region",
 			cluster: allowedCluster{ClusterID: "eu", Region: "eu-west-1", RegionFlag: "🇮🇪"},
 			want:    "🇮🇪  eu-west-1",
@@ -180,6 +185,15 @@ func TestClusterPromptOptions(t *testing.T) {
 			},
 			wantLabels:   []string{"🇺🇸  US East", "🇮🇪  Europe (Ireland)"},
 			wantSelected: "us",
+		},
+		{
+			name: "appends the cluster id when two entries would read the same",
+			allowed: []allowedCluster{
+				{ClusterID: "us-shared", RegionLabel: "US East", RegionFlag: "🇺🇸"},
+				{ClusterID: "us-dedicated", RegionLabel: "US East", RegionFlag: "🇺🇸"},
+			},
+			wantLabels:   []string{"🇺🇸  US East  us-shared", "🇺🇸  US East  us-dedicated"},
+			wantSelected: "us-shared",
 		},
 		{
 			name:         "no clusters yields no options",
