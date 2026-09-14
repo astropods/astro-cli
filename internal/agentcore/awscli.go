@@ -152,24 +152,24 @@ func (a *AWSCLIRuntime) networkJSON(req CreateAgentRuntime) string {
 			"securityGroups": req.NetworkConfig.SecurityGroups,
 		},
 	}
-	b, _ := json.Marshal(nc)
+	b, _ := json.Marshal(nc) //nolint:errchkjson
 	return string(b)
 }
 
 func lifecycleJSON(req CreateAgentRuntime) string {
-	b, _ := json.Marshal(req.Lifecycle)
+	b, _ := json.Marshal(req.Lifecycle) //nolint:errchkjson
 	return string(b)
 }
 
 func artifactJSON(req CreateAgentRuntime) string {
-	b, _ := json.Marshal(map[string]any{
+	b, _ := json.Marshal(map[string]any{ //nolint:errchkjson
 		"containerConfiguration": map[string]string{"containerUri": req.Container.ImageURI},
 	})
 	return string(b)
 }
 
 func envJSON(env map[string]string) string {
-	b, _ := json.Marshal(env)
+	b, _ := json.Marshal(env) //nolint:errchkjson
 	return string(b)
 }
 
@@ -210,13 +210,13 @@ func (a *AWSCLIRuntime) run(args []string) ([]byte, error) {
 		}
 		return []byte("{}"), nil
 	}
-	cmd := exec.Command("aws", args...)
+	cmd := exec.Command("aws", args...) //nolint:gosec
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
-		return nil, fmt.Errorf("aws %s: %v: %s%s", args[0], err, msg, staleAWSCLIHint(msg))
+		return nil, fmt.Errorf("aws %s: %w: %s%s", args[0], err, msg, staleAWSCLIHint(msg))
 	}
 	return stdout.Bytes(), nil
 }

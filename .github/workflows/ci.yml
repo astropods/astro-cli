@@ -29,6 +29,12 @@ jobs:
           fi
           echo "OK: all files are gofmt-clean"
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --timeout=10m
+
       - name: Build
         run: go build ./...
 
