@@ -389,7 +389,7 @@ func runBillingInvoices(cmd *cobra.Command, _ []string) error {
 
 	dim := color.New(color.Faint)
 	for _, inv := range invoices {
-		fmt.Fprintf(w, "%-10s %-12s %s\n",
+		fmt.Fprintf(w, "%-10s %-12s %s\n", //nolint:errcheck,gosec
 			inv.Status, formatProviderAmount(inv.Total, inv.CreditType.name()), billingPeriod(inv)) //nolint:errcheck,gosec
 		for _, li := range inv.LineItems {
 			if li.Name == "" {

@@ -113,6 +113,6 @@ func injectAIGatewayDevKey(
 	if err := applyAIGatewayDevKey(s, keyResp, envVars); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%s→%s %s\n", colorCyan, colorReset, msgAIGatewayKeyMinted(keyResp.ExpiresAt))
+	fmt.Fprintf(w, "%s→%s %s\n", colorCyan, colorReset, msgAIGatewayKeyMinted(keyResp.ExpiresAt)) //nolint:errcheck,gosec
 	return nil
 }

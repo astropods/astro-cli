@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -303,9 +302,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		OnStage: func(stage devEnvStage, c devEnvCounts) {
 			switch {
 			case stage == devEnvStageFile && c.FileFound:
-				fmt.Fprintf(w, "%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, c.FromFile, envFile)
+				fmt.Fprintf(w, "%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, c.FromFile, envFile) //nolint:errcheck,gosec
 			case stage == devEnvStageStore && c.FromStore > 0:
-				fmt.Fprintf(w, "%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, c.FromStore)
+				fmt.Fprintf(w, "%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, c.FromStore) //nolint:errcheck,gosec
 			}
 		},
 	})
@@ -313,7 +312,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if counts.FromStore == 0 && len(envVars) == 0 {
-		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
+		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -636,34 +635,6 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// checkComposeHealth waits briefly then prints the status of each compose service.
-// Services that exited or are restarting are flagged so the user knows immediately.
-func checkComposeHealth(projectName string) {
-	time.Sleep(3 * time.Second)
-
-	ctx := context.Background()
-	svc, err := newComposeService(false)
-	if err != nil {
-		return
-	}
-	containers, err := svc.Ps(ctx, projectName, api.PsOptions{All: true})
-	if err != nil {
-		return
-	}
-
-	for _, c := range containers {
-		switch string(c.State) {
-		case "running":
-			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, c.Name, colorDim, c.Status, colorReset)
-		case "exited", "dead":
-			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, c.Name, colorRed, c.Status, colorReset)
-		default:
-			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, c.Name, colorDim, c.Status, colorReset)
-		}
-	}
-	fmt.Println()
-}
-
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
 func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verbose bool) {
 	for name, ingestion := range s.Ingestion {
@@ -761,25 +732,6 @@ func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 		fmt.Printf("✅ %s\n", doneMsg)
 	}
 	return err
-}
-
-// openBrowser opens the specified URL in the default browser
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url) //nolint:gosec
-	case "linux":
-		cmd = exec.Command("xdg-open", url) //nolint:gosec
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec
-	default:
-		fmt.Printf("%s!%s %sUnable to open browser automatically on %s%s\n", colorYellow, colorReset, colorDim, runtime.GOOS, colorReset)
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
-	}
 }
 
 // agentCoreReadyWait bounds the wait for an agentcore agent to bind the contract port.

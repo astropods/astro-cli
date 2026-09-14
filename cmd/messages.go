@@ -226,7 +226,7 @@ func errAgentCoreSecretsFileLine(line int) error {
 }
 
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
-	return fmt.Errorf(`the agent never bound :%d, so no turn can be delivered
+	const msg = `the agent never bound :%d, so no turn can be delivered
 
 The spec sets agent.annotations.runtime: agentcore, so the agent must serve
 POST /invocations and GET /ping on :%d. Nothing answered on localhost:%s
@@ -240,7 +240,8 @@ Common causes, most likely first:
        docker exec <project>-agent-1 grep -m1 version node_modules/@astropods/adapter-core/package.json
   2. A cached build layer installed an older adapter. Rebuild without cache:
        %s project start --rebuild
-  3. The agent crashed on boot, which its log will show.`,
+  3. The agent crashed on boot, which its log will show.`
+	return fmt.Errorf(msg, //nolint:staticcheck
 		composeBuilder.AgentCorePort, composeBuilder.AgentCorePort, hostPort, wait,
 		buildinfo.BinaryName, buildinfo.BinaryName)
 }
