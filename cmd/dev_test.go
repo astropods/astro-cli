@@ -86,8 +86,9 @@ func TestDevTriggerHasEnvFlag(t *testing.T) {
 // catches that.
 func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 	const (
-		fakeKey = "sk-dev-fake"
-		fakeURL = "https://gateway.example.test/v1"
+		fakeKey    = "sk-dev-fake"
+		fakeURL    = "https://gateway.example.test/v1"
+		fakeExpiry = "2026-01-01T00:00:00Z"
 	)
 
 	tests := []struct {
@@ -122,7 +123,7 @@ func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"key_id":"k1","api_key":"` + fakeKey +
-					`","base_url":"` + fakeURL + `","expires_at":"2026-01-01T00:00:00Z"}`))
+					`","base_url":"` + fakeURL + `","expires_at":"` + fakeExpiry + `"}`))
 			}))
 			defer srv.Close()
 			prev := aiGatewayServerURLOverride
@@ -154,7 +155,7 @@ func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 			}
 
 			if tc.wantNotice {
-				assert.Contains(t, out.String(), "AI Gateway: dev key minted",
+				assert.Contains(t, out.String(), msgAIGatewayKeyMinted(fakeExpiry),
 					"the notice must go to the command writer, not stdout")
 			} else {
 				assert.Empty(t, out.String())
