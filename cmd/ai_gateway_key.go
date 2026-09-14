@@ -45,7 +45,7 @@ func fetchAIGatewayDevKey(ctx context.Context, at AccountToken, s *spec.AstroSpe
 	var resp aiGatewayDevKeyResponse
 	status, err := apiCall(ctx, http.MethodPost, url, nil, at.Token, verbose, &resp)
 	if status == http.StatusServiceUnavailable {
-		return nil, fmt.Errorf("AI Gateway is not enabled in this environment; agents with agent.astro_ai_gateway: true can't run locally here")
+		return nil, errAIGatewayNotEnabled()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("fetch AI Gateway dev key: %w", err)
@@ -113,6 +113,6 @@ func injectAIGatewayDevKey(
 	if err := applyAIGatewayDevKey(s, keyResp, envVars); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	fmt.Fprintf(w, "%s→%s %s\n", colorCyan, colorReset, msgAIGatewayKeyMinted(keyResp.ExpiresAt))
 	return nil
 }

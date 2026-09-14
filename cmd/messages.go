@@ -24,6 +24,16 @@ func errAIGatewayRequiresLogin(err error) error {
 	)
 }
 
+func errAIGatewayNotEnabled() error {
+	return fmt.Errorf(
+		"AI Gateway is not enabled in this environment; agents with agent.astro_ai_gateway: true can't run locally here",
+	)
+}
+
+func msgAIGatewayKeyMinted(expiresAt string) string {
+	return fmt.Sprintf("AI Gateway: dev key minted (expires %s)", expiresAt)
+}
+
 func errNoSpecFile() error {
 	return fmt.Errorf(
 		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
