@@ -14,6 +14,7 @@ import (
 type allowedCluster struct {
 	ClusterID   string `json:"cluster_id"`
 	Region      string `json:"region"`
+	DisplayName string `json:"display_name"`
 	RegionLabel string `json:"region_label"`
 	RegionFlag  string `json:"region_flag"`
 	IsDefault   bool   `json:"is_default"`
@@ -41,7 +42,10 @@ func clusterRegionLabel(c allowedCluster) string {
 	if flag == "" {
 		flag = "🌐"
 	}
-	label := c.RegionLabel
+	label := c.DisplayName
+	if label == "" {
+		label = c.RegionLabel
+	}
 	if label == "" {
 		label = c.Region
 	}
@@ -58,13 +62,22 @@ func clusterPromptOptions(allowed []allowedCluster) ([]huh.Option[string], strin
 	if len(allowed) == 0 {
 		return nil, ""
 	}
+	labelCounts := make(map[string]int, len(allowed))
+	for _, c := range allowed {
+		labelCounts[clusterRegionLabel(c)]++
+	}
+
 	options := make([]huh.Option[string], 0, len(allowed))
 	selected := allowed[0].ClusterID
 	for _, c := range allowed {
 		if c.IsDefault {
 			selected = c.ClusterID
 		}
-		options = append(options, huh.NewOption(clusterRegionLabel(c), c.ClusterID))
+		label := clusterRegionLabel(c)
+		if labelCounts[label] > 1 {
+			label += "  " + c.ClusterID
+		}
+		options = append(options, huh.NewOption(label, c.ClusterID))
 	}
 	return options, selected
 }
