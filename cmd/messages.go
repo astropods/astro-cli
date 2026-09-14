@@ -17,6 +17,23 @@ import (
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
+func errAIGatewayRequiresLogin(err error) error {
+	return fmt.Errorf(
+		"AI Gateway requires login — run '%s login': %w",
+		buildinfo.BinaryName, err,
+	)
+}
+
+func errAIGatewayNotEnabled() error {
+	return fmt.Errorf(
+		"AI Gateway is not enabled in this environment; agents with agent.astro_ai_gateway: true can't run locally here",
+	)
+}
+
+func msgAIGatewayKeyMinted(expiresAt string) string {
+	return fmt.Sprintf("AI Gateway development key minted (expires %s)", expiresAt)
+}
+
 func errNoSpecFile() error {
 	return fmt.Errorf(
 		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
@@ -399,4 +416,11 @@ func errUnknownIngestionSchedule(unknown, available []string) error {
 		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
 	}
 	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+}
+
+func msgAdapterSkipped(adapter, envVar string) string {
+	return fmt.Sprintf(
+		"⚠ %s adapter listed but %s not set, skipping (run '%s project configure' to add it)",
+		adapter, envVar, buildinfo.BinaryName,
+	)
 }
