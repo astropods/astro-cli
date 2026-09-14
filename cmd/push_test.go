@@ -19,7 +19,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -537,7 +536,7 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	}
 }
 
-func TestParseAgentName(t *testing.T) {
+func TestSplitAgentName(t *testing.T) {
 	tests := []struct {
 		name            string
 		input           string
@@ -608,12 +607,12 @@ func TestParseAgentName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			account, name := utils.ParseAgentName(tt.input)
+			account, name := spec.SplitAgentName(tt.input)
 			if account != tt.expectedAccount {
-				t.Errorf("ParseAgentName(%q) account = %q, want %q", tt.input, account, tt.expectedAccount)
+				t.Errorf("SplitAgentName(%q) account = %q, want %q", tt.input, account, tt.expectedAccount)
 			}
 			if name != tt.expectedName {
-				t.Errorf("ParseAgentName(%q) name = %q, want %q", tt.input, name, tt.expectedName)
+				t.Errorf("SplitAgentName(%q) name = %q, want %q", tt.input, name, tt.expectedName)
 			}
 		})
 	}
