@@ -45,7 +45,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("upgrade not available: download URL not configured in this build")
 	}
 
-	binName := fmt.Sprintf("%s-%s-%s", buildinfo.BinaryName, runtime.GOOS, runtime.GOARCH)
+	binName := fmt.Sprintf("%s-%s-%s%s", buildinfo.BinaryName, runtime.GOOS, runtime.GOARCH, artifactSuffix)
 	downloadURL := base + "/" + binName
 	versionURL := base + "/VERSION"
 
@@ -77,7 +77,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to find executable path: %w", err)
 	}
 	installDir := filepath.Dir(execPath)
-	symlinkPath := filepath.Join(installDir, buildinfo.BinaryName)
+	symlinkPath := filepath.Join(installDir, buildinfo.BinaryName+artifactSuffix)
+	sweepReplacedBinaries(installDir)
 
 	// Download to temp file in the install directory.
 	tmpFile, err := os.CreateTemp(installDir, ".ast-upgrade-*")
@@ -112,7 +113,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	if latestVersion != "" {
+	if latestVersion != "" && versionedInstallSupported() {
 		// Versioned binary + symlink approach
 		versionedName := fmt.Sprintf("%s-%s", buildinfo.BinaryName, latestVersion)
 		versionedPath := filepath.Join(installDir, versionedName)
@@ -128,12 +129,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 		cleanOldVersions(installDir, latestVersion)
 	} else {
-		// No version info — fall back to direct replace
 		realPath, err := filepath.EvalSymlinks(execPath)
 		if err != nil {
 			realPath = execPath
 		}
-		if err := os.Rename(tmpPath, realPath); err != nil { //nolint:gosec
+		if err := replaceRunningBinary(tmpPath, realPath); err != nil {
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 	}
