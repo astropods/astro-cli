@@ -19,7 +19,7 @@ import (
 
 func errAIGatewayRequiresLogin(err error) error {
 	return fmt.Errorf(
-		"provider:astro-gateway requires login — run '%s login': %w",
+		"AI Gateway requires login — run '%s login': %w",
 		buildinfo.BinaryName, err,
 	)
 }
@@ -31,7 +31,7 @@ func errAIGatewayNotEnabled() error {
 }
 
 func msgAIGatewayKeyMinted(expiresAt string) string {
-	return fmt.Sprintf("AI Gateway: dev key minted (expires %s)", expiresAt)
+	return fmt.Sprintf("AI Gateway development key minted (expires %s)", expiresAt)
 }
 
 func errNoSpecFile() error {
@@ -416,4 +416,11 @@ func errUnknownIngestionSchedule(unknown, available []string) error {
 		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
 	}
 	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+}
+
+func msgAdapterSkipped(adapter, envVar string) string {
+	return fmt.Sprintf(
+		"⚠ %s adapter listed but %s not set, skipping (run '%s project configure' to add it)",
+		adapter, envVar, buildinfo.BinaryName,
+	)
 }
