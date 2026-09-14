@@ -477,7 +477,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	var result agentDeployResult
 	if status, err := apiCallWithHeaders(cmd.Context(), http.MethodPost, deployURL, template, at.Token, deployHeaders, verbose, &result); err != nil {
 		if status == http.StatusNotFound {
-			return fmt.Errorf("agent deployment %q no longer exists", displayName)
+			// A 404 here is not only a deleted deployment: the server conceals a
+			// denied deployment or source blueprint as one too. Lead with the
+			// server's own message so a permission problem is not reported as a
+			// deployment that no longer exists.
+			return fmt.Errorf("could not deploy %q: %w (the deployment may have been deleted, or your access may not cover it or its blueprint)", displayName, err)
 		}
 		if status == http.StatusConflict {
 			return errDeployNameConflict(displayName)
