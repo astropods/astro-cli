@@ -2,7 +2,7 @@
   "name": "{{.Name}}",
   "version": "0.1.0",
   "type": "module",
-  "description": "{{.Description}}",
+  "description": "{{.DocDescription | dqStr}}",
   "scripts": {
     "dev": "bun --watch agent/index.ts",
     "dev:ingest": "bun --watch ingestion/index.ts",

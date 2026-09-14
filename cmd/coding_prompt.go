@@ -14,7 +14,8 @@ func buildCodingPrompt(agentName, goal string) string {
 	sb.WriteString("The project's `AGENTS.md` explains the directory layout and conventions.\n\n")
 	sb.WriteString("The agent name is **" + agentName + "**.")
 	if goal != "" {
-		sb.WriteString("\n" + wordWrap("Initial description (confirm before treating as final): "+goal+".", 80))
+		sb.WriteString("\n" + wordWrap("Initial description, already written into the agent's instructions "+
+			"and AGENT.md (confirm before treating as final): "+normalizeDescription(goal), 80))
 	}
 	sb.WriteString("\n\n")
 	sb.WriteString("Your job is to:\n")

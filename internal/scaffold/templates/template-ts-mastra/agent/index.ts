@@ -1,5 +1,5 @@
 /**
- * {{.Name}} - {{.Description}}
+ * {{.Name}} - {{.DocDescription | jsComment}}
  *
  * This agent uses Mastra's Agent class with the Astro adapter to connect
  * to the Astro messaging service via gRPC.
@@ -73,7 +73,7 @@ const observability = new Observability({
 const agent = new Agent({
   id: '{{.Name}}',
   name: '{{.Name | humanName}}',
-  instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
+  instructions: 'You are {{.Name | humanName}}, a helpful AI assistant.{{with .Description}} {{. | jsStr}}{{end}}',
 {{- if .AIGateway}}
   // Model chosen at deploy time from the gateway options; injected as MODEL_DEFAULT.
   model: gateway(process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
