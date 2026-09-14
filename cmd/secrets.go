@@ -241,8 +241,8 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 		),
 	)
 	if err := runForm(form); err != nil {
-		if errors.Is(err, tui.ErrCancelled) {
-			printCancelled(cmd.OutOrStdout())
+		if errors.Is(err, tui.ErrCanceled) {
+			printCanceled(cmd.OutOrStdout())
 			return nil
 		}
 		return err
@@ -362,8 +362,8 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 			),
 		)
 		if err := runForm(form); err != nil {
-			if errors.Is(err, tui.ErrCancelled) {
-				printCancelled(cmd.OutOrStdout())
+			if errors.Is(err, tui.ErrCanceled) {
+				printCanceled(cmd.OutOrStdout())
 				return nil
 			}
 			return err

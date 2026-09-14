@@ -49,20 +49,20 @@ func (m *promptModel) View() string {
 
 // runForm applies the shared theme and keymap to form, runs it inside a
 // promptModel wrapper so every form gets the same "esc cancel" footer hint,
-// and normalizes user cancellation (esc / ctrl+c) to tui.ErrCancelled.
+// and normalizes user cancellation (esc / ctrl+c) to tui.ErrCanceled.
 func runForm(form *huh.Form) error {
 	form = form.WithTheme(cliHuhTheme()).WithKeyMap(promptKeyMap())
 	if _, err := tea.NewProgram(&promptModel{form: form}).Run(); err != nil {
 		return err
 	}
 	if form.State == huh.StateAborted {
-		return tui.ErrCancelled
+		return tui.ErrCanceled
 	}
 	return nil
 }
 
-// printCancelled writes a uniform "Cancelled." message to w. Use after a
-// runForm or TUI returns tui.ErrCancelled when the command should exit 0.
-func printCancelled(w io.Writer) {
-	fmt.Fprintf(w, "%sCancelled.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+// printCanceled writes a uniform "Canceled." message to w. Use after a
+// runForm or TUI returns tui.ErrCanceled when the command should exit 0.
+func printCanceled(w io.Writer) {
+	fmt.Fprintf(w, "%sCanceled.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
 }

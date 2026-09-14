@@ -87,7 +87,7 @@ func (p *loggingEventProcessor) Done(operation string, failed bool) {
 }
 
 // projectForUp returns a shallow copy of p with profiled services excluded,
-// matching the behaviour of `docker compose up` (without --profile ingestion).
+// matching the behavior of `docker compose up` (without --profile ingestion).
 func projectForUp(p *types.Project) *types.Project {
 	up := *p
 	up.Services = make(types.Services)

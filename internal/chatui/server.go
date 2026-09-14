@@ -132,7 +132,7 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
-// ListenAndServe starts the server and blocks until ctx is cancelled.
+// ListenAndServe starts the server and blocks until ctx is canceled.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.cfg.Addr,
@@ -140,9 +140,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	// The shutdown deadline is intentionally derived from a fresh context: ctx is
-	// already cancelled by the time this goroutine wakes, so it can't carry the
+	// already canceled by the time this goroutine wakes, so it can't carry the
 	// grace period.
-	go func() { //nolint:gosec // G118: shutdown ctx must outlive the already-cancelled ctx
+	go func() { //nolint:gosec // G118: shutdown ctx must outlive the already-canceled ctx
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

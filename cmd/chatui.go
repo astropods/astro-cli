@@ -144,7 +144,7 @@ func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool)
 	}
 
 	// Capture the pid before Release(), which invalidates proc.Process.Pid (-1);
-	// the readiness probe below needs the real pid to recognise its own worker.
+	// the readiness probe below needs the real pid to recognize its own worker.
 	workerPID := proc.Process.Pid
 	pidPath := filepath.Join(astDir, chatUIPidFile)
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(workerPID)), 0644); err != nil { //nolint:gosec

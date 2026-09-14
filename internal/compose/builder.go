@@ -16,7 +16,7 @@ import (
 // agentDataVolume is the compose volume key every agent gets at
 // spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
 // volume so its files API and the agent see one filesystem, the local-dev
-// analogue of the shared PVC used in Kubernetes deployments. Its docker volume
+// analog of the shared PVC used in Kubernetes deployments. Its docker volume
 // name is scoped per compose project (see where it's declared), so each agent
 // gets its own data and chat history and uploads don't leak between agents.
 const agentDataVolume = "agent-data"
@@ -464,7 +464,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Ports:       buildMessagingPorts(s),
 				// Share the agent's /data volume so the files API (FILES_DIR)
 				// writes to the same disk the agent reads at /data/files — the
-				// dev analogue of the shared PVC in Kubernetes. The volume is
+				// dev analog of the shared PVC in Kubernetes. The volume is
 				// declared in the agent section below.
 				Volumes: []types.ServiceVolumeConfig{
 					{

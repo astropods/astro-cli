@@ -358,7 +358,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Tear down leftover containers from a previous run (e.g. force-killed with Ctrl+C).
 	// This is fast and idempotent when nothing is running. Must match the
 	// project name produced by BuildProject (via composeBuilder.ProjectName),
-	// otherwise compose finds no resources labelled with the raw spec name
+	// otherwise compose finds no resources labeled with the raw spec name
 	// and prints "No resource found to remove" for scoped agents.
 	projectName := composeBuilder.ProjectName(astroSpec)
 	_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
@@ -502,7 +502,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	err = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr}, logOpts)
 	logsCancel()
 	if logsCtx.Err() != nil {
-		return nil // cancelled by signal — not an error
+		return nil // canceled by signal — not an error
 	}
 	return err
 }

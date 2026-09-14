@@ -76,7 +76,7 @@ var agentScenarios = []agentScenario{
 	},
 	{
 		name: "bioinformatics-researcher",
-		goal: "query gene expression databases, identify differential expression patterns across sample groups, and generate publication-ready summary reports with visualisations",
+		goal: "query gene expression databases, identify differential expression patterns across sample groups, and generate publication-ready summary reports with visualizations",
 	},
 	{
 		name: "legal-analyst",
@@ -100,11 +100,11 @@ var agentScenarios = []agentScenario{
 	},
 	{
 		name: "music-producer",
-		goal: "analyse an uploaded audio stem, identify key, tempo, and harmonic structure, then suggest chord progressions and arrangement ideas that complement the source material",
+		goal: "analyze an uploaded audio stem, identify key, tempo, and harmonic structure, then suggest chord progressions and arrangement ideas that complement the source material",
 	},
 	{
 		name: "archaeologist",
-		goal: "cross-reference dig site artefact metadata with digitised museum catalogues and academic papers to identify provenance matches and flag items requiring further investigation",
+		goal: "cross-reference dig site artifact metadata with digitized museum catalogs and academic papers to identify provenance matches and flag items requiring further investigation",
 	},
 	{
 		name: "content-moderator",

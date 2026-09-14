@@ -322,15 +322,15 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 		if needsConfirm && !p.cfg.Yes {
 			confirmed, err := confirmVisibilityChange(serverAgent.Visibility, string(p.visibility))
 			if err != nil {
-				// Propagate tui.ErrCancelled (and any other prompt error) so
-				// callers can branch on errors.Is(err, tui.ErrCancelled) for a clean exit.
+				// Propagate tui.ErrCanceled (and any other prompt error) so
+				// callers can branch on errors.Is(err, tui.ErrCanceled) for a clean exit.
 				return err
 			}
 			if !confirmed {
 				// Explicit "No" — collapse onto the same sentinel as esc/ctrl+c
-				// so runPush surfaces a single dim "Cancelled." line with exit 0
-				// for both abort paths instead of a raw "push cancelled" error.
-				return tui.ErrCancelled
+				// so runPush surfaces a single dim "Canceled." line with exit 0
+				// for both abort paths instead of a raw "push canceled" error.
+				return tui.ErrCanceled
 			}
 		}
 

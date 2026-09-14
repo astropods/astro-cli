@@ -9,11 +9,11 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-// ErrCancelled is the canonical sentinel returned by every interactive surface
+// ErrCanceled is the canonical sentinel returned by every interactive surface
 // (huh forms via cmd.runForm, and bubbletea TUIs in this directory) when the
 // user presses esc or ctrl+c. Callers should branch with errors.Is so they can
 // translate the cancellation into a clean exit instead of a command failure.
-var ErrCancelled = errors.New("cancelled")
+var ErrCanceled = errors.New("canceled")
 
 // Cancel is the canonical "esc cancel" footer hint binding shared by every
 // interactive surface. esc and ctrl+c both abort.
