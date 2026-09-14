@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"sync"
 
@@ -36,11 +35,14 @@ func newDockerClient() (*client.Client, error) {
 			dim := lipgloss.NewStyle().Faint(true)
 			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
-			if _, statErr := os.Lstat("/var/run/docker.sock"); os.IsNotExist(statErr) {
+			if dockerEndpointMissing() {
 				msg := "Docker is not installed."
-				if runtime.GOOS == "darwin" {
+				switch runtime.GOOS {
+				case "darwin":
 					msg += "\n  → Download Docker Desktop for Mac: https://docs.docker.com/desktop/install/mac-install/"
-				} else {
+				case "windows":
+					msg += "\n  → Download Docker Desktop for Windows: https://docs.docker.com/desktop/install/windows-install/"
+				default:
 					msg += "\n  → Install Docker Engine: https://docs.docker.com/engine/install/"
 				}
 				dockerClientErr = fmt.Errorf("%s", msg)
@@ -48,9 +50,12 @@ func newDockerClient() (*client.Client, error) {
 			}
 
 			var hint2 string
-			if runtime.GOOS == "darwin" {
+			switch runtime.GOOS {
+			case "darwin":
 				hint2 = hint.Render("→ Open Docker Desktop from your Applications folder or system tray")
-			} else {
+			case "windows":
+				hint2 = hint.Render("→ Start Docker Desktop from the Start menu or system tray")
+			default:
 				hint2 = hint.Render("→ Run: sudo systemctl start docker")
 			}
 			msg := red.Render("🐳 Docker is not running") + "\n" +

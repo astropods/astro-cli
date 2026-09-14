@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -138,9 +137,7 @@ func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool)
 	proc := exec.Command(self, args...) //nolint:gosec // self path + fixed args
 	proc.Stdout = logFile
 	proc.Stderr = logFile
-	// New session so the worker survives `project start -b` (background mode)
-	// and isn't tied to the launching terminal.
-	proc.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	proc.SysProcAttr = detachProcAttr()
 	if err := proc.Start(); err != nil {
 		fmt.Printf("%s!%s %sFailed to start chat UI: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
 		return
@@ -190,8 +187,7 @@ func stopChatUI(astDir string) bool {
 	if !isChatUIProcess(pid) {
 		return false // stale/recycled pid, not our worker
 	}
-	// Negative pid → the whole process group (the worker is a session leader).
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	signalProcessGroup(pid, false)
 	return true
 }
 
@@ -199,7 +195,7 @@ func stopChatUI(astDir string) bool {
 // checks liveness, the command-line check rules out a recycled pid. Returns
 // false when the command line can't be read (leaking beats killing a stranger).
 func isChatUIProcess(pid int) bool {
-	if err := syscall.Kill(pid, 0); err != nil {
+	if !processAlive(pid) {
 		return false
 	}
 	cmdline, err := processCommandLine(pid)
@@ -218,35 +214,22 @@ func reclaimChatUIPort(addr string) {
 	if !ok || !isChatUIProcess(pid) {
 		return
 	}
-	// Negative pid → the whole process group (the worker is a session leader).
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	signalProcessGroup(pid, false)
 	if portFreeWithin(addr, 2*time.Second) {
 		return
 	}
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	signalProcessGroup(pid, true)
 	portFreeWithin(addr, 2*time.Second)
 }
 
-// chatUIListenerPID returns the pid listening on addr via lsof (present on the
-// dev-supported macOS/Linux); reports no listener when lsof fails or none binds.
+// chatUIListenerPID returns the pid listening on addr, or no listener when the
+// platform probe fails or nothing binds.
 func chatUIListenerPID(addr string) (int, bool) {
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 0, false
 	}
-	out, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output() //nolint:gosec // port is our fixed chat-UI port
-	if err != nil {
-		return 0, false
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return 0, false
-	}
-	return pid, true
+	return listenerPID(port)
 }
 
 // portFreeWithin reports whether addr has no listener within timeout.
@@ -263,23 +246,6 @@ func portFreeWithin(addr string, timeout time.Duration) bool {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-}
-
-// processCommandLine returns pid's command line for identity checks: /proc on
-// Linux, ps on macOS (the only dev-supported OSes).
-func processCommandLine(pid int) (string, error) {
-	if runtime.GOOS == "linux" {
-		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)) //nolint:gosec // pid is our own recorded worker pid
-		if err != nil {
-			return "", err
-		}
-		return strings.ReplaceAll(string(data), "\x00", " "), nil
-	}
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output() //nolint:gosec // pid is our own recorded worker pid
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
 }
 
 // chatUIStartStatus is the outcome of the post-spawn readiness probe.
