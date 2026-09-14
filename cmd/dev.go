@@ -64,10 +64,12 @@ var devStopCmd = &cobra.Command{
 
 var devTriggerCmd = &cobra.Command{
 	Use:   "trigger <name>",
-	Short: "Trigger an ingestion job",
-	Long:  `Manually trigger a named ingestion job. Runs the ingestion container and exits when done.`,
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDevTrigger,
+	Short: "Run a job now",
+	Long: `Run a job now, without waiting for its explicit trigger.
+
+Omit the job name to list the available jobs for this project.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDevTrigger,
 }
 
 func init() {
@@ -311,7 +313,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if counts.FromStore == 0 && len(envVars) == 0 {
-		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
+		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)

@@ -940,7 +940,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
 			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
 			if !hasBotToken {
-				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s configure' to add it)\n", buildinfo.BinaryName)
+				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s project configure' to add it)\n", buildinfo.BinaryName)
 				continue
 			}
 			enabled := "true"

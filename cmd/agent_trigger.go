@@ -15,10 +15,10 @@ const ingestionComponentPrefix = "ingestion-"
 
 var agentTriggerCmd = &cobra.Command{
 	Use:   "trigger [job]",
-	Short: "Run a deployed ingestion job now",
-	Long: `Run a deployed ingestion job now, without waiting for its schedule.
+	Short: "Run a job now",
+	Long: `Run a job now, without waiting for its explicit trigger.
 
-Omit the job name to list the ingestion jobs on the deployment.`,
+Omit the job name to list the available jobs for this agent.`,
 	Args: agentTriggerArgs,
 	RunE: runAgentTrigger,
 }
