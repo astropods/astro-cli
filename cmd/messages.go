@@ -244,6 +244,14 @@ func msgNoAgentSpend() string {
 	return "No metered compute this period"
 }
 
+func msgNoModelSpend() string {
+	return "No metered AI Gateway spend this period"
+}
+
+func msgNoModelAgentSpend(model string) string {
+	return fmt.Sprintf("No metered spend on %s this period", model)
+}
+
 func errUnknownNetworkDirection(direction string) error {
 	return fmt.Errorf("--direction %q is not a network direction; use inbound, outbound, or database", direction)
 }
