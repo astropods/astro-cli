@@ -564,12 +564,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	// No name given — list available ingestion jobs and exit
+	// No name given — list available jobs and exit
 	if len(args) == 0 {
 		if len(astroSpec.Ingestion) == 0 {
-			return fmt.Errorf("no ingestion jobs defined in %s", filepath.Base(specPath))
+			return fmt.Errorf("no jobs defined in %s", filepath.Base(specPath))
 		}
-		fmt.Println("Available ingestion jobs:")
+		fmt.Println("Available jobs:")
 		fmt.Println()
 		for name, ing := range astroSpec.Ingestion {
 			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
@@ -583,12 +583,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 
 	// Validate the name exists in the spec
 	if _, ok := astroSpec.Ingestion[name]; !ok {
-		fmt.Fprintf(os.Stderr, "Unknown ingestion job %q. Available:\n\n", name)
+		fmt.Fprintf(os.Stderr, "Unknown job %q. Available:\n\n", name)
 		for n := range astroSpec.Ingestion {
 			fmt.Fprintf(os.Stderr, "  %s\n", n)
 		}
 		fmt.Fprintln(os.Stderr)
-		return fmt.Errorf("ingestion job %q not found in %s", name, filepath.Base(specPath))
+		return fmt.Errorf("job %q not found in %s", name, filepath.Base(specPath))
 	}
 
 	statePath, err := devStatePath()
@@ -600,7 +600,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
-	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
+	fmt.Printf("🔄 Triggering job: %s\n", name)
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
 		Spec:       astroSpec,
@@ -627,12 +627,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		NoDeps:     true,
 	})
 	if err != nil {
-		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
+		return fmt.Errorf("job '%s' failed: %w", name, err)
 	}
 	if exitCode != 0 {
-		return fmt.Errorf("ingestion '%s' exited with code %d", name, exitCode)
+		return fmt.Errorf("job '%s' exited with code %d", name, exitCode)
 	}
-	fmt.Printf("✅ Ingestion '%s' completed\n", name)
+	fmt.Printf("✅ Job '%s' completed\n", name)
 	return nil
 }
 

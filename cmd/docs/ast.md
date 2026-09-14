@@ -89,7 +89,7 @@ ast project start                  # start all containers
 ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
-ast project trigger <name>         # manually trigger an ingestion job
+ast project trigger <name>         # manually trigger a job
 ```
 
 **Ingestion behavior:**
@@ -102,7 +102,7 @@ ast project trigger <name>         # manually trigger an ingestion job
 | `manual` | Prints `ast project trigger <name>` |
 
 A `schedule` trigger has no cadence locally. Set the cron when you deploy:
-`ast deploy <name> --schedule <ingestion>="*/15 * * * *"`. The flag is
+`ast deploy <name> --schedule <job>="*/15 * * * *"`. The flag is
 repeatable, takes a five-field cron expression, and is required for every
 `schedule` entry on a first deploy. A redeploy keeps the cadence it already
 has.
