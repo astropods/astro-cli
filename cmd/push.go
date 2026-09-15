@@ -104,19 +104,20 @@ func checkBlueprintPushPermission(ctx context.Context, serverURL string, at Acco
 }
 
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
-// w is the destination for human-readable output (typically cmd.OutOrStdout()); tests can
-// redirect by passing a custom writer. Pipeline-internal prints go to progressOut.
+// w is the destination for human-readable output and errW its stderr counterpart
+// (typically cmd.OutOrStdout() and cmd.ErrOrStderr()); tests can redirect by passing
+// custom writers. Pipeline-internal prints go to progressOut.
 //
-// With cfg.JSON, every human line moves to stderr and w receives only the
+// With cfg.JSON, every human line moves to errW and w receives only the
 // result object, so `ast push --json | jq -r .build_id` is safe to pipe.
-func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipelineConfig) error {
+func runPush(ctx context.Context, w, errW io.Writer, at AccountToken, cfg PushPipelineConfig) error {
 	serverURL := pushBaseURL()
 	registryURL := pushRegistryURL()
 
 	humanW := w
 	if cfg.JSON {
-		humanW = os.Stderr
-		defer redirectProgress(os.Stderr)()
+		humanW = errW
+		defer redirectProgress(errW)()
 	}
 
 	if cfg.Verbose {

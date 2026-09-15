@@ -236,17 +236,25 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	// Resolve name: arg overrides spec; account always comes from the login token.
 	specAccount, agentName := utils.ParseAgentName(astroSpec.Name)
 
+	// --json keeps stdout to the result object alone, so the override warnings
+	// have to go to stderr with the rest of the human output.
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	warnW := cmd.OutOrStdout()
+	if jsonOut {
+		warnW = cmd.ErrOrStderr()
+	}
+
 	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
 	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
 		if !allowAccountOverride {
 			return errAccountMismatch(specAccount, at.Account)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
+		fmt.Fprintf(warnW, "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
 	}
 
 	if len(args) > 0 {
 		if args[0] != agentName {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, args[0]) //nolint:errcheck
+			fmt.Fprintf(warnW, "%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, args[0]) //nolint:errcheck
 		}
 		agentName = args[0]
 	}
@@ -254,8 +262,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	return runPush(cmd.Context(), cmd.OutOrStdout(), at, PushPipelineConfig{
+	return runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{
 		SpecPath:   specPath,
 		AgentName:  agentName,
 		SkipBuild:  noBuild,
