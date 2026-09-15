@@ -166,7 +166,7 @@ func Run(domain, provider string, existingNames map[string]bool) (Result, error)
 
 	final := result.(model)
 	if final.quitting {
-		return Result{}, fmt.Errorf("cancelled")
+		return Result{}, fmt.Errorf("canceled")
 	}
 
 	r := Result{

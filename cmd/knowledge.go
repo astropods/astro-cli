@@ -333,7 +333,7 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 	var confirm string
 	_, _ = fmt.Scanln(&confirm)
 	if strings.ToLower(strings.TrimSpace(confirm)) != "y" {
-		fmt.Printf("%sCancelled.%s\n", colorDim, colorReset)
+		fmt.Printf("%sCanceled.%s\n", colorDim, colorReset)
 		return nil
 	}
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,4 +19,12 @@ func TestErrAgentTargetMessages(t *testing.T) {
 	require.Equal(t, msgNoTracesForAgent("coach"), "No traces found for coach")
 	require.Equal(t, msgLoginPriorAccountUnavailable("acme-corp"), "  Note: previous account \"acme-corp\" is no longer available; using personal account.\n")
 	require.EqualError(t, errLoginAccountsLoadEmpty(), "could not load your accounts from the server (empty response). Try again in a moment")
+	require.Equal(t, msgAdapterSkipped("slack", "SLACK_BOT_TOKEN"),
+		"⚠ slack adapter listed but SLACK_BOT_TOKEN not set, skipping (run 'ast-dev project configure' to add it)")
+}
+
+func TestPrintCanceledWritesDimCanceledLine(t *testing.T) {
+	var buf bytes.Buffer
+	printCanceled(&buf)
+	require.Equal(t, colorDim+"Canceled."+colorReset+"\n", buf.String())
 }

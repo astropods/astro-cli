@@ -126,8 +126,8 @@ func runAccountSwitch(cmd *cobra.Command, args []string) error {
 		var err error
 		name, err = selectAccountInteractive(cmd.Context(), storage)
 		if err != nil {
-			if errors.Is(err, tui.ErrCancelled) {
-				printCancelled(w)
+			if errors.Is(err, tui.ErrCanceled) {
+				printCanceled(w)
 				return nil
 			}
 			return err

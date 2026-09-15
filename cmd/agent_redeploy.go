@@ -59,7 +59,6 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-
 	dep, err := resolveAgentTarget(cmd, at, verbose)
 	if err != nil {
 		return err

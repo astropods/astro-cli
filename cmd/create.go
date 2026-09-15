@@ -220,7 +220,7 @@ func printCodingPrompt(targetDir string, config scaffold.ScaffoldConfig, skipPro
 				Value(&goal),
 		))
 		if err := runForm(form); err != nil {
-			return // includes tui.ErrCancelled — skip the prompt entirely on cancel
+			return // includes tui.ErrCanceled — skip the prompt entirely on cancel
 		}
 		goal = strings.TrimSpace(goal)
 	}

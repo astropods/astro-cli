@@ -40,7 +40,7 @@ type apiError struct {
 
 // newAPIError builds the error for a non-2xx response. It never fails: a body it
 // cannot parse is carried through verbatim, because a CLI that swallowed an
-// unrecognised error would leave the user with a status code and nothing else.
+// unrecognized error would leave the user with a status code and nothing else.
 func newAPIError(statusCode int, body []byte) *apiError {
 	e := &apiError{StatusCode: statusCode, Body: strings.TrimSpace(string(body))}
 	var parsed struct {
@@ -105,7 +105,7 @@ func (e *apiError) detailSentence() string {
 	return e.Message
 }
 
-// billingNextStep names where the fix happens. An unrecognised action returns
+// billingNextStep names where the fix happens. An unrecognized action returns
 // nothing rather than guessing, because the wrong instruction is worse than the
 // server's sentence on its own.
 func billingNextStep(action string) string {

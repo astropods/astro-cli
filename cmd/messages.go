@@ -17,6 +17,23 @@ import (
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
+func errAIGatewayRequiresLogin(err error) error {
+	return fmt.Errorf(
+		"AI Gateway requires login — run '%s login': %w",
+		buildinfo.BinaryName, err,
+	)
+}
+
+func errAIGatewayNotEnabled() error {
+	return fmt.Errorf(
+		"AI Gateway is not enabled in this environment; agents with agent.astro_ai_gateway: true can't run locally here",
+	)
+}
+
+func msgAIGatewayKeyMinted(expiresAt string) string {
+	return fmt.Sprintf("AI Gateway development key minted (expires %s)", expiresAt)
+}
+
 func errNoSpecFile() error {
 	return fmt.Errorf(
 		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
@@ -209,7 +226,7 @@ func errAgentCoreSecretsFileLine(line int) error {
 }
 
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
-	return fmt.Errorf(`the agent never bound :%d, so no turn can be delivered
+	const msg = `the agent never bound :%d, so no turn can be delivered
 
 The spec sets agent.annotations.runtime: agentcore, so the agent must serve
 POST /invocations and GET /ping on :%d. Nothing answered on localhost:%s
@@ -223,7 +240,8 @@ Common causes, most likely first:
        docker exec <project>-agent-1 grep -m1 version node_modules/@astropods/adapter-core/package.json
   2. A cached build layer installed an older adapter. Rebuild without cache:
        %s project start --rebuild
-  3. The agent crashed on boot, which its log will show.`,
+  3. The agent crashed on boot, which its log will show.`
+	return fmt.Errorf(msg, //nolint:staticcheck
 		composeBuilder.AgentCorePort, composeBuilder.AgentCorePort, hostPort, wait,
 		buildinfo.BinaryName, buildinfo.BinaryName)
 }
@@ -242,6 +260,14 @@ func msgNoInvoices() string {
 
 func msgNoAgentSpend() string {
 	return "No metered compute this period"
+}
+
+func msgNoModelSpend() string {
+	return "No metered AI Gateway spend this period"
+}
+
+func msgNoModelAgentSpend(model string) string {
+	return fmt.Sprintf("No metered spend on %s this period", model)
 }
 
 func errUnknownNetworkDirection(direction string) error {
@@ -355,7 +381,7 @@ func msgUsageLastTrace(at string) string {
 }
 
 func errInvalidSchedule(raw string) error {
-	return fmt.Errorf(`invalid --schedule %q: expected <ingestion>=<cron expression>, e.g. --schedule weekly-sync="0 3 * * *"`, raw)
+	return fmt.Errorf(`invalid --schedule %q: expected <job>=<cron expression>, e.g. --schedule weekly-sync="0 3 * * *"`, raw)
 }
 
 func errDuplicateSchedule(name string) error {
@@ -366,12 +392,12 @@ func errInvalidCronExpression(name, cron string) error {
 	return fmt.Errorf(`invalid cron expression %q for --schedule %s: expected five fields (minute hour day-of-month month day-of-week), e.g. "0 3 * * *"`, cron, name)
 }
 
-func errAgentNoIngestionJobs(label string) error {
-	return fmt.Errorf("%s runs no ingestion jobs, so there is nothing to trigger", label)
+func errAgentNoJobs(label string) error {
+	return fmt.Errorf("%s runs no jobs, so there is nothing to trigger", label)
 }
 
-func errAgentUnknownIngestionJob(name string, available []string) error {
-	return fmt.Errorf("no ingestion job named %s (available: %s)", name, strings.Join(available, ", "))
+func errAgentUnknownJob(name string, available []string) error {
+	return fmt.Errorf("no job named %s (available: %s)", name, strings.Join(available, ", "))
 }
 
 func msgAgentTriggering(name, label string) string {
@@ -382,13 +408,20 @@ func msgAgentTriggered(name string) string {
 	return fmt.Sprintf("%s triggered", name)
 }
 
-func msgAgentIngestionJobsHeader(label string) string {
-	return fmt.Sprintf("Ingestion jobs on %s:", label)
+func msgAgentJobsHeader(label string) string {
+	return fmt.Sprintf("Jobs on %s:", label)
 }
 
-func errUnknownIngestionSchedule(unknown, available []string) error {
+func errUnknownJobSchedule(unknown, available []string) error {
 	if len(available) == 0 {
-		return fmt.Errorf("this blueprint runs no ingestion on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
+		return fmt.Errorf("this blueprint runs no job on a schedule, so --schedule %s has nothing to set", strings.Join(unknown, ", "))
 	}
-	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+	return fmt.Errorf("no scheduled job named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
+}
+
+func msgAdapterSkipped(adapter, envVar string) string {
+	return fmt.Sprintf(
+		"⚠ %s adapter listed but %s not set, skipping (run '%s project configure' to add it)",
+		adapter, envVar, buildinfo.BinaryName,
+	)
 }

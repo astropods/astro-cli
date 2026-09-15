@@ -195,9 +195,9 @@ func TestCanonicalizeProjectKeys_CanonicalWinsDeterministic(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg := &ProjectConfigs{Projects: map[string]*ProjectConfig{
 			dir: {Name: "legacy", Vars: map[string]string{
-				"FOO":       "old",
-				"LEGACY":    "kept",
-				"SHARED":    "legacy-version",
+				"FOO":    "old",
+				"LEGACY": "kept",
+				"SHARED": "legacy-version",
 			}},
 			resolved: {Name: "canonical", Vars: map[string]string{
 				"FOO":    "new",

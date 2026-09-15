@@ -133,7 +133,7 @@ func (p *PushPipeline) Build() *PushPipeline {
 		}
 
 		printStep("Building images")
-		fmt.Fprintln(progressW())
+		fmt.Fprintln(progressW()) //nolint:errcheck,gosec
 
 		workingDir := filepath.Dir(p.cfg.SpecPath)
 		cli, err := newDockerClient()
@@ -152,13 +152,13 @@ func (p *PushPipeline) Build() *PushPipeline {
 			}
 
 			platTag := platformImageTag(comp.ImageName, p.tag, p.cfg.Platform)
-			fmt.Fprintf(progressW(), "%s→%s Building %s[%s %s]%s %s%s%s",
+			fmt.Fprintf(progressW(), "%s→%s Building %s[%s %s]%s %s%s%s", //nolint:errcheck,gosec
 				colorCyan, colorReset, colorDim, comp.Kind, p.cfg.Platform, colorReset, colorBold, platTag, colorReset)
 
 			if err := buildImageBuildKit(p.ctx, cli, contextPath, dockerfile, platTag,
 				comp.Build.Args, comp.Build.Secrets, envVars,
 				false, p.cfg.Verbose, false, p.cfg.Platform); err != nil {
-				fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset)
+				fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
 				return fmt.Errorf("failed to build %s for %s: %w", comp.Suffix(), p.cfg.Platform, err)
 			}
 			imagesBuilt++
@@ -167,7 +167,7 @@ func (p *PushPipeline) Build() *PushPipeline {
 		// Print skip messages for image-only components
 		p.printSkippedComponents()
 
-		fmt.Fprintf(progressW(), "%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset)
+		fmt.Fprintf(progressW(), "%s✓%s Built %s%d%s image(s)\n", colorGreen, colorReset, colorBold, imagesBuilt, colorReset) //nolint:errcheck,gosec
 		return nil
 	})
 }
@@ -206,11 +206,11 @@ func (p *PushPipeline) pushToRegistry() error {
 func (p *PushPipeline) retagLocal() error {
 	if p.cfg.SkipBuild {
 		// Nothing to retag if we didn't build
-		fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
+		fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 
-	fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset)
+	fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset) //nolint:errcheck,gosec
 
 	dockerCli, err := newDockerClient()
 	if err != nil {
@@ -223,7 +223,7 @@ func (p *PushPipeline) retagLocal() error {
 		if _, err := dockerCli.ImageTag(p.ctx, client.ImageTagOptions{Source: local, Target: remote}); err != nil {
 			return fmt.Errorf("failed to retag %s → %s: %w", local, remote, err)
 		}
-		fmt.Fprintf(progressW(), "  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset)
+		fmt.Fprintf(progressW(), "  %s✓%s %s%s%s\n", colorGreen, colorReset, colorDim, remote, colorReset) //nolint:errcheck,gosec
 	}
 	return nil
 }
@@ -294,7 +294,7 @@ func (p *PushPipeline) UploadReadmeAssets() *PushPipeline {
 		assets, err := uploadReadmeAssets(p.ctx, pushBaseURL(), p.cfg.Account, p.cfg.AgentName, workingDir, images, p.cfg.Verbose)
 		if err != nil {
 			printStepFail()
-			fmt.Fprintf(progressW(), "  %s!%s could not upload images, continuing with relative links: %v\n", colorYellow, colorReset, err)
+			fmt.Fprintf(progressW(), "  %s!%s could not upload images, continuing with relative links: %v\n", colorYellow, colorReset, err) //nolint:errcheck,gosec
 			return nil
 		}
 		printStepDone(fmt.Sprintf("%d image(s)", len(assets)))
@@ -323,15 +323,15 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 		if needsConfirm && !p.cfg.Yes {
 			confirmed, err := confirmVisibilityChange(serverAgent.Visibility, string(p.visibility))
 			if err != nil {
-				// Propagate tui.ErrCancelled (and any other prompt error) so
-				// callers can branch on errors.Is(err, tui.ErrCancelled) for a clean exit.
+				// Propagate tui.ErrCanceled (and any other prompt error) so
+				// callers can branch on errors.Is(err, tui.ErrCanceled) for a clean exit.
 				return err
 			}
 			if !confirmed {
 				// Explicit "No" — collapse onto the same sentinel as esc/ctrl+c
-				// so runPush surfaces a single dim "Cancelled." line with exit 0
-				// for both abort paths instead of a raw "push cancelled" error.
-				return tui.ErrCancelled
+				// so runPush surfaces a single dim "Canceled." line with exit 0
+				// for both abort paths instead of a raw "push canceled" error.
+				return tui.ErrCanceled
 			}
 		}
 
@@ -364,14 +364,14 @@ func (p *PushPipeline) Register() *PushPipeline {
 // printSkippedComponents prints skip messages for components that use pre-built images.
 func (p *PushPipeline) printSkippedComponents() {
 	if p.astroSpec.Agent.Build == nil && p.astroSpec.Agent.Image != "" {
-		fmt.Fprintf(progressW(), "%s→%s Skipping %s[agent]%s using image: %s%s%s\n",
+		fmt.Fprintf(progressW(), "%s→%s Skipping %s[agent]%s using image: %s%s%s\n", //nolint:errcheck,gosec
 			colorCyan, colorReset, colorDim, colorReset, colorDim, p.astroSpec.Agent.Image, colorReset)
 	}
 	for name, model := range p.astroSpec.Models {
 		resolved := model.ResolvedContainer()
 		if model.Container == nil || model.Container.Build == nil {
 			if resolved.Image != "" {
-				fmt.Fprintf(progressW(), "%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n",
+				fmt.Fprintf(progressW(), "%s→%s Skipping %s[model: %s]%s using image: %s%s%s\n", //nolint:errcheck,gosec
 					colorCyan, colorReset, colorDim, name, colorReset, colorDim, resolved.Image, colorReset)
 			}
 		}
@@ -379,21 +379,21 @@ func (p *PushPipeline) printSkippedComponents() {
 	for name, knowledge := range p.astroSpec.Knowledge {
 		container := knowledge.ResolvedContainer()
 		if container.Build == nil && container.Image != "" {
-			fmt.Fprintf(progressW(), "%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n",
+			fmt.Fprintf(progressW(), "%s→%s Skipping %s[knowledge: %s]%s using image: %s%s%s\n", //nolint:errcheck,gosec
 				colorCyan, colorReset, colorDim, name, colorReset, colorDim, container.Image, colorReset)
 		}
 	}
 	for name, tool := range p.astroSpec.Integrations {
 		if tool.Container == nil || tool.Container.Build == nil {
 			if tool.Container != nil && tool.Container.Image != "" {
-				fmt.Fprintf(progressW(), "%s→%s Skipping %s[integration: %s]%s using image: %s%s%s\n",
+				fmt.Fprintf(progressW(), "%s→%s Skipping %s[integration: %s]%s using image: %s%s%s\n", //nolint:errcheck,gosec
 					colorCyan, colorReset, colorDim, name, colorReset, colorDim, tool.Container.Image, colorReset)
 			}
 		}
 	}
 	for name, ingestion := range p.astroSpec.Ingestion {
 		if ingestion.Container.Build == nil && ingestion.Container.Image != "" {
-			fmt.Fprintf(progressW(), "%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n",
+			fmt.Fprintf(progressW(), "%s→%s Skipping %s[ingestion: %s]%s using image: %s%s%s\n", //nolint:errcheck,gosec
 				colorCyan, colorReset, colorDim, name, colorReset, colorDim, ingestion.Container.Image, colorReset)
 		}
 	}
@@ -422,10 +422,10 @@ func (p *PushPipeline) PrintSuccess() {
 	}
 	lines = append(lines, urlLine)
 
-	fmt.Fprintln(progressW())
-	fmt.Fprintln(progressW(), theme.Box(lines))
+	fmt.Fprintln(progressW())                   //nolint:errcheck,gosec
+	fmt.Fprintln(progressW(), theme.Box(lines)) //nolint:errcheck,gosec
 	if urlBelowBox != "" {
-		fmt.Fprintln(progressW(), urlBelowBox)
+		fmt.Fprintln(progressW(), urlBelowBox) //nolint:errcheck,gosec
 	}
-	fmt.Fprintln(progressW())
+	fmt.Fprintln(progressW()) //nolint:errcheck,gosec
 }

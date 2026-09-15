@@ -98,7 +98,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
-	cmd.Flags().StringArray("schedule", nil, "Ingestion schedule: <ingestion>=<cron expression> (repeatable)")
+	cmd.Flags().StringArray("schedule", nil, "Job schedule: <job>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
 	cmd.Flags().Bool("dry-run", false, "Validate inputs without deploying")
@@ -318,7 +318,7 @@ func parseDeploySchedulesFromCmd(cmd *cobra.Command) (map[string]string, error) 
 	return parseDeploySchedules(values)
 }
 
-// The server ignores a schedule aimed at an unknown ingestion silently.
+// The server ignores a schedule aimed at an unknown job silently.
 func checkScheduleTargets(requested, available map[string]string) error {
 	if len(requested) == 0 {
 		return nil
@@ -338,7 +338,7 @@ func checkScheduleTargets(requested, available map[string]string) error {
 	}
 	slices.Sort(unknown)
 	slices.Sort(names)
-	return errUnknownIngestionSchedule(unknown, names)
+	return errUnknownJobSchedule(unknown, names)
 }
 
 // deployValidationSubject splits a template validation field into the label to
@@ -390,7 +390,6 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-
 	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {
 		return err
@@ -398,8 +397,8 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 
 	clusterID, err := resolveDeployCluster(cmd, at, verbose)
 	if err != nil {
-		if errors.Is(err, tui.ErrCancelled) {
-			printCancelled(cmd.OutOrStdout())
+		if errors.Is(err, tui.ErrCanceled) {
+			printCanceled(cmd.OutOrStdout())
 			return nil
 		}
 		return err
@@ -477,7 +476,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	var result agentDeployResult
 	if status, err := apiCallWithHeaders(cmd.Context(), http.MethodPost, deployURL, template, at.Token, deployHeaders, verbose, &result); err != nil {
 		if status == http.StatusNotFound {
-			return fmt.Errorf("agent deployment %q no longer exists", displayName)
+			// A 404 here is not only a deleted deployment: the server conceals a
+			// denied deployment or source blueprint as one too. Lead with the
+			// server's own message so a permission problem is not reported as a
+			// deployment that no longer exists.
+			return fmt.Errorf("could not deploy %q: %w (the deployment may have been deleted, or your access may not cover it or its blueprint)", displayName, err)
 		}
 		if status == http.StatusConflict {
 			return errDeployNameConflict(displayName)

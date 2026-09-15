@@ -85,7 +85,7 @@ func dockerPushWithRetry(ctx context.Context, dockerCli *client.Client, imageRef
 // pushImageToRegistryStreaming pushes an image using Docker Engine API streaming.
 // Image data flows directly from Docker daemon to registry without loading into Go memory.
 func pushImageToRegistryStreaming(ctx context.Context, localImageName, remoteImageName, account string, skipAuth bool) (int64, error) {
-	fmt.Fprintf(progressW(), "  %sstreaming...%s", colorDim, colorReset)
+	fmt.Fprintf(progressW(), "  %sstreaming...%s", colorDim, colorReset) //nolint:errcheck,gosec
 
 	if ctx == nil {
 		ctx = context.Background()
@@ -93,13 +93,13 @@ func pushImageToRegistryStreaming(ctx context.Context, localImageName, remoteIma
 
 	dockerCli, err := newDockerClient()
 	if err != nil {
-		fmt.Fprintln(progressW())
+		fmt.Fprintln(progressW()) //nolint:errcheck,gosec
 		return 0, err
 	}
 
 	// Tag image for remote registry
 	if _, err := dockerCli.ImageTag(ctx, client.ImageTagOptions{Source: localImageName, Target: remoteImageName}); err != nil {
-		fmt.Fprintln(progressW())
+		fmt.Fprintln(progressW()) //nolint:errcheck,gosec
 		return 0, fmt.Errorf("failed to tag image %s -> %s: %w", localImageName, remoteImageName, err)
 	}
 
@@ -109,12 +109,12 @@ func pushImageToRegistryStreaming(ctx context.Context, localImageName, remoteIma
 	if !skipAuth {
 		authStr, err = getDockerRegistryAuth(ctx, account)
 		if err != nil {
-			fmt.Fprintln(progressW())
+			fmt.Fprintln(progressW()) //nolint:errcheck,gosec
 			return 0, fmt.Errorf("failed to get registry auth: %w", err)
 		}
 	}
 
-	fmt.Fprint(progressW(), "\r                    \r")
+	fmt.Fprint(progressW(), "\r                    \r") //nolint:errcheck,gosec
 
 	// Push with retry support for transient registry errors
 	totalBytes, err := dockerPushWithRetry(ctx, dockerCli, remoteImageName, authStr, "pushing")

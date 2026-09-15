@@ -3,12 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -63,10 +62,12 @@ var devStopCmd = &cobra.Command{
 
 var devTriggerCmd = &cobra.Command{
 	Use:   "trigger <name>",
-	Short: "Trigger an ingestion job",
-	Long:  `Manually trigger a named ingestion job. Runs the ingestion container and exits when done.`,
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDevTrigger,
+	Short: "Run a job now",
+	Long: `Run a job now, without waiting for its explicit trigger.
+
+Omit the job name to list the available jobs for this project.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runDevTrigger,
 }
 
 func init() {
@@ -101,11 +102,11 @@ Use -b/--background to start in the background and exit immediately.`
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
 }
 
-// checkDockerRunning verifies the Docker daemon is accessible.
+// checkDockerRunning verifies the Docker daemon is accessible. No platform
+// gate: build_runner, push_streaming and pipeline all reach newDockerClient
+// without one, and it already probes per-platform, so letting it answer
+// reports what is actually wrong instead of refusing the OS.
 func checkDockerRunning() error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows is not supported — please use macOS or Linux") //nolint:staticcheck
-	}
 	_, err := newDockerClient()
 	return err
 }
@@ -149,6 +150,110 @@ func readDevProjectName(statePath string, cmd *cobra.Command) (string, error) {
 	return composeBuilder.ProjectName(astroSpec), nil
 }
 
+// devEnvStage names a source assembleDevEnv has finished reading, so a caller
+// can narrate progress in the order the work happens.
+type devEnvStage int
+
+const (
+	devEnvStageFile  devEnvStage = iota // the env file
+	devEnvStageStore                    // the stored project vars
+)
+
+// devEnvCounts reports what each source contributed.
+//
+// FileFound separates an absent env file from an empty one: the start command
+// words those differently, and len() alone cannot tell them apart.
+type devEnvCounts struct {
+	FromFile  int
+	FileFound bool
+	FromStore int
+}
+
+// devEnvOptions are the inputs to assembleDevEnv.
+//
+// A struct rather than positional arguments because Verbose and Export are
+// adjacent booleans: swapped positionally they would compile and silently mint
+// a gateway key in quiet mode while skipping the process-env export.
+type devEnvOptions struct {
+	Spec       *spec.AstroSpec
+	WorkingDir string
+	EnvFile    string
+	Verbose    bool
+	// Export mirrors the assembled vars into this process's environment. The
+	// start command relies on it; a triggered job receives its env through the
+	// compose project instead, so it leaves this off.
+	Export bool
+	// OnStage, when set, is called as each source is read, before the gateway
+	// key is minted, with the counts known so far. A caller that printed from
+	// the returned counts instead would emit its own lines after the gateway
+	// notice rather than before it.
+	OnStage func(devEnvStage, devEnvCounts)
+}
+
+// assembleDevEnv builds the env a dev container runs with: the env file, the
+// stored project vars layered over it, and the AI Gateway dev key when the spec
+// uses the gateway. Stored project vars win over the env file.
+//
+// This is the canonical ordering for both dev paths. Extracted so a test can
+// assert the gateway key is present without driving a command past its
+// state-file and compose dependencies.
+func assembleDevEnv(
+	ctx context.Context,
+	w io.Writer,
+	opts devEnvOptions,
+) (map[string]string, devEnvCounts, error) {
+	var counts devEnvCounts
+
+	envVars, err := utils.LoadEnvFile(opts.WorkingDir, opts.EnvFile)
+	if err != nil {
+		return nil, counts, fmt.Errorf("failed to read .env file: %w", err)
+	}
+	counts.FileFound = envVars != nil
+	if envVars == nil {
+		envVars = make(map[string]string)
+	}
+	counts.FromFile = len(envVars)
+
+	if opts.Export {
+		if err := exportEnv(envVars); err != nil {
+			return nil, counts, err
+		}
+	}
+	if opts.OnStage != nil {
+		opts.OnStage(devEnvStageFile, counts)
+	}
+
+	// Stored project vars take priority over the env file.
+	storedVars := config.GetProjectVars(buildinfo.BinaryName, opts.WorkingDir)
+	counts.FromStore = len(storedVars)
+	for k, v := range storedVars {
+		envVars[k] = v
+	}
+	if opts.Export {
+		if err := exportEnv(storedVars); err != nil {
+			return nil, counts, err
+		}
+	}
+	if opts.OnStage != nil {
+		opts.OnStage(devEnvStageStore, counts)
+	}
+
+	// An ingestion job reaches the gateway through the same env the agent does.
+	if err := injectAIGatewayDevKey(ctx, w, opts.Spec, envVars, opts.Verbose); err != nil {
+		return nil, counts, err
+	}
+	return envVars, counts, nil
+}
+
+func exportEnv(vars map[string]string) error {
+	for k, v := range vars {
+		if err := os.Setenv(k, v); err != nil {
+			return fmt.Errorf("failed to set env var %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
 func runDevStart(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
 	rebuild := flagBool(cmd, "rebuild")
@@ -160,7 +265,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	verbose, _ := cmd.Flags().GetBool("verbose")
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -184,53 +289,29 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
-	// Load .env file
-	envVars, err := utils.LoadEnvFile(workingDir, envFile)
-	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	} else {
-		fmt.Printf("%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, len(envVars), envFile)
-		for key, val := range envVars {
-			if err := os.Setenv(key, val); err != nil {
-				return fmt.Errorf("failed to set env var %s: %w", key, err)
+	// Narrated through OnStage rather than from the returned counts, so these
+	// lines keep printing before the gateway notice.
+	w := cmd.OutOrStdout()
+	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
+		Spec:       astroSpec,
+		WorkingDir: workingDir,
+		EnvFile:    envFile,
+		Verbose:    verbose,
+		Export:     true,
+		OnStage: func(stage devEnvStage, c devEnvCounts) {
+			switch {
+			case stage == devEnvStageFile && c.FileFound:
+				fmt.Fprintf(w, "%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, c.FromFile, envFile) //nolint:errcheck,gosec
+			case stage == devEnvStageStore && c.FromStore > 0:
+				fmt.Fprintf(w, "%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, c.FromStore) //nolint:errcheck,gosec
 			}
-		}
+		},
+	})
+	if err != nil {
+		return err
 	}
-
-	// Load stored project config and merge (config store takes priority over .env)
-	storedVars := config.GetProjectVars(buildinfo.BinaryName, workingDir)
-	for k, v := range storedVars {
-		envVars[k] = v
-		if err := os.Setenv(k, v); err != nil {
-			return fmt.Errorf("failed to set env var %s: %w", k, err)
-		}
-	}
-	if len(storedVars) > 0 {
-		fmt.Printf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, len(storedVars))
-	} else if len(envVars) == 0 {
-		fmt.Printf("%s→%s %sNo credentials found. Run '%s configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset)
-	}
-
-	// AI Gateway: if the spec uses provider:astro-gateway, fetch a short-lived
-	// dev key from astro-server and inject the resolver-derived env vars into
-	// the local container env. The key auto-expires upstream — no cleanup
-	// needed on stop.
-	if specUsesAIGateway(astroSpec) {
-		at, atErr := getCurrentAccountToken(cmd.Context())
-		if atErr != nil {
-			return fmt.Errorf("provider:astro-gateway requires login — run '%s login': %w", buildinfo.BinaryName, atErr)
-		}
-		keyResp, keyErr := fetchAIGatewayDevKey(cmd.Context(), at, astroSpec, verbose)
-		if keyErr != nil {
-			return keyErr
-		}
-		if err := applyAIGatewayDevKey(astroSpec, keyResp, envVars); err != nil {
-			return err
-		}
-		fmt.Printf("%s→%s AI Gateway: dev key minted (expires %s)\n", colorCyan, colorReset, keyResp.ExpiresAt)
+	if counts.FromStore == 0 && len(envVars) == 0 {
+		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
 	}
 	// Build Docker Compose project
 	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
@@ -277,7 +358,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Tear down leftover containers from a previous run (e.g. force-killed with Ctrl+C).
 	// This is fast and idempotent when nothing is running. Must match the
 	// project name produced by BuildProject (via composeBuilder.ProjectName),
-	// otherwise compose finds no resources labelled with the raw spec name
+	// otherwise compose finds no resources labeled with the raw spec name
 	// and prints "No resource found to remove" for scoped agents.
 	projectName := composeBuilder.ProjectName(astroSpec)
 	_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
@@ -421,7 +502,7 @@ func runDevLogs(cmd *cobra.Command, args []string) error {
 	err = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr}, logOpts)
 	logsCancel()
 	if logsCtx.Err() != nil {
-		return nil // cancelled by signal — not an error
+		return nil // canceled by signal — not an error
 	}
 	return err
 }
@@ -481,12 +562,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 
-	// No name given — list available ingestion jobs and exit
+	// No name given — list available jobs and exit
 	if len(args) == 0 {
 		if len(astroSpec.Ingestion) == 0 {
-			return fmt.Errorf("no ingestion jobs defined in %s", filepath.Base(specPath))
+			return fmt.Errorf("no jobs defined in %s", filepath.Base(specPath))
 		}
-		fmt.Println("Available ingestion jobs:")
+		fmt.Println("Available jobs:")
 		fmt.Println()
 		for name, ing := range astroSpec.Ingestion {
 			fmt.Printf("  %s%s%s  %s(%s)%s\n", colorBold, name, colorReset, colorDim, ing.Trigger.Type, colorReset)
@@ -500,12 +581,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 
 	// Validate the name exists in the spec
 	if _, ok := astroSpec.Ingestion[name]; !ok {
-		fmt.Fprintf(os.Stderr, "Unknown ingestion job %q. Available:\n\n", name)
+		fmt.Fprintf(os.Stderr, "Unknown job %q. Available:\n\n", name)
 		for n := range astroSpec.Ingestion {
 			fmt.Fprintf(os.Stderr, "  %s\n", n)
 		}
 		fmt.Fprintln(os.Stderr)
-		return fmt.Errorf("ingestion job %q not found in %s", name, filepath.Base(specPath))
+		return fmt.Errorf("job %q not found in %s", name, filepath.Base(specPath))
 	}
 
 	statePath, err := devStatePath()
@@ -517,17 +598,16 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
-	fmt.Printf("🔄 Triggering ingestion: %s\n", name)
-	envVars, err := utils.LoadEnvFile(workingDir, envFile)
+	fmt.Printf("🔄 Triggering job: %s\n", name)
+	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
+		Spec:       astroSpec,
+		WorkingDir: workingDir,
+		EnvFile:    envFile,
+		Verbose:    triggerVerbose,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to read .env file: %w", err)
-	}
-	if envVars == nil {
-		envVars = make(map[string]string)
-	}
-	// Merge stored project vars (same as runDevStart — takes priority over .env)
-	for k, v := range config.GetProjectVars(buildinfo.BinaryName, workingDir) {
-		envVars[k] = v
+		return err
 	}
 	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
 	if err != nil {
@@ -545,41 +625,13 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		NoDeps:     true,
 	})
 	if err != nil {
-		return fmt.Errorf("ingestion '%s' failed: %w", name, err)
+		return fmt.Errorf("job '%s' failed: %w", name, err)
 	}
 	if exitCode != 0 {
-		return fmt.Errorf("ingestion '%s' exited with code %d", name, exitCode)
+		return fmt.Errorf("job '%s' exited with code %d", name, exitCode)
 	}
-	fmt.Printf("✅ Ingestion '%s' completed\n", name)
+	fmt.Printf("✅ Job '%s' completed\n", name)
 	return nil
-}
-
-// checkComposeHealth waits briefly then prints the status of each compose service.
-// Services that exited or are restarting are flagged so the user knows immediately.
-func checkComposeHealth(projectName string) {
-	time.Sleep(3 * time.Second)
-
-	ctx := context.Background()
-	svc, err := newComposeService(false)
-	if err != nil {
-		return
-	}
-	containers, err := svc.Ps(ctx, projectName, api.PsOptions{All: true})
-	if err != nil {
-		return
-	}
-
-	for _, c := range containers {
-		switch string(c.State) {
-		case "running":
-			fmt.Printf("  %s✓%s %s %s(%s)%s\n", colorGreen, colorReset, c.Name, colorDim, c.Status, colorReset)
-		case "exited", "dead":
-			fmt.Printf("  %s✗%s %s %s— %s%s\n", colorRed, colorReset, c.Name, colorRed, c.Status, colorReset)
-		default:
-			fmt.Printf("  %s?%s %s %s(%s)%s\n", colorYellow, colorReset, c.Name, colorDim, c.Status, colorReset)
-		}
-	}
-	fmt.Println()
 }
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
@@ -679,25 +731,6 @@ func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 		fmt.Printf("✅ %s\n", doneMsg)
 	}
 	return err
-}
-
-// openBrowser opens the specified URL in the default browser
-func openBrowser(url string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url) //nolint:gosec
-	case "linux":
-		cmd = exec.Command("xdg-open", url) //nolint:gosec
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec
-	default:
-		fmt.Printf("%s!%s %sUnable to open browser automatically on %s%s\n", colorYellow, colorReset, colorDim, runtime.GOOS, colorReset)
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s✗%s %sFailed to open browser: %v%s\n", colorRed, colorReset, colorDim, err, colorReset)
-	}
 }
 
 // agentCoreReadyWait bounds the wait for an agentcore agent to bind the contract port.

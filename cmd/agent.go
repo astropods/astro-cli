@@ -502,7 +502,7 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 	confirm, _ := cmd.Flags().GetString("confirm")
 	if confirm != "" && confirm != label && confirm != dep.ID {
 		w := cmd.OutOrStdout()
-		fmt.Fprintf(w, "%sCancelled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 	if confirm != label && confirm != dep.ID {
@@ -516,7 +516,7 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 			),
 		)
 		if err := runForm(form); err != nil || !confirmed {
-			printCancelled(cmd.OutOrStdout())
+			printCanceled(cmd.OutOrStdout())
 			return nil
 		}
 	}

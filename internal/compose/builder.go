@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
@@ -17,7 +16,7 @@ import (
 // agentDataVolume is the compose volume key every agent gets at
 // spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
 // volume so its files API and the agent see one filesystem, the local-dev
-// analogue of the shared PVC used in Kubernetes deployments. Its docker volume
+// analog of the shared PVC used in Kubernetes deployments. Its docker volume
 // name is scoped per compose project (see where it's declared), so each agent
 // gets its own data and chat history and uploads don't leak between agents.
 const agentDataVolume = "agent-data"
@@ -172,7 +171,7 @@ func postgresDevCredentials(s *spec.AstroSpec, envVars map[string]string) (user,
 // Exposed separately so callers that only have the raw string (e.g. a legacy
 // `.running` state file) can normalize it without constructing a full spec.
 func ProjectNameFromSpecName(raw string) string {
-	_, agentName := utils.ParseAgentName(raw)
+	_, agentName := spec.SplitAgentName(raw)
 	return agentName
 }
 
@@ -465,7 +464,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Ports:       buildMessagingPorts(s),
 				// Share the agent's /data volume so the files API (FILES_DIR)
 				// writes to the same disk the agent reads at /data/files — the
-				// dev analogue of the shared PVC in Kubernetes. The volume is
+				// dev analog of the shared PVC in Kubernetes. The volume is
 				// declared in the agent section below.
 				Volumes: []types.ServiceVolumeConfig{
 					{
@@ -941,7 +940,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
 			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
 			if !hasBotToken {
-				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s configure' to add it)\n", buildinfo.BinaryName)
+				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s project configure' to add it)\n", buildinfo.BinaryName)
 				continue
 			}
 			enabled := "true"

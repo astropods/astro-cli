@@ -665,7 +665,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-// printKeyList prints a labelled list of env var keys, wrapping at maxWidth columns.
+// printKeyList prints a labeled list of env var keys, wrapping at maxWidth columns.
 // label is the prefix (including indent and trailing colon).
 // indent is the continuation indent for wrapped lines — should align with where
 // keys start on the first line.

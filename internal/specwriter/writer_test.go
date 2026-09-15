@@ -45,11 +45,11 @@ func TestAddEntry_preservesFormatting(t *testing.T) {
 	t.Log("\n" + result)
 
 	checks := []string{
-		"spec: blueprint/v1",         // top-level keys preserved
-		"meta:\n  description:",    // nested structure preserved
-		"  claude:\n    provider:", // existing model entry preserved
+		"spec: blueprint/v1",                                 // top-level keys preserved
+		"meta:\n  description:",                              // nested structure preserved
+		"  claude:\n    provider:",                           // existing model entry preserved
 		"  cmd:\n    model: command-r\n    provider: cohere", // new entry added
-		"integrations:\n  gh:", // subsequent section preserved
+		"integrations:\n  gh:",                               // subsequent section preserved
 	}
 	for _, want := range checks {
 		if !strings.Contains(result, want) {

@@ -164,7 +164,7 @@ func Run(provider string, creds []Credential) (Result, error) {
 
 	final := result.(model)
 	if final.quitting {
-		return nil, tui.ErrCancelled
+		return nil, tui.ErrCanceled
 	}
 	return final.values, nil
 }

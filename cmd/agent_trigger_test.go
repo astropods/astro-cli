@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIngestionJobsFromWorkloads(t *testing.T) {
@@ -84,6 +89,72 @@ func TestAgentTriggerArgs(t *testing.T) {
 				return
 			}
 			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestRunAgentTriggerJobSurface(t *testing.T) {
+	deployment := map[string]any{
+		"id":           "dep-abc-123",
+		"name":         "my-bp",
+		"display_name": "my-agent",
+		"status":       "active",
+	}
+
+	cases := []struct {
+		name      string
+		workloads []any
+		args      []string
+		wantErr   error
+		wantOut   string
+	}{
+		{
+			name: "listing prints the jobs header",
+			workloads: []any{
+				map[string]any{"name": "my-agent-agent", "component": "agent"},
+				map[string]any{"name": "my-agent-ingestion-docs-sync", "component": "ingestion-docs_sync", "schedule": "*/15 * * * *"},
+			},
+			wantOut: msgAgentJobsHeader("my-agent"),
+		},
+		{
+			name:      "an agent that runs none says so",
+			workloads: []any{map[string]any{"name": "my-agent-agent", "component": "agent"}},
+			wantErr:   errAgentNoJobs("my-agent"),
+		},
+		{
+			name: "an unmatched name lists what is available",
+			workloads: []any{
+				map[string]any{"name": "my-agent-ingestion-docs-sync", "component": "ingestion-docs_sync"},
+			},
+			args:    []string{"nightly"},
+			wantErr: errAgentUnknownJob("nightly", []string{"docs_sync"}),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/deployments/dep-abc-123") {
+					jsonHandler(http.StatusOK, map[string]any{
+						"deployment": map[string]any{"id": "dep-abc-123", "workloads": tc.workloads},
+					})(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, map[string]any{"deployments": []any{deployment}, "count": 1})(w, r)
+			}))
+
+			buf := &bytes.Buffer{}
+			agentTriggerCmd.SetOut(buf)
+			agentTriggerCmd.SetContext(context.Background())
+			setAgentTargetName(t, agentTriggerCmd, "my-agent")
+
+			err := runAgentTrigger(agentTriggerCmd, tc.args)
+			if tc.wantErr != nil {
+				require.EqualError(t, err, tc.wantErr.Error())
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, buf.String(), tc.wantOut, "the listing must name jobs, not ingestion jobs")
 		})
 	}
 }

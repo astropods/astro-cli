@@ -246,4 +246,3 @@ func resolveBuildPlatform(serverURL, runtime string) (platform string, skipPush 
 	}
 	return "linux/amd64", false
 }
-

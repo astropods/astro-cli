@@ -239,12 +239,12 @@ func TestRunBlueprintDeploy(t *testing.T) {
 			wantNoDep:  true,
 		},
 		{
-			name:       "deploy endpoint 404 reports deployment no longer exists",
+			name:       "deploy endpoint 404 surfaces the server reason",
 			tmplStatus: http.StatusOK,
 			tmplResp:   validTmplResp,
 			deplStatus: http.StatusNotFound,
 			deplResp:   map[string]any{"error": "not found"},
-			wantErr:    `no longer exists`,
+			wantErr:    `could not deploy`,
 		},
 		{
 			name:       "deploy endpoint error",
