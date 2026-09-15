@@ -105,10 +105,14 @@ Use -b/--background to start in the background and exit immediately.`
 }
 
 // checkDockerRunning verifies the Docker daemon is accessible.
+//
+// No platform gate: this used to refuse Windows outright, which both
+// overstated the problem (the API-facing commands are fine there) and
+// contradicted the rest of the binary, since build_runner, push_streaming and
+// pipeline all reach newDockerClient with no such check. newDockerClient
+// probes the endpoint per-platform and names Docker Desktop on Windows, so
+// letting it answer reports what is actually wrong.
 func checkDockerRunning() error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows is not supported — please use macOS or Linux") //nolint:staticcheck
-	}
 	_, err := newDockerClient()
 	return err
 }
