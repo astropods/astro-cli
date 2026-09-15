@@ -41,3 +41,29 @@ jobs:
 
       - name: Vet for Windows
         run: GOOS=windows go vet ./...
+
+  # Cross-compiling proves the Windows seam compiles; only running on Windows
+  # proves it works. The tests adapt to the platform that built them, so this
+  # is the only job that executes chatui_process_windows.go,
+  # upgrade_replace_windows.go and docker_endpoint_windows.go at all -- and
+  # with them taskkill, tasklist, netstat and the rename-over-a-running-binary
+  # dance, none of which a Linux runner can reach.
+  windows-test:
+    runs-on: windows-latest
+    name: Test on Windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./cmd/... ./internal/...
