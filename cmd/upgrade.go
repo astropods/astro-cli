@@ -45,7 +45,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("upgrade not available: download URL not configured in this build")
 	}
 
-	binName := fmt.Sprintf("%s-%s-%s", buildinfo.BinaryName, runtime.GOOS, runtime.GOARCH)
+	binName := fmt.Sprintf("%s-%s-%s%s", buildinfo.BinaryName, runtime.GOOS, runtime.GOARCH, artifactSuffix)
 	downloadURL := base + "/" + binName
 	versionURL := base + "/VERSION"
 
@@ -77,7 +77,9 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to find executable path: %w", err)
 	}
 	installDir := filepath.Dir(execPath)
-	symlinkPath := filepath.Join(installDir, buildinfo.BinaryName)
+	// Clears a binary a previous upgrade could not delete because it was still
+	// running from it. No-op where the old file is unlinked immediately.
+	sweepReplacedBinaries(installDir)
 
 	// Download to temp file in the install directory.
 	tmpFile, err := os.CreateTemp(installDir, ".ast-upgrade-*")
@@ -112,10 +114,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	if latestVersion != "" {
-		// Versioned binary + symlink approach
+	if latestVersion != "" && versionedInstallSupported() {
+		// Versioned binary + symlink approach. No artifactSuffix on the
+		// symlink: this branch is unreachable on the one platform that has one.
 		versionedName := fmt.Sprintf("%s-%s", buildinfo.BinaryName, latestVersion)
 		versionedPath := filepath.Join(installDir, versionedName)
+		symlinkPath := filepath.Join(installDir, buildinfo.BinaryName)
 
 		if err := os.Rename(tmpPath, versionedPath); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to install binary: %w", err)
@@ -128,12 +132,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 		cleanOldVersions(installDir, latestVersion)
 	} else {
-		// No version info — fall back to direct replace
+		// Either there is no version to name a binary after, or this platform
+		// cannot use the symlink above. Replace in place.
 		realPath, err := filepath.EvalSymlinks(execPath)
 		if err != nil {
 			realPath = execPath
 		}
-		if err := os.Rename(tmpPath, realPath); err != nil { //nolint:gosec
+		if err := replaceRunningBinary(tmpPath, realPath); err != nil {
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 	}

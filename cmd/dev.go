@@ -104,11 +104,11 @@ Use -b/--background to start in the background and exit immediately.`
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
 }
 
-// checkDockerRunning verifies the Docker daemon is accessible.
+// checkDockerRunning verifies the Docker daemon is accessible. No platform
+// gate: build_runner, push_streaming and pipeline all reach newDockerClient
+// without one, and it already probes per-platform, so letting it answer
+// reports what is actually wrong instead of refusing the OS.
 func checkDockerRunning() error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows is not supported — please use macOS or Linux") //nolint:staticcheck
-	}
 	_, err := newDockerClient()
 	return err
 }

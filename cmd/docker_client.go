@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"sync"
 
@@ -31,38 +30,48 @@ func newDockerClient() (*client.Client, error) {
 
 		if _, err := cli.Ping(context.Background(), client.PingOptions{}); err != nil {
 			_ = cli.Close()
-
-			red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
-			dim := lipgloss.NewStyle().Faint(true)
-			hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
-
-			if _, statErr := os.Lstat("/var/run/docker.sock"); os.IsNotExist(statErr) {
-				msg := "Docker is not installed."
-				if runtime.GOOS == "darwin" {
-					msg += "\n  → Download Docker Desktop for Mac: https://docs.docker.com/desktop/install/mac-install/"
-				} else {
-					msg += "\n  → Install Docker Engine: https://docs.docker.com/engine/install/"
-				}
-				dockerClientErr = fmt.Errorf("%s", msg)
-				return
-			}
-
-			var hint2 string
-			if runtime.GOOS == "darwin" {
-				hint2 = hint.Render("→ Open Docker Desktop from your Applications folder or system tray")
-			} else {
-				hint2 = hint.Render("→ Run: sudo systemctl start docker")
-			}
-			msg := red.Render("🐳 Docker is not running") + "\n" +
-				dim.Render("Start Docker and re-run your command.") + "\n\n" +
-				hint2
-			dockerClientErr = fmt.Errorf("%s", msg)
+			dockerClientErr = dockerUnreachableError(runtime.GOOS, dockerEndpointMissing())
 			return
 		}
 
 		dockerClient = cli
 	})
 	return dockerClient, dockerClientErr
+}
+
+// dockerUnreachableError explains an unreachable daemon: Docker is either
+// absent or installed and not started. goos is a parameter rather than read
+// from runtime so every platform's wording is testable from whichever platform
+// runs the tests.
+func dockerUnreachableError(goos string, endpointMissing bool) error {
+	if endpointMissing {
+		msg := "Docker is not installed."
+		switch goos {
+		case "darwin":
+			msg += "\n  → Download Docker Desktop for Mac: https://docs.docker.com/desktop/install/mac-install/"
+		case "windows":
+			msg += "\n  → Download Docker Desktop for Windows: https://docs.docker.com/desktop/install/windows-install/"
+		default:
+			msg += "\n  → Install Docker Engine: https://docs.docker.com/engine/install/"
+		}
+		return fmt.Errorf("%s", msg)
+	}
+
+	var start string
+	switch goos {
+	case "darwin":
+		start = "→ Open Docker Desktop from your Applications folder or system tray"
+	case "windows":
+		start = "→ Start Docker Desktop from the Start menu or system tray"
+	default:
+		start = "→ Run: sudo systemctl start docker"
+	}
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	return fmt.Errorf("%s", red.Render("🐳 Docker is not running")+"\n"+
+		dim.Render("Start Docker and re-run your command.")+"\n\n"+
+		hint.Render(start))
 }
 
 // Close releases resources held by the singleton Docker client, if initialised.
