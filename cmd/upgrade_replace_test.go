@@ -56,14 +56,14 @@ func TestReplaceRunningBinary_WorksWhenNoTargetExists(t *testing.T) {
 
 func TestReplaceRunningBinary_KeepsTheOriginalWhenTheMoveFails(t *testing.T) {
 	dir, target, _ := writeUpgradeFixture(t, "old")
-	// A directory cannot be renamed over a file, so the move fails after the
-	// original has been moved aside — the rollback path.
-	staged := filepath.Join(dir, "staged-dir")
-	require.NoError(t, os.Mkdir(staged, 0o755))
+	// A source that does not exist, rather than a directory staged over the
+	// target: on Windows the live binary is moved aside first, so by the time
+	// the second rename runs the path is vacant and a directory would move
+	// onto it happily -- which skipped this test on the one platform the
+	// rollback exists for.
+	staged := filepath.Join(dir, "no-such-download")
 
-	if err := replaceRunningBinary(staged, target); err == nil {
-		t.Skip("this platform allows the move; the rollback path is unreachable here")
-	}
+	require.Error(t, replaceRunningBinary(staged, target))
 
 	got, err := os.ReadFile(target)
 	require.NoError(t, err, "the original was lost after a failed replace")
