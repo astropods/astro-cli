@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/spf13/cobra"
@@ -40,7 +39,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	if latest && build != "" {
-		return fmt.Errorf("--latest and --build are mutually exclusive: --latest resolves the newest build, --build pins one")
+		return errRedeployLatestWithBuild()
 	}
 
 	// A redeploy with no --adapter must PRESERVE the deployment's existing
@@ -109,14 +108,14 @@ func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, name string, verb
 	var bp blueprintItem
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
 	if status == http.StatusNotFound {
-		return "", fmt.Errorf("blueprint %q not found in account %q", name, at.Account)
+		return "", errBlueprintNotFound(name, at.Account)
 	}
 	if err != nil {
 		return "", err
 	}
 	v := blueprintLatestVersion(bp.Versions)
 	if v == nil || v.BuildID == "" {
-		return "", fmt.Errorf("blueprint %q has no published build to redeploy", name)
+		return "", errBlueprintNoPublishedBuild(name)
 	}
 	return v.BuildID, nil
 }

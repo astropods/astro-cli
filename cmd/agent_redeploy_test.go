@@ -452,7 +452,7 @@ func TestRunAgentRedeployLatestWithBuildIsRejectedBeforeAPICall(t *testing.T) {
 
 	setAgentTargetName(t, agentRedeployCmd, "my-agent")
 	err := runAgentRedeploy(agentRedeployCmd, nil)
-	require.ErrorContains(t, err, "mutually exclusive")
+	require.EqualError(t, err, errRedeployLatestWithBuild().Error())
 	assert.False(t, apiCalled, "conflicting build selectors should fail before any API call")
 }
 
@@ -470,6 +470,6 @@ func TestRunAgentRedeployLatestNeedsAPublishedBuild(t *testing.T) {
 
 	setAgentTargetName(t, agentRedeployCmd, "my-agent")
 	err := runAgentRedeploy(agentRedeployCmd, nil)
-	require.ErrorContains(t, err, "no published build")
+	require.EqualError(t, err, errBlueprintNoPublishedBuild("my-bp").Error())
 	assert.Empty(t, captured.Build)
 }

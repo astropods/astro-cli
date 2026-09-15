@@ -392,3 +392,15 @@ func errUnknownIngestionSchedule(unknown, available []string) error {
 	}
 	return fmt.Errorf("no scheduled ingestion named %s (available: %s)", strings.Join(unknown, ", "), strings.Join(available, ", "))
 }
+
+func errRedeployLatestWithBuild() error {
+	return fmt.Errorf("--latest and --build are mutually exclusive: --latest resolves the newest build, --build pins one")
+}
+
+func errBlueprintNotFound(name, account string) error {
+	return fmt.Errorf("blueprint %q not found in account %q", name, account)
+}
+
+func errBlueprintNoPublishedBuild(name string) error {
+	return fmt.Errorf("blueprint %q has no published build to redeploy", name)
+}
