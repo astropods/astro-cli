@@ -65,16 +65,19 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # -skip rather than a narrow -run: everything else still runs, so a new
-      # Windows regression fails this job. The twelve below fail for reasons
-      # that predate Windows support and are not what it is testing:
-      #   - three assert POSIX file modes, which Windows does not have
-      #   - seven isolate with t.Setenv("HOME"), but os.UserHomeDir reads
-      #     USERPROFILE on Windows, so they write to the runner's real profile
-      #     and then see each other's credentials
-      #   - two assert a path built with forward slashes
-      # The product code is right in all three cases; the tests are not
-      # portable. Fixing them means a shared helper that sets both variables
-      # and a change to the convention in CLAUDE.md, which is its own PR.
-      - name: Test
-        run: go test ./cmd/... ./internal/... -skip '^(TestProjectConfigs_FilePermissions|TestSaveCredentials_FilePermissions|TestSaveVersionCache_FilePermissions|TestSaveCredentials_CreatesDirectory|TestIsAuthenticated_NotAuthenticated|TestRequireAuth_NotAuthenticated|TestAssembleDevEnv_ReportsMissingLoginForGatewaySpec|TestPush_ExpiredCredentialsFailBeforeBuild|TestPush_StaleRefreshTokenFailBeforeBuild|TestPush_OrgScopedSpecName|TestAstroYml_IngestionDockerfilePath|TestAstroYml_MultipleIngestions_DockerfilePaths)$'
+      # Scoped to the seam this branch adds, which is what a Windows runner
+      # is here to prove: taskkill, tasklist, netstat, Get-CimInstance, the
+      # detach flags, and the rename-over-a-running-binary dance.
+      #
+      # Not the whole suite. 44 call sites across 18 files isolate with
+      # t.Setenv("HOME"), but os.UserHomeDir reads USERPROFILE on Windows, so
+      # every one of them shares the runner's real profile instead of its own
+      # temp dir and they overwrite each other's credentials. Which tests fail
+      # therefore depends on which ones ran, so an exclusion list does not
+      # converge -- skipping the first twelve simply moved the failure into
+      # internal/auth. The product code is correct; the harness is not
+      # portable, and fixing it means a helper that sets both variables plus a
+      # change to the convention in CLAUDE.md.
+      - name: Test the Windows seam
+        run: |
+          go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v
