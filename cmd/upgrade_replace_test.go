@@ -5,7 +5,23 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// writeUpgradeFixture lays down a live binary and returns the install dir,
+// the target path and a staged replacement.
+func writeUpgradeFixture(t *testing.T, live string) (dir, target, staged string) {
+	t.Helper()
+	dir = t.TempDir()
+	target = filepath.Join(dir, "ast"+artifactSuffix)
+	if live != "" {
+		require.NoError(t, os.WriteFile(target, []byte(live), 0o755))
+	}
+	staged = filepath.Join(dir, ".ast-upgrade-tmp")
+	return dir, target, staged
+}
 
 func TestArtifactSuffix_MatchesTheReleasedName(t *testing.T) {
 	want := ""
@@ -14,114 +30,64 @@ func TestArtifactSuffix_MatchesTheReleasedName(t *testing.T) {
 	}
 	// The release names Windows artifacts with .exe; a mismatch here makes
 	// `ast upgrade` request a URL that does not exist.
-	if artifactSuffix != want {
-		t.Fatalf("artifactSuffix = %q, want %q for %s", artifactSuffix, want, runtime.GOOS)
-	}
+	assert.Equal(t, want, artifactSuffix)
 }
 
 func TestReplaceRunningBinary_PutsTheNewContentInPlace(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "ast"+artifactSuffix)
-	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	staged := filepath.Join(dir, ".ast-upgrade-tmp")
-	if err := os.WriteFile(staged, []byte("new"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_, target, staged := writeUpgradeFixture(t, "old")
+	require.NoError(t, os.WriteFile(staged, []byte("new"), 0o755))
 
-	if err := replaceRunningBinary(staged, target); err != nil {
-		t.Fatalf("replaceRunningBinary: %v", err)
-	}
+	require.NoError(t, replaceRunningBinary(staged, target))
 
 	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("target unreadable after replace: %v", err)
-	}
-	if string(got) != "new" {
-		t.Errorf("target content = %q, want %q", got, "new")
-	}
-	if _, err := os.Stat(staged); !os.IsNotExist(err) {
-		t.Error("staged file survived the replace, so the install dir accumulates temp files")
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(got))
+	assert.NoFileExists(t, staged,
+		"the staged file survived, so the install dir accumulates temp files")
 }
 
 func TestReplaceRunningBinary_WorksWhenNoTargetExists(t *testing.T) {
-	dir := t.TempDir()
-	staged := filepath.Join(dir, ".ast-upgrade-tmp")
-	if err := os.WriteFile(staged, []byte("new"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(dir, "ast"+artifactSuffix)
+	_, target, staged := writeUpgradeFixture(t, "")
+	require.NoError(t, os.WriteFile(staged, []byte("new"), 0o755))
 
-	if err := replaceRunningBinary(staged, target); err != nil {
-		t.Fatalf("replaceRunningBinary with no existing target: %v", err)
-	}
-	if _, err := os.Stat(target); err != nil {
-		t.Errorf("target missing after replace: %v", err)
-	}
+	require.NoError(t, replaceRunningBinary(staged, target))
+	assert.FileExists(t, target)
 }
 
 func TestReplaceRunningBinary_KeepsTheOriginalWhenTheMoveFails(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "ast"+artifactSuffix)
-	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	dir, target, _ := writeUpgradeFixture(t, "old")
 	// A directory cannot be renamed over a file, so the move fails after the
 	// original has been moved aside — the rollback path.
 	staged := filepath.Join(dir, "staged-dir")
-	if err := os.Mkdir(staged, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(staged, 0o755))
 
 	if err := replaceRunningBinary(staged, target); err == nil {
 		t.Skip("this platform allows the move; the rollback path is unreachable here")
 	}
+
 	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("original lost after a failed replace: %v", err)
-	}
-	if string(got) != "old" {
-		t.Errorf("target content = %q, want the original %q", got, "old")
-	}
+	require.NoError(t, err, "the original was lost after a failed replace")
+	assert.Equal(t, "old", string(got))
 }
 
 func TestSweepReplacedBinaries_LeavesTheLiveBinary(t *testing.T) {
-	dir := t.TempDir()
-	live := filepath.Join(dir, "ast"+artifactSuffix)
-	if err := os.WriteFile(live, []byte("live"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	dir, live, _ := writeUpgradeFixture(t, "live")
 	stale := live + ".old"
-	if err := os.WriteFile(stale, []byte("stale"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(stale, []byte("stale"), 0o755))
 
 	sweepReplacedBinaries(dir)
 
-	if _, err := os.Stat(live); err != nil {
-		t.Errorf("sweep removed the live binary: %v", err)
-	}
+	assert.FileExists(t, live, "the sweep removed the live binary")
 	if runtime.GOOS == "windows" {
-		if _, err := os.Stat(stale); !os.IsNotExist(err) {
-			t.Error("sweep left a .old leftover behind")
-		}
+		assert.NoFileExists(t, stale, "the sweep left a .old leftover behind")
 		return
 	}
 	// Elsewhere the sweep is a no-op, since the old file is unlinked at once.
-	if _, err := os.Stat(stale); err != nil {
-		t.Errorf("sweep should not touch anything off Windows: %v", err)
-	}
+	assert.FileExists(t, stale, "the sweep should not touch anything off Windows")
 }
 
 func TestVersionedInstallSupported_MatchesSymlinkAvailability(t *testing.T) {
 	// Windows symlinks need elevation or developer mode, so the versioned
 	// scheme has to fall through to a direct replace there.
-	if runtime.GOOS == "windows" && versionedInstallSupported() {
-		t.Fatal("versionedInstallSupported() = true on Windows, which would try to symlink")
-	}
-	if runtime.GOOS != "windows" && !versionedInstallSupported() {
-		t.Fatalf("versionedInstallSupported() = false on %s", runtime.GOOS)
-	}
+	assert.Equal(t, runtime.GOOS != "windows", versionedInstallSupported())
 }
