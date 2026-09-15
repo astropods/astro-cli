@@ -147,6 +147,12 @@ type stdoutLogConsumer struct {
 	err io.Writer
 }
 
-func (c *stdoutLogConsumer) Log(container, msg string)    { _, _ = fmt.Fprintf(c.out, "%s  | %s\n", container, msg) }
-func (c *stdoutLogConsumer) Err(container, msg string)    { _, _ = fmt.Fprintf(c.err, "%s  | %s\n", container, msg) }
-func (c *stdoutLogConsumer) Status(container, msg string) { _, _ = fmt.Fprintf(c.out, "%s %s\n", container, msg) }
+func (c *stdoutLogConsumer) Log(container, msg string) {
+	_, _ = fmt.Fprintf(c.out, "%s  | %s\n", container, msg)
+}
+func (c *stdoutLogConsumer) Err(container, msg string) {
+	_, _ = fmt.Fprintf(c.err, "%s  | %s\n", container, msg)
+}
+func (c *stdoutLogConsumer) Status(container, msg string) {
+	_, _ = fmt.Fprintf(c.out, "%s %s\n", container, msg)
+}

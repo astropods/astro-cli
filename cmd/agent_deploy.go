@@ -390,7 +390,6 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-
 	iface, err := buildDeployInterfaces(adapters, grants)
 	if err != nil {
 		return err
