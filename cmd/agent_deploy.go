@@ -397,8 +397,8 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 
 	clusterID, err := resolveDeployCluster(cmd, at, verbose)
 	if err != nil {
-		if errors.Is(err, tui.ErrCancelled) {
-			printCancelled(cmd.OutOrStdout())
+		if errors.Is(err, tui.ErrCanceled) {
+			printCanceled(cmd.OutOrStdout())
 			return nil
 		}
 		return err

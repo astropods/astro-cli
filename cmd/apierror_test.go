@@ -64,7 +64,7 @@ func TestAPIError_BillingRefusalNamesTheFix(t *testing.T) {
 	}
 }
 
-// An action the CLI does not recognise must still print the server's sentence.
+// An action the CLI does not recognize must still print the server's sentence.
 // Guessing a next step would tell an account with a card to add one.
 func TestAPIError_AnUnknownActionStillExplains(t *testing.T) {
 	got := newAPIError(http.StatusPaymentRequired,
@@ -84,7 +84,7 @@ func TestAPIError_TheCodeIdentifiesTheRefusal(t *testing.T) {
 	for _, status := range []int{http.StatusPaymentRequired, http.StatusForbidden} {
 		e := newAPIError(status, suspendedBody("credits_exhausted", billingActionAddCard, "Add a payment method."))
 		if !e.isBillingSuspended() {
-			t.Errorf("status %d was not recognised as a billing refusal", status)
+			t.Errorf("status %d was not recognized as a billing refusal", status)
 		}
 	}
 }

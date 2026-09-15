@@ -113,11 +113,11 @@ func runPush(ctx context.Context, w io.Writer, at AccountToken, cfg PushPipeline
 		UploadReadmeAssets().
 		Register().
 		Err(); err != nil {
-		// Surface the canonical dim "Cancelled." line for both esc/ctrl+c and
+		// Surface the canonical dim "Canceled." line for both esc/ctrl+c and
 		// explicit-"No" abort paths on the visibility prompt — exit 0 instead
 		// of bubbling the raw sentinel out to cobra as a failure.
-		if errors.Is(err, tui.ErrCancelled) {
-			printCancelled(w)
+		if errors.Is(err, tui.ErrCanceled) {
+			printCanceled(w)
 			return nil
 		}
 		return err
@@ -547,7 +547,7 @@ func getAgentFromServer(ctx context.Context, serverURL, accountName, agentName s
 
 // confirmVisibilityChange asks the user to confirm the target visibility.
 // current may be empty when the agent does not yet exist on the server.
-// Returns (false, tui.ErrCancelled) when the user presses esc / ctrl+c, so
+// Returns (false, tui.ErrCanceled) when the user presses esc / ctrl+c, so
 // callers can distinguish cancellation from an explicit "No".
 func confirmVisibilityChange(current, desired string) (bool, error) {
 	var title, description string

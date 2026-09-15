@@ -16,7 +16,7 @@ var (
 	dockerClientErr  error
 )
 
-// newDockerClient returns the shared Docker client, initialising it on first call.
+// newDockerClient returns the shared Docker client, initializing it on first call.
 // Verifies daemon reachability and returns a styled, actionable error if Docker
 // is not installed or not running. Callers must not close the client — it is a
 // singleton; use Close() at process exit to release it.
@@ -74,7 +74,7 @@ func dockerUnreachableError(goos string, endpointMissing bool) error {
 		hint.Render(start))
 }
 
-// Close releases resources held by the singleton Docker client, if initialised.
+// Close releases resources held by the singleton Docker client, if initialized.
 // Call it via defer in main.
 func CloseDockerClient() error {
 	if dockerClient != nil {

@@ -46,11 +46,11 @@ func apiPath(serverURL, account string, operation string, parts ...string) strin
 }
 
 // apiCall makes an authenticated JSON API request to reqURL.
-// body is marshalled to JSON and sent as the request body, or nil for no body.
+// body is marshaled to JSON and sent as the request body, or nil for no body.
 // dest is a pointer to decode the JSON response into for 2xx responses, or nil to ignore.
 //
 // Returns (statusCode, error):
-//   - Network or marshalling failures: (-1, err)
+//   - Network or marshaling failures: (-1, err)
 //   - Non-2xx response: (statusCode, err) — err contains the status code and response body
 //   - 2xx response: (statusCode, nil) — dest is populated if non-nil
 func apiCall(ctx context.Context, method, reqURL string, body any, token string, verbose bool, dest any) (int, error) {
@@ -129,7 +129,7 @@ func apiCallWithHeaders(ctx context.Context, method, reqURL string, body any, to
 // apiUpload performs an authenticated request with a caller-supplied body and
 // Content-Type (e.g. multipart/form-data), mirroring apiCall's auth header,
 // verbose logging, status handling, and JSON response decoding. Use this for
-// binary uploads, where apiCall's JSON marshalling does not apply.
+// binary uploads, where apiCall's JSON marshaling does not apply.
 func apiUpload(ctx context.Context, method, reqURL, contentType string, body io.Reader, token string, verbose bool, dest any) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()

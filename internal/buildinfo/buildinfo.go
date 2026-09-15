@@ -34,14 +34,14 @@ func init() {
 	AppDirName = "." + BinaryName
 }
 
-// Validate returns an error if BinaryName is not one of the recognised values.
+// Validate returns an error if BinaryName is not one of the recognized values.
 // Called at startup to catch misconfigured builds early.
 func Validate() error {
 	switch BinaryName {
 	case "ast", "ast-preview", "ast-dev":
 		return nil
 	default:
-		return fmt.Errorf("unrecognised binary name %q: must be one of ast, ast-preview, ast-dev", BinaryName)
+		return fmt.Errorf("unrecognized binary name %q: must be one of ast, ast-preview, ast-dev", BinaryName)
 	}
 }
 

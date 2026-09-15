@@ -104,7 +104,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	go func() {
 		<-sigChan
 		fmt.Println()
-		yellow.Println("Login cancelled.") //nolint:errcheck,gosec
+		yellow.Println("Login canceled.") //nolint:errcheck,gosec
 		cancel()
 		os.Exit(1)
 	}()
@@ -258,7 +258,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		yellow.Println("  No account found. Choose a username to get started.") //nolint:errcheck,gosec
 		account, claimErr := claimUsernameInteractive(serverURL, profile.AccessToken, verbose)
 		switch {
-		case errors.Is(claimErr, tui.ErrCancelled):
+		case errors.Is(claimErr, tui.ErrCanceled):
 			fmt.Println()
 			yellow.Println("  Username selection skipped. Visit the dashboard to choose your username before pushing.") //nolint:errcheck,gosec
 		case claimErr != nil:

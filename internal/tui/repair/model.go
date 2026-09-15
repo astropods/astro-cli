@@ -90,7 +90,7 @@ func (m model) View() string {
 }
 
 // Run shows the multi-select file picker and returns the items with updated
-// selections. Returns tui.ErrCancelled if the user presses esc or ctrl+c.
+// selections. Returns tui.ErrCanceled if the user presses esc or ctrl+c.
 func Run(items []Item) ([]Item, error) {
 	m := model{items: items}
 	p := tea.NewProgram(m)
@@ -102,7 +102,7 @@ func Run(items []Item) ([]Item, error) {
 
 	final := result.(model)
 	if final.quitting {
-		return nil, tui.ErrCancelled
+		return nil, tui.ErrCanceled
 	}
 	return final.items, nil
 }

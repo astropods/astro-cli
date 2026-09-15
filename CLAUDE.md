@@ -11,7 +11,7 @@ flags, or default behavior.
 
 Use `github.com/stretchr/testify` for all Go tests — `require` for fatal assertions, `assert` for non-fatal ones. Do not use `t.Fatal` / `t.Error` / `t.Errorf` directly.
 
-Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individual test functions when the setup or behaviour is meaningfully different from other cases.
+Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individual test functions when the setup or behavior is meaningfully different from other cases.
 
 ### Credentials in tests
 
