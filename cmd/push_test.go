@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -169,6 +170,7 @@ func TestRunPush_PermissionDenialStopsBeforeThePipeline(t *testing.T) {
 	err := runPush(
 		context.Background(),
 		&out,
+		io.Discard,
 		AccountToken{Account: "acme", Token: "token"},
 		PushPipelineConfig{
 			SpecPath:  filepath.Join(t.TempDir(), "missing.yml"),
@@ -1087,7 +1089,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "yes", "allow-account-override", "file"} {
+	for _, name := range []string{"visibility", "no-build", "yes", "allow-account-override", "file", "json"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
@@ -1288,4 +1290,99 @@ func TestFindAgentReadme(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWritePushResultCarriesTheBuildID(t *testing.T) {
+	// The build ID is the whole point: without it a caller has to scrape the
+	// tag out of the ANSI success box to redeploy what it just pushed.
+	buf := &bytes.Buffer{}
+	require.NoError(t, writePushResult(buf, "testaccount", "weather-agent", "b70f7e77", "private"))
+
+	var got pushResult
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
+	assert.Equal(t, pushResult{
+		Account:    "testaccount",
+		Name:       "weather-agent",
+		BuildID:    "b70f7e77",
+		Visibility: "private",
+	}, got)
+}
+
+func TestWritePushResultIsParseableOnItsOwn(t *testing.T) {
+	buf := &bytes.Buffer{}
+	require.NoError(t, writePushResult(buf, "acct", "agent", "deadbeef", ""))
+
+	// No ANSI, no banner: the stream has to survive a pipe into jq.
+	out := buf.String()
+	assert.NotContains(t, out, "\033[")
+	assert.NotContains(t, out, "Pushed successfully")
+
+	var got map[string]any
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	assert.Equal(t, "deadbeef", got["build_id"])
+	assert.NotContains(t, got, "visibility", "an unresolved visibility is omitted, not empty-stringed")
+}
+
+func TestRedirectProgressRestoresPreviousDestination(t *testing.T) {
+	original := progressOut
+	buf := &bytes.Buffer{}
+
+	restore := redirectProgress(buf)
+	printStep("Building images")
+	restore()
+
+	assert.Contains(t, stripANSI(buf.String()), "Building images")
+	assert.Equal(t, original, progressOut, "progress destination must be restored")
+}
+
+func TestRunBlueprintPushJSONKeepsStdoutToTheResultObject(t *testing.T) {
+	// The contract --json sells is `ast push --json | jq -r .build_id`, so every
+	// human line has to leave stdout, including the name-override warning that
+	// prints before the pipeline starts.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "alice", "spec-name")
+	resetPushFlags(t)
+	for _, name := range []string{"json", "no-build", "yes"} {
+		require.NoError(t, blueprintPushCmd.Flags().Set(name, "true"))
+	}
+
+	var stdout, stderr bytes.Buffer
+	blueprintPushCmd.SetOut(&stdout)
+	blueprintPushCmd.SetErr(&stderr)
+	t.Cleanup(func() {
+		blueprintPushCmd.SetOut(nil)
+		blueprintPushCmd.SetErr(nil)
+	})
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, []string{"renamed-agent"}))
+
+	// Unmarshal rejects trailing data, so this passing means stdout carried the
+	// result object and nothing else.
+	var got pushResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &got))
+	assert.Equal(t, "renamed-agent", got.Name)
+	assert.Equal(t, "alice", got.Account)
+	assert.NotEmpty(t, got.BuildID)
+	assert.NotContains(t, stdout.String(), "\033[", "no ANSI may reach the piped stream")
+
+	human := stripANSI(stderr.String())
+	assert.Contains(t, human, `spec name "spec-name" overridden to "renamed-agent"`)
+	assert.Contains(t, human, "Pushing")
 }

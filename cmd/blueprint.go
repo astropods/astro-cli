@@ -140,6 +140,7 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
+	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
 }
 
 func init() {
@@ -234,17 +235,25 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	// Resolve name: arg overrides spec; account always comes from the login token.
 	specAccount, agentName := spec.SplitAgentName(astroSpec.Name)
 
+	// --json keeps stdout to the result object alone, so the override warnings
+	// have to go to stderr with the rest of the human output.
+	jsonOut, _ := cmd.Flags().GetBool("json")
+	warnW := cmd.OutOrStdout()
+	if jsonOut {
+		warnW = cmd.ErrOrStderr()
+	}
+
 	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
 	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
 		if !allowAccountOverride {
 			return errAccountMismatch(specAccount, at.Account)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
+		fmt.Fprintf(warnW, "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
 	}
 
 	if len(args) > 0 {
 		if args[0] != agentName {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, args[0]) //nolint:errcheck
+			fmt.Fprintf(warnW, "%s⚠%s  spec name %q overridden to %q\n", colorYellow, colorReset, agentName, args[0]) //nolint:errcheck
 		}
 		agentName = args[0]
 	}
@@ -252,7 +261,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
-	return runPush(cmd.Context(), cmd.OutOrStdout(), at, PushPipelineConfig{
+	return runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{
 		SpecPath:   specPath,
 		AgentName:  agentName,
 		SkipBuild:  noBuild,
@@ -261,6 +270,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Visibility: vis,
 		Yes:        yes,
 		Verbose:    verbose,
+		JSON:       jsonOut,
 	})
 }
 
