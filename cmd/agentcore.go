@@ -218,12 +218,12 @@ func runAgentCoreDeploy(cmd *cobra.Command, astroSpec *spec.AstroSpec, specPath 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(w, out)
+	fmt.Fprintln(w, out) //nolint:errcheck,gosec
 	if err := waitAgentCoreReady(cmd.Context(), rt, res, w); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "\n# messaging sidecar env for this runtime (from %s):\n", specPath)
-	fmt.Fprint(w, res.EnvExports())
+	fmt.Fprintf(w, "\n# messaging sidecar env for this runtime (from %s):\n", specPath) //nolint:errcheck,gosec
+	_, _ = fmt.Fprint(w, res.EnvExports())
 	return nil
 }
 
@@ -233,12 +233,12 @@ func waitAgentCoreReady(ctx context.Context, rt agentcore.Runtime, res *agentcor
 	if res.RuntimeID == "" {
 		return nil
 	}
-	fmt.Fprintln(w, "\n# waiting for the runtime to report READY")
+	fmt.Fprintln(w, "\n# waiting for the runtime to report READY") //nolint:errcheck,gosec
 	err := agentcore.WaitReady(ctx, rt, res.RuntimeID, res.Version,
 		agentCoreReadyTimeout, agentCoreStatusInterval,
-		func(status string) { fmt.Fprintf(w, "  %s\n", status) })
+		func(status string) { fmt.Fprintf(w, "  %s\n", status) }) //nolint:errcheck,gosec
 	if errors.Is(err, agentcore.ErrWaitTimeout) {
-		fmt.Fprintf(w, "  %s\n", err)
+		fmt.Fprintf(w, "  %s\n", err) //nolint:errcheck,gosec
 		return nil
 	}
 	return err
@@ -256,20 +256,20 @@ func renderAgentCorePlan(w io.Writer, plan *agentcore.Plan, secrets map[string]s
 		return err
 	}
 	if unresolved := agentcore.ResolveSecrets(plan, secrets); len(unresolved) > 0 {
-		fmt.Fprintf(w, "\n# secrets still needed (--secret NAME=VALUE / --secrets-file): %s\n",
+		fmt.Fprintf(w, "\n# secrets still needed (--secret NAME=VALUE / --secrets-file): %s\n", //nolint:errcheck,gosec
 			strings.Join(unresolved, ", "))
 	}
-	fmt.Fprintln(w, "\n# aws commands a real deploy would run (not executed; secret values masked):")
+	fmt.Fprintln(w, "\n# aws commands a real deploy would run (not executed; secret values masked):") //nolint:errcheck,gosec
 	rt := &agentcore.AWSCLIRuntime{
 		Region: region, DryRun: true, SecretKeys: secretKeys,
-		Out: func(line string) { fmt.Fprintln(w, line) },
+		Out: func(line string) { fmt.Fprintln(w, line) }, //nolint:errcheck,gosec
 	}
 	res, err := agentcore.Run(plan, agentcore.TargetAWS, rt, region, "")
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(w, "\n# messaging sidecar env for this runtime (AGENT_RUNTIME_ARN filled on a real deploy):")
-	fmt.Fprint(w, res.EnvExports())
+	fmt.Fprintln(w, "\n# messaging sidecar env for this runtime (AGENT_RUNTIME_ARN filled on a real deploy):") //nolint:errcheck,gosec
+	_, _ = fmt.Fprint(w, res.EnvExports())
 	return nil
 }
 
@@ -344,7 +344,7 @@ func parseHostPairs(v string) (map[string]string, error) {
 func collectAgentCoreSecrets(pairs []string, file string) (map[string]string, error) {
 	out := map[string]string{}
 	if strings.TrimSpace(file) != "" {
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file) //nolint:gosec
 		if err != nil {
 			return nil, fmt.Errorf("read secrets-file: %w", err)
 		}
