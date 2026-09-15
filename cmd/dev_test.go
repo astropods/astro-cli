@@ -80,7 +80,7 @@ func TestDevTriggerHasEnvFlag(t *testing.T) {
 	assert.Equal(t, utils.DefaultEnvFile, f.DefValue)
 }
 
-// assembleDevEnv is what stands between a triggered ingestion job and an
+// assembleDevEnv is what stands between a triggered job and an
 // unreachable gateway. Removing the injectAIGatewayDevKey call from it still
 // compiles and leaves every other test green, so this is the only thing that
 // catches that.

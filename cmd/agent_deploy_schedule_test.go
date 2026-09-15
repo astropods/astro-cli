@@ -20,12 +20,12 @@ func TestParseDeploySchedules(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:  "one ingestion",
+			name:  "one job",
 			flags: []string{"weekly-sync=0 3 * * *"},
 			want:  map[string]string{"weekly-sync": "0 3 * * *"},
 		},
 		{
-			name:  "several ingestions",
+			name:  "several jobs",
 			flags: []string{"weekly-sync=0 3 * * *", "hourly-import=0 * * * *"},
 			want:  map[string]string{"weekly-sync": "0 3 * * *", "hourly-import": "0 * * * *"},
 		},
@@ -40,7 +40,7 @@ func TestParseDeploySchedules(t *testing.T) {
 			wantErr: errInvalidSchedule("weekly-sync"),
 		},
 		{
-			name:    "no ingestion name",
+			name:    "no job name",
 			flags:   []string{"=0 3 * * *"},
 			wantErr: errInvalidSchedule("=0 3 * * *"),
 		},
@@ -50,7 +50,7 @@ func TestParseDeploySchedules(t *testing.T) {
 			wantErr: errInvalidSchedule("weekly-sync="),
 		},
 		{
-			name:    "same ingestion twice",
+			name:    "same job twice",
 			flags:   []string{"weekly-sync=0 3 * * *", "weekly-sync=0 4 * * *"},
 			wantErr: errDuplicateSchedule("weekly-sync"),
 		},
@@ -111,20 +111,20 @@ func TestCheckScheduleTargets(t *testing.T) {
 	}{
 		{name: "no schedules requested", available: available},
 		{
-			name:      "requested ingestion runs on a schedule",
+			name:      "requested job runs on a schedule",
 			requested: map[string]string{"weekly-sync": "0 4 * * *"},
 			available: available,
 		},
 		{
-			name:      "unknown ingestion",
+			name:      "unknown job",
 			requested: map[string]string{"nightly": "0 4 * * *"},
 			available: available,
-			wantErr:   errUnknownIngestionSchedule([]string{"nightly"}, []string{"hourly-import", "weekly-sync"}),
+			wantErr:   errUnknownJobSchedule([]string{"nightly"}, []string{"hourly-import", "weekly-sync"}),
 		},
 		{
 			name:      "blueprint schedules nothing",
 			requested: map[string]string{"nightly": "0 4 * * *"},
-			wantErr:   errUnknownIngestionSchedule([]string{"nightly"}, nil),
+			wantErr:   errUnknownJobSchedule([]string{"nightly"}, nil),
 		},
 	}
 
@@ -199,8 +199,8 @@ func TestRunBlueprintDeployRejectsUnknownSchedule(t *testing.T) {
 
 	err := runBlueprintDeploy(blueprintDeployCmd, []string{"my-agent"})
 	require.Error(t, err)
-	assert.Equal(t, errUnknownIngestionSchedule([]string{"nightly-sync"}, []string{"weekly-sync"}).Error(), err.Error())
-	assert.False(t, deployed, "an unknown ingestion must stop the deploy")
+	assert.Equal(t, errUnknownJobSchedule([]string{"nightly-sync"}, []string{"weekly-sync"}).Error(), err.Error())
+	assert.False(t, deployed, "an unknown job must stop the deploy")
 }
 
 func TestRunAgentRedeployPassesSchedules(t *testing.T) {
