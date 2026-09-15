@@ -28,7 +28,6 @@ func signalProcessGroup(pid int, kill bool) {
 	_ = syscall.Kill(-pid, sig)
 }
 
-// processAlive reports whether pid is a live process.
 func processAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
@@ -49,7 +48,6 @@ func processCommandLine(pid int) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// listenerPID returns the pid listening on port.
 func listenerPID(port string) (int, bool) {
 	out, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN", "-t").Output() //nolint:gosec // port is our fixed chat-UI port
 	if err != nil {

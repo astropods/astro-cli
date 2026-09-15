@@ -104,14 +104,10 @@ Use -b/--background to start in the background and exit immediately.`
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
 }
 
-// checkDockerRunning verifies the Docker daemon is accessible.
-//
-// No platform gate: this used to refuse Windows outright, which both
-// overstated the problem (the API-facing commands are fine there) and
-// contradicted the rest of the binary, since build_runner, push_streaming and
-// pipeline all reach newDockerClient with no such check. newDockerClient
-// probes the endpoint per-platform and names Docker Desktop on Windows, so
-// letting it answer reports what is actually wrong.
+// checkDockerRunning verifies the Docker daemon is accessible. No platform
+// gate: build_runner, push_streaming and pipeline all reach newDockerClient
+// without one, and it already probes per-platform, so letting it answer
+// reports what is actually wrong instead of refusing the OS.
 func checkDockerRunning() error {
 	_, err := newDockerClient()
 	return err

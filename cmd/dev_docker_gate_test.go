@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// checkDockerRunning used to refuse Windows before probing anything, which
-// made the per-platform endpoint detection in newDockerClient unreachable
-// there. Whatever this returns has to come from that probe, so the message
-// names Docker rather than the operating system.
+// Whatever checkDockerRunning returns has to come from the daemon probe, so
+// the message names Docker rather than the operating system.
 func TestCheckDockerRunningReportsDockerNotThePlatform(t *testing.T) {
 	err := checkDockerRunning()
 	if err == nil {
@@ -23,9 +21,8 @@ func TestCheckDockerRunningReportsDockerNotThePlatform(t *testing.T) {
 	}
 }
 
-// Every platform's wording is asserted from whichever platform runs the
-// tests, which is the point of passing goos in: the Windows strings could not
-// be reached before, so nothing proved they were right.
+// Every platform's wording is asserted from whichever platform runs the tests,
+// which is the point of passing goos in.
 func TestDockerUnreachableErrorNamesThePlatformsInstaller(t *testing.T) {
 	tests := []struct {
 		goos            string

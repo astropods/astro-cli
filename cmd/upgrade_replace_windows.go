@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+// artifactSuffix is what the release appends: Windows will not execute an
+// extensionless file.
 const artifactSuffix = ".exe"
 
 // versionedInstallSupported is false: the symlink it relies on needs elevation

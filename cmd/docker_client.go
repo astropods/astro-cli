@@ -39,12 +39,10 @@ func newDockerClient() (*client.Client, error) {
 	return dockerClient, dockerClientErr
 }
 
-// dockerUnreachableError explains an unreachable daemon for goos: either
-// Docker is absent, or it is installed and not started. goos is a parameter
-// rather than read from runtime so every platform's copy is testable from
-// whichever platform runs the tests -- the Windows wording was previously
-// unreachable both in code and in test, since checkDockerRunning refused
-// Windows before the probe ever ran.
+// dockerUnreachableError explains an unreachable daemon: Docker is either
+// absent or installed and not started. goos is a parameter rather than read
+// from runtime so every platform's wording is testable from whichever platform
+// runs the tests.
 func dockerUnreachableError(goos string, endpointMissing bool) error {
 	if endpointMissing {
 		msg := "Docker is not installed."

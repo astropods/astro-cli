@@ -30,16 +30,26 @@ func signalProcessGroup(pid int, kill bool) {
 	_ = exec.Command("taskkill", args...).Run() //nolint:gosec // pid is our own recorded worker pid
 }
 
+// processAlive reports whether pid is live. tasklist exits 0 whether or not it
+// matched, so the answer has to be read out of the output.
 func processAlive(pid int) bool {
-	// tasklist exits 0 whether or not it matches, so the pid has to be read
-	// back out of the output.
 	out, err := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/NH", "/FO", "CSV").Output() //nolint:gosec // pid is our own recorded worker pid
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), `"`+strconv.Itoa(pid)+`"`)
+	// Compare the pid column rather than searching the row: the session and
+	// memory columns are also quoted numbers.
+	want := `"` + strconv.Itoa(pid) + `"`
+	for line := range strings.SplitSeq(string(out), "\n") {
+		if fields := strings.Split(strings.TrimSpace(line), ","); len(fields) > 1 && fields[1] == want {
+			return true
+		}
+	}
+	return false
 }
 
+// processCommandLine reads the command line from CIM: Windows has neither
+// /proc nor ps.
 func processCommandLine(pid int) (string, error) {
 	query := `(Get-CimInstance Win32_Process -Filter "ProcessId=` + strconv.Itoa(pid) + `").CommandLine`
 	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", query).Output() //nolint:gosec // pid is our own recorded worker pid

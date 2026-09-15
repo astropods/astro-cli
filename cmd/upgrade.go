@@ -77,7 +77,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to find executable path: %w", err)
 	}
 	installDir := filepath.Dir(execPath)
-	symlinkPath := filepath.Join(installDir, buildinfo.BinaryName+artifactSuffix)
+	// Clears a binary a previous upgrade could not delete because it was still
+	// running from it. No-op where the old file is unlinked immediately.
 	sweepReplacedBinaries(installDir)
 
 	// Download to temp file in the install directory.
@@ -114,9 +115,11 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	if latestVersion != "" && versionedInstallSupported() {
-		// Versioned binary + symlink approach
+		// Versioned binary + symlink approach. No artifactSuffix on the
+		// symlink: this branch is unreachable on the one platform that has one.
 		versionedName := fmt.Sprintf("%s-%s", buildinfo.BinaryName, latestVersion)
 		versionedPath := filepath.Join(installDir, versionedName)
+		symlinkPath := filepath.Join(installDir, buildinfo.BinaryName)
 
 		if err := os.Rename(tmpPath, versionedPath); err != nil { //nolint:gosec
 			return fmt.Errorf("failed to install binary: %w", err)
@@ -129,6 +132,8 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 		cleanOldVersions(installDir, latestVersion)
 	} else {
+		// Either there is no version to name a binary after, or this platform
+		// cannot use the symlink above. Replace in place.
 		realPath, err := filepath.EvalSymlinks(execPath)
 		if err != nil {
 			realPath = execPath
