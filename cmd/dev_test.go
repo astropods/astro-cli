@@ -223,6 +223,39 @@ func TestAssembleDevEnv_ReportsAnAbsentFileDistinctlyFromAnEmptyOne(t *testing.T
 	assert.Zero(t, counts.FromFile)
 }
 
+func TestAssembleDevEnv_FailsWhenTheNamedEnvFileIsMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+
+	var out strings.Builder
+	_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: dir, EnvFile: "env/typo.env", EnvFileExplicit: true,
+	})
+
+	require.Error(t, err,
+		"a typo in --env must stop the run, not fall through to the spec defaults")
+	assert.Equal(t, errEnvFileMissing(filepath.Join(dir, "env/typo.env")).Error(), err.Error(),
+		"the message must come from errEnvFileMissing and name the path that was looked for")
+}
+
+func TestAssembleDevEnv_ReadsAnAbsoluteEnvFileFromWhereItPoints(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	absFile := filepath.Join(t.TempDir(), "prod.env")
+	require.NoError(t, os.WriteFile(absFile, []byte("FROM_ABS=1\n"), 0o600))
+
+	var out strings.Builder
+	envVars, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: t.TempDir(), EnvFile: absFile, EnvFileExplicit: true,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, counts.FileFound,
+		"an absolute --env must not be rejoined onto the working directory")
+	assert.Equal(t, "1", envVars["FROM_ABS"])
+}
+
 func TestAssembleDevEnv_ExportsToProcessEnvOnlyWhenAsked(t *testing.T) {
 	const key = "ASTRO_TEST_EXPORTED"
 

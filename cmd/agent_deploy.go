@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/utils"
 )
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
@@ -270,12 +269,10 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 
 	varsFile, _ := cmd.Flags().GetString("vars-file")
 	if varsFile != "" {
-		f, err := os.Open(varsFile) //nolint:gosec
-		if err != nil {
-			return nil, fmt.Errorf("opening vars file: %w", err)
+		fileVars, err := utils.ReadEnvFile(varsFile)
+		if errors.Is(err, utils.ErrEnvFileNotFound) {
+			return nil, errEnvFileMissing(varsFile)
 		}
-		defer f.Close() //nolint:errcheck,gosec
-		fileVars, err := godotenv.Parse(f)
 		if err != nil {
 			return nil, fmt.Errorf("parsing vars file: %w", err)
 		}

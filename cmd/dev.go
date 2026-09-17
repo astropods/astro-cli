@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -183,6 +184,9 @@ type devEnvOptions struct {
 	// start command relies on it; a triggered job receives its env through the
 	// compose project instead, so it leaves this off.
 	Export bool
+	// EnvFileExplicit means the user named EnvFile with --env. A named file that
+	// is missing fails the run; the default .env simply may not exist.
+	EnvFileExplicit bool
 	// OnStage, when set, is called as each source is read, before the gateway
 	// key is minted, with the counts known so far. A caller that printed from
 	// the returned counts instead would emit its own lines after the gateway
@@ -205,8 +209,14 @@ func assembleDevEnv(
 	var counts devEnvCounts
 
 	envVars, err := utils.LoadEnvFile(opts.WorkingDir, opts.EnvFile)
-	if err != nil {
-		return nil, counts, fmt.Errorf("failed to read .env file: %w", err)
+	switch {
+	case errors.Is(err, utils.ErrEnvFileNotFound):
+		if opts.EnvFileExplicit {
+			return nil, counts, errEnvFileMissing(utils.EnvFilePath(opts.WorkingDir, opts.EnvFile))
+		}
+		envVars = nil
+	case err != nil:
+		return nil, counts, fmt.Errorf("failed to read %s: %w", opts.EnvFile, err)
 	}
 	counts.FileFound = envVars != nil
 	if envVars == nil {
@@ -256,6 +266,7 @@ func exportEnv(vars map[string]string) error {
 
 func runDevStart(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
+	envFileExplicit := cmd.Flags().Changed("env")
 	rebuild := flagBool(cmd, "rebuild")
 	noPull := flagBool(cmd, "no-pull")
 	background := flagBool(cmd, "background")
@@ -293,11 +304,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// lines keep printing before the gateway notice.
 	w := cmd.OutOrStdout()
 	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    verbose,
-		Export:     true,
+		Spec:            astroSpec,
+		WorkingDir:      workingDir,
+		EnvFile:         envFile,
+		EnvFileExplicit: envFileExplicit,
+		Verbose:         verbose,
+		Export:          true,
 		OnStage: func(stage devEnvStage, c devEnvCounts) {
 			switch {
 			case stage == devEnvStageFile && c.FileFound:
@@ -542,6 +554,7 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
 	envFile := flagString(cmd, "env")
+	envFileExplicit := cmd.Flags().Changed("env")
 
 	if err := checkDockerRunning(); err != nil {
 		return err
@@ -601,10 +614,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	fmt.Printf("🔄 Triggering job: %s\n", name)
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    triggerVerbose,
+		Spec:            astroSpec,
+		WorkingDir:      workingDir,
+		EnvFile:         envFile,
+		EnvFileExplicit: envFileExplicit,
+		Verbose:         triggerVerbose,
 	})
 	if err != nil {
 		return err

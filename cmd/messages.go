@@ -45,6 +45,13 @@ func errNoEvaluationFile() error {
 	return fmt.Errorf("%s not found beside astropods.yml", strings.Join(evaluationFilenameAliases, " or "))
 }
 
+// errEnvFileMissing reports an env file the user named that is not there. It
+// prints the resolved path, because a relative name resolves against the
+// project directory and the file the CLI looked for is the useful fact.
+func errEnvFileMissing(path string) error {
+	return fmt.Errorf("env file not found: %s", path)
+}
+
 func errAgentTargetRequired() error {
 	return fmt.Errorf(
 		"required: --name <display-or-blueprint-name> or --id <deployment-id> (from %s agent list; IDs only with --id)",

@@ -5,18 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
-	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -518,13 +517,10 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("flag --file is required")
 	}
 
-	f, err := os.Open(filePath) //nolint:gosec
-	if err != nil {
-		return fmt.Errorf("cannot open file: %w", err)
+	envMap, err := utils.ReadEnvFile(filePath)
+	if errors.Is(err, utils.ErrEnvFileNotFound) {
+		return errEnvFileMissing(filePath)
 	}
-	defer f.Close() //nolint:errcheck,gosec
-
-	envMap, err := godotenv.Parse(f)
 	if err != nil {
 		return fmt.Errorf("failed to parse file: %w", err)
 	}
