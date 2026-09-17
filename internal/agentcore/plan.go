@@ -297,7 +297,7 @@ func integrationComponents(m map[string]spec.Integration) []component {
 // wrapper must rewrite to a VPC-resolvable name. Cloud providers instead inject
 // a credential secret and need no rewrite.
 var selfHostedProviders = map[string]bool{
-	"ollama": true, "qdrant": true, "redis": true, "postgres": true,
+	"qdrant": true, "redis": true, "postgres": true,
 	"neo4j": true, "chroma": true, "weaviate": true, "pgvector": true,
 	"milvus": true, "elasticsearch": true,
 }
