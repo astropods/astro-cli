@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -223,20 +224,24 @@ func TestAssembleDevEnv_ReportsAnAbsentFileDistinctlyFromAnEmptyOne(t *testing.T
 	assert.Zero(t, counts.FromFile)
 }
 
-func TestAssembleDevEnv_FailsWhenTheNamedEnvFileIsMissing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+func TestDevTrigger_RejectsAMissingEnvFileWhileParsingFlags(t *testing.T) {
 	dir := t.TempDir()
+	t.Chdir(dir)
 
-	var out strings.Builder
-	_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
-		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
-		WorkingDir: dir, EnvFile: "env/typo.env", EnvFileExplicit: true,
-	})
+	c := &cobra.Command{Use: "trigger", RunE: func(*cobra.Command, []string) error {
+		return errors.New("the command body must not run on a bad --env")
+	}}
+	c.Flags().Var(utils.NewEnvFileFlag(utils.DefaultEnvFile), "env", "")
+	c.SetArgs([]string{"--env", "env/typo.env"})
+	c.SilenceUsage, c.SilenceErrors = true, true
+
+	err := c.Execute()
 
 	require.Error(t, err,
-		"a typo in --env must stop the run, not fall through to the spec defaults")
-	assert.Equal(t, errEnvFileMissing(filepath.Join(dir, "env/typo.env")).Error(), err.Error(),
-		"the message must come from errEnvFileMissing and name the path that was looked for")
+		"a typo in --env must stop before the command body, not fall through to the spec defaults")
+	assert.ErrorIs(t, err, utils.ErrEnvFileNotFound)
+	assert.Contains(t, err.Error(), filepath.Join(dir, "env/typo.env"),
+		"the error names the path that was looked for")
 }
 
 func TestAssembleDevEnv_ReadsAnAbsoluteEnvFileFromWhereItPoints(t *testing.T) {
@@ -247,7 +252,7 @@ func TestAssembleDevEnv_ReadsAnAbsoluteEnvFileFromWhereItPoints(t *testing.T) {
 	var out strings.Builder
 	envVars, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
 		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
-		WorkingDir: t.TempDir(), EnvFile: absFile, EnvFileExplicit: true,
+		WorkingDir: t.TempDir(), EnvFile: absFile,
 	})
 	require.NoError(t, err)
 
@@ -285,6 +290,46 @@ func TestAssembleDevEnv_ExportsToProcessEnvOnlyWhenAsked(t *testing.T) {
 			assert.Equal(t, "yes", envVars[key], "the returned map carries it either way")
 			assert.Equal(t, tc.want, os.Getenv(key),
 				"only the start path mirrors env into this process; a triggered job gets it via compose")
+		})
+	}
+}
+
+func TestExportEnv_LeavesAValueTheEnvironmentAlreadyHas(t *testing.T) {
+	const key = "ASTRO_TEST_PRECEDENCE"
+
+	tests := []struct {
+		name        string
+		presetSet   bool
+		preset      string
+		want        string
+		wantSkipped int
+	}{
+		{name: "absent, so the file value is exported", want: "from-file"},
+		{
+			name:      "present but empty, which is leftover rather than a choice",
+			presetSet: true, preset: "", want: "from-file",
+		},
+		{
+			name:      "present with a value, which the user meant for this run",
+			presetSet: true, preset: "from-shell", want: "from-shell", wantSkipped: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.presetSet {
+				t.Setenv(key, tt.preset)
+			} else {
+				require.NoError(t, os.Unsetenv(key))
+			}
+
+			skipped, err := exportEnv(map[string]string{key: "from-file"})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want, os.Getenv(key),
+				"a value exported for this invocation outranks the file")
+			assert.Equal(t, tt.wantSkipped, skipped,
+				"skips are counted so the run can say what it left alone")
 		})
 	}
 }

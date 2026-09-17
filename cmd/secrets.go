@@ -108,7 +108,7 @@ func init() {
 	secretListCmd.Flags().Bool("values", false, "Show variable values")
 	secretListCmd.Flags().Bool("json", false, "Output as JSON")
 	secretGetCmd.Flags().Bool("json", false, "Output as JSON")
-	secretImportCmd.Flags().StringP("file", "f", "", "Path to the file to import (e.g., .env)")
+	secretImportCmd.Flags().VarP(utils.NewEnvFileFlag(""), "file", "f", "Path to the file to import (e.g., .env)")
 	secretImportCmd.Flags().Bool("plain", false, "Store all imported variables as plain text")
 	secretImportCmd.Flags().String("plain-keys", "", "Comma-separated keys to store as plain text")
 	secretImportCmd.Flags().Bool("overwrite", false, "Overwrite existing variables")

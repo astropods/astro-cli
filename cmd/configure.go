@@ -34,7 +34,7 @@ var configureCmd = &cobra.Command{
 
 func registerConfigureFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", "Print stored config vars in the given format: env or json")
-	cmd.Flags().String("vars-file", "", "Import variables from an env file")
+	cmd.Flags().Var(utils.NewEnvFileFlag(""), "vars-file", "Import variables from an env file")
 	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
 	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
 }

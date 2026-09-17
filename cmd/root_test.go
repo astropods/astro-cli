@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestResolveSpecPathFromCwd(t *testing.T) {
@@ -137,4 +139,39 @@ func touch(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func TestUnwrapFlagValueError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "a Set error loses pflag's wrapper, which buried the useful part",
+			err:  errors.New(`invalid argument "env/typo.env" for "--env" flag: env file not found: /proj/env/typo.env`),
+			want: "env file not found: /proj/env/typo.env",
+		},
+		{
+			name: "a missing value still reads as it always has",
+			err:  errors.New("flag needs an argument: --env"),
+			want: "flag needs an argument: --env",
+		},
+		{
+			name: "an unknown flag is left alone",
+			err:  errors.New("unknown flag: --nope"),
+			want: "unknown flag: --nope",
+		},
+		{
+			name: "a malformed wrapper is passed through rather than mangled",
+			err:  errors.New(`invalid argument "x" with no marker`),
+			want: `invalid argument "x" with no marker`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, unwrapFlagValueError(nil, tt.err).Error())
+		})
+	}
 }

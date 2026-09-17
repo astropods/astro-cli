@@ -96,7 +96,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("adapter", nil, "Adapter to enable: web, insecure-web, slack (default: web; repeatable)")
 	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
-	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
+	cmd.Flags().Var(utils.NewEnvFileFlag(""), "vars-file", "Load variables from a .env file")
 	cmd.Flags().StringArray("schedule", nil, "Job schedule: <job>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")

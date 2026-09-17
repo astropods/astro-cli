@@ -33,6 +33,22 @@ Build, push, and develop AI agents.`,
 	SilenceErrors: true,
 }
 
+// pflag wraps an error from a flag's Set with `invalid argument "x" for "--f"
+// flag: `, which buries the part the reader needs. Strip that one prefix and
+// leave every other parse error, such as "flag needs an argument", untouched.
+func unwrapFlagValueError(cmd *cobra.Command, err error) error {
+	const marker = " flag: "
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "invalid argument ") {
+		return err
+	}
+	i := strings.Index(msg, marker)
+	if i < 0 {
+		return err
+	}
+	return errors.New(msg[i+len(marker):])
+}
+
 func Execute() {
 	if err := buildinfo.Validate(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -133,6 +149,7 @@ func init() {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
+	rootCmd.SetFlagErrorFunc(unwrapFlagValueError)
 }
 
 // SpecFileAliases are filenames checked in order when the user does not pass --file.
