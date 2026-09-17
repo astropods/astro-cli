@@ -196,9 +196,6 @@ func printModelEntry(name string, model spec.Model, s *spec.AstroSpec, specDir, 
 		if mc.Port > 0 {
 			fmt.Printf("    port:   %d\n", mc.Port)
 		}
-		if mc.HasGPU() {
-			fmt.Printf("    gpu:    %syes%s\n", colorGreen, colorReset)
-		}
 		if len(model.ResolvedModels()) > 0 {
 			fmt.Printf("    model:  %s%s%s\n", colorDim, strings.Join(model.ResolvedModels(), ", "), colorReset)
 		}
