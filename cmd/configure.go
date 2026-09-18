@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ var configureCmd = &cobra.Command{
 
 func registerConfigureFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", "Print stored config vars in the given format: env or json")
-	cmd.Flags().String("vars-file", "", "Import variables from an env file")
+	cmd.Flags().Var(utils.NewEnvFileFlag(""), "vars-file", "Env file whose variables are stored for this project")
 	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
 	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
 }
@@ -251,9 +252,9 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	printedLines := 2
 
 	// Load .env for migration (pre-populate fields with existing file values)
-	envFilePath := filepath.Join(workingDir, utils.DefaultEnvFile)
+	envFilePath := utils.EnvFilePath(workingDir, utils.DefaultEnvFile)
 	dotenvVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile)
-	if err != nil {
+	if err != nil && !errors.Is(err, utils.ErrEnvFileNotFound) {
 		return fmt.Errorf("failed to read %s: %w", utils.DefaultEnvFile, err)
 	}
 	hasDotenv := dotenvVars != nil
@@ -480,7 +481,10 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 	}
 
 	if importFile != "" {
-		vars, err := godotenv.Read(importFile)
+		vars, err := utils.ReadEnvFile(importFile)
+		if errors.Is(err, utils.ErrEnvFileNotFound) {
+			return errEnvFileMissing(importFile)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", importFile, err)
 		}
