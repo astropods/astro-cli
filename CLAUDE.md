@@ -19,6 +19,57 @@ Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individ
 - Use `accountTestCreds(currentAccount)` for a standard profile — the argument sets the active `CurrentAccount`; the profile always includes personal ("alice") and two org accounts. Pass a custom `*auth.Credentials` only when you need an account name or structure that doesn't match this standard set.
 - Never call `t.Setenv(auth.EnvAccessToken, ...)` in `cmd` package tests. `auth.GetEnvAccessToken()` uses `sync.Once` — setting the env var in one test permanently caches the value for the entire test binary, bypassing auth checks in later tests.
 
+### What "tested" has to cover
+
+A green suite is not evidence the change is wired up. Audit each behavior the
+change introduces and check that something fails if it regresses:
+
+- **Flag registration.** A flag switched to `Flags().Var(...)` can revert to a
+  plain `String` with every other test still passing, because nothing asserts
+  which value type a flag carries. Assert the default, that `Value.Type()` is
+  still `"string"`, and that an invalid value is rejected.
+  `TestEnvFileFlagsAreWiredToTheValidatingValue` is the worked example.
+- **Anything installed once at startup**, such as `SetFlagErrorFunc` on
+  `rootCmd`. Unit-test the function and assert the registration separately;
+  the function alone proves nothing about whether it is reachable.
+- **The seam the output actually reads from.** `assembleDevEnv` narrates
+  through its `OnStage` callback rather than its return value, so a count
+  asserted only on the return proves nothing about what the user sees.
+
+### Tests that pass alone and fail in the suite
+
+Several tests mutate package-level commands: `agent_deploy_test.go` calls
+`blueprintDeployCmd.ResetFlags()` and re-registers flags by hand. A test
+asserting on one of those singletons therefore depends on test order, and the
+deploy tests exercise a hand-built flag rather than the registered one.
+
+- Assert against a fresh `&cobra.Command{}` handed to the registrar
+  (`registerDeployCommonFlags`, `registerConfigureFlags`) instead of the
+  package-level command.
+- Never conclude from `go test -run TestOne`. Run the whole package with
+  `-count=1`, twice, before believing a result.
+
+### pflag traps
+
+- `Value.Type()` must return `"string"` for any flag read through
+  `flagString`. pflag's `GetString` rejects a mismatched type and the read
+  silently returns `""`.
+- A custom `Value` must accept `""` as "clear the flag". Tests reset shared
+  commands with `Flags().Set(name, "")` under `//nolint:errcheck`, so
+  rejecting an empty value turns the reset into a silent no-op that leaks
+  state into later tests.
+- pflag wraps an error from `Value.Set` as `invalid argument "x" for "--f"
+  flag: `. Strip it once in `unwrapFlagValueError` (`cmd/root.go`), not per
+  call site.
+
+### Reading results honestly
+
+- `golangci-lint` caches per checkout. Export a fresh `GOLANGCI_LINT_CACHE`
+  when working in a git worktree, or it replays another tree's findings
+  against code that no longer matches.
+- Capture the exit code of the command you care about. `go build ./... | head`
+  reports `head`'s status, so a failing build reads as a pass.
+
 ## Command authoring rules
 
 ### Authentication & account resolution

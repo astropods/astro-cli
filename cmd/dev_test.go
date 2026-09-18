@@ -15,6 +15,8 @@ import (
 	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,10 +82,50 @@ func TestDevTriggerHasEnvFlag(t *testing.T) {
 	assert.Equal(t, utils.DefaultEnvFile, f.DefValue)
 }
 
-// assembleDevEnv is what stands between a triggered job and an
-// unreachable gateway. Removing the injectAIGatewayDevKey call from it still
-// compiles and leaves every other test green, so this is the only thing that
-// catches that.
+func TestEnvFileFlagsAreWiredToTheValidatingValue(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	// The flags registered through a helper are checked on a fresh command
+	// rather than the package-level one: agent_deploy_test.go calls
+	// ResetFlags on blueprintDeployCmd and re-registers --vars-file by hand as
+	// a plain string, so the singleton's flag depends on test order.
+	deployFlags := &cobra.Command{}
+	registerDeployCommonFlags(deployFlags)
+	configureFlags := &cobra.Command{}
+	registerConfigureFlags(configureFlags)
+
+	tests := []struct {
+		name    string
+		flags   *pflag.FlagSet
+		flag    string
+		wantDef string
+	}{
+		{name: "project start", flags: devStartCmd.Flags(), flag: "env", wantDef: utils.DefaultEnvFile},
+		{name: "project trigger", flags: devTriggerCmd.Flags(), flag: "env", wantDef: utils.DefaultEnvFile},
+		{name: "secrets import", flags: secretImportCmd.Flags(), flag: "file"},
+		{name: "deploy and redeploy", flags: deployFlags.Flags(), flag: "vars-file"},
+		{name: "configure", flags: configureFlags.Flags(), flag: "vars-file"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := tt.flags.Lookup(tt.flag)
+			require.NotNil(t, f, "the flag must exist")
+			assert.Equal(t, tt.wantDef, f.DefValue, "the default must survive the switch to a Var")
+			assert.Equal(t, "string", f.Value.Type(),
+				"pflag's GetString rejects any other type, so flagString would read empty")
+
+			err := f.Value.Set("does-not-exist.env")
+
+			require.ErrorIs(t, err, utils.ErrEnvFileNotFound,
+				"a missing path must be rejected while flags parse, not inside the command")
+			assert.Equal(t, tt.wantDef, f.Value.String(),
+				"a rejected value must not become the flag's value")
+			t.Cleanup(func() { _ = f.Value.Set(tt.wantDef) })
+		})
+	}
+}
+
 func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 	const (
 		fakeKey    = "sk-dev-fake"
@@ -164,7 +206,7 @@ func TestAssembleDevEnv_InjectsGatewayKeyOnlyWhenSpecUsesGateway(t *testing.T) {
 	}
 }
 
-func TestAssembleDevEnv_StoredVarsOverrideEnvFile(t *testing.T) {
+func TestAssembleDevEnv_EnvFileOverridesStoredVars(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workingDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
@@ -183,8 +225,8 @@ func TestAssembleDevEnv_StoredVarsOverrideEnvFile(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "from-store", envVars["SHARED"],
-		"the project store wins over the env file, which is what configure relies on")
+	assert.Equal(t, "from-env-file", envVars["SHARED"],
+		"the env file overlays the project store, so the file you just edited wins")
 	assert.Equal(t, "1", envVars["ONLY_FILE"], "a file-only value survives the overlay")
 	assert.Equal(t, "2", envVars["ONLY_STORE"], "a store-only value is added")
 	assert.Equal(t, 2, counts.FromFile)
@@ -223,6 +265,72 @@ func TestAssembleDevEnv_ReportsAnAbsentFileDistinctlyFromAnEmptyOne(t *testing.T
 	assert.Zero(t, counts.FromFile)
 }
 
+func TestAssembleDevEnv_FailsOnAnExplicitEnvFileThatIsGone(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+
+	var out strings.Builder
+	_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: dir, EnvFile: "named.env", EnvFileExplicit: true, // never written
+	})
+
+	require.Error(t, err, "a file the user named and that is gone must not be treated as an absent default")
+	assert.Contains(t, err.Error(), filepath.Join(dir, "named.env"),
+		"the resolved path is the useful fact, since a relative name resolves against the project dir")
+}
+
+func TestAssembleDevEnv_TreatsAnAbsentDefaultAsNoFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var out strings.Builder
+	_, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: t.TempDir(), EnvFile: ".env", // no file, and the user never asked for one
+	})
+
+	require.NoError(t, err, "a default the user never named must stay a graceful fall-through")
+	assert.False(t, counts.FileFound)
+}
+
+func TestDevTrigger_RejectsAMissingEnvFileWhileParsingFlags(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	c := &cobra.Command{Use: "trigger", RunE: func(*cobra.Command, []string) error {
+		return errors.New("the command body must not run on a bad --env")
+	}}
+	c.Flags().Var(utils.NewEnvFileFlag(utils.DefaultEnvFile), "env", "")
+	c.SetArgs([]string{"--env", "env/typo.env"})
+	c.SilenceUsage, c.SilenceErrors = true, true
+
+	err := c.Execute()
+
+	require.Error(t, err,
+		"a typo in --env must stop before the command body, not fall through to the spec defaults")
+	assert.ErrorIs(t, err, utils.ErrEnvFileNotFound,
+		"callers match on the sentinel, so the flag must report it rather than a bare string")
+	assert.Contains(t, err.Error(), filepath.Join(dir, "env/typo.env"),
+		"the error names the path that was looked for")
+}
+
+func TestAssembleDevEnv_ReadsAnAbsoluteEnvFileFromWhereItPoints(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	absFile := filepath.Join(t.TempDir(), "prod.env")
+	require.NoError(t, os.WriteFile(absFile, []byte("FROM_ABS=1\n"), 0o600))
+
+	var out strings.Builder
+	envVars, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: t.TempDir(), EnvFile: absFile,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, counts.FileFound,
+		"an absolute --env must not be rejoined onto the working directory")
+	assert.Equal(t, "1", envVars["FROM_ABS"])
+}
+
 func TestAssembleDevEnv_ExportsToProcessEnvOnlyWhenAsked(t *testing.T) {
 	const key = "ASTRO_TEST_EXPORTED"
 
@@ -254,6 +362,45 @@ func TestAssembleDevEnv_ExportsToProcessEnvOnlyWhenAsked(t *testing.T) {
 				"only the start path mirrors env into this process; a triggered job gets it via compose")
 		})
 	}
+}
+
+func TestAssembleDevEnv_ReportsWhatItLeftAlone(t *testing.T) {
+	const key = "ASTRO_TEST_NARRATED"
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(key, "from-shell")
+
+	workingDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workingDir, ".env"), []byte(key+"=from-file\n"), 0o600,
+	))
+
+	var staged []devEnvCounts
+	var out strings.Builder
+	_, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+		Spec:       &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+		WorkingDir: workingDir, EnvFile: ".env", Export: true,
+		OnStage: func(_ devEnvStage, c devEnvCounts) { staged = append(staged, c) },
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, counts.AlreadySet,
+		"a deferred variable must be counted, or start cannot say it kept the existing value")
+	require.Len(t, staged, 2, "both sources still report a stage")
+	assert.Zero(t, staged[0].AlreadySet,
+		"the file stage fires before the layering, so it cannot know yet")
+	assert.Equal(t, 1, staged[1].AlreadySet,
+		"the count is known once the layers have resolved")
+}
+
+func TestExportEnv_MirrorsTheResolvedMap(t *testing.T) {
+	const key = "ASTRO_TEST_EXPORT_MIRROR"
+	t.Setenv(key, "stale")
+
+	// Precedence is resolved in utils.LayerEnv before this point, so the map
+	// handed here is the answer and overwrites whatever is present.
+	require.NoError(t, exportEnv(map[string]string{key: "resolved"}))
+
+	assert.Equal(t, "resolved", os.Getenv(key))
 }
 
 // The gateway notice is written from inside assembleDevEnv, so a caller that
