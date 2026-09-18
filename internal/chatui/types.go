@@ -25,10 +25,11 @@ type accountDeploymentsSummary struct {
 }
 
 type deploymentSummaryItem struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	Status      string `json:"status"`
+	ID                     string `json:"id"`
+	Name                   string `json:"name"`
+	DisplayName            string `json:"display_name,omitempty"`
+	Status                 string `json:"status"`
+	MessagingWebConfigured bool   `json:"messaging_web_configured"`
 }
 
 type deploymentsListResponse struct {

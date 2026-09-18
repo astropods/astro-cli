@@ -1,6 +1,7 @@
 package chatui
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -59,4 +60,43 @@ func TestServer_ProxiesFilesContract(t *testing.T) {
 				"sidecar should receive the rewritten /api/files path")
 		})
 	}
+}
+
+// The chat shell reconciles the switcher summary against the per-account
+// deployment list, and invalidates the summary query for as long as a
+// chat-eligible deployment is missing from it. A summary that omits the local
+// deployment therefore costs a summary read on every mount of the chat page.
+func TestServer_SummaryAndListReportTheSameDeployment(t *testing.T) {
+	s, err := New(Config{
+		Addr:         "127.0.0.1:0",
+		MessagingURL: "http://127.0.0.1:1",
+		AgentName:    "my-agent",
+		AgentDisplay: "My Agent",
+	})
+	require.NoError(t, err)
+	handler := s.Handler()
+
+	get := func(path string, dest any) {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), dest))
+	}
+
+	var summary deploymentsSummaryResponse
+	get("/api/v1/deployments/summary", &summary)
+	var list deploymentsListResponse
+	get("/api/v1/deployments", &list)
+
+	require.Len(t, list.Deployments, 1)
+	require.Len(t, summary.Accounts, 1)
+	require.Equal(t, LocalAccount, summary.Accounts[0].Name)
+	require.Equal(t, []deploymentSummaryItem{{
+		ID:                     list.Deployments[0].ID,
+		Name:                   list.Deployments[0].Name,
+		DisplayName:            list.Deployments[0].DisplayName,
+		Status:                 localDeploymentStatus,
+		MessagingWebConfigured: list.Deployments[0].MessagingWebConfigured,
+	}}, summary.Accounts[0].Deployments,
+		"the summary must carry the deployment the list reports, or the chat page refetches it on every mount")
 }

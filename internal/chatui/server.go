@@ -37,6 +37,10 @@ const (
 	// returned pid) that the responder is that very worker rather than an
 	// orphaned one still holding the port.
 	HealthPath = "/__chatui/health"
+
+	// localDeploymentStatus is the status the synthesized deployment reports to
+	// the chat shell. The local agent is running whenever this server is.
+	localDeploymentStatus = "active"
 )
 
 // healthResponse is the body served at HealthPath. PID lets the CLI distinguish
@@ -186,14 +190,25 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, healthResponse{OK: true, PID: os.Getpid()})
 }
 
+// handleSummary reports the same deployment handleListDeployments does. The
+// chat shell reconciles the two and refetches the summary for as long as a
+// chat-eligible deployment is missing from it, so an empty summary costs a
+// summary read on every mount of the chat page.
 func (s *Server) handleSummary(w http.ResponseWriter, _ *http.Request) {
+	local := s.localDeployment()
 	writeJSON(w, http.StatusOK, deploymentsSummaryResponse{
 		Accounts: []accountDeploymentsSummary{{
 			ID:          LocalAccount,
 			Name:        LocalAccount,
 			Type:        "personal",
 			DisplayName: "Local",
-			Deployments: []deploymentSummaryItem{},
+			Deployments: []deploymentSummaryItem{{
+				ID:                     local.ID,
+				Name:                   local.Name,
+				DisplayName:            local.DisplayName,
+				Status:                 localDeploymentStatus,
+				MessagingWebConfigured: local.MessagingWebConfigured,
+			}},
 		}},
 	})
 }
@@ -207,7 +222,7 @@ func (s *Server) handleListDeployments(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, deploymentStatus{
-		Value:   "active",
+		Value:   localDeploymentStatus,
 		Reason:  "ready",
 		Details: "Local agent",
 	})
