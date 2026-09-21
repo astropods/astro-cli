@@ -5,16 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/joho/godotenv"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/tui"
+	"github.com/astropods/astro-cli/internal/utils"
 )
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
@@ -97,7 +96,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("adapter", nil, "Adapter to enable: web, insecure-web, slack (default: web; repeatable)")
 	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
-	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
+	cmd.Flags().Var(utils.NewEnvFileFlag(""), "vars-file", "Env file whose variables are set on the deployment; --var wins")
 	cmd.Flags().StringArray("schedule", nil, "Job schedule: <job>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
@@ -270,19 +269,31 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 
 	varsFile, _ := cmd.Flags().GetString("vars-file")
 	if varsFile != "" {
-		f, err := os.Open(varsFile) //nolint:gosec
-		if err != nil {
-			return nil, fmt.Errorf("opening vars file: %w", err)
+		fileVars, err := utils.ReadEnvFile(varsFile)
+		if errors.Is(err, utils.ErrEnvFileNotFound) {
+			return nil, errEnvFileMissing(varsFile)
 		}
-		defer f.Close() //nolint:errcheck,gosec
-		fileVars, err := godotenv.Parse(f)
 		if err != nil {
 			return nil, fmt.Errorf("parsing vars file: %w", err)
 		}
-		for k, v := range fileVars {
-			if _, exists := vars[k]; !exists {
-				vars[k] = deployVarInput{Value: v}
+
+		// The canonical order, lowest precedence first: the vars file, then
+		// --var over it.
+		inline := make(map[string]string, len(vars))
+		for k, v := range vars {
+			inline[k] = v.Value
+		}
+		merged, _ := utils.LayerEnv(utils.NoEnvLookup,
+			utils.EnvLayer{Name: "vars-file", Vars: fileVars},
+			utils.EnvLayer{Name: "var", Vars: inline},
+		)
+		for k, v := range merged {
+			if existing, ok := vars[k]; ok {
+				existing.Value = v
+				vars[k] = existing
+				continue
 			}
+			vars[k] = deployVarInput{Value: v}
 		}
 	}
 

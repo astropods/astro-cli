@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,12 +88,12 @@ demand, or --all-logs to tail every service.
 Use -b/--background to start in the background and exit immediately.`
 
 	// trigger reads the same env file as start, but shares no other flags.
-	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+	devTriggerCmd.Flags().Var(utils.NewEnvFileFlag(utils.DefaultEnvFile), "env", "Env file supplying values for the inputs your spec declares")
 	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
-		cmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+		cmd.Flags().Var(utils.NewEnvFileFlag(utils.DefaultEnvFile), "env", "Env file supplying values for the inputs your spec declares")
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
@@ -167,6 +168,9 @@ type devEnvCounts struct {
 	FromFile  int
 	FileFound bool
 	FromStore int
+	// AlreadySet counts variables left as the environment had them, rather
+	// than overwritten from the file or the store.
+	AlreadySet int
 }
 
 // devEnvOptions are the inputs to assembleDevEnv.
@@ -178,7 +182,11 @@ type devEnvOptions struct {
 	Spec       *spec.AstroSpec
 	WorkingDir string
 	EnvFile    string
-	Verbose    bool
+	// EnvFileExplicit marks EnvFile as named by the user rather than defaulted.
+	// The flag validates the path as it parses, so this covers only the window
+	// between that check and this read.
+	EnvFileExplicit bool
+	Verbose         bool
 	// Export mirrors the assembled vars into this process's environment. The
 	// start command relies on it; a triggered job receives its env through the
 	// compose project instead, so it leaves this off.
@@ -190,9 +198,10 @@ type devEnvOptions struct {
 	OnStage func(devEnvStage, devEnvCounts)
 }
 
-// assembleDevEnv builds the env a dev container runs with: the env file, the
-// stored project vars layered over it, and the AI Gateway dev key when the spec
-// uses the gateway. Stored project vars win over the env file.
+// assembleDevEnv builds the env a dev container runs with, layering lowest
+// precedence first: the stored project vars, the env file over them, anything
+// already set for this invocation, and the AI Gateway dev key last when the
+// spec uses the gateway.
 //
 // This is the canonical ordering for both dev paths. Extracted so a test can
 // assert the gateway key is present without driving a command past its
@@ -205,8 +214,13 @@ func assembleDevEnv(
 	var counts devEnvCounts
 
 	envVars, err := utils.LoadEnvFile(opts.WorkingDir, opts.EnvFile)
-	if err != nil {
-		return nil, counts, fmt.Errorf("failed to read .env file: %w", err)
+	switch {
+	case errors.Is(err, utils.ErrEnvFileNotFound) && opts.EnvFileExplicit:
+		return nil, counts, errEnvFileMissing(utils.EnvFilePath(opts.WorkingDir, opts.EnvFile))
+	case errors.Is(err, utils.ErrEnvFileNotFound):
+		envVars = nil
+	case err != nil:
+		return nil, counts, fmt.Errorf("failed to read %s: %w", opts.EnvFile, err)
 	}
 	counts.FileFound = envVars != nil
 	if envVars == nil {
@@ -214,23 +228,26 @@ func assembleDevEnv(
 	}
 	counts.FromFile = len(envVars)
 
-	if opts.Export {
-		if err := exportEnv(envVars); err != nil {
-			return nil, counts, err
-		}
-	}
+	fileVars := envVars
 	if opts.OnStage != nil {
 		opts.OnStage(devEnvStageFile, counts)
 	}
 
-	// Stored project vars take priority over the env file.
 	storedVars := config.GetProjectVars(buildinfo.BinaryName, opts.WorkingDir)
 	counts.FromStore = len(storedVars)
-	for k, v := range storedVars {
-		envVars[k] = v
-	}
+
+	// The canonical order, lowest precedence first: the project store, the env
+	// file over it, then anything already set for this invocation. The gateway
+	// keys below are the last layer.
+	envVars, counts.AlreadySet = utils.LayerEnv(os.Getenv,
+		utils.EnvLayer{Name: "store", Vars: storedVars},
+		utils.EnvLayer{Name: "file", Vars: fileVars},
+	)
+
+	// Exported before the gateway keys are injected, so those stay out of this
+	// process's environment while still reaching the containers.
 	if opts.Export {
-		if err := exportEnv(storedVars); err != nil {
+		if err := exportEnv(envVars); err != nil {
 			return nil, counts, err
 		}
 	}
@@ -245,6 +262,10 @@ func assembleDevEnv(
 	return envVars, counts, nil
 }
 
+// exportEnv mirrors vars into this process's environment. It overwrites
+// unconditionally because utils.LayerEnv has already resolved precedence,
+// including letting an existing value win, so the map it is handed is the
+// answer rather than one candidate for it.
 func exportEnv(vars map[string]string) error {
 	for k, v := range vars {
 		if err := os.Setenv(k, v); err != nil {
@@ -293,11 +314,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// lines keep printing before the gateway notice.
 	w := cmd.OutOrStdout()
 	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    verbose,
-		Export:     true,
+		Spec:            astroSpec,
+		WorkingDir:      workingDir,
+		EnvFile:         envFile,
+		EnvFileExplicit: cmd.Flags().Changed("env"),
+		Verbose:         verbose,
+		Export:          true,
 		OnStage: func(stage devEnvStage, c devEnvCounts) {
 			switch {
 			case stage == devEnvStageFile && c.FileFound:
@@ -309,6 +331,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if counts.AlreadySet > 0 {
+		fmt.Fprintf(w, "%s→%s %s%d variable(s) already set in the environment, left as they are%s\n", colorCyan, colorReset, colorDim, counts.AlreadySet, colorReset) //nolint:errcheck,gosec
 	}
 	if counts.FromStore == 0 && len(envVars) == 0 {
 		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
@@ -601,10 +626,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	fmt.Printf("🔄 Triggering job: %s\n", name)
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    triggerVerbose,
+		Spec:            astroSpec,
+		WorkingDir:      workingDir,
+		EnvFile:         envFile,
+		EnvFileExplicit: cmd.Flags().Changed("env"),
+		Verbose:         triggerVerbose,
 	})
 	if err != nil {
 		return err
