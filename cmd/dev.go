@@ -97,7 +97,8 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
 		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
-		cmd.Flags().Bool("sandbox", false, "Attach a real sandbox, through the deployed control plane (requires login)")
+		cmd.Flags().Bool("experimental-sandbox", false,
+			"Experimental: attach a real sandbox, through the deployed control plane (requires login)")
 	}
 
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
@@ -280,7 +281,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	noPull := flagBool(cmd, "no-pull")
 	background := flagBool(cmd, "background")
 	allLogs := flagBool(cmd, "all-logs")
-	sandbox := flagBool(cmd, "sandbox")
+	sandbox := flagBool(cmd, "experimental-sandbox")
 
 	if err := checkDockerRunning(); err != nil {
 		return err
