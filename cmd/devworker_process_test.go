@@ -53,8 +53,8 @@ func TestListenerPID_FindsOurOwnListener(t *testing.T) {
 	assert.Equal(t, os.Getpid(), pid)
 }
 
-func TestChatUIListenerPID_RejectsAMalformedAddress(t *testing.T) {
-	_, ok := chatUIListenerPID("not-an-address")
+func TestDevWorkerListenerPID_RejectsAMalformedAddress(t *testing.T) {
+	_, ok := devWorker{addr: "not-an-address"}.listenerPID()
 	assert.False(t, ok)
 }
 
