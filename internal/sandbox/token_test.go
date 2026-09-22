@@ -12,11 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Low-entropy on purpose. A random-looking hex literal reads as a leaked key
+// to a secret scanner, and the signer does not care about the shape.
 const (
-	testSecret  = "0123456789abcdef0123456789abcdef"
+	testSecret  = "sandbox-test-signing-secret"
 	testBroker  = "http://host.docker.internal:3199"
 	testDeploy  = "local"
-	otherSecret = "ffffffffffffffffffffffffffffffff"
+	otherSecret = "sandbox-test-other-secret"
 )
 
 func TestSignedTokenCarriesTheBrokerAsIssuerSoTheSDKFindsIt(t *testing.T) {
