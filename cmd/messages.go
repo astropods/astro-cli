@@ -34,6 +34,36 @@ func msgAIGatewayKeyMinted(expiresAt string) string {
 	return fmt.Sprintf("AI Gateway development key minted (expires %s)", expiresAt)
 }
 
+func errSandboxRequiresLogin(err error) error {
+	return fmt.Errorf(
+		"a sandbox requires login — run '%s login': %w",
+		buildinfo.BinaryName, err,
+	)
+}
+
+func errSandboxNeedsAgentName() error {
+	return fmt.Errorf("a sandbox needs the agent's name, and the spec did not supply one")
+}
+
+func errSandboxNotEnabled(account string) error {
+	return fmt.Errorf(
+		"sandboxes are not enabled for %s, or no cluster there runs them",
+		account,
+	)
+}
+
+func errSandboxSessionFailed(err error) error {
+	return fmt.Errorf("could not open a sandbox session: %w", err)
+}
+
+func msgSandboxSessionOpened(expiresAt string) string {
+	return fmt.Sprintf("Sandbox session opened (expires %s)", expiresAt)
+}
+
+func msgSandboxSessionCloseFailed(err error) string {
+	return fmt.Sprintf("Could not close the sandbox session: %v", err)
+}
+
 func errNoSpecFile() error {
 	return fmt.Errorf(
 		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
