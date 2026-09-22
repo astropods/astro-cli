@@ -299,6 +299,28 @@ func (r *Runner) Remove(ctx context.Context, name string) error {
 	return r.removeID(ctx, found.ID)
 }
 
+// List reports the sandboxes this project owns, read from the labels rather
+// than from any state this process holds.
+func (r *Runner) List(ctx context.Context) ([]Record, error) {
+	list, err := r.docker.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: filters.NewArgs(r.labelFilters()),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list sandboxes: %w", err)
+	}
+
+	out := make([]Record, 0, len(list))
+	for _, c := range list {
+		out = append(out, Record{
+			Name:      c.Labels[labelName],
+			State:     c.State,
+			CreatedAt: time.Unix(c.Created, 0),
+		})
+	}
+	return out, nil
+}
+
 // RemoveAll drops every sandbox this project owns. `ast dev` down calls it.
 func (r *Runner) RemoveAll(ctx context.Context) error {
 	list, err := r.docker.ContainerList(ctx, container.ListOptions{
