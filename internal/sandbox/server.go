@@ -3,8 +3,10 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"time"
 )
@@ -51,6 +53,12 @@ type errorResponse struct {
 // control plane's ResolvePolicy.
 const DefaultClass = "default"
 
+// HealthPath reports the serving worker's pid. `ast dev` polls it after
+// spawning, so a stale or foreign listener on the broker's port is told apart
+// from the worker it just started. It is unauthenticated and says nothing about
+// any sandbox.
+const HealthPath = "/__sandbox/health"
+
 // sessionTokenHeader authorizes a request to the sandbox's data plane. The
 // deployed control plane returns the same header, alongside the platform's own
 // credential, which does not exist locally. The agent treats the map as opaque.
@@ -92,12 +100,44 @@ func NewServer(sandboxes Sandboxes, secret string, log *slog.Logger) *Server {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+HealthPath, s.health)
 	mux.Handle("PUT /api/v1/sandboxes/{name}", s.authorize(http.HandlerFunc(s.attach)))
 	mux.Handle("GET /api/v1/sandboxes", s.authorize(http.HandlerFunc(s.list)))
 	mux.Handle("GET /api/v1/sandboxes/{name}", s.authorize(http.HandlerFunc(s.get)))
 	mux.Handle("DELETE /api/v1/sandboxes/{name}", s.authorize(http.HandlerFunc(s.remove)))
 	mux.Handle("POST /api/v1/sandboxes/{name}/stop", s.authorize(http.HandlerFunc(s.stop)))
 	return mux
+}
+
+func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, healthResponse{OK: true, PID: os.Getpid()})
+}
+
+type healthResponse struct {
+	OK  bool `json:"ok"`
+	PID int  `json:"pid"`
+}
+
+// ListenAndServe serves until ctx is cancelled.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	// The shutdown deadline comes from a fresh context: ctx is already
+	// cancelled by the time this goroutine wakes, so it cannot carry a grace
+	// period.
+	go func() { //nolint:gosec // G118: the shutdown ctx must outlive the cancelled one
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 // authorize refuses a request the deployed control plane would refuse, so an
