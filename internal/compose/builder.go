@@ -845,7 +845,7 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
 
-	// The dev session token, when `ast dev --experimental-sandbox` opened one.
+	// The dev session token, when the spec's sandbox section opened one.
 	// The agent SDK
 	// reads this name and takes the control plane's base URL from the token's
 	// own `iss` claim, so nothing else is injected. Absent, adapter-core runs

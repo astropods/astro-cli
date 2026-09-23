@@ -297,3 +297,48 @@ func TestAssembleDevEnv_OnStageRunsBeforeTheGatewayNotice(t *testing.T) {
 	assert.Less(t, strings.Index(got, "stage-1"), strings.Index(got, "AI Gateway"),
 		"both stage callbacks must fire before the gateway notice is written")
 }
+
+func TestAssembleDevEnv_AsksForASandboxOnlyWhenTheSpecDeclaresOne(t *testing.T) {
+	// The section's presence is the request. Without a spec field the CLI had
+	// to be told on the command line every time.
+	for _, tc := range []struct {
+		name    string
+		sandbox *spec.Sandbox
+		wants   bool
+	}{
+		{name: "no section", sandbox: nil, wants: false},
+		{name: "a section", sandbox: &spec.Sandbox{Toolchain: "auto"}, wants: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir()) // no credentials, so a request fails loudly
+
+			var out strings.Builder
+			_, _, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+				Spec: &spec.AstroSpec{
+					Name:    "ag",
+					Agent:   spec.Container{Image: "x"},
+					Sandbox: tc.sandbox,
+				},
+				WorkingDir: t.TempDir(), EnvFile: ".env",
+			})
+
+			if !tc.wants {
+				require.NoError(t, err, "a spec with no sandbox section must not ask the author to log in")
+				assert.NotContains(t, out.String(), "andbox")
+				return
+			}
+			require.Error(t, err, "a declared sandbox needs a session, which needs credentials")
+			assert.Equal(t, errSandboxRequiresLogin(errors.Unwrap(err)).Error(), err.Error(),
+				"the login error must come from errSandboxRequiresLogin")
+		})
+	}
+}
+
+func TestDeclaresSandboxReadsTheSectionAndNothingElse(t *testing.T) {
+	assert.False(t, declaresSandbox(nil))
+	assert.False(t, declaresSandbox(&spec.AstroSpec{Name: "ag"}))
+	assert.True(t, declaresSandbox(&spec.AstroSpec{
+		Name:    "ag",
+		Sandbox: &spec.Sandbox{Toolchain: "never"},
+	}))
+}
