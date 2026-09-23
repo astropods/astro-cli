@@ -33,6 +33,10 @@ const sandboxTokenEnvVar = "ASTRO_AUTHZ_TOKEN"
 
 type openDevSessionRequest struct {
 	AgentName string `json:"agent_name"`
+	// Sandbox carries the spec's sandbox section. A dev session pins no build,
+	// so the server has no blueprint to read the declaration from and this is
+	// the only thing that tells it what to install.
+	Sandbox *spec.Sandbox `json:"sandbox,omitempty"`
 }
 
 type openDevSessionResponse struct {
@@ -46,16 +50,17 @@ type openDevSessionResponse struct {
 // deployed control plane. There is no local sandbox runtime: the agent talks to
 // the same MicroVM it would when deployed.
 //
-// A no-op unless asked for, because the spec has no field to gate on yet and
-// `ast dev` must keep working for an author with no interest in sandboxes.
+// A no-op for a spec with no sandbox section, so `ast dev` keeps working for an
+// author with no interest in sandboxes.
 func injectSandboxDevToken(
 	ctx context.Context,
 	w io.Writer,
 	agentName string,
 	envVars map[string]string,
-	wanted, verbose bool,
+	declaration *spec.Sandbox,
+	verbose bool,
 ) error {
-	if !wanted {
+	if declaration == nil {
 		return nil
 	}
 	if agentName == "" {
@@ -70,7 +75,7 @@ func injectSandboxDevToken(
 	u := apiPath(sandboxBaseURL(), at.Account, "accounts", "dev-sessions")
 	var resp openDevSessionResponse
 	status, err := apiCall(ctx, http.MethodPost, u,
-		openDevSessionRequest{AgentName: agentName}, at.Token, verbose, &resp)
+		openDevSessionRequest{AgentName: agentName, Sandbox: declaration}, at.Token, verbose, &resp)
 	if err != nil {
 		if status == http.StatusConflict {
 			return errSandboxNotEnabled(at.Account)
@@ -121,10 +126,17 @@ func closeSandboxSessionForProject(cmd *cobra.Command) {
 	closeSandboxDevSession(cmd.Context(), cmd.OutOrStdout(), astroSpec.Name, verbose)
 }
 
-// declaresSandbox reports whether the spec asks for a sandbox. The section's
-// presence is the request: astro-server refuses an attach from a deployment
-// whose blueprint declares none, and RFC-1 section 9 requires a toolchain
-// inside the section so it cannot be an empty marker.
+// sandboxDeclaration returns the section that asks for a sandbox, or nil. The
+// section's presence is the request: astro-server refuses an attach from a
+// deployment whose blueprint declares none, and RFC-1 section 9 requires a
+// toolchain inside the section so it cannot be an empty marker.
+func sandboxDeclaration(s *spec.AstroSpec) *spec.Sandbox {
+	if s == nil {
+		return nil
+	}
+	return s.Sandbox
+}
+
 func declaresSandbox(s *spec.AstroSpec) bool {
-	return s != nil && s.Sandbox != nil
+	return sandboxDeclaration(s) != nil
 }
