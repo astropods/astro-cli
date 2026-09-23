@@ -547,6 +547,7 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 		Accounts []struct {
 			ID             string `json:"id"`
 			Name           string `json:"name"`
+			DisplayName    string `json:"display_name"`
 			Type           string `json:"type"`
 			Role           string `json:"role"`
 			OrganizationID string `json:"workos_org_id"`
@@ -561,6 +562,7 @@ func fetchUserAccounts(serverURL, accessToken string) ([]auth.StoredAccount, err
 		accounts = append(accounts, auth.StoredAccount{
 			ID:             a.ID,
 			Name:           a.Name,
+			DisplayName:    a.DisplayName,
 			Type:           a.Type,
 			Role:           a.Role,
 			OrganizationID: a.OrganizationID,

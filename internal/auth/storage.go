@@ -55,6 +55,7 @@ type StoredUser struct {
 type StoredAccount struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
+	DisplayName    string `json:"display_name,omitempty"`
 	Type           string `json:"type"`
 	Role           string `json:"role,omitempty"`
 	OrganizationID string `json:"workos_org_id,omitempty"`
