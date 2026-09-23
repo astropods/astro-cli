@@ -120,3 +120,11 @@ func closeSandboxSessionForProject(cmd *cobra.Command) {
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	closeSandboxDevSession(cmd.Context(), cmd.OutOrStdout(), astroSpec.Name, verbose)
 }
+
+// declaresSandbox reports whether the spec asks for a sandbox. The section's
+// presence is the request: astro-server refuses an attach from a deployment
+// whose blueprint declares none, and RFC-1 section 9 requires a toolchain
+// inside the section so it cannot be an empty marker.
+func declaresSandbox(s *spec.AstroSpec) bool {
+	return s != nil && s.Sandbox != nil
+}

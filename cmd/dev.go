@@ -97,8 +97,6 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
 		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
-		cmd.Flags().Bool("experimental-sandbox", false,
-			"Experimental: attach a real sandbox, through the deployed control plane (requires login)")
 	}
 
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
@@ -190,11 +188,6 @@ type devEnvOptions struct {
 	// the returned counts instead would emit its own lines after the gateway
 	// notice rather than before it.
 	OnStage func(devEnvStage, devEnvCounts)
-	// Sandbox opens a dev session and injects its token, so the agent attaches
-	// a real sandbox through the deployed control plane. Off by default: the
-	// spec has no field to gate on, and an author with no interest in
-	// sandboxes should not be asked to log in.
-	Sandbox bool
 }
 
 // assembleDevEnv builds the env a dev container runs with: the env file, the
@@ -252,7 +245,7 @@ func assembleDevEnv(
 	}
 
 	if err := injectSandboxDevToken(
-		ctx, w, specAgentName(opts.Spec), envVars, opts.Sandbox, opts.Verbose,
+		ctx, w, specAgentName(opts.Spec), envVars, declaresSandbox(opts.Spec), opts.Verbose,
 	); err != nil {
 		return nil, counts, err
 	}
@@ -281,7 +274,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	noPull := flagBool(cmd, "no-pull")
 	background := flagBool(cmd, "background")
 	allLogs := flagBool(cmd, "all-logs")
-	sandbox := flagBool(cmd, "experimental-sandbox")
 
 	if err := checkDockerRunning(); err != nil {
 		return err
@@ -320,7 +312,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		EnvFile:    envFile,
 		Verbose:    verbose,
 		Export:     true,
-		Sandbox:    sandbox,
 		OnStage: func(stage devEnvStage, c devEnvCounts) {
 			switch {
 			case stage == devEnvStageFile && c.FileFound:
@@ -446,7 +437,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// A sandbox outliving `ast dev` bills for compute nobody is using, so the
 	// session goes when the containers do. Background mode leaves it, because
 	// the containers keep running and `project stop` is what ends the session.
-	if sandbox {
+	if declaresSandbox(astroSpec) {
 		closeSandboxDevSession(cmd.Context(), w, astroSpec.Name, verbose)
 	}
 	return err
