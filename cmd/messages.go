@@ -300,6 +300,14 @@ func msgNoModelAgentSpend(model string) string {
 	return fmt.Sprintf("No metered spend on %s this period", model)
 }
 
+func msgNoFeatureSpend() string {
+	return "No platform-feature AI Gateway spend this period"
+}
+
+func msgFeatureSpendUnavailable() string {
+	return "Platform-feature spend is not available in this environment"
+}
+
 func errUnknownNetworkDirection(direction string) error {
 	return fmt.Errorf("--direction %q is not a network direction; use inbound, outbound, or database", direction)
 }

@@ -12,15 +12,21 @@ import (
 )
 
 var billingModelsCmd = &cobra.Command{
-	Use:   "models [model]",
+	Use:   "models [model | --features [feature]]",
 	Short: "Break down the account's AI Gateway spend by model, or one model's spend by agent",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runBillingModels,
+	Long: `Break down the account's AI Gateway spend by model, or one model's spend by agent.
+
+With --features, break down instead the AI Gateway spend Astropods features
+make on the account's behalf (the eval judge, the governance agent, local
+dev), or one feature's spend by model.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runBillingModels,
 }
 
 func init() {
 	billingCmd.AddCommand(billingModelsCmd)
 	billingModelsCmd.Flags().Bool("json", false, "Print raw JSON output")
+	billingModelsCmd.Flags().Bool("features", false, "Break down platform-feature spend instead of model spend")
 }
 
 type modelSpend struct {
@@ -32,6 +38,24 @@ type modelsSpendResponse struct {
 	Models          []modelSpend `json:"models"`
 	CostUSD         float64      `json:"cost_usd"`
 	UnattributedUSD float64      `json:"unattributed_usd"`
+}
+
+type featureSpend struct {
+	Feature string  `json:"feature"`
+	Name    string  `json:"name"`
+	CostUSD float64 `json:"cost_usd"`
+}
+
+type featuresSpendResponse struct {
+	Features []featureSpend `json:"features"`
+	CostUSD  float64        `json:"cost_usd"`
+}
+
+type featureByModelResponse struct {
+	Feature string       `json:"feature"`
+	Name    string       `json:"name"`
+	Models  []modelSpend `json:"models"`
+	CostUSD float64      `json:"cost_usd"`
 }
 
 type modelDeploymentSpend struct {
@@ -51,6 +75,12 @@ func runBillingModels(cmd *cobra.Command, args []string) error {
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
+	}
+	if features, _ := cmd.Flags().GetBool("features"); features {
+		if len(args) == 1 {
+			return runBillingFeatureByModel(cmd, at, verbose, args[0])
+		}
+		return runBillingFeatures(cmd, at, verbose)
 	}
 	if len(args) == 1 {
 		return runBillingModelByAgent(cmd, at, verbose, args[0])
@@ -138,6 +168,92 @@ func runBillingModelByAgent(cmd *cobra.Command, at AccountToken, verbose bool, m
 	fmt.Fprintln(w)                                                        //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  %-28s %s\n", "Total", msgUsageDollars(resp.CostUSD)) //nolint:errcheck,gosec
 	return nil
+}
+
+func runBillingFeatures(cmd *cobra.Command, at AccountToken, verbose bool) error {
+	var resp featuresSpendResponse
+	available, err := billingRead(cmd, at, verbose, "usage/features", &resp)
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		if !available {
+			return writeJSON(w, billingEnvelope{Available: false})
+		}
+		return writeJSON(w, resp)
+	}
+	if !available {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgFeatureSpendUnavailable(), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+	if len(resp.Features) == 0 {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoFeatureSpend(), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+
+	features := append([]featureSpend(nil), resp.Features...)
+	sort.SliceStable(features, func(i, j int) bool { return features[i].CostUSD > features[j].CostUSD })
+
+	accent := color.New(theme.PrimaryFatihAttr)
+	dim := color.New(color.Faint)
+	accent.Fprintf(w, "%s\n", at.Account) //nolint:errcheck,gosec
+
+	// The kind is the drill-down argument, so it shows whenever the label hides it.
+	for _, f := range features {
+		label := f.Name
+		if f.Name != f.Feature {
+			label = fmt.Sprintf("%s (%s)", f.Name, f.Feature)
+		}
+		fmt.Fprintf(w, "  %-28s %s\n", label, msgUsageDollars(f.CostUSD)) //nolint:errcheck,gosec
+	}
+	fmt.Fprintln(w)                                                        //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  %-28s %s\n", "Total", msgUsageDollars(resp.CostUSD)) //nolint:errcheck,gosec
+	dim.Fprintf(w, "\n%s\n", msgDrillIntoFeature())                        //nolint:errcheck,gosec
+	return nil
+}
+
+func runBillingFeatureByModel(cmd *cobra.Command, at AccountToken, verbose bool, feature string) error {
+	var resp featureByModelResponse
+	resource := fmt.Sprintf("usage/features/%s/by-model", feature)
+	available, err := billingRead(cmd, at, verbose, resource, &resp)
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		if !available {
+			return writeJSON(w, billingEnvelope{Available: false})
+		}
+		return writeJSON(w, resp)
+	}
+	if !available {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgFeatureSpendUnavailable(), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+	if len(resp.Models) == 0 {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoModelAgentSpend(feature), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+
+	models := append([]modelSpend(nil), resp.Models...)
+	sort.SliceStable(models, func(i, j int) bool { return models[i].CostUSD > models[j].CostUSD })
+
+	accent := color.New(theme.PrimaryFatihAttr)
+	accent.Fprintf(w, "%s: %s\n", at.Account, resp.Name) //nolint:errcheck,gosec
+
+	for _, m := range models {
+		fmt.Fprintf(w, "  %-28s %s\n", m.Model, msgUsageDollars(m.CostUSD)) //nolint:errcheck,gosec
+	}
+	fmt.Fprintln(w)                                                        //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  %-28s %s\n", "Total", msgUsageDollars(resp.CostUSD)) //nolint:errcheck,gosec
+	return nil
+}
+
+func msgDrillIntoFeature() string {
+	return fmt.Sprintf("Drill into one feature: %s billing models --features <feature>", buildinfo.BinaryName)
 }
 
 func msgDrillIntoModel() string {
