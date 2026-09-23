@@ -245,7 +245,7 @@ func assembleDevEnv(
 	}
 
 	if err := injectSandboxDevToken(
-		ctx, w, specAgentName(opts.Spec), envVars, declaresSandbox(opts.Spec), opts.Verbose,
+		ctx, w, specAgentName(opts.Spec), envVars, sandboxDeclaration(opts.Spec), opts.Verbose,
 	); err != nil {
 		return nil, counts, err
 	}

@@ -75,13 +75,13 @@ func loggedIn(t *testing.T) {
 
 func TestTheSandboxTokenIsInjectedOnlyWhenAskedFor(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		wanted    bool
-		wantToken bool
-		wantCalls int
+		name        string
+		declaration *spec.Sandbox
+		wantToken   bool
+		wantCalls   int
 	}{
-		{name: "asked for", wanted: true, wantToken: true, wantCalls: 1},
-		{name: "not asked for", wanted: false, wantToken: false, wantCalls: 0},
+		{name: "declared", declaration: &spec.Sandbox{Toolchain: "auto"}, wantToken: true, wantCalls: 1},
+		{name: "not declared", declaration: nil, wantToken: false, wantCalls: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			loggedIn(t)
@@ -91,10 +91,10 @@ func TestTheSandboxTokenIsInjectedOnlyWhenAskedFor(t *testing.T) {
 			envVars := map[string]string{}
 			var out strings.Builder
 			require.NoError(t, injectSandboxDevToken(
-				context.Background(), &out, "my-agent", envVars, tc.wanted, false))
+				context.Background(), &out, "my-agent", envVars, tc.declaration, false))
 
 			assert.Equal(t, tc.wantCalls, srv.calls,
-				"an author who did not ask for a sandbox must not be charged an API call, or a login prompt")
+				"a spec with no sandbox section must not cost an API call, or a login prompt")
 
 			if tc.wantToken {
 				assert.Equal(t, fakeSessionToken, envVars[sandboxTokenEnvVar],
@@ -114,13 +114,16 @@ func TestOpeningASessionAddressesTheAccountAndNamesTheAgent(t *testing.T) {
 	newSandboxServer(t, srv)
 
 	require.NoError(t, injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, true, false))
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false))
 
 	assert.Equal(t, http.MethodPost, srv.method)
 	assert.Equal(t, "/api/v1/accounts/alice/dev-sessions", srv.path,
 		"the route is account-scoped, because a developer opens the session, not a deployment")
 	assert.Equal(t, "my-agent", srv.request.AgentName,
 		"one session per developer per agent, so the agent has to be named")
+	require.NotNil(t, srv.request.Sandbox,
+		"a dev session pins no build, so the request is the only place the declaration can come from")
+	assert.Equal(t, "auto", srv.request.Sandbox.Toolchain)
 	assert.True(t, strings.HasPrefix(srv.bearer, "Bearer "),
 		"the call is authenticated as the developer")
 }
@@ -131,7 +134,7 @@ func TestOpeningASessionWithoutLoginSaysToLogIn(t *testing.T) {
 	newSandboxServer(t, srv)
 
 	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, true, false)
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires login",
 		"a sandbox is the developer's, so an author who is not logged in needs telling")
@@ -144,7 +147,7 @@ func TestARefusedSessionExplainsWhichSwitchIsOff(t *testing.T) {
 	newSandboxServer(t, srv)
 
 	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, true, false)
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
 	require.Error(t, err)
 	assert.Equal(t, errSandboxNotEnabled("alice").Error(), err.Error(),
 		"a 409 means the account switch or the cluster's image, and the author can act on neither without being told")
@@ -157,7 +160,7 @@ func TestASessionWithNoTokenIsAFailureNotAnEmptyVariable(t *testing.T) {
 
 	envVars := map[string]string{}
 	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", envVars, true, false)
+		context.Background(), io.Discard, "my-agent", envVars, &spec.Sandbox{Toolchain: "auto"}, false)
 
 	require.Error(t, err, "an empty token would start the agent with authorization off, which is what this replaces")
 	assert.NotContains(t, envVars, sandboxTokenEnvVar)
@@ -169,7 +172,7 @@ func TestAnAgentWithNoNameCannotOpenASession(t *testing.T) {
 	newSandboxServer(t, srv)
 
 	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "", map[string]string{}, true, false)
+		context.Background(), io.Discard, "", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
 	assert.Equal(t, errSandboxNeedsAgentName().Error(), err.Error())
 	assert.Zero(t, srv.calls)
 }
