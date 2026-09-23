@@ -705,6 +705,12 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 }
 
 // BuildEnvironment creates environment variables for the agent container.
+// sandboxTokenEnvVar is the variable the agent SDK reads to reach the control
+// plane. Named here as well as in cmd, because this is the allowlist that
+// decides what a container actually sees.
+// #nosec G101 -- the name of an environment variable, not a credential.
+const sandboxTokenEnvVar = "ASTRO_AUTHZ_TOKEN"
+
 func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
@@ -838,6 +844,16 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	// Note: Messaging interface credentials (Slack, Discord, etc.) are NOT passed to the agent
 	// They are passed to the astro-messaging sidecar which handles all messaging platform communication
+
+	// The dev session token, when `ast dev --experimental-sandbox` opened one.
+	// The agent SDK
+	// reads this name and takes the control plane's base URL from the token's
+	// own `iss` claim, so nothing else is injected. Absent, adapter-core runs
+	// with authorization off, which is the behaviour without the flag.
+	if token, ok := envVars[sandboxTokenEnvVar]; ok && token != "" {
+		value := token
+		env[sandboxTokenEnvVar] = &value
+	}
 
 	// Agent transport. A declared runtime (e.g. agentcore) serves /invocations on
 	// :8080; adapter-core selects its transport from ASTRO_RUNTIME. The default
