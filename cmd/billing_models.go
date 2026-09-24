@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 
 	"github.com/fatih/color"
@@ -130,7 +131,7 @@ func runBillingModels(cmd *cobra.Command, args []string) error {
 
 func runBillingModelByAgent(cmd *cobra.Command, at AccountToken, verbose bool, model string) error {
 	var resp modelByAgentResponse
-	resource := fmt.Sprintf("usage/models/%s/by-agent", model)
+	resource := fmt.Sprintf("usage/models/%s/by-agent", url.PathEscape(model))
 	available, err := billingRead(cmd, at, verbose, resource, &resp)
 	if err != nil {
 		return err
@@ -216,7 +217,7 @@ func runBillingFeatures(cmd *cobra.Command, at AccountToken, verbose bool) error
 
 func runBillingFeatureByModel(cmd *cobra.Command, at AccountToken, verbose bool, feature string) error {
 	var resp featureByModelResponse
-	resource := fmt.Sprintf("usage/features/%s/by-model", feature)
+	resource := fmt.Sprintf("usage/features/%s/by-model", url.PathEscape(feature))
 	available, err := billingRead(cmd, at, verbose, resource, &resp)
 	if err != nil {
 		return err

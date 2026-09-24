@@ -288,3 +288,33 @@ func TestBillingFeatureByModel(t *testing.T) {
 		})
 	}
 }
+
+func TestBillingDrillDownsEscapeTheirArgument(t *testing.T) {
+	cases := []struct {
+		name     string
+		features bool
+		wantPath string
+	}{
+		{name: "model", wantPath: "/billing/usage/models/a b?c/by-agent"},
+		{name: "feature", features: true, wantPath: "/billing/usage/features/a b?c/by-model"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotQuery string
+			setupBillingTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+				jsonHandler(http.StatusOK, map[string]any{"available": false})(w, r)
+			}))
+			if tc.features {
+				require.NoError(t, billingModelsCmd.Flags().Set("features", "true"))
+				t.Cleanup(func() { billingModelsCmd.Flags().Set("features", "false") }) //nolint:errcheck
+			}
+			billingModelsCmd.SetOut(&bytes.Buffer{})
+			billingModelsCmd.SetContext(context.Background())
+
+			require.NoError(t, runBillingModels(billingModelsCmd, []string{"a b?c"}))
+			assert.True(t, strings.HasSuffix(gotPath, tc.wantPath), "path = %q, want suffix %q", gotPath, tc.wantPath)
+			assert.Empty(t, gotQuery, "an unescaped ? would move the rest of the argument into the query string")
+		})
+	}
+}
