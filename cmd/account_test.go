@@ -14,6 +14,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -117,6 +118,93 @@ func TestAccountList(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			out := accountListOutput(t, tc.currentAccount)
 			require.Equal(t, tc.wantOut, out)
+		})
+	}
+}
+
+func displayNameCreds(currentAccount string) *auth.Credentials {
+	creds := accountTestCreds(currentAccount)
+	accounts := creds.Profiles["default"].Accounts
+	accounts[0].DisplayName = "Alice Smith"
+	accounts[1].DisplayName = "Acme Corp"
+	accounts[2].DisplayName = "other-org"
+	return creds
+}
+
+func TestAccountList_DisplayNames(t *testing.T) {
+	cases := []struct {
+		name       string
+		jsonOutput bool
+		wantOut    string
+	}{
+		{
+			name: "aligns each dashboard name after the account name",
+			wantOut: "  alice (personal)  Alice Smith\n" +
+				"✓ acme-corp         Acme Corp\n" +
+				"  other-org\n",
+		},
+		{
+			name:       "json carries the display name and the active account",
+			jsonOutput: true,
+			wantOut: `[
+  {
+    "name": "alice",
+    "display_name": "Alice Smith",
+    "type": "personal",
+    "current": false
+  },
+  {
+    "name": "acme-corp",
+    "display_name": "Acme Corp",
+    "type": "organization",
+    "current": true
+  },
+  {
+    "name": "other-org",
+    "display_name": "other-org",
+    "type": "organization",
+    "current": false
+  }
+]
+`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("NO_COLOR", "1")
+			writeAccountTestCredentials(t, displayNameCreds("acme-corp"))
+			if tc.jsonOutput {
+				require.NoError(t, accountListCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { accountListCmd.Flags().Set("json", "false") }) //nolint:errcheck
+			}
+
+			buf := &bytes.Buffer{}
+			accountListCmd.SetOut(buf)
+			require.NoError(t, runAccountList(accountListCmd, nil))
+			require.Equal(t, tc.wantOut, buf.String())
+		})
+	}
+}
+
+func TestAccountLabel(t *testing.T) {
+	accounts := displayNameCreds("").Profiles["default"].Accounts
+	legacy := accountTestCreds("").Profiles["default"].Accounts
+
+	cases := []struct {
+		name     string
+		accounts []auth.StoredAccount
+		account  string
+		want     string
+	}{
+		{name: "adds the dashboard name", accounts: accounts, account: "acme-corp", want: "acme-corp (Acme Corp)"},
+		{name: "skips a name that repeats the account", accounts: accounts, account: "other-org", want: "other-org"},
+		{name: "falls back for a cache without display names", accounts: legacy, account: "acme-corp", want: "acme-corp"},
+		{name: "falls back for an account not in the cache", accounts: accounts, account: "gone", want: "gone"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, accountLabel(tc.accounts, tc.account))
 		})
 	}
 }
@@ -410,4 +498,20 @@ func TestAccountOrgID(t *testing.T) {
 			require.Equal(t, tt.want, accountOrgID(accounts, tt.account))
 		})
 	}
+}
+
+func TestFetchUserAccounts_KeepsDisplayName(t *testing.T) {
+	srv := httptest.NewServer(jsonHandler(http.StatusOK, map[string]any{
+		"accounts": []any{
+			map[string]any{"id": "acct_acme", "name": "acme-corp", "display_name": "Acme Corp", "type": "organization", "workos_org_id": "org_acme"},
+		},
+	}))
+	t.Cleanup(srv.Close)
+
+	accounts, err := fetchUserAccounts(srv.URL, "tok")
+
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, "acme-corp", accounts[0].Name)
+	assert.Equal(t, "Acme Corp", accounts[0].DisplayName)
 }

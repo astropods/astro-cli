@@ -70,6 +70,7 @@ permissions you hold there.`,
 }
 
 func init() {
+	accountListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	accountCmd.AddCommand(accountListCmd)
 	accountCmd.AddCommand(accountSwitchCmd)
 	if buildinfo.BuildType == buildinfo.BuildTypeDev {
@@ -92,13 +93,36 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		entries := make([]accountListEntry, 0, len(accounts))
+		for _, a := range accounts {
+			entries = append(entries, accountListEntry{
+				Name:        a.Name,
+				DisplayName: a.DisplayName,
+				Type:        a.Type,
+				Current:     a.Name == currentAccount,
+			})
+		}
+		return writeJSON(w, entries)
+	}
+
 	green := color.New(color.FgGreen)
 	cyan := color.New(theme.PrimaryFatihAttr)
 
-	for _, a := range accounts {
-		name := a.Name
+	labels := make([]string, len(accounts))
+	width := 0
+	for i, a := range accounts {
+		labels[i] = a.Name
 		if a.Type == "personal" {
-			name = fmt.Sprintf("%s (personal)", a.Name)
+			labels[i] = fmt.Sprintf("%s (personal)", a.Name)
+		}
+		width = max(width, len(labels[i]))
+	}
+
+	for i, a := range accounts {
+		name := labels[i]
+		if displayName := accountDisplayName(a); displayName != "" {
+			name = fmt.Sprintf("%-*s  %s", width, name, displayName)
 		}
 
 		if a.Name == currentAccount {
@@ -208,6 +232,36 @@ func runAccountToken(cmd *cobra.Command, args []string) error {
 		"token":      at.Token,
 		"expires_at": at.ExpiresAt.UTC().Format(time.RFC3339),
 	})
+}
+
+type accountListEntry struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Type        string `json:"type"`
+	Current     bool   `json:"current"`
+}
+
+// accountDisplayName is the name the dashboard shows, or empty when it adds
+// nothing to the account name.
+func accountDisplayName(a auth.StoredAccount) string {
+	if a.DisplayName == a.Name {
+		return ""
+	}
+	return a.DisplayName
+}
+
+// accountLabel names an account for display, with its dashboard name when it
+// differs. Accounts cached before display names were stored show the name alone.
+func accountLabel(accounts []auth.StoredAccount, name string) string {
+	for _, a := range accounts {
+		if a.Name == name {
+			if displayName := accountDisplayName(a); displayName != "" {
+				return fmt.Sprintf("%s (%s)", name, displayName)
+			}
+			break
+		}
+	}
+	return name
 }
 
 // AccountToken holds the resolved account name, its scoped API token, and expiry.

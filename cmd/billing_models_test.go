@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,6 +137,184 @@ func TestBillingModelByAgent(t *testing.T) {
 			for _, want := range tc.wantOut {
 				assert.Contains(t, buf.String(), want)
 			}
+		})
+	}
+}
+
+func TestBillingFeatures(t *testing.T) {
+	full := map[string]any{
+		"features": []any{
+			map[string]any{"feature": "dev", "name": "Local dev", "cost_usd": 0.4},
+			map[string]any{"feature": "eval-judge", "name": "Eval judge", "cost_usd": 1.2},
+			map[string]any{"feature": "trace-summary", "name": "trace-summary", "cost_usd": 0.1},
+		},
+		"cost_usd": 1.7,
+	}
+
+	cases := []struct {
+		name       string
+		body       any
+		jsonOutput bool
+		wantOut    []string
+		notOut     []string
+	}{
+		{
+			name: "sorts by cost and names the drill-down argument",
+			body: spendPayload(full),
+			wantOut: []string{
+				"Eval judge (eval-judge)", msgUsageDollars(1.2),
+				"Local dev (dev)", msgUsageDollars(0.4),
+				"Total", msgUsageDollars(1.7),
+				msgDrillIntoFeature(),
+			},
+			notOut: []string{"trace-summary (trace-summary)"},
+		},
+		{
+			name:    "metric not provisioned",
+			body:    map[string]any{"available": false},
+			wantOut: []string{msgFeatureSpendUnavailable()},
+		},
+		{
+			name:    "no feature spend",
+			body:    spendPayload(map[string]any{"features": []any{}}),
+			wantOut: []string{msgNoFeatureSpend()},
+		},
+		{
+			name:       "json",
+			body:       spendPayload(full),
+			jsonOutput: true,
+			wantOut:    []string{`"feature"`, `"eval-judge"`},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			setupBillingTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				jsonHandler(http.StatusOK, tc.body)(w, r)
+			}))
+			require.NoError(t, billingModelsCmd.Flags().Set("features", "true"))
+			t.Cleanup(func() { billingModelsCmd.Flags().Set("features", "false") }) //nolint:errcheck
+			if tc.jsonOutput {
+				require.NoError(t, billingModelsCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { billingModelsCmd.Flags().Set("json", "false") }) //nolint:errcheck
+			}
+
+			buf := &bytes.Buffer{}
+			billingModelsCmd.SetOut(buf)
+			billingModelsCmd.SetContext(context.Background())
+
+			require.NoError(t, runBillingModels(billingModelsCmd, nil))
+			assert.True(t, strings.HasSuffix(gotPath, "/billing/usage/features"), "path = %s", gotPath)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+			for _, not := range tc.notOut {
+				assert.NotContains(t, buf.String(), not)
+			}
+		})
+	}
+}
+
+func TestBillingFeatureByModel(t *testing.T) {
+	full := map[string]any{
+		"feature": "dev",
+		"name":    "Local dev",
+		"models": []any{
+			map[string]any{"model": "gpt-4o", "cost_usd": 0.1},
+			map[string]any{"model": "claude-sonnet-4-6", "cost_usd": 0.3},
+		},
+		"cost_usd": 0.4,
+	}
+
+	cases := []struct {
+		name       string
+		body       any
+		jsonOutput bool
+		wantOut    []string
+	}{
+		{
+			name: "sorts by cost under the feature's label",
+			body: spendPayload(full),
+			wantOut: []string{
+				"Local dev",
+				"claude-sonnet-4-6", msgUsageDollars(0.3),
+				"gpt-4o", msgUsageDollars(0.1),
+				"Total", msgUsageDollars(0.4),
+			},
+		},
+		{
+			name:    "metric not provisioned",
+			body:    map[string]any{"available": false},
+			wantOut: []string{msgFeatureSpendUnavailable()},
+		},
+		{
+			name:    "nothing metered for this feature",
+			body:    spendPayload(map[string]any{"feature": "dev", "models": []any{}}),
+			wantOut: []string{msgNoModelAgentSpend("dev")},
+		},
+		{
+			name:       "json",
+			body:       spendPayload(full),
+			jsonOutput: true,
+			wantOut:    []string{`"models"`, `"feature"`},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			setupBillingTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				jsonHandler(http.StatusOK, tc.body)(w, r)
+			}))
+			require.NoError(t, billingModelsCmd.Flags().Set("features", "true"))
+			t.Cleanup(func() { billingModelsCmd.Flags().Set("features", "false") }) //nolint:errcheck
+			if tc.jsonOutput {
+				require.NoError(t, billingModelsCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { billingModelsCmd.Flags().Set("json", "false") }) //nolint:errcheck
+			}
+
+			buf := &bytes.Buffer{}
+			billingModelsCmd.SetOut(buf)
+			billingModelsCmd.SetContext(context.Background())
+
+			require.NoError(t, runBillingModels(billingModelsCmd, []string{"dev"}))
+			assert.True(t, strings.HasSuffix(gotPath, "/billing/usage/features/dev/by-model"), "path = %s", gotPath)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
+}
+
+func TestBillingDrillDownsEscapeTheirArgument(t *testing.T) {
+	cases := []struct {
+		name     string
+		features bool
+		wantPath string
+	}{
+		{name: "model", wantPath: "/billing/usage/models/a b?c/by-agent"},
+		{name: "feature", features: true, wantPath: "/billing/usage/features/a b?c/by-model"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotQuery string
+			setupBillingTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+				jsonHandler(http.StatusOK, map[string]any{"available": false})(w, r)
+			}))
+			if tc.features {
+				require.NoError(t, billingModelsCmd.Flags().Set("features", "true"))
+				t.Cleanup(func() { billingModelsCmd.Flags().Set("features", "false") }) //nolint:errcheck
+			}
+			billingModelsCmd.SetOut(&bytes.Buffer{})
+			billingModelsCmd.SetContext(context.Background())
+
+			require.NoError(t, runBillingModels(billingModelsCmd, []string{"a b?c"}))
+			assert.True(t, strings.HasSuffix(gotPath, tc.wantPath), "path = %q, want suffix %q", gotPath, tc.wantPath)
+			assert.Empty(t, gotQuery, "an unescaped ? would move the rest of the argument into the query string")
 		})
 	}
 }
