@@ -10,6 +10,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -169,10 +170,6 @@ func errAuthFailed(cause error) error {
 	}
 }
 
-func errRegisterUnauthorized(body string) error {
-	return fmt.Errorf("authentication failed (401). Server response: %s\n%s", body, msgReauthenticate())
-}
-
 func errAccountMismatch(specAccount, currentAccount string) error {
 	return fmt.Errorf(
 		"spec account %q does not match current account %q\n\n"+
@@ -191,6 +188,21 @@ func errBlueprintPushPermissionVerdict(account, name string, status int) error {
 		"could not check permission to push Blueprint %q to account %q: server returned unexpected status %d",
 		name, account, status,
 	)
+}
+
+func errRegistrationFailed(cause error) error {
+	return fmt.Errorf("registration failed: %w", cause)
+}
+
+func errServerStatus(status int, summary string) error {
+	if summary == "" {
+		return fmt.Errorf("server returned status %d", status)
+	}
+	return fmt.Errorf("server returned status %d: %s", status, summary)
+}
+
+func errRegistrationUnauthorized(summary string) error {
+	return fmt.Errorf("%w\n%s", errServerStatus(http.StatusUnauthorized, summary), msgReauthenticate())
 }
 
 func errNoAgentWorkload(available []string) error {

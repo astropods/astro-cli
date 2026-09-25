@@ -339,7 +339,6 @@ func (p *PushPipeline) ResolveVisibility() *PushPipeline {
 	})
 }
 
-// Register registers the agent spec with the server.
 func (p *PushPipeline) Register() *PushPipeline {
 	return p.step(func() error {
 		registryPath := fmt.Sprintf("%s/%s", p.cfg.RegistryHost, p.cfg.Account)
@@ -353,7 +352,7 @@ func (p *PushPipeline) Register() *PushPipeline {
 		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
 			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
 			printStepFail()
-			return fmt.Errorf("registration failed: %w", err)
+			return err
 		}
 		printStepDone("")
 
