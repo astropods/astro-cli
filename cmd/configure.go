@@ -252,7 +252,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 
 	// Load .env for migration (pre-populate fields with existing file values)
 	envFilePath := filepath.Join(workingDir, utils.DefaultEnvFile)
-	dotenvVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile)
+	dotenvVars, err := utils.LoadEnvFile(workingDir, utils.DefaultEnvFile, false)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %w", utils.DefaultEnvFile, err)
 	}

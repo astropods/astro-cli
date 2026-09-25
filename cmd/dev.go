@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,13 +87,12 @@ demand, or --all-logs to tail every service.
 
 Use -b/--background to start in the background and exit immediately.`
 
-	// trigger reads the same env file as start, but shares no other flags.
-	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, envFlagUsage)
 	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
-		cmd.Flags().String("env", utils.DefaultEnvFile, "Environment file for integration credentials")
+		cmd.Flags().String("env", utils.DefaultEnvFile, envFlagUsage)
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
@@ -159,35 +159,54 @@ const (
 	devEnvStageStore                    // the stored project vars
 )
 
-// devEnvCounts reports what each source contributed.
-//
-// FileFound separates an absent env file from an empty one: the start command
-// words those differently, and len() alone cannot tell them apart.
 type devEnvCounts struct {
 	FromFile  int
 	FileFound bool
+	FilePath  string
 	FromStore int
 }
 
-// devEnvOptions are the inputs to assembleDevEnv.
-//
-// A struct rather than positional arguments because Verbose and Export are
-// adjacent booleans: swapped positionally they would compile and silently mint
-// a gateway key in quiet mode while skipping the process-env export.
 type devEnvOptions struct {
-	Spec       *spec.AstroSpec
-	WorkingDir string
-	EnvFile    string
-	Verbose    bool
-	// Export mirrors the assembled vars into this process's environment. The
-	// start command relies on it; a triggered job receives its env through the
-	// compose project instead, so it leaves this off.
-	Export bool
-	// OnStage, when set, is called as each source is read, before the gateway
-	// key is minted, with the counts known so far. A caller that printed from
-	// the returned counts instead would emit its own lines after the gateway
-	// notice rather than before it.
-	OnStage func(devEnvStage, devEnvCounts)
+	Spec        *spec.AstroSpec
+	WorkingDir  string
+	EnvFile     string
+	EnvExplicit bool
+	Verbose     bool
+	Export      bool
+	OnStage     func(devEnvStage, devEnvCounts)
+}
+
+const envFlagUsage = "Environment file for integration credentials, absolute or relative to the current directory; must exist when set"
+
+func devEnvFileFlag(cmd *cobra.Command, workingDir string) (string, bool, error) {
+	envFile := flagString(cmd, "env")
+	explicit := cmd.Flags().Changed("env")
+	if explicit {
+		if _, err := loadDevEnvFile(workingDir, envFile, true); err != nil {
+			return "", false, err
+		}
+	}
+	return envFile, explicit, nil
+}
+
+func loadDevEnvFile(workingDir, envFile string, explicit bool) (map[string]string, error) {
+	envVars, err := utils.LoadEnvFile(workingDir, envFile, explicit)
+	if errors.Is(err, utils.ErrEnvFileNotFound) {
+		return nil, errEnvFileNotFound(utils.ResolveEnvPath(workingDir, envFile))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read .env file: %w", err)
+	}
+	return envVars, nil
+}
+
+func printDevEnvStage(w io.Writer, stage devEnvStage, c devEnvCounts) {
+	switch {
+	case stage == devEnvStageFile && c.FileFound:
+		fmt.Fprint(w, msgDevEnvFileLoaded(c.FromFile, c.FilePath)) //nolint:errcheck,gosec
+	case stage == devEnvStageStore && c.FromStore > 0:
+		fmt.Fprint(w, msgDevEnvStoreLoaded(c.FromStore)) //nolint:errcheck,gosec
+	}
 }
 
 // assembleDevEnv builds the env a dev container runs with: the env file, the
@@ -205,11 +224,12 @@ func assembleDevEnv(
 ) (map[string]string, devEnvCounts, error) {
 	var counts devEnvCounts
 
-	envVars, err := utils.LoadEnvFile(opts.WorkingDir, opts.EnvFile)
+	envVars, err := loadDevEnvFile(opts.WorkingDir, opts.EnvFile, opts.EnvExplicit)
 	if err != nil {
-		return nil, counts, fmt.Errorf("failed to read .env file: %w", err)
+		return nil, counts, err
 	}
 	counts.FileFound = envVars != nil
+	counts.FilePath = utils.ResolveEnvPath(opts.WorkingDir, opts.EnvFile)
 	if envVars == nil {
 		envVars = make(map[string]string)
 	}
@@ -269,22 +289,26 @@ func exportEnv(vars map[string]string) error {
 }
 
 func runDevStart(cmd *cobra.Command, args []string) error {
-	envFile := flagString(cmd, "env")
 	rebuild := flagBool(cmd, "rebuild")
 	noPull := flagBool(cmd, "no-pull")
 	background := flagBool(cmd, "background")
 	allLogs := flagBool(cmd, "all-logs")
+
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	envFile, envExplicit, err := devEnvFileFlag(cmd, workingDir)
+	if err != nil {
+		return err
+	}
 
 	if err := checkDockerRunning(); err != nil {
 		return err
 	}
 
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
 
 	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
@@ -303,22 +327,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
-	// Narrated through OnStage rather than from the returned counts, so these
-	// lines keep printing before the gateway notice.
 	w := cmd.OutOrStdout()
 	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    verbose,
-		Export:     true,
+		Spec:        astroSpec,
+		WorkingDir:  workingDir,
+		EnvFile:     envFile,
+		EnvExplicit: envExplicit,
+		Verbose:     verbose,
+		Export:      true,
 		OnStage: func(stage devEnvStage, c devEnvCounts) {
-			switch {
-			case stage == devEnvStageFile && c.FileFound:
-				fmt.Fprintf(w, "%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, c.FromFile, envFile) //nolint:errcheck,gosec
-			case stage == devEnvStageStore && c.FromStore > 0:
-				fmt.Fprintf(w, "%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, c.FromStore) //nolint:errcheck,gosec
-			}
+			printDevEnvStage(w, stage, c)
 		},
 	})
 	if err != nil {
@@ -566,7 +584,15 @@ func runDevStop(cmd *cobra.Command, args []string) error {
 }
 
 func runDevTrigger(cmd *cobra.Command, args []string) error {
-	envFile := flagString(cmd, "env")
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	envFile, envExplicit, err := devEnvFileFlag(cmd, workingDir)
+	if err != nil {
+		return err
+	}
 
 	if err := checkDockerRunning(); err != nil {
 		return err
@@ -575,11 +601,6 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	specPath, err := resolveSpecPathFromCwd(flagString(cmd, "file"))
 	if err != nil {
 		return err
-	}
-
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
 	astroSpec, err := spec.ParseSpec(specPath)
@@ -627,10 +648,14 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	w := cmd.OutOrStdout()
 	envVars, _, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
-		Spec:       astroSpec,
-		WorkingDir: workingDir,
-		EnvFile:    envFile,
-		Verbose:    triggerVerbose,
+		Spec:        astroSpec,
+		WorkingDir:  workingDir,
+		EnvFile:     envFile,
+		EnvExplicit: envExplicit,
+		Verbose:     triggerVerbose,
+		OnStage: func(stage devEnvStage, c devEnvCounts) {
+			printDevEnvStage(w, stage, c)
+		},
 	})
 	if err != nil {
 		return err

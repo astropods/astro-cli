@@ -59,6 +59,18 @@ func msgSandboxSessionCloseFailed(err error) string {
 	return fmt.Sprintf("Could not close the sandbox session: %v", err)
 }
 
+func errEnvFileNotFound(path string) error {
+	return fmt.Errorf("env file %s not found; pass --env with the path to an existing file", path)
+}
+
+func msgDevEnvFileLoaded(count int, path string) string {
+	return fmt.Sprintf("%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, count, path)
+}
+
+func msgDevEnvStoreLoaded(count int) string {
+	return fmt.Sprintf("%s→%s Config: %d variable(s) from project store\n", colorCyan, colorReset, count)
+}
+
 func errNoSpecFile() error {
 	return fmt.Errorf(
 		"astropods.yml not found in current directory, run '%s project create' to create a new agent harness or pass -f to specify a path to a valid spec",
