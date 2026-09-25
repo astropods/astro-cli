@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // createMockWorkOSServer creates a test server simulating WorkOS API
@@ -297,9 +300,8 @@ func TestRefreshAccessToken_InvalidToken(t *testing.T) {
 
 	client := createTestClient(server.URL)
 	_, err := client.RefreshAccessToken(context.Background(), "invalid_refresh_token")
-	if err == nil {
-		t.Fatal("expected error for invalid refresh token, got nil")
-	}
+	require.ErrorIs(t, err, ErrSessionEnded, "invalid_grant means the session is over")
+	assert.Equal(t, "session has ended: Refresh token is invalid or expired", err.Error())
 }
 
 func TestPollError_Error(t *testing.T) {

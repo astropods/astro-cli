@@ -274,7 +274,7 @@ type AccountToken struct {
 func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
 	account, err := accountNewStorage().GetCurrentAccount()
 	if err != nil {
-		return AccountToken{}, err
+		return AccountToken{}, errAccountNotLoggedIn()
 	}
 	token, err := getAccountToken(ctx, account)
 	if err != nil {
@@ -321,9 +321,23 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 		token, err = tokenManager.GetValidAccessToken(ctx)
 	}
 	if err != nil {
-		return "", fmt.Errorf("authentication failed: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
+		return "", authFailure(err)
 	}
 	return token, nil
+}
+
+func authFailure(err error) error {
+	var ae *authError
+	switch {
+	case errors.As(err, &ae):
+		return err
+	case errors.Is(err, auth.ErrSessionEnded):
+		return errAuthSessionEnded(err)
+	case errors.Is(err, auth.ErrNoRefreshToken):
+		return errAuthNoRefreshToken(err)
+	default:
+		return errAuthFailed(err)
+	}
 }
 
 func selectAccountInteractive(ctx context.Context, storage *auth.Storage) (string, error) {

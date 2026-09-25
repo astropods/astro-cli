@@ -52,11 +52,10 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return errAccountNotLoggedIn()
 	}
 
-	// Validate token is still valid (this will refresh if needed)
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	_, err = tokenManager.GetValidAccessToken(context.Background())
 	if err != nil {
-		return fmt.Errorf("session expired or invalid. Run '%s login' to re-authenticate", buildinfo.BinaryName)
+		return authFailure(err)
 	}
 
 	// Reload profile in case it was refreshed

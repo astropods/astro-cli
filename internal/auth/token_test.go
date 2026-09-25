@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // resetEnvToken resets the cached environment token for testing
@@ -288,13 +291,12 @@ func TestGetValidAccessToken_NoRefreshToken(t *testing.T) {
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
 
-	// Create credentials that are expired but have no refresh token
 	testCreds := &Credentials{
 		CurrentProfile: "default",
 		Profiles: map[string]*Profile{
 			"default": {
 				AccessToken:  "expired_access_token",
-				RefreshToken: "", // No refresh token
+				RefreshToken: "",
 				ExpiresAt:    time.Now().Add(2 * time.Minute),
 			},
 		},
@@ -307,14 +309,8 @@ func TestGetValidAccessToken_NoRefreshToken(t *testing.T) {
 	}
 
 	_, err := manager.GetValidAccessToken(context.Background())
-	if err == nil {
-		t.Fatal("expected error when no refresh token available, got nil")
-	}
-
-	expectedMsg := "token expired and no refresh token available"
-	if err.Error() != expectedMsg {
-		t.Errorf("expected error %q, got %q", expectedMsg, err.Error())
-	}
+	require.ErrorIs(t, err, ErrNoRefreshToken)
+	assert.NotContains(t, err.Error(), "login", "internal/auth must not carry CLI remediation copy")
 }
 
 func TestIsAuthenticated_EnvVar(t *testing.T) {

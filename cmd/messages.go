@@ -18,10 +18,7 @@ import (
 )
 
 func errAIGatewayRequiresLogin(err error) error {
-	return fmt.Errorf(
-		"AI Gateway requires login — run '%s login': %w",
-		buildinfo.BinaryName, err,
-	)
+	return fmt.Errorf("AI Gateway requires login: %w", err)
 }
 
 func errAIGatewayNotEnabled() error {
@@ -35,10 +32,7 @@ func msgAIGatewayKeyMinted(expiresAt string) string {
 }
 
 func errSandboxRequiresLogin(err error) error {
-	return fmt.Errorf(
-		"a sandbox requires login — run '%s login': %w",
-		buildinfo.BinaryName, err,
-	)
+	return fmt.Errorf("a sandbox requires login: %w", err)
 }
 
 func errSandboxNeedsAgentName() error {
@@ -139,6 +133,44 @@ func msgLaunchURLReady() string {
 
 func errAccountNotLoggedIn() error {
 	return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
+}
+
+type authError struct {
+	msg   string
+	cause error
+}
+
+func (e *authError) Error() string { return e.msg }
+
+func (e *authError) Unwrap() error { return e.cause }
+
+func msgReauthenticate() string {
+	return fmt.Sprintf("Run '%s login' to re-authenticate.", buildinfo.BinaryName)
+}
+
+func errAuthSessionEnded(cause error) error {
+	return &authError{
+		msg:   "authentication failed: your session has ended. " + msgReauthenticate(),
+		cause: cause,
+	}
+}
+
+func errAuthNoRefreshToken(cause error) error {
+	return &authError{
+		msg:   "authentication failed: your session can't be renewed. " + msgReauthenticate(),
+		cause: cause,
+	}
+}
+
+func errAuthFailed(cause error) error {
+	return &authError{
+		msg:   fmt.Sprintf("authentication failed: %s. %s", strings.TrimRight(cause.Error(), ". "), msgReauthenticate()),
+		cause: cause,
+	}
+}
+
+func errRegisterUnauthorized(body string) error {
+	return fmt.Errorf("authentication failed (401). Server response: %s\n%s", body, msgReauthenticate())
 }
 
 func errAccountMismatch(specAccount, currentAccount string) error {

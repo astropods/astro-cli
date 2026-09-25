@@ -28,7 +28,7 @@ const maxPushRetries = 3
 func getDockerRegistryAuth(ctx context.Context, account string) (string, error) {
 	token, err := getAccountToken(ctx, account)
 	if err != nil {
-		return "", fmt.Errorf("failed to get access token: %w", err)
+		return "", err
 	}
 
 	authConfig := registry.AuthConfig{

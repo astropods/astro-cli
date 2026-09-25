@@ -16,6 +16,11 @@ const (
 	RefreshThreshold = 5 * time.Minute
 )
 
+var (
+	ErrSessionEnded   = errors.New("session has ended")
+	ErrNoRefreshToken = errors.New("no refresh token available")
+)
+
 // TokenManager handles token lifecycle
 type TokenManager struct {
 	storage *Storage
@@ -30,9 +35,7 @@ func NewTokenManager(binaryName string) *TokenManager {
 	}
 }
 
-// GetValidAccessToken returns a valid access token, refreshing if necessary
 func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) {
-	// Check for environment variable override
 	if token := GetEnvAccessToken(); token != "" {
 		return token, nil
 	}
@@ -46,16 +49,14 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 		return "", errors.New("not authenticated: no access token found")
 	}
 
-	// Check if token needs refresh
 	if m.shouldRefresh(profile) {
 		if profile.RefreshToken == "" {
-			return "", errors.New("token expired and no refresh token available")
+			return "", ErrNoRefreshToken
 		}
 
 		newProfile, err := m.refreshToken(ctx, profile)
 		if err != nil {
-			// Return more specific error for refresh failures
-			return "", fmt.Errorf("token expired and refresh failed: %w. Run '%s login' to re-authenticate", err, m.storage.binaryName)
+			return "", err
 		}
 		profile = newProfile
 	}
@@ -88,11 +89,10 @@ func (m *TokenManager) ForceRefreshAccessToken(ctx context.Context) (string, err
 	return m.forceRefresh(ctx)
 }
 
-// refreshToken refreshes the access token using the refresh token
 func (m *TokenManager) refreshToken(ctx context.Context, profile *Profile) (*Profile, error) {
 	tokenResp, err := m.client.RefreshAccessToken(ctx, profile.RefreshToken)
 	if err != nil {
-		return nil, fmt.Errorf("refresh request failed: %w", err)
+		return nil, err
 	}
 
 	// Update profile with new tokens
@@ -187,12 +187,12 @@ func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organization
 	}
 
 	if profile.RefreshToken == "" {
-		return "", fmt.Errorf("no refresh token available. Run '%s login' to re-authenticate", m.storage.binaryName)
+		return "", ErrNoRefreshToken
 	}
 
 	tokenResp, err := m.client.RefreshAccessTokenForOrg(ctx, profile.RefreshToken, organizationID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get org-scoped token: %w", err)
+		return "", err
 	}
 
 	// Persist rotated refresh token so future refreshes don't use a stale token.
@@ -232,7 +232,6 @@ func RefreshAndUpdateHeader(ctx context.Context, req *http.Request, binaryName s
 	return nil
 }
 
-// forceRefresh unconditionally refreshes the access token
 func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
 	profile, err := m.storage.GetCurrentProfile()
 	if err != nil {
@@ -240,12 +239,12 @@ func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
 	}
 
 	if profile.RefreshToken == "" {
-		return "", fmt.Errorf("no refresh token available. Run '%s login' to re-authenticate", m.storage.binaryName)
+		return "", ErrNoRefreshToken
 	}
 
 	newProfile, err := m.refreshToken(ctx, profile)
 	if err != nil {
-		return "", fmt.Errorf("token refresh failed: %w", err)
+		return "", err
 	}
 	return newProfile.AccessToken, nil
 }
