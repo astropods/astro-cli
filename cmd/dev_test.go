@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/utils"
 	spec "github.com/astropods/astro-spec"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -341,4 +342,115 @@ func TestDeclaresSandboxReadsTheSectionAndNothingElse(t *testing.T) {
 		Name:    "ag",
 		Sandbox: &spec.Sandbox{Toolchain: "never"},
 	}))
+}
+
+func setEnvFlagForTest(t *testing.T, c *cobra.Command, value string) {
+	t.Helper()
+	f := c.Flags().Lookup("env")
+	require.NotNil(t, f)
+	t.Cleanup(func() {
+		require.NoError(t, f.Value.Set(f.DefValue))
+		f.Changed = false
+	})
+	require.NoError(t, c.Flags().Set("env", value))
+}
+
+func TestDevEnvCommands_FailBeforeWorkOnMissingExplicitEnvFile(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.env")
+
+	for _, tc := range []struct {
+		name string
+		cmd  *cobra.Command
+		args []string
+	}{
+		{name: "project", cmd: devCmd},
+		{name: "project start", cmd: devStartCmd},
+		{name: "project trigger", cmd: devTriggerCmd, args: []string{"job"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setEnvFlagForTest(t, tc.cmd, missing)
+
+			err := tc.cmd.RunE(tc.cmd, tc.args)
+
+			require.Error(t, err)
+			assert.Equal(t, errEnvFileNotFound(missing).Error(), err.Error(),
+				"an explicit --env that does not exist must stop the command before Docker or the spec is touched")
+		})
+	}
+}
+
+func TestDevEnvFileFlag(t *testing.T) {
+	workingDir := t.TempDir()
+	present := filepath.Join(t.TempDir(), "run.env")
+	require.NoError(t, os.WriteFile(present, []byte("A=1\n"), 0o600))
+
+	for _, c := range []*cobra.Command{devCmd, devStartCmd, devTriggerCmd} {
+		t.Run(c.CommandPath()+" default with no .env", func(t *testing.T) {
+			envFile, explicit, err := devEnvFileFlag(c, workingDir)
+			require.NoError(t, err, "a project without a .env must still start")
+			assert.Equal(t, utils.DefaultEnvFile, envFile)
+			assert.False(t, explicit)
+		})
+		t.Run(c.CommandPath()+" explicit existing file", func(t *testing.T) {
+			setEnvFlagForTest(t, c, present)
+			envFile, explicit, err := devEnvFileFlag(c, workingDir)
+			require.NoError(t, err)
+			assert.Equal(t, present, envFile)
+			assert.True(t, explicit, "a set --env must reach assembleDevEnv as explicit")
+		})
+	}
+}
+
+func TestAssembleDevEnv_EnvFileResolution(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	workingDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workingDir, "rel.env"), []byte("REL=1\n"), 0o600))
+	absFile := filepath.Join(t.TempDir(), "abs.env")
+	require.NoError(t, os.WriteFile(absFile, []byte("ABS=1\n"), 0o600))
+	missing := filepath.Join(t.TempDir(), "absent.env")
+
+	for _, tc := range []struct {
+		name     string
+		envFile  string
+		explicit bool
+		wantKey  string
+		wantPath string
+		wantErr  error
+	}{
+		{name: "explicit absolute path is read as given", envFile: absFile, explicit: true, wantKey: "ABS", wantPath: absFile},
+		{name: "explicit relative path resolves against the working directory", envFile: "rel.env", explicit: true, wantKey: "REL", wantPath: filepath.Join(workingDir, "rel.env")},
+		{name: "explicit missing file fails", envFile: missing, explicit: true, wantErr: errEnvFileNotFound(missing)},
+		{name: "explicit directory fails", envFile: workingDir, explicit: true, wantErr: errEnvFileNotFound(workingDir)},
+		{name: "default missing file is skipped", envFile: utils.DefaultEnvFile},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			envVars, counts, err := assembleDevEnv(context.Background(), &out, devEnvOptions{
+				Spec:        &spec.AstroSpec{Name: "ag", Agent: spec.Container{Image: "x"}},
+				WorkingDir:  workingDir,
+				EnvFile:     tc.envFile,
+				EnvExplicit: tc.explicit,
+			})
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.Equal(t, tc.wantErr.Error(), err.Error())
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantKey == "" {
+				assert.False(t, counts.FileFound)
+				return
+			}
+			assert.Equal(t, "1", envVars[tc.wantKey])
+			assert.True(t, counts.FileFound)
+			assert.Equal(t, tc.wantPath, counts.FilePath, "start and trigger log this resolved path")
+		})
+	}
+}
+
+func TestPrintDevEnvStage(t *testing.T) {
+	var out strings.Builder
+	printDevEnvStage(&out, devEnvStageFile, devEnvCounts{FileFound: true, FromFile: 2, FilePath: "/tmp/run.env"})
+	printDevEnvStage(&out, devEnvStageStore, devEnvCounts{FromStore: 1})
+	assert.Equal(t, msgDevEnvFileLoaded(2, "/tmp/run.env")+msgDevEnvStoreLoaded(1), out.String())
 }
