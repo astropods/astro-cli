@@ -14,10 +14,9 @@ import (
 	cliflags "github.com/docker/cli/cli/flags"
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/docker/compose/v5/pkg/compose"
+	"github.com/sirupsen/logrus"
 )
 
-// newComposeService creates a compose API service backed by the local Docker daemon.
-// When verbose is true, progress events (pulling, creating, starting) are logged to stdout.
 func newComposeService(verbose bool) (api.Compose, error) {
 	cliOpts := []command.CLIOption{}
 	if !verbose {
@@ -27,7 +26,9 @@ func newComposeService(verbose bool) (api.Compose, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
 	}
-	if err := dockerCli.Initialize(cliflags.NewClientOptions()); err != nil {
+	clientOpts := cliflags.NewClientOptions()
+	clientOpts.LogLevel = logrus.GetLevel().String()
+	if err := dockerCli.Initialize(clientOpts); err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
 	}
 	opts := []compose.Option{}

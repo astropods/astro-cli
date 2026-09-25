@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRootCommandSetsDependencyLogLevelFromVerboseFlag(t *testing.T) {
+func TestDependencyLogLevelFollowsVerboseFlagThroughComposeInit(t *testing.T) {
 	cases := []struct {
 		name      string
 		args      []string
@@ -23,6 +23,7 @@ func TestRootCommandSetsDependencyLogLevelFromVerboseFlag(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
 			var logs bytes.Buffer
 			prevLevel := logrus.GetLevel()
 			logrus.SetLevel(logrus.DebugLevel)
@@ -44,6 +45,10 @@ func TestRootCommandSetsDependencyLogLevelFromVerboseFlag(t *testing.T) {
 			require.Error(t, err, "knowledge status without a name fails argument validation after the init hooks run")
 
 			assert.Equal(t, tc.wantLevel, logrus.GetLevel())
+
+			_, err = newComposeService(false)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLevel, logrus.GetLevel(), "docker CLI initialization keeps the level the root command chose")
 
 			logrus.Warn("compose teardown warning")
 			assert.Equal(t, tc.wantWarn, logs.Len() > 0,
