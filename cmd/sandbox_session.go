@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-spec"
+	spec "github.com/astropods/astro-spec"
 )
 
 // sandboxServerURLOverride is set in tests to redirect API calls to a test

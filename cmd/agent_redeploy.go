@@ -92,7 +92,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, dep.Name, dep.DisplayName, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, dep.Name, dep.DisplayName, nil, req, dryRun)
 }
 
 // latestBlueprintBuild returns the build ID of the blueprint's most recently

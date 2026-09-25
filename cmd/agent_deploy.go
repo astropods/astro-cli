@@ -79,10 +79,12 @@ type deployTemplateResponse struct {
 }
 
 type agentDeployResult struct {
-	Status       string `json:"status"`
-	DeploymentID string `json:"deployment_id"`
-	Name         string `json:"name"`
-	BuildID      string `json:"build_id"`
+	Status          string `json:"status"`
+	DeploymentID    string `json:"deployment_id"`
+	Name            string `json:"name"`
+	BuildID         string `json:"build_id"`
+	EnvironmentID   string `json:"environment_id,omitempty"`
+	EnvironmentName string `json:"environment_name,omitempty"`
 }
 
 var blueprintDeployCmd = &cobra.Command{
@@ -108,6 +110,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 
 func registerDeployFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("name", "n", "", "Display name for the deployment")
+	cmd.Flags().String("env", "", "Environment to deploy into; it must have no agent (default: a free environment, or a new one)")
 	registerDeployCommonFlags(cmd)
 	registerAgentCoreDeployFlags(cmd)
 }
@@ -361,10 +364,14 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
 		return err
 	}
-	if len(args) == 0 {
-		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got 0")
+	var arg string
+	if len(args) > 0 {
+		arg = args[0]
 	}
-	name := args[0]
+	name, err := resolveBlueprintName(arg)
+	if err != nil {
+		return err
+	}
 
 	schedules, err := parseDeploySchedulesFromCmd(cmd)
 	if err != nil {
@@ -395,6 +402,17 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	var environment *blueprintEnvironment
+	if env := flagString(cmd, "env"); env != "" {
+		environment, err = findBlueprintEnvironment(cmd.Context(), at, name, env, verbose)
+		if err != nil {
+			return err
+		}
+		if environment.DeploymentID != "" {
+			return errEnvironmentOccupied(env, name)
+		}
+	}
+
 	clusterID, err := resolveDeployCluster(cmd, at, verbose)
 	if err != nil {
 		if errors.Is(err, tui.ErrCanceled) {
@@ -412,19 +430,24 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, name, displayName, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, name, displayName, environment, req, dryRun)
 }
 
 // runDeployWithRequest handles the template POST → validation → deploy POST flow.
 // Shared by blueprint deploy and agent redeploy; set req.DeploymentID to retarget an existing deployment.
-// displayName is patched into template.target.display_name before the deploy POST when non-empty.
-func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, name, displayName string, req deployTemplateRequest, dryRun bool) error {
+// displayName is patched into template.target.display_name before the deploy POST when non-empty,
+// and environment's id into template.target.environment_id when non-nil.
+func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
 	w := cmd.OutOrStdout()
 	verb := "Deploying"
 	if req.DeploymentID != "" {
 		verb = "Redeploying"
 	}
-	fmt.Fprintf(w, "%s→%s %s blueprint %s%s%s as agent %s%s%s\n", colorCyan, colorReset, verb, colorBold, name, colorReset, colorBold, displayName, colorReset) //nolint:errcheck,gosec
+	into := ""
+	if environment != nil {
+		into = fmt.Sprintf(" into environment %s%s%s", colorBold, environment.Name, colorReset)
+	}
+	fmt.Fprintf(w, "%s→%s %s blueprint %s%s%s as agent %s%s%s%s\n", colorCyan, colorReset, verb, colorBold, name, colorReset, colorBold, displayName, colorReset, into) //nolint:errcheck,gosec
 
 	// finalize=true asks the server to sign the template; the signature is
 	// the only deploy-time integrity check, so we always request it here.
@@ -463,10 +486,17 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	}
 
 	template := tmplResp.Template
+	target := map[string]string{}
 	if displayName != "" {
-		patched, err := patchTemplateDisplayName(template, displayName)
+		target["display_name"] = displayName
+	}
+	if environment != nil {
+		target["environment_id"] = environment.ID
+	}
+	if len(target) > 0 {
+		patched, err := patchTemplateTarget(template, target)
 		if err != nil {
-			return fmt.Errorf("patching display name: %w", err)
+			return fmt.Errorf("patching deploy target: %w", err)
 		}
 		template = patched
 	}
@@ -483,6 +513,9 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 			return fmt.Errorf("could not deploy %q: %w (the deployment may have been deleted, or your access may not cover it or its blueprint)", displayName, err)
 		}
 		if status == http.StatusConflict {
+			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && environment != nil {
+				return errEnvironmentOccupied(environment.Name, name)
+			}
 			return errDeployNameConflict(displayName)
 		}
 		return err
@@ -494,7 +527,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 
 	dim := color.New(color.Faint)
 	green := color.New(color.FgGreen)
-	green.Fprintf(w, "  ✓ deployed") //nolint:errcheck,gosec
+	green.Fprintf(w, "  ✓ %s", msgDeployed(result.EnvironmentName)) //nolint:errcheck,gosec
 	if result.DeploymentID != "" {
 		dim.Fprintf(w, "  %s\n", result.DeploymentID) //nolint:errcheck,gosec
 	} else {
@@ -515,6 +548,7 @@ const (
 	errCodeAccountNotFound   = "account_not_found"
 	errCodeBlueprintNotFound = "blueprint_not_found"
 	errCodeBuildNotFound     = "build_not_found"
+	errCodeEnvironmentTaken  = "environment_taken"
 )
 
 // notFoundFromTemplateErr maps the deployment-template 404 body to a more
@@ -588,8 +622,9 @@ func errorCodeFromBody(body string) string {
 	return parsed.ErrorCode
 }
 
-// patchTemplateDisplayName sets target.display_name in the deployment template JSON.
-func patchTemplateDisplayName(template json.RawMessage, displayName string) (json.RawMessage, error) {
+// patchTemplateTarget sets fields of target in the deployment template JSON.
+// The server leaves them out of the template signature.
+func patchTemplateTarget(template json.RawMessage, fields map[string]string) (json.RawMessage, error) {
 	var tmpl map[string]any
 	if err := json.Unmarshal(template, &tmpl); err != nil {
 		return nil, err
@@ -598,7 +633,9 @@ func patchTemplateDisplayName(template json.RawMessage, displayName string) (jso
 	if target == nil {
 		target = make(map[string]any)
 	}
-	target["display_name"] = displayName
+	for k, v := range fields {
+		target[k] = v
+	}
 	tmpl["target"] = target
 	return json.Marshal(tmpl)
 }

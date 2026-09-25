@@ -3,10 +3,12 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -126,13 +128,15 @@ func init() {
 }
 
 type agentDeployment struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	BuildID     string `json:"build_id"`
-	Namespace   string `json:"namespace"`
-	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	DisplayName     string `json:"display_name,omitempty"`
+	BuildID         string `json:"build_id"`
+	Namespace       string `json:"namespace"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`
+	EnvironmentID   string `json:"environment_id,omitempty"`
+	EnvironmentName string `json:"environment_name,omitempty"`
 }
 
 type listDeploymentsResponse struct {
@@ -326,6 +330,9 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w, bold.Render(deploymentLabel(dep))+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))           //nolint:errcheck,gosec
 	printStatusDetail(w, status)
+	if dep.EnvironmentName != "" {
+		fmt.Fprintf(w, "  Environment: %s\n", dep.EnvironmentName) //nolint:errcheck,gosec
+	}
 	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                   //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)              //nolint:errcheck,gosec
@@ -372,9 +379,8 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
-	var result listDeploymentsResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	result, err := listAccountDeployments(cmd.Context(), at, verbose)
+	if err != nil {
 		return err
 	}
 
@@ -391,12 +397,11 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
-	green := color.New(color.FgGreen)
-	red := color.New(color.FgRed)
 
 	// compute dynamic column widths from data
 	statusW := len("Status")
 	blueprintW := len("Blueprint")
+	envW := len("Environment")
 	for _, d := range result.Deployments {
 		if n := len(d.Status); n > statusW {
 			statusW = n
@@ -404,10 +409,13 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		if n := min(len(d.Name), 20); n > blueprintW {
 			blueprintW = n
 		}
+		if n := min(len(d.EnvironmentName), 20); n > envW {
+			envW = n
+		}
 	}
 
 	const tableIDWidth = 11
-	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", statusW, "Status", blueprintW, "Blueprint", tableIDWidth, "ID", "Name") //nolint:errcheck,gosec
+	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", statusW, "Status", blueprintW, "Blueprint", envW, "Environment", tableIDWidth, "ID", "Name") //nolint:errcheck,gosec
 
 	for _, d := range result.Deployments {
 		deployed := truncate(d.CreatedAt, tableTimeWidth)
@@ -416,19 +424,59 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 
 		dim.Fprintf(w, "%-*s  %-*s  ", tableTimeWidth, deployed, tableBuildWidth, buildID) //nolint:errcheck,gosec
 
-		switch d.Status {
-		case "active":
-			green.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		case "failed":
-			red.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		default:
-			dim.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		}
+		deploymentStatusColor(d.Status).Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
 
-		dim.Fprintf(w, "%-*s  %-*s  ", blueprintW, blueprint, tableIDWidth, d.ID) //nolint:errcheck,gosec
-		cyan.Fprintf(w, "%s\n", d.DisplayName)                                    //nolint:errcheck,gosec
+		environment := truncate(d.EnvironmentName, envW)
+		if environment == "" {
+			environment = "—"
+		}
+		dim.Fprintf(w, "%-*s  %-*s  %-*s  ", blueprintW, blueprint, envW, environment, tableIDWidth, d.ID) //nolint:errcheck,gosec
+		cyan.Fprintf(w, "%s\n", d.DisplayName)                                                             //nolint:errcheck,gosec
 	}
 	return nil
+}
+
+// deploymentStatusColor takes both the list's display labels (Running,
+// error) and the stored statuses that history returns (active, failed).
+func deploymentStatusColor(status string) *color.Color {
+	switch status {
+	case "Running", "active":
+		return color.New(color.FgGreen)
+	case "error", "failed":
+		return color.New(color.FgRed)
+	default:
+		return color.New(color.Faint)
+	}
+}
+
+// confirmDelete passes when --confirm names one of accepted, and otherwise
+// prompts. It prints why it stopped when it returns false.
+func confirmDelete(cmd *cobra.Command, title, description string, accepted ...string) bool {
+	w := cmd.OutOrStdout()
+	confirm, _ := cmd.Flags().GetString("confirm")
+	if slices.Contains(accepted, confirm) {
+		return true
+	}
+	if confirm != "" {
+		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+		return false
+	}
+	var confirmed bool
+	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Description(description).Value(&confirmed)))
+	if err := runForm(form); err != nil || !confirmed {
+		printCanceled(w)
+		return false
+	}
+	return true
+}
+
+func listAccountDeployments(ctx context.Context, at AccountToken, verbose bool) (*listDeploymentsResponse, error) {
+	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
+	var result listDeploymentsResponse
+	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func runAgentPause(cmd *cobra.Command, args []string) error {
@@ -499,26 +547,11 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 	}
 	label := deploymentLabel(dep)
 
-	confirm, _ := cmd.Flags().GetString("confirm")
-	if confirm != "" && confirm != label && confirm != dep.ID {
-		w := cmd.OutOrStdout()
-		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+	if !confirmDelete(cmd,
+		fmt.Sprintf("Delete agent %q?", label),
+		"This will permanently remove the deployment and cannot be undone.",
+		label, dep.ID) {
 		return nil
-	}
-	if confirm != label && confirm != dep.ID {
-		var confirmed bool
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title(fmt.Sprintf("Delete agent %q?", label)).
-					Description("This will permanently remove the deployment and cannot be undone.").
-					Value(&confirmed),
-			),
-		)
-		if err := runForm(form); err != nil || !confirmed {
-			printCanceled(cmd.OutOrStdout())
-			return nil
-		}
 	}
 
 	w := cmd.OutOrStdout()
@@ -567,8 +600,6 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	dim := color.New(color.Faint)
-	green := color.New(color.FgGreen)
-	red := color.New(color.FgRed)
 
 	dim.Fprintf(w, "%-*s  %-*s  %-4s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", "Rev", "Status") //nolint:errcheck,gosec
 
@@ -578,14 +609,7 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 
 		dim.Fprintf(w, "%-*s  %-*s  %-4d  ", tableTimeWidth, deployed, tableBuildWidth, buildID, d.Revision) //nolint:errcheck,gosec
 
-		switch d.Status {
-		case "active":
-			green.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		case "failed":
-			red.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		default:
-			dim.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		}
+		deploymentStatusColor(d.Status).Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
 	}
 	return nil
 }
