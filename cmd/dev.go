@@ -328,7 +328,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
 	}
 	// Build Docker Compose project
-	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
+	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars, composeBuilder.WithWarnings(w))
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
@@ -625,7 +625,8 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("🔄 Triggering job: %s\n", name)
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-	envVars, _, err := assembleDevEnv(cmd.Context(), cmd.OutOrStdout(), devEnvOptions{
+	w := cmd.OutOrStdout()
+	envVars, _, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
 		Spec:       astroSpec,
 		WorkingDir: workingDir,
 		EnvFile:    envFile,
@@ -634,7 +635,14 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars)
+	// A trigger runs one ingestion container, so the hot-reload mounts are not
+	// its business. Only the watch warnings are silenced; the writer stays live
+	// for everything else BuildProject reports. 'project start' and
+	// 'spec validate' are where dev.watch problems surface.
+	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars,
+		composeBuilder.WithWarnings(w),
+		composeBuilder.WithWatchDirWarnings(false),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}

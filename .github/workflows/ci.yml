@@ -97,3 +97,26 @@ jobs:
       - name: Test the Windows seam
         run: |
           go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v
+
+      # dev.watch resolves spec strings against the host filesystem, and three
+      # parts of that only differ here:
+      #
+      #   - containment (subdir) is filepath.Rel plus filepath.IsLocal, which
+      #     cut on a backslash and understand drive letters under Windows only,
+      #     and it is the check that keeps a mount inside the project
+      #   - EvalSymlinks resolves junctions and reparse points, not just symlinks
+      #   - a file in the middle of a path is absence here (ERROR_PATH_NOT_FOUND)
+      #     and is not absence under Unix (ENOTDIR), so the same entry is
+      #     reported through a different branch
+      #
+      # InvalidWatchEntry is deliberately host-independent by contrast, using
+      # strings rather than filepath. Running it on both platforms is what
+      # verifies that claim instead of asserting it.
+      #
+      # The whole package rather than a list of test names, so a new test is
+      # covered without editing this file. internal/compose touches neither
+      # HOME nor UserHomeDir, so the isolation problem above does not reach it,
+      # and a test needing a capability Windows withholds skips itself
+      # (symlinkOrSkip in builder_test.go).
+      - name: Test the compose path seam
+        run: go test ./internal/compose/ -v

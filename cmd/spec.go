@@ -59,7 +59,7 @@ Reports all schema violations and semantic errors.`,
 		if err != nil {
 			return err
 		}
-		return runValidate(specPath)
+		return runValidate(cmd.OutOrStdout(), specPath)
 	},
 }
 

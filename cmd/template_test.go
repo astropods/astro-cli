@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"testing"
 
 	"github.com/astropods/astro-cli/internal/scaffold"
@@ -45,7 +46,7 @@ func TestAstroYml_TemplatePassesValidation(t *testing.T) {
 			}
 			specPath := writeSpecFile(t, rendered)
 			captureStdout(t, func() {
-				if _, err := validateSpecFile(specPath); err != nil {
+				if _, _, err := validateSpecFile(io.Discard, specPath); err != nil {
 					t.Errorf("validateSpecFile failed for %s template:\n%s\nerror: %v", tt.template, rendered, err)
 				}
 			})

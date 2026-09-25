@@ -192,7 +192,7 @@ func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name, runt
 	if err != nil {
 		return
 	}
-	astroSpec, err := validateSpecFile(specPath)
+	astroSpec, _, err := validateSpecFile(cmd.OutOrStdout(), specPath)
 	if err != nil {
 		return
 	}
@@ -223,7 +223,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	astroSpec, err := validateSpecFile(specPath)
+	astroSpec, _, err := validateSpecFile(cmd.OutOrStdout(), specPath)
 	if err != nil {
 		return err
 	}

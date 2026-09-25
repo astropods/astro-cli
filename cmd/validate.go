@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -20,25 +23,101 @@ type validationError struct {
 	line    int
 }
 
-func runValidate(specPath string) error {
-	fmt.Println()
-	fmt.Printf("%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
+// outf writes one line of command output. It owns the dropped write error, so
+// the call sites below read as output rather than as error handling.
+func outf(w io.Writer, format string, args ...any) {
+	fmt.Fprintf(w, format, args...) //nolint:errcheck,gosec
+}
 
-	if _, err := validateSpecFile(specPath); err != nil {
+// specSource is the spec file as read and parsed once, so a caller anchoring a
+// finding to a line does not read and unmarshal it again.
+type specSource struct {
+	path  string
+	lines []string
+	root  *yaml.Node
+}
+
+func runValidate(w io.Writer, specPath string) error {
+	outf(w, "\n")
+	outf(w, "%s%sValidating %s...%s\n\n", colorBold, colorBlue, filepath.Base(specPath), colorReset)
+
+	parsed, src, err := validateSpecFile(w, specPath)
+	if err != nil {
 		return err
 	}
 
-	fmt.Printf("%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
+	if err := reportWatchDirs(w, parsed, src); err != nil {
+		return err
+	}
+
+	outf(w, "%s✓%s %s is valid\n\n", colorGreen, colorReset, filepath.Base(specPath))
 	return nil
+}
+
+// reportWatchDirs checks each dev.watch entry as a string and prints the ones
+// that cannot name a directory, anchored to the entry's own line.
+//
+// It checks nothing on disk. Whether a directory exists is a property of the
+// checkout, not of the spec, so it belongs to 'project start', which reports it
+// and carries on. Validating it here would fail a spec that is correct, in a
+// tree that merely has not been populated yet.
+//
+// A malformed entry is an error: it cannot work in any checkout. A repeated
+// entry is a warning, because the builder mounts it once either way. A spec
+// naming no directory is not checked, matching the builder's silence about the
+// implicit agent/ default.
+func reportWatchDirs(w io.Writer, parsed *spec.AstroSpec, src specSource) error {
+	if parsed == nil || parsed.Dev == nil || len(parsed.Dev.Watch) == 0 {
+		return nil
+	}
+
+	var errs []validationError
+	seen := map[string]bool{}
+	warnings := 0
+
+	for i, entry := range parsed.Dev.Watch {
+		line := findLineForDotPath(src.root, fmt.Sprintf("dev.watch[%d]", i))
+
+		if reason := composeBuilder.InvalidWatchEntry(entry); reason != "" {
+			errs = append(errs, validationError{
+				message: composeBuilder.MsgWatchDirRejected(entry, reason),
+				line:    line,
+			})
+			continue
+		}
+		// Only a well-formed entry has a cleaned form to compare, so the
+		// duplicate check runs after the string check rather than beside it.
+		dir := path.Clean(entry)
+		if seen[dir] {
+			outf(w, "  %s⚠%s %s\n", colorYellow, colorReset, composeBuilder.MsgWatchDirDuplicate(entry))
+			warnings++
+			continue
+		}
+		seen[dir] = true
+	}
+
+	if len(errs) == 0 {
+		if warnings > 0 {
+			outf(w, "\n")
+		}
+		return nil
+	}
+	for _, e := range errs {
+		printValidationError(w, e, src.lines, filepath.Base(src.path))
+	}
+	outf(w, "%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
+	return fmt.Errorf("validation failed")
 }
 
 // validateSpecFile runs strict validation (YAML parse + JSON schema + semantic)
 // on the spec at specPath. On failure, error details are printed to stdout and
-// a non-nil error is returned. On success, returns the parsed *spec.AstroSpec.
-func validateSpecFile(specPath string) (*spec.AstroSpec, error) {
+// a non-nil error is returned. On success, returns the parsed *spec.AstroSpec
+// and the source it was read from, so a caller can anchor further findings to a
+// line without reading the file again.
+func validateSpecFile(w io.Writer, specPath string) (*spec.AstroSpec, specSource, error) {
 	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("cannot read %s: %w", filepath.Base(specPath), err)
+		return nil, specSource{}, fmt.Errorf("cannot read %s: %w", filepath.Base(specPath), err)
 	}
 
 	lines := strings.Split(string(data), "\n")
@@ -46,12 +125,13 @@ func validateSpecFile(specPath string) (*spec.AstroSpec, error) {
 	// YAML parse check
 	var raw interface{}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		fmt.Printf("%s✗%s YAML syntax error: %v\n\n", colorRed, colorReset, err)
-		return nil, fmt.Errorf("validation failed")
+		outf(w, "%s✗%s YAML syntax error: %v\n\n", colorRed, colorReset, err)
+		return nil, specSource{}, fmt.Errorf("validation failed")
 	}
 
 	var rootNode yaml.Node
 	_ = yaml.Unmarshal(data, &rootNode)
+	src := specSource{path: specPath, lines: lines, root: &rootNode}
 
 	var errs []validationError
 
@@ -71,24 +151,24 @@ func validateSpecFile(specPath string) (*spec.AstroSpec, error) {
 
 	if len(errs) > 0 {
 		for _, e := range errs {
-			printValidationError(e, lines, filepath.Base(specPath))
+			printValidationError(w, e, lines, filepath.Base(specPath))
 		}
-		fmt.Printf("%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
-		return nil, fmt.Errorf("validation failed")
+		outf(w, "%s%d error(s) found%s\n\n", colorRed, len(errs), colorReset)
+		return nil, specSource{}, fmt.Errorf("validation failed")
 	}
 
 	// Non-fatal deprecation notices.
 	if parsed != nil {
-		for _, w := range spec.DeprecationWarnings(parsed) {
-			fmt.Printf("  %s⚠%s %s\n", colorYellow, colorReset, w)
+		for _, note := range spec.DeprecationWarnings(parsed) {
+			outf(w, "  %s⚠%s %s\n", colorYellow, colorReset, note)
 		}
 	}
 
-	return parsed, nil
+	return parsed, src, nil
 }
 
-func printValidationError(e validationError, lines []string, filename string) {
-	fmt.Printf("  %s✗%s %s\n", colorRed, colorReset, e.message)
+func printValidationError(w io.Writer, e validationError, lines []string, filename string) {
+	outf(w, "  %s✗%s %s\n", colorRed, colorReset, e.message)
 	if e.line <= 0 || e.line > len(lines) {
 		return
 	}
@@ -101,15 +181,15 @@ func printValidationError(e validationError, lines []string, filename string) {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	fmt.Printf("\n    %s%s:%d%s\n", colorCyan, filename, e.line, colorReset)
+	outf(w, "\n    %s%s:%d%s\n", colorCyan, filename, e.line, colorReset)
 	for i := start; i < end; i++ {
 		if i == lineIdx {
-			fmt.Printf("    %s%s> %4d │ %s%s\n", colorBold, colorRed, i+1, lines[i], colorReset)
+			outf(w, "    %s%s> %4d │ %s%s\n", colorBold, colorRed, i+1, lines[i], colorReset)
 		} else {
-			fmt.Printf("    %s  %4d │ %s%s\n", colorDim, i+1, lines[i], colorReset)
+			outf(w, "    %s  %4d │ %s%s\n", colorDim, i+1, lines[i], colorReset)
 		}
 	}
-	fmt.Println()
+	outf(w, "\n")
 }
 
 func schemaValidationErrors(raw interface{}, rootNode *yaml.Node) []validationError {

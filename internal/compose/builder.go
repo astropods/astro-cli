@@ -2,16 +2,236 @@ package compose
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/astropods/astro-cli/internal/buildinfo"
 	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
 )
+
+// WatchDirPlan is what hot reload mounts, and what it was asked to mount and
+// could not find.
+type WatchDirPlan struct {
+	// Mount holds the project-relative directories that exist on disk,
+	// slash-separated whatever the host (path.Clean, not filepath.Clean),
+	// because one of these becomes a container path and a container path is
+	// always POSIX.
+	Mount []string
+	// Missing holds directories a spec named explicitly that are not on disk.
+	// A spec that names none is never reported, since the agent/ default is
+	// assumed rather than asked for.
+	Missing []string
+	// Rejected holds entries refused before they were looked for, with why.
+	Rejected []WatchDirRejection
+	// Duplicate holds entries naming a directory an earlier entry already
+	// named, such as agent and ./agent. Two mounts on one container path make
+	// Docker refuse to create the container.
+	Duplicate []string
+}
+
+// WatchDirRejection is a dev.watch entry that cannot be mounted, and why.
+type WatchDirRejection struct {
+	Dir    string
+	Reason string
+}
+
+// subdir reports whether target is a path strictly inside root. Rel encodes
+// "outside" as a leading .., which IsLocal tests properly, including a ..
+// buried mid-path. A rel of "." means target is root itself, which must not be
+// mounted. A Rel error means the two share no base, as across Windows drive
+// letters, so it reads as not contained.
+func subdir(root, target string) bool {
+	rel, err := filepath.Rel(root, target)
+	return err == nil && rel != "." && filepath.IsLocal(rel)
+}
+
+// InvalidWatchEntry reports why entry cannot name a watch directory, or "" if
+// it can. Forward slash is the only separator, and every check is on the string
+// alone.
+//
+// Deliberately not filepath's predicates: a spec is shared across hosts, and
+// filepath.IsLocal answers differently per host, cutting on a backslash under
+// Windows while treating one as an ordinary filename character under Unix. A
+// spec that validates on a laptop has to validate on CI.
+func InvalidWatchEntry(entry string) string {
+	switch {
+	case entry == "":
+		return "an empty entry names no directory"
+	case strings.Contains(entry, `\`):
+		return `a backslash is not a path separator here, use /`
+	case strings.Contains(entry, ":"):
+		return "a drive letter cannot be mounted"
+	case strings.HasPrefix(entry, "/"):
+		return "an absolute path would mount something outside the project"
+	case entry == "." || entry == "./":
+		return "the project root would hide everything the image built"
+	}
+
+	// A trailing slash names the same directory, so it is the only empty
+	// component allowed.
+	for _, part := range strings.Split(strings.TrimSuffix(entry, "/"), "/") {
+		switch part {
+		case "":
+			return "an empty path component names no directory"
+		case ".":
+			return "a . path component is not allowed, name the directory directly"
+		case "..":
+			return "the path escapes the project"
+		}
+	}
+	return ""
+}
+
+// statDir is the stat PlanWatchDirs uses. A test replaces it to exercise a
+// stat failure, which chmod cannot force for a process running as root.
+var statDir = os.Stat
+
+// PlanWatchDirs resolves dev.watch against the project on disk in one pass.
+//
+// Each entry is checked as a string by InvalidWatchEntry, then cleaned, which
+// fixes both its container path and its identity for deduplication, then
+// resolved through any symlinks and checked once against the filesystem: it has
+// to exist, be a directory, and sit inside the project. Anything else is
+// reported rather than mounted.
+//
+// The project root is resolved once, before the loop. A temp directory is
+// commonly reached through a symlinked prefix, /var to /private/var on macOS
+// among them, so comparing a resolved entry against an unresolved root would
+// reject every directory under one.
+func PlanWatchDirs(dev *spec.Dev, workingDir string) (WatchDirPlan, error) {
+	var plan WatchDirPlan
+	named := dev != nil && len(dev.Watch) > 0
+	seen := map[string]bool{}
+
+	root := workingDir
+	if resolved, err := filepath.EvalSymlinks(workingDir); err == nil {
+		root = resolved
+	}
+
+	for _, entry := range dev.WatchDirs() {
+		reject := func(reason string) {
+			if named {
+				plan.Rejected = append(plan.Rejected, WatchDirRejection{Dir: entry, Reason: reason})
+			}
+		}
+		miss := func() {
+			if named {
+				plan.Missing = append(plan.Missing, entry)
+			}
+		}
+
+		// Every string rule lives in InvalidWatchEntry, so 'spec validate' and
+		// this agree without keeping two copies of them. Passing it leaves only
+		// slash-separated relative paths, which is why path.Clean does the
+		// cleaning here: it means the same thing on every host, where
+		// filepath.Clean would emit backslashes under Windows.
+		reason := InvalidWatchEntry(entry)
+		dir := entry
+		if reason == "" {
+			dir = path.Clean(entry)
+		}
+
+		// Marked on first sight rather than on a successful mount, so a repeat
+		// of a missing or rejected entry is reported once as a duplicate
+		// instead of warning twice. An entry with no cleaned form dedups on the
+		// spelling the spec used.
+		if seen[dir] {
+			if named {
+				plan.Duplicate = append(plan.Duplicate, entry)
+			}
+			continue
+		}
+		seen[dir] = true
+
+		if reason != "" {
+			reject(reason)
+			continue
+		}
+
+		// Resolution answers existence too: EvalSymlinks fails for a path that
+		// is not there. Any other failure is the entry's problem rather than
+		// the project's, so it is reported like every other unmountable entry
+		// instead of abandoning the remaining ones.
+		real, err := filepath.EvalSymlinks(filepath.Join(workingDir, dir))
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				miss()
+			} else {
+				reject(fmt.Sprintf("the path cannot be resolved: %v", err))
+			}
+			continue
+		}
+
+		fi, err := statDir(real)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			miss()
+			continue
+		case err != nil:
+			return WatchDirPlan{}, fmt.Errorf("reading watch directory %s: %w", dir, err)
+		case !fi.IsDir():
+			reject("only a directory can be mounted")
+			continue
+		case real == root:
+			reject("the project root would hide everything the image built")
+			continue
+		case !subdir(root, real):
+			reject("the path resolves outside the project")
+			continue
+		}
+
+		plan.Mount = append(plan.Mount, dir)
+	}
+	return plan, nil
+}
+
+// Option configures BuildProject. It is variadic so adding one does not touch
+// every caller.
+type Option func(*buildOptions)
+
+type buildOptions struct {
+	warnings      io.Writer
+	watchWarnings bool
+}
+
+// WithWarnings sends the warnings BuildProject emits to w. The default is
+// os.Stdout, which is where they went before this option existed.
+func WithWarnings(w io.Writer) Option {
+	return func(o *buildOptions) { o.warnings = w }
+}
+
+// WithWatchDirWarnings controls whether BuildProject reports the dev.watch
+// entries it could not mount. The default is true, so silencing them is a
+// caller's explicit choice and a new caller inherits the report.
+func WithWatchDirWarnings(enabled bool) Option {
+	return func(o *buildOptions) { o.watchWarnings = enabled }
+}
+
+func resolveOptions(opts []Option) buildOptions {
+	resolved := buildOptions{warnings: os.Stdout, watchWarnings: true}
+	for _, opt := range opts {
+		opt(&resolved)
+	}
+	if resolved.warnings == nil {
+		resolved.warnings = io.Discard
+	}
+	return resolved
+}
+
+func warnf(w io.Writer, format string, args ...any) {
+	fmt.Fprintf(w, "⚠ "+format+"\n", args...) //nolint:errcheck,gosec
+}
+
+// agentWorkdir is where every agent image puts its project, per its Dockerfile.
+const agentWorkdir = "/app"
 
 // agentDataVolume is the compose volume key every agent gets at
 // spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
@@ -176,7 +396,13 @@ func ProjectNameFromSpecName(raw string) string {
 }
 
 // BuildProject converts an AstroSpec to a Docker Compose project.
-func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
+func BuildProject(
+	s *spec.AstroSpec,
+	workingDir string,
+	envVars map[string]string,
+	opts ...Option,
+) (*types.Project, error) {
+	out := resolveOptions(opts)
 	agentName := ProjectName(s)
 	project := &types.Project{
 		Name:       agentName,
@@ -460,7 +686,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Networks: map[string]*types.ServiceNetworkConfig{
 					"astro-dev": nil,
 				},
-				Environment: buildMessagingEnvironment(s, envVars),
+				Environment: buildMessagingEnvironment(s, envVars, out.warnings),
 				Ports:       buildMessagingPorts(s),
 				// Share the agent's /data volume so the files API (FILES_DIR)
 				// writes to the same disk the agent reads at /data/files — the
@@ -627,13 +853,32 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		},
 	}
 
-	// Volume mount for hot reload
+	// Hot reload over the directories the spec names, defaulting to agent/. A
+	// directory the spec does not name keeps the image's copy, which is what a
+	// built directory needs.
 	if s.Agent.Build != nil {
-		agentService.Volumes = append(agentService.Volumes, types.ServiceVolumeConfig{
-			Type:   types.VolumeTypeBind,
-			Source: filepath.Join(workingDir, "agent"),
-			Target: "/app/agent",
-		})
+		plan, err := PlanWatchDirs(s.Dev, workingDir)
+		if err != nil {
+			return nil, err
+		}
+		if out.watchWarnings {
+			for _, dir := range plan.Duplicate {
+				warnf(out.warnings, "%s", MsgWatchDirDuplicate(dir))
+			}
+			for _, r := range plan.Rejected {
+				warnf(out.warnings, "%s", MsgWatchDirRejected(r.Dir, r.Reason))
+			}
+			for _, dir := range plan.Missing {
+				warnf(out.warnings, "%s", MsgWatchDirMissing(dir))
+			}
+		}
+		for _, dir := range plan.Mount {
+			agentService.Volumes = append(agentService.Volumes, types.ServiceVolumeConfig{
+				Type:   types.VolumeTypeBind,
+				Source: filepath.Join(workingDir, dir),
+				Target: path.Join(agentWorkdir, dir),
+			})
+		}
 	}
 
 	// Override container command from dev.command
@@ -905,7 +1150,7 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 }
 
 // buildMessagingEnvironment creates environment variables for the astro-messaging sidecar
-func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
+func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string, warnings io.Writer) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
 	// gRPC configuration
@@ -956,7 +1201,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
 			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
 			if !hasBotToken {
-				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s project configure' to add it)\n", buildinfo.BinaryName)
+				warnf(warnings, "%s", msgSlackTokenMissing())
 				continue
 			}
 			enabled := "true"

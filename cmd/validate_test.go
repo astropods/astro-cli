@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 // writeSpecFile creates a spec file in a tempdir and returns its path.
@@ -29,7 +32,7 @@ func TestValidateSpecFile_Valid(t *testing.T) {
 		name   string
 	)
 	out := captureStdout(t, func() {
-		p, err := validateSpecFile(specPath)
+		p, _, err := validateSpecFile(os.Stdout, specPath)
 		gotErr = err
 		if p != nil {
 			name = p.Name
@@ -53,7 +56,7 @@ func TestValidateSpecFile_MissingRequiredField(t *testing.T) {
 
 	var gotErr error
 	out := captureStdout(t, func() {
-		_, gotErr = validateSpecFile(specPath)
+		_, _, gotErr = validateSpecFile(os.Stdout, specPath)
 	})
 
 	if gotErr == nil {
@@ -78,7 +81,7 @@ agent:
 
 	var gotErr error
 	out := captureStdout(t, func() {
-		_, gotErr = validateSpecFile(specPath)
+		_, _, gotErr = validateSpecFile(os.Stdout, specPath)
 	})
 
 	if gotErr == nil {
@@ -95,7 +98,7 @@ func TestValidateSpecFile_YAMLSyntaxError(t *testing.T) {
 
 	var gotErr error
 	out := captureStdout(t, func() {
-		_, gotErr = validateSpecFile(specPath)
+		_, _, gotErr = validateSpecFile(os.Stdout, specPath)
 	})
 
 	if gotErr == nil {
@@ -146,7 +149,7 @@ func TestValidateSpecFile_RejectsInvalidAgentName(t *testing.T) {
 
 			var gotErr error
 			out := captureStdout(t, func() {
-				_, gotErr = validateSpecFile(specPath)
+				_, _, gotErr = validateSpecFile(os.Stdout, specPath)
 			})
 
 			require.Error(t, gotErr, "an invalid name must be rejected before any build or push")
@@ -166,11 +169,108 @@ func TestValidateSpecFile_AcceptsValidAgentName(t *testing.T) {
 
 			var gotErr error
 			out := captureStdout(t, func() {
-				_, gotErr = validateSpecFile(specPath)
+				_, _, gotErr = validateSpecFile(os.Stdout, specPath)
 			})
 
 			assert.NoError(t, gotErr, "%q is a valid name", name)
 			assert.Empty(t, out, "a valid spec prints nothing")
 		})
 	}
+}
+
+// watchSpec writes a spec whose dev.watch is a block list, returning the spec
+// path and the line number of its first entry. No directories are created:
+// validate must not care. Entries are quoted, so a line's text is the YAML
+// spelling rather than the parsed value; the line number is what a caller can
+// assert against either way.
+func watchSpec(t *testing.T, watch ...string) (string, int) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("spec: blueprint/v1\nname: demo\nmeta: {}\nagent:\n  image: demo:latest\ndev:\n  watch:\n")
+	for _, w := range watch {
+		fmt.Fprintf(&b, "    - %q\n", w)
+	}
+	content := b.String()
+
+	firstEntry := 0
+	for i, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "    - ") {
+			firstEntry = i + 1
+			break
+		}
+	}
+	require.NotZero(t, firstEntry, "the helper must be able to find its own first entry")
+	return writeSpecFile(t, content), firstEntry
+}
+
+// validateWatch runs the full validate path against a spec and returns its
+// output. The writer is a buffer, so nothing has to intercept stdout.
+func validateWatch(t *testing.T, specPath string) (string, error) {
+	t.Helper()
+	var out strings.Builder
+	err := runValidate(&out, specPath)
+	return out.String(), err
+}
+
+func TestRunValidate_DoesNotCheckWhetherAWatchDirExists(t *testing.T) {
+	specPath, _ := watchSpec(t, "agent", "packages/core", "srcc")
+
+	out, err := validateWatch(t, specPath)
+
+	require.NoError(t, err,
+		"whether a directory exists is a property of the checkout, not of the spec")
+	assert.Contains(t, out, "is valid")
+	assert.NotContains(t, out, "srcc",
+		"a directory absent from this tree is 'project start' business, not validate's")
+}
+
+func TestRunValidate_RejectsAMalformedWatchEntry(t *testing.T) {
+	tests := []struct {
+		name   string
+		entry  string
+		reason string
+	}{
+		{name: "a backslash separator", entry: `packages\core`, reason: `a backslash is not a path separator here, use /`},
+		{name: "an absolute path", entry: "/etc", reason: "an absolute path would mount something outside the project"},
+		{name: "a climb out", entry: "../sibling", reason: "the path escapes the project"},
+		{name: "the project root", entry: ".", reason: "the project root would hide everything the image built"},
+		{name: "a dot component", entry: "./agent", reason: "a . path component is not allowed, name the directory directly"},
+		{name: "an empty component", entry: "a//b", reason: "an empty path component names no directory"},
+		{name: "a drive letter", entry: "C:/x", reason: "a drive letter cannot be mounted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			specPath, firstEntry := watchSpec(t, "agent", tt.entry)
+
+			out, err := validateWatch(t, specPath)
+
+			require.Error(t, err, "a malformed entry cannot work in any checkout, so it fails")
+			assert.Contains(t, out, composeBuilder.MsgWatchDirRejected(tt.entry, tt.reason),
+				"the reason comes from the builder, so one rule keeps one wording")
+			assert.Regexp(t, fmt.Sprintf(`>\s+%d │`, firstEntry+1), out,
+				"the highlighted line must be the offending entry's own, not the valid one above it")
+			assert.NotContains(t, out, "is valid")
+		})
+	}
+}
+
+func TestRunValidate_WarnsWithoutFailingOnARepeatedWatchEntry(t *testing.T) {
+	specPath, _ := watchSpec(t, "agent", "agent", "packages/core/")
+
+	out, err := validateWatch(t, specPath)
+
+	require.NoError(t, err, "the builder mounts a repeat once, so it is not a failure")
+	assert.Contains(t, out, composeBuilder.MsgWatchDirDuplicate("agent"))
+	assert.Contains(t, out, "is valid")
+}
+
+func TestRunValidate_IgnoresASpecThatNamesNoWatchDir(t *testing.T) {
+	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nmeta: {}\nagent:\n  image: demo:latest\n")
+
+	out, err := validateWatch(t, specPath)
+
+	require.NoError(t, err)
+	assert.NotContains(t, out, "dev.watch",
+		"the implicit agent/ default is not the author's claim, so it is not checked")
 }
