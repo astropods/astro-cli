@@ -540,3 +540,10 @@ func errBlueprintNeedsEnvironment() error {
 func msgOverridesAccountValue() string {
 	return "overrides the account value"
 }
+
+func msgDeployed(environment string) string {
+	if environment == "" {
+		return "deployed"
+	}
+	return "deployed into environment " + environment
+}

@@ -93,7 +93,7 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"signature":  "sig",
 		})(w, r)
 	case "POST /api/v1/deploy":
-		jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": "dep-2"})(w, r)
+		jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": "dep-2", "environment_id": "env-staging", "environment_name": "staging"})(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -336,7 +336,14 @@ func TestDeployIntoAnEnvironment(t *testing.T) {
 		require.NoError(t, err)
 		target, _ := fake.bodies["POST /api/v1/deploy"]["target"].(map[string]any)
 		assert.Equal(t, "env-staging", target["environment_id"])
-		assert.Contains(t, out, "into environment staging")
+		assert.Contains(t, out, msgDeployed("staging"), "the result names the environment the server bound")
+	})
+
+	t.Run("names the environment the server chose when none was asked for", func(t *testing.T) {
+		setupEnvTest(t)
+		out, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy, "mybot")
+		require.NoError(t, err)
+		assert.Contains(t, out, msgDeployed("staging"))
 	})
 
 	t.Run("refuses an environment that has an agent", func(t *testing.T) {

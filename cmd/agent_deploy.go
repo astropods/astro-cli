@@ -79,10 +79,12 @@ type deployTemplateResponse struct {
 }
 
 type agentDeployResult struct {
-	Status       string `json:"status"`
-	DeploymentID string `json:"deployment_id"`
-	Name         string `json:"name"`
-	BuildID      string `json:"build_id"`
+	Status          string `json:"status"`
+	DeploymentID    string `json:"deployment_id"`
+	Name            string `json:"name"`
+	BuildID         string `json:"build_id"`
+	EnvironmentID   string `json:"environment_id,omitempty"`
+	EnvironmentName string `json:"environment_name,omitempty"`
 }
 
 var blueprintDeployCmd = &cobra.Command{
@@ -525,7 +527,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 
 	dim := color.New(color.Faint)
 	green := color.New(color.FgGreen)
-	green.Fprintf(w, "  ✓ deployed") //nolint:errcheck,gosec
+	green.Fprintf(w, "  ✓ %s", msgDeployed(result.EnvironmentName)) //nolint:errcheck,gosec
 	if result.DeploymentID != "" {
 		dim.Fprintf(w, "  %s\n", result.DeploymentID) //nolint:errcheck,gosec
 	} else {
