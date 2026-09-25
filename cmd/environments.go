@@ -204,7 +204,7 @@ func runEnvList(cmd *cobra.Command, _ []string) error {
 			}
 			return lipgloss.NewStyle().PaddingRight(2)
 		}).
-		Headers(dim.Sprint("Name"), dim.Sprint("Agent"), dim.Sprint("Status"), dim.Sprint("Values"))
+		Headers(dim.Sprint("Name"), dim.Sprint("Agent"), dim.Sprint("Status"), dim.Sprint("Variables & Secrets"))
 	for _, e := range entries {
 		agent, status := e.AgentName, e.Status
 		if e.AgentID == "" {
