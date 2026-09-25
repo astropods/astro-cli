@@ -14,7 +14,7 @@
 ---
 
 > 📖 To install a released build, see [**Install the CLI**](https://docs.astropods.com/install-cli).
-> For every command and flag, see the [**CLI reference**](https://docs.astropods.com/cli-reference).
+> For every command, see the [**command table**](https://docs.astropods.com/cli#all-commands); for flags, see the [**CLI reference**](https://docs.astropods.com/cli-reference).
 
 ## Prerequisites
 
