@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/auth"
@@ -133,6 +134,16 @@ func init() {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
+	cobra.OnInitialize(configureDependencyLogging)
+}
+
+func configureDependencyLogging() {
+	verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
+	if verbose {
+		logrus.SetLevel(logrus.InfoLevel)
+		return
+	}
+	logrus.SetLevel(logrus.ErrorLevel)
 }
 
 // SpecFileAliases are filenames checked in order when the user does not pass --file.
