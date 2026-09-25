@@ -236,9 +236,11 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 			wantErr: func(string) error { return errAuthSessionEnded(nil) },
 		},
 		{
-			name:    "server rejects the token and the retry refresh fails",
-			creds:   sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
-			wantErr: errRegisterUnauthorized,
+			name:  "server rejects the token and the retry refresh fails",
+			creds: sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
+			wantErr: func(string) error {
+				return errRegistrationFailed(errRegistrationUnauthorized("unauthorized"))
+			},
 		},
 	}
 	for _, tt := range tests {

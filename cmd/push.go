@@ -339,19 +339,32 @@ func uploadReadmeAssets(ctx context.Context, serverURL, account, agentName, work
 	return resp.Assets, nil
 }
 
-// registerAgentWithServer sends the already-transformed spec content to the server.
 func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string) error {
+	err := postAgentRegistration(ctx, serverURL, agentName, buildID, registry, specContent, readme, readmeAssets, visibility, verbose, skipAuth, account)
+	if err == nil {
+		return nil
+	}
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && apiErr.isStructured() {
+		return apiErr
+	}
+	var authErr *authError
+	if errors.As(err, &authErr) {
+		return err
+	}
+	return errRegistrationFailed(err)
+}
+
+func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// Extract account name from registry path (registryHost/accountName)
 	accountName := ""
 	registryParts := strings.Split(registry, "/")
 	if len(registryParts) >= 2 {
 		accountName = registryParts[len(registryParts)-1]
 	}
 
-	// Prepare request payload
 	payload := map[string]any{
 		"build_id":     buildID,
 		"registry":     registry,
@@ -370,7 +383,6 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Send POST request to account-scoped registration endpoint
 	reqURL := fmt.Sprintf("%s/api/v1/agents/%s/%s/register",
 		strings.TrimSuffix(serverURL, "/"),
 		url.PathEscape(accountName),
@@ -410,8 +422,6 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	}
 
 	client := &http.Client{
-		// Don't follow redirects — a 301/302 redirect downgrades POST to GET,
-		// which causes the request to hit GET /agents/:name instead of POST /agents/register.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -422,12 +432,11 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
-	// If the server redirected, report it clearly instead of silently failing
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		location := resp.Header.Get("Location")
 		hint := ""
 		if strings.HasPrefix(reqURL, "http://") && strings.HasPrefix(location, "https://") {
-			hint = ". It looks like the server requires HTTPS — try updating your server URL to use https://"
+			hint = ". The server requires HTTPS, so update your server URL to use https://"
 		}
 		return fmt.Errorf("server returned redirect (%d) to %q%s", resp.StatusCode, location, hint)
 	}
@@ -461,16 +470,11 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		}
 	}
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		body, _ := io.ReadAll(resp.Body)
-		if len(body) == 0 {
-			body = unauthorizedBody
-		}
-		return errRegisterUnauthorized(string(body))
-	}
-
 	if resp.StatusCode != http.StatusCreated {
 		body, readErr := io.ReadAll(resp.Body)
+		if unauthorizedBody != nil && (readErr != nil || len(body) == 0) {
+			body, readErr = unauthorizedBody, nil
+		}
 		if readErr != nil {
 			return fmt.Errorf("server returned status %d (failed to read response body: %w)", resp.StatusCode, readErr)
 		}
@@ -479,16 +483,13 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		}
 
 		apiErr := newAPIError(resp.StatusCode, body)
+		if resp.StatusCode == http.StatusUnauthorized {
+			return errRegistrationUnauthorized(apiErr.summary())
+		}
 		if apiErr.isStructured() {
 			return apiErr
 		}
-		if apiErr.Details != "" {
-			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Details)
-		}
-		if apiErr.Message != "" {
-			return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, apiErr.Message)
-		}
-		return fmt.Errorf("registration failed (status %d): %s", resp.StatusCode, string(body))
+		return errServerStatus(resp.StatusCode, apiErr.summary())
 	}
 
 	var result map[string]interface{}

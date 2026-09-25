@@ -105,6 +105,16 @@ func (e *apiError) detailSentence() string {
 	return e.Message
 }
 
+func (e *apiError) summary() string {
+	if detail := e.detailSentence(); detail != "" {
+		return detail
+	}
+	if json.Valid([]byte(e.Body)) {
+		return ""
+	}
+	return e.Body
+}
+
 // billingNextStep names where the fix happens. An unrecognized action returns
 // nothing rather than guessing, because the wrong instruction is worse than the
 // server's sentence on its own.

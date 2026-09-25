@@ -209,6 +209,158 @@ func TestRegisterAgent_PermissionRaceIsActionable(t *testing.T) {
 	require.EqualError(t, err, "Your access does not grant blueprint:edit.")
 }
 
+const (
+	quotaDetails = "Blueprints limit reached (5 of 5 used): Your account has reached its Blueprint limit. To continue, request a quota increase from Settings > Usage."
+	planDetails  = "Custom domains are not included in your current plan. To access this feature, contact your account admin about upgrading your plan."
+)
+
+var registrationRefusals = []struct {
+	name     string
+	status   int
+	body     string
+	wantErr  string
+	wantExit int
+}{
+	{
+		name:     "quota limit shows the server sentence alone",
+		status:   http.StatusPaymentRequired,
+		body:     `{"code":"ENTITLEMENT_LIMIT_REACHED","details":"` + quotaDetails + `","error":"Limit reached","feature":"blueprints","limit":5,"usage":5}`,
+		wantErr:  quotaDetails,
+		wantExit: 1,
+	},
+	{
+		name:     "feature outside the plan shows the server sentence alone",
+		status:   http.StatusPaymentRequired,
+		body:     `{"code":"FEATURE_NOT_IN_PLAN","details":"` + planDetails + `","error":"Feature not available","feature":"custom_domains","limit":0,"usage":0}`,
+		wantErr:  planDetails,
+		wantExit: 1,
+	},
+	{
+		name:     "billing suspension keeps its block and exit code",
+		status:   http.StatusPaymentRequired,
+		body:     `{"code":"BILLING_SUSPENDED","error":"account suspended","action":"add_card","details":"This account has no payment method."}`,
+		wantErr:  newAPIError(http.StatusPaymentRequired, []byte(`{"code":"BILLING_SUSPENDED","error":"account suspended","action":"add_card","details":"This account has no payment method."}`)).billingMessage(),
+		wantExit: exitCodeBillingSuspended,
+	},
+	{
+		name:     "uncoded body with only an error names the status once",
+		status:   http.StatusPaymentRequired,
+		body:     `{"error":"Limit reached"}`,
+		wantErr:  errRegistrationFailed(errServerStatus(http.StatusPaymentRequired, "Limit reached")).Error(),
+		wantExit: 1,
+	},
+	{
+		name:     "uncoded body with details prefers the details",
+		status:   http.StatusBadRequest,
+		body:     `{"error":"invalid spec","details":"agent.image is required"}`,
+		wantErr:  errRegistrationFailed(errServerStatus(http.StatusBadRequest, "agent.image is required")).Error(),
+		wantExit: 1,
+	},
+	{
+		name:     "non-JSON body is shown as text",
+		status:   http.StatusBadGateway,
+		body:     "upstream unavailable",
+		wantErr:  errRegistrationFailed(errServerStatus(http.StatusBadGateway, "upstream unavailable")).Error(),
+		wantExit: 1,
+	},
+	{
+		name:     "JSON body without a sentence is not dumped",
+		status:   http.StatusInternalServerError,
+		body:     `{"trace_id":"abc"}`,
+		wantErr:  errRegistrationFailed(errServerStatus(http.StatusInternalServerError, "")).Error(),
+		wantExit: 1,
+	},
+}
+
+func refusingServer(t *testing.T, status int, body string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+}
+
+func assertSingleRegistrationMessage(t *testing.T, err error, wantErr string, wantExit int) {
+	t.Helper()
+	require.EqualError(t, err, wantErr)
+	msg := err.Error()
+	assert.LessOrEqual(t, strings.Count(msg, "registration failed"), 1, "the registration context must appear at most once: %q", msg)
+	assert.LessOrEqual(t, strings.Count(strings.ToLower(msg), "limit reached"), 1, "the refusal must not repeat: %q", msg)
+	assert.NotContains(t, msg, "map[", "a Go map must never reach the user")
+	assert.NotContains(t, msg, "{", "raw JSON must never reach the user")
+	assert.Equal(t, wantExit, exitCodeFor(err))
+}
+
+func TestRegisterAgentWithServer_RefusalIsReportedOnce(t *testing.T) {
+	for _, tt := range registrationRefusals {
+		t.Run(tt.name, func(t *testing.T) {
+			refusingServer(t, tt.status, tt.body)
+
+			err := registerAgentWithServer(context.Background(), pushBaseURL(), "daily-driver", "build-id",
+				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme")
+
+			assertSingleRegistrationMessage(t, err, tt.wantErr, tt.wantExit)
+		})
+	}
+}
+
+func TestPushPipelineRegister_RefusalIsReportedOnce(t *testing.T) {
+	for _, tt := range registrationRefusals {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			writeAccountTestCredentials(t, accountTestCreds("alice"))
+			refusingServer(t, tt.status, tt.body)
+			var progress bytes.Buffer
+			t.Cleanup(redirectProgress(&progress))
+
+			p := NewPushPipeline(context.Background(), PushPipelineConfig{
+				Account:      "alice",
+				AgentName:    "daily-driver",
+				RegistryHost: "registry.example.com",
+			})
+			err := p.Register().Err()
+
+			assertSingleRegistrationMessage(t, err, tt.wantErr, tt.wantExit)
+			assert.Equal(t, 1, strings.Count(progress.String(), "Registering agent with server..."), "the step must print once")
+			assert.NotContains(t, progress.String(), "Response body", "the raw body must only print with --verbose")
+		})
+	}
+}
+
+func TestRegisterAgentWithServer_UnauthorizedSuggestsLogin(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "uncoded body",
+			body:    `{"error":"invalid token"}`,
+			wantErr: errRegistrationFailed(errRegistrationUnauthorized("invalid token")).Error(),
+		},
+		{
+			name:    "coded body",
+			body:    `{"error":"unauthorized","code":"TOKEN_EXPIRED","details":"The token has expired."}`,
+			wantErr: errRegistrationFailed(errRegistrationUnauthorized("The token has expired.")).Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			refusingServer(t, http.StatusUnauthorized, tt.body)
+
+			err := registerAgentWithServer(context.Background(), pushBaseURL(), "daily-driver", "build-id",
+				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme")
+
+			require.EqualError(t, err, tt.wantErr)
+			assert.NotContains(t, err.Error(), "{", "raw JSON must never reach the user")
+		})
+	}
+}
+
 func TestGenerateBuildID(t *testing.T) {
 	id := generateBuildID()
 
