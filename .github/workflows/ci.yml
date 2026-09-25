@@ -97,3 +97,8 @@ jobs:
       - name: Test the Windows seam
         run: |
           go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v
+
+      # The watch path's separator and symlink handling only differ here, so
+      # this package runs in full rather than by test name.
+      - name: Test the compose path seam
+        run: go test ./internal/compose/ -v

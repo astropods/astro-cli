@@ -3,15 +3,43 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/astropods/astro-cli/internal/buildinfo"
 	spec "github.com/astropods/astro-spec"
 	"github.com/compose-spec/compose-go/v2/types"
 	"github.com/docker/compose/v5/pkg/api"
 )
+
+type Option func(*buildOptions)
+
+type buildOptions struct {
+	warnings io.Writer
+}
+
+func WithWarnings(w io.Writer) Option {
+	return func(o *buildOptions) { o.warnings = w }
+}
+
+func resolveOptions(opts []Option) buildOptions {
+	resolved := buildOptions{}
+	for _, opt := range opts {
+		opt(&resolved)
+	}
+	if resolved.warnings == nil {
+		resolved.warnings = io.Discard
+	}
+	return resolved
+}
+
+func warnf(w io.Writer, format string, args ...any) {
+	fmt.Fprintf(w, "⚠ "+format+"\n", args...) //nolint:errcheck,gosec
+}
+
+// agentWorkdir is the default directory for the agent code.
+const agentWorkdir = "/app"
 
 // agentDataVolume is the compose volume key every agent gets at
 // spec.DefaultAgentVolumeMount (/data). The messaging sidecar mounts the same
@@ -176,7 +204,13 @@ func ProjectNameFromSpecName(raw string) string {
 }
 
 // BuildProject converts an AstroSpec to a Docker Compose project.
-func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
+func BuildProject(
+	s *spec.AstroSpec,
+	workingDir string,
+	envVars map[string]string,
+	opts ...Option,
+) (*types.Project, error) {
+	out := resolveOptions(opts)
 	agentName := ProjectName(s)
 	project := &types.Project{
 		Name:       agentName,
@@ -460,7 +494,7 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 				Networks: map[string]*types.ServiceNetworkConfig{
 					"astro-dev": nil,
 				},
-				Environment: buildMessagingEnvironment(s, envVars),
+				Environment: buildMessagingEnvironment(s, envVars, out.warnings),
 				Ports:       buildMessagingPorts(s),
 				// Share the agent's /data volume so the files API (FILES_DIR)
 				// writes to the same disk the agent reads at /data/files — the
@@ -627,13 +661,16 @@ func BuildProject(s *spec.AstroSpec, workingDir string, envVars map[string]strin
 		},
 	}
 
-	// Volume mount for hot reload
+	// Hot reload over the directories the spec names, defaulting to agent/. A
+	// directory the spec does not name keeps the image's copy, which is what a
+	// built directory needs.
 	if s.Agent.Build != nil {
-		agentService.Volumes = append(agentService.Volumes, types.ServiceVolumeConfig{
-			Type:   types.VolumeTypeBind,
-			Source: filepath.Join(workingDir, "agent"),
-			Target: "/app/agent",
-		})
+		plan, err := PlanWatchDirs(s.Dev, workingDir)
+		if err != nil {
+			return nil, err
+		}
+		plan.PrintWarnings(out.warnings)
+		agentService.Volumes = append(agentService.Volumes, plan.BindMounts(workingDir)...)
 	}
 
 	// Override container command from dev.command
@@ -905,7 +942,7 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 }
 
 // buildMessagingEnvironment creates environment variables for the astro-messaging sidecar
-func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
+func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string, warnings io.Writer) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
 	// gRPC configuration
@@ -956,7 +993,7 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string) typ
 			botToken, hasBotToken := envVars["SLACK_BOT_TOKEN"]
 			appToken, hasAppToken := envVars["SLACK_APP_TOKEN"]
 			if !hasBotToken {
-				fmt.Printf("⚠ Slack adapter listed but SLACK_BOT_TOKEN not set — skipping (run '%s project configure' to add it)\n", buildinfo.BinaryName)
+				warnf(warnings, "%s", msgSlackTokenMissing())
 				continue
 			}
 			enabled := "true"
