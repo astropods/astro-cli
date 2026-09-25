@@ -235,7 +235,6 @@ func (c *Client) pollOnce(ctx context.Context, endpoint, deviceCode string) (*To
 	return &tokenResp, nil
 }
 
-// RefreshAccessToken exchanges a refresh token for a new access token
 func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*TokenResponse, error) {
 	endpoint := fmt.Sprintf("%s/user_management/authenticate", c.baseURL)
 
@@ -262,6 +261,9 @@ func (c *Client) RefreshAccessToken(ctx context.Context, refreshToken string) (*
 	if resp.StatusCode != http.StatusOK {
 		var tokenErr TokenError
 		if err := json.Unmarshal(body, &tokenErr); err == nil {
+			if tokenErr.Error == "invalid_grant" {
+				return nil, fmt.Errorf("%w: %s", ErrSessionEnded, tokenErr.ErrorDescription)
+			}
 			return nil, fmt.Errorf("token refresh failed: %s - %s", tokenErr.Error, tokenErr.ErrorDescription)
 		}
 		return nil, fmt.Errorf("token refresh failed with status %d", resp.StatusCode)

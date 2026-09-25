@@ -326,7 +326,7 @@ func uploadReadmeAssets(ctx context.Context, serverURL, account, agentName, work
 
 	token, err := getAccountToken(ctx, account)
 	if err != nil {
-		return nil, fmt.Errorf("failed to authenticate: %w", err)
+		return nil, err
 	}
 
 	var resp readmeAssetsResponse
@@ -388,11 +388,10 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Cli-Version", buildinfo.Version)
 
-	// Add authentication header if not skipped
 	if !skipAuth {
 		token, err := getAccountToken(ctx, account)
 		if err != nil {
-			return fmt.Errorf("failed to add authentication: %w. Run '%s login' to re-authenticate", err, buildinfo.BinaryName)
+			return err
 		}
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
@@ -444,7 +443,9 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", buildinfo.Version, buildinfo.BinaryName)
 	}
 
+	var unauthorizedBody []byte
 	if resp.StatusCode == http.StatusUnauthorized && !skipAuth {
+		unauthorizedBody, _ = io.ReadAll(resp.Body)
 		resp.Body.Close() //nolint:errcheck,gosec
 		retryReq, retryErr := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewBuffer(jsonData))
 		if retryErr == nil {
@@ -462,7 +463,10 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("authentication failed (401). Server response: %s\nRun '%s login' to re-authenticate", string(body), buildinfo.BinaryName)
+		if len(body) == 0 {
+			body = unauthorizedBody
+		}
+		return errRegisterUnauthorized(string(body))
 	}
 
 	if resp.StatusCode != http.StatusCreated {
