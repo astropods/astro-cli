@@ -27,6 +27,8 @@ type agentDeploymentFull struct {
 	Namespace          string                `json:"namespace"`
 	Status             string                `json:"status"`
 	CreatedAt          string                `json:"created_at"`
+	EnvironmentID      string                `json:"environment_id,omitempty"`
+	EnvironmentName    string                `json:"environment_name,omitempty"`
 	ExternalURLs       []serviceEndpointInfo `json:"external_urls,omitempty"`
 	MessagingAvailable bool                  `json:"messaging_available,omitempty"`
 	Workloads          []workloadDetail      `json:"workloads,omitempty"`

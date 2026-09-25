@@ -1,0 +1,352 @@
+package cmd
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/charmbracelet/huh"
+	"github.com/fatih/color"
+	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/theme"
+)
+
+// environmentsServerURLOverride is set in tests to redirect API calls to a test server.
+var environmentsServerURLOverride string
+
+func environmentsBaseURL() string {
+	if environmentsServerURLOverride != "" {
+		return strings.TrimSuffix(environmentsServerURLOverride, "/")
+	}
+	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
+}
+
+type blueprintEnvironment struct {
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	AccountName        string `json:"account_name"`
+	VariablesAvailable bool   `json:"variables_available"`
+	DeploymentID       string `json:"deployment_id,omitempty"`
+}
+
+var envCmd = &cobra.Command{
+	Use:     "env",
+	Aliases: []string{"envs", "environment", "environments"},
+	Short:   "Manage a blueprint's environments",
+	Long: `An environment is where one agent of a blueprint runs in the active account.
+It has its own variables and secrets, which override the account's values with the same name.
+Deleting the agent keeps the environment and its values, ready for the next deploy.
+Environments are only available for private blueprints.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+}
+
+var envListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List the blueprint's environments in the active account",
+	Args:  cobra.NoArgs,
+	RunE:  runEnvList,
+}
+
+var envCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create an empty environment",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runEnvCreate,
+}
+
+var envRenameCmd = &cobra.Command{
+	Use:   "rename <name> <new-name>",
+	Short: "Rename an environment",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runEnvRename,
+}
+
+var envDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete an environment with no agent, and its variables and secrets",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runEnvDelete,
+}
+
+func init() {
+	envCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environments belong to")
+	envCmd.MarkPersistentFlagRequired("blueprint") //nolint:errcheck,gosec
+	envListCmd.Flags().Bool("json", false, "Output as JSON")
+	envDeleteCmd.Flags().String("confirm", "", "Skip the prompt by passing the environment name as confirmation")
+	envCmd.AddCommand(envListCmd)
+	envCmd.AddCommand(envCreateCmd)
+	envCmd.AddCommand(envRenameCmd)
+	envCmd.AddCommand(envDeleteCmd)
+	rootCmd.AddCommand(envCmd)
+}
+
+// listBlueprintEnvironments returns the blueprint's environments in the
+// active account. The server lists every account the viewer can see.
+func listBlueprintEnvironments(ctx context.Context, at AccountToken, blueprint string, verbose bool) ([]blueprintEnvironment, error) {
+	var bp blueprintItem
+	status, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), at.Account, "agents", blueprint), nil, at.Token, verbose, &bp)
+	if status == http.StatusNotFound {
+		return nil, errBlueprintNotFound(blueprint, at.Account)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if bp.Visibility == string(VisibilityPublic) {
+		return nil, errEnvironmentsUnavailable(blueprint)
+	}
+
+	var result struct {
+		Environments []blueprintEnvironment `json:"environments"`
+	}
+	if _, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"), nil, at.Token, verbose, &result); err != nil {
+		return nil, err
+	}
+	envs := make([]blueprintEnvironment, 0, len(result.Environments))
+	for _, e := range result.Environments {
+		if e.AccountName == at.Account {
+			envs = append(envs, e)
+		}
+	}
+	return envs, nil
+}
+
+func findBlueprintEnvironment(ctx context.Context, at AccountToken, blueprint, name string, verbose bool) (*blueprintEnvironment, error) {
+	envs, err := listBlueprintEnvironments(ctx, at, blueprint, verbose)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(envs))
+	for i := range envs {
+		if envs[i].Name == name {
+			return &envs[i], nil
+		}
+		names = append(names, envs[i].Name)
+	}
+	return nil, errEnvironmentNotFound(name, blueprint, names)
+}
+
+func environmentPath(at AccountToken, environmentID string, parts ...string) string {
+	return apiPath(environmentsBaseURL(), at.Account, "accounts", append([]string{"environments", environmentID}, parts...)...)
+}
+
+type environmentListEntry struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	AgentID   string `json:"agent_id,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Variables int    `json:"variables"`
+	Secrets   int    `json:"secrets"`
+}
+
+func runEnvList(cmd *cobra.Command, _ []string) error {
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	blueprint := flagString(cmd, "blueprint")
+	envs, err := listBlueprintEnvironments(cmd.Context(), at, blueprint, verbose)
+	if err != nil {
+		return err
+	}
+
+	agents, err := deploymentsByID(cmd.Context(), at, envs, verbose)
+	if err != nil {
+		return err
+	}
+
+	entries := make([]environmentListEntry, 0, len(envs))
+	for _, e := range envs {
+		entry := environmentListEntry{ID: e.ID, Name: e.Name, AgentID: e.DeploymentID}
+		if dep, ok := agents[e.DeploymentID]; ok {
+			entry.AgentName = deploymentLabel(&dep)
+			entry.Status = dep.Status
+		}
+		vars, err := listVaultVariables(cmd.Context(), vaultScope{account: at.Account, environment: &e}, verbose)
+		if err != nil {
+			return err
+		}
+		for _, v := range vars {
+			if v.Secret {
+				entry.Secrets++
+			} else {
+				entry.Variables++
+			}
+		}
+		entries = append(entries, entry)
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, entries)
+	}
+	if len(entries) == 0 {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoEnvironments(blueprint), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+
+	cyan := color.New(theme.PrimaryFatihAttr)
+	dim := color.New(color.Faint)
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	dim.Fprintln(tw, "Name\tAgent\tStatus\tValues") //nolint:errcheck,gosec
+	for _, e := range entries {
+		agent, status := e.AgentName, e.Status
+		if e.AgentID == "" {
+			agent, status = "—", "empty"
+		}
+		cyan.Fprintf(tw, "%s", e.Name)                                                        //nolint:errcheck,gosec
+		fmt.Fprintf(tw, "\t%s\t%s\t%s\n", agent, status, vaultCounts(e.Variables, e.Secrets)) //nolint:errcheck,gosec
+	}
+	return tw.Flush()
+}
+
+// deploymentsByID loads the account's deployments only when an environment
+// has an agent to name.
+func deploymentsByID(ctx context.Context, at AccountToken, envs []blueprintEnvironment, verbose bool) (map[string]agentDeployment, error) {
+	byID := map[string]agentDeployment{}
+	needed := false
+	for _, e := range envs {
+		needed = needed || e.DeploymentID != ""
+	}
+	if !needed {
+		return byID, nil
+	}
+	u := environmentsBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
+	var result listDeploymentsResponse
+	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+		return nil, err
+	}
+	for _, d := range result.Deployments {
+		byID[d.ID] = d
+	}
+	return byID, nil
+}
+
+func vaultCounts(variables, secrets int) string {
+	if variables == 0 && secrets == 0 {
+		return "none"
+	}
+	parts := []string{}
+	if variables > 0 {
+		parts = append(parts, plural(variables, "variable"))
+	}
+	if secrets > 0 {
+		parts = append(parts, plural(secrets, "secret"))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+func runEnvCreate(cmd *cobra.Command, args []string) error {
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name, blueprint := args[0], flagString(cmd, "blueprint")
+
+	var created blueprintEnvironment
+	status, err := apiCall(cmd.Context(), http.MethodPost,
+		apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"),
+		map[string]string{"name": name}, at.Token, verbose, &created)
+	switch status {
+	case http.StatusNotFound:
+		return errBlueprintNotFound(blueprint, at.Account)
+	case http.StatusConflict:
+		return errEnvironmentNameTaken(name, blueprint)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	color.New(color.FgGreen).Fprint(w, "✓ ")                        //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgEnvironmentCreated(created.Name, blueprint)) //nolint:errcheck,gosec
+	return nil
+}
+
+func runEnvRename(cmd *cobra.Command, args []string) error {
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name, newName, blueprint := args[0], args[1], flagString(cmd, "blueprint")
+	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
+	if err != nil {
+		return err
+	}
+
+	var renamed blueprintEnvironment
+	status, err := apiCallForAccount(cmd.Context(), http.MethodPatch, environmentPath(at, env.ID),
+		map[string]string{"name": newName}, at.Account, verbose, &renamed)
+	if status == http.StatusConflict {
+		return errEnvironmentNameTaken(newName, blueprint)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	color.New(color.FgGreen).Fprint(w, "✓ ")                   //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgEnvironmentRenamed(name, renamed.Name)) //nolint:errcheck,gosec
+	return nil
+}
+
+func runEnvDelete(cmd *cobra.Command, args []string) error {
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name, blueprint := args[0], flagString(cmd, "blueprint")
+	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
+	if err != nil {
+		return err
+	}
+	if env.DeploymentID != "" {
+		return errEnvironmentHasAgent(name, blueprint)
+	}
+
+	w := cmd.OutOrStdout()
+	confirm, _ := cmd.Flags().GetString("confirm")
+	if confirm != "" && confirm != name {
+		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+	if confirm != name {
+		var confirmed bool
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title(fmt.Sprintf("Delete environment %q?", name)).
+					Description("This permanently deletes its variables and secrets.").
+					Value(&confirmed),
+			),
+		)
+		if err := runForm(form); err != nil || !confirmed {
+			printCanceled(w)
+			return nil
+		}
+	}
+
+	status, err := apiCallForAccount(cmd.Context(), http.MethodDelete, environmentPath(at, env.ID), nil, at.Account, verbose, nil)
+	if status == http.StatusConflict {
+		return errEnvironmentHasAgent(name, blueprint)
+	}
+	if err != nil {
+		return err
+	}
+	color.New(color.FgGreen).Fprint(w, "✓ ")     //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgEnvironmentDeleted(name)) //nolint:errcheck,gosec
+	return nil
+}

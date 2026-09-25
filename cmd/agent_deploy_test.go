@@ -115,36 +115,41 @@ func TestParseDeployVars(t *testing.T) {
 	}
 }
 
-func TestPatchTemplateDisplayName(t *testing.T) {
+func TestPatchTemplateTarget(t *testing.T) {
 	cases := []struct {
-		name        string
-		input       string
-		displayName string
-		wantField   string
+		name   string
+		input  string
+		fields map[string]string
+		want   map[string]any
 	}{
 		{
-			name:        "sets display_name on existing target",
-			input:       `{"spec":"deployment/v1","target":{"runtime":"kubernetes"}}`,
-			displayName: "my deployment",
-			wantField:   "my deployment",
+			name:   "sets display_name and keeps existing target fields",
+			input:  `{"spec":"deployment/v1","target":{"runtime":"kubernetes"}}`,
+			fields: map[string]string{"display_name": "my deployment"},
+			want:   map[string]any{"runtime": "kubernetes", "display_name": "my deployment"},
 		},
 		{
-			name:        "creates target if absent",
-			input:       `{"spec":"deployment/v1"}`,
-			displayName: "new name",
-			wantField:   "new name",
+			name:   "creates target if absent",
+			input:  `{"spec":"deployment/v1"}`,
+			fields: map[string]string{"display_name": "new name"},
+			want:   map[string]any{"display_name": "new name"},
+		},
+		{
+			name:   "sets environment_id beside display_name",
+			input:  `{"spec":"deployment/v1","target":{}}`,
+			fields: map[string]string{"display_name": "bot", "environment_id": "env-1"},
+			want:   map[string]any{"display_name": "bot", "environment_id": "env-1"},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := patchTemplateDisplayName(json.RawMessage(tc.input), tc.displayName)
+			result, err := patchTemplateTarget(json.RawMessage(tc.input), tc.fields)
 			require.NoError(t, err)
 
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(result, &out))
-			target := out["target"].(map[string]any)
-			assert.Equal(t, tc.wantField, target["display_name"])
+			assert.Equal(t, tc.want, out["target"])
 		})
 	}
 }

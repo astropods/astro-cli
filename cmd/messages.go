@@ -475,3 +475,68 @@ func errBlueprintNotFound(name, account string) error {
 func errBlueprintNoPublishedBuild(name string) error {
 	return fmt.Errorf("blueprint %q has no published build to redeploy", name)
 }
+
+func errEnvironmentsUnavailable(blueprint string) error {
+	return fmt.Errorf("blueprint %q is public; environments are only available for private blueprints", blueprint)
+}
+
+func errEnvironmentNotFound(name, blueprint string, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("blueprint %q has no environment %q; create one with:\n  %s env create %s --blueprint %s",
+			blueprint, name, buildinfo.BinaryName, name, blueprint)
+	}
+	return fmt.Errorf("blueprint %q has no environment %q (environments: %s)", blueprint, name, strings.Join(available, ", "))
+}
+
+func errEnvironmentNameTaken(name, blueprint string) error {
+	return fmt.Errorf("blueprint %q already has an environment named %q", blueprint, name)
+}
+
+func errEnvironmentHasAgent(name, blueprint string) error {
+	return fmt.Errorf("environment %q has an agent; delete the agent first:\n  %s agent delete --blueprint %s --env %s",
+		name, buildinfo.BinaryName, blueprint, name)
+}
+
+func errEnvironmentOccupied(name, blueprint string) error {
+	return fmt.Errorf("environment %q already has an agent; redeploy it instead:\n  %s agent redeploy --blueprint %s --env %s",
+		name, buildinfo.BinaryName, blueprint, name)
+}
+
+func errEnvironmentHasNoAgent(name, blueprint string) error {
+	return fmt.Errorf("environment %q has no agent; deploy into it with:\n  %s deploy %s --env %s",
+		name, buildinfo.BinaryName, blueprint, name)
+}
+
+func errEnvironmentNeedsBlueprint() error {
+	return fmt.Errorf("--env needs --blueprint to say whose environment it is")
+}
+
+func errAgentTargetAmbiguous(target string, matches []string) error {
+	return fmt.Errorf("%q matches %d agents; pick one with --id, or with --blueprint and --env:\n  %s",
+		target, len(matches), strings.Join(matches, "\n  "))
+}
+
+func msgEnvironmentCreated(name, blueprint string) string {
+	return fmt.Sprintf("Created environment %q for %s. Deploy into it with:\n  %s deploy %s --env %s",
+		name, blueprint, buildinfo.BinaryName, blueprint, name)
+}
+
+func msgEnvironmentRenamed(from, to string) string {
+	return fmt.Sprintf("Renamed environment %q to %q", from, to)
+}
+
+func msgEnvironmentDeleted(name string) string {
+	return fmt.Sprintf("Deleted environment %q and its variables and secrets", name)
+}
+
+func msgNoEnvironments(blueprint string) string {
+	return fmt.Sprintf("Blueprint %s has no environments yet. Deploying it creates one.", blueprint)
+}
+
+func errBlueprintNeedsEnvironment() error {
+	return fmt.Errorf("--blueprint needs --env to say which environment to use")
+}
+
+func msgOverridesAccountValue() string {
+	return "overrides the account value"
+}

@@ -43,15 +43,17 @@ func exactValidSecretName(cmd *cobra.Command, args []string) error {
 var secretCmd = &cobra.Command{
 	Use:     "secrets",
 	Aliases: []string{"secret"},
-	Short:   "Manage account secrets",
-	Long:    "Create, list, update, and delete secrets in the account vault. Values are write-only once set.",
-	Args:    cobra.NoArgs,
-	RunE:    func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+	Short:   "Manage account and environment secrets",
+	Long: `Create, list, update, and delete variables and secrets in the account vault. Values are write-only once set.
+
+Pass --env and --blueprint to work on an environment's values instead. An environment's value overrides the account's value with the same name.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }
 
 var secretListCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List secrets in the active account vault",
+	Short: "List secrets in the account vault or an environment",
 	Args:  cobra.NoArgs,
 	RunE:  runSecretList,
 }
@@ -99,6 +101,8 @@ Existing variables are skipped unless --overwrite is set.`,
 }
 
 func init() {
+	secretCmd.PersistentFlags().String("env", "", "Environment to use instead of the account vault (needs --blueprint)")
+	secretCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environment belongs to")
 	secretCreateCmd.Flags().Bool("plain", false, "Store as plaintext instead of an encrypted secret")
 	secretCreateCmd.Flags().String("value", "", "Value to set (skips interactive prompt)")
 	secretCreateCmd.Flags().Bool("overwrite", false, "Overwrite if the variable already exists")
@@ -132,23 +136,80 @@ type secretVariableMetadata struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-func runSecretList(cmd *cobra.Command, args []string) error {
+// vaultScope is the vault a secrets command reads and writes: the account's,
+// or one environment's.
+type vaultScope struct {
+	account     string
+	blueprint   string
+	environment *blueprintEnvironment
+}
+
+func (s vaultScope) path(parts ...string) string {
+	if s.environment == nil {
+		return apiPath(secretsBaseURL(), s.account, "accounts", append([]string{"variables"}, parts...)...)
+	}
+	return apiPath(secretsBaseURL(), s.account, "accounts", append([]string{"environments", s.environment.ID, "variables"}, parts...)...)
+}
+
+func (s vaultScope) label() string {
+	if s.environment == nil {
+		return "account " + s.account
+	}
+	return fmt.Sprintf("environment %s of %s", s.environment.Name, s.blueprint)
+}
+
+func (s vaultScope) suffix() string {
+	if s.environment == nil {
+		return ""
+	}
+	return " in environment " + s.environment.Name
+}
+
+func resolveVaultScope(cmd *cobra.Command, at AccountToken, verbose bool) (vaultScope, error) {
+	env, blueprint := flagString(cmd, "env"), flagString(cmd, "blueprint")
+	scope := vaultScope{account: at.Account, blueprint: blueprint}
+	switch {
+	case env == "" && blueprint == "":
+		return scope, nil
+	case env == "":
+		return scope, errBlueprintNeedsEnvironment()
+	case blueprint == "":
+		return scope, errEnvironmentNeedsBlueprint()
+	}
+	e, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, env, verbose)
+	if err != nil {
+		return scope, err
+	}
+	scope.environment = e
+	return scope, nil
+}
+
+func secretsAuth(cmd *cobra.Command) (vaultScope, bool, error) {
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
-		return err
+		return vaultScope{}, verbose, err
 	}
+	scope, err := resolveVaultScope(cmd, at, verbose)
+	return scope, verbose, err
+}
 
+func listVaultVariables(ctx context.Context, scope vaultScope, verbose bool) ([]secretVariableMetadata, error) {
 	var result struct {
 		Variables []secretVariableMetadata `json:"variables"`
 	}
-	if _, err := apiCallForAccount(
-		cmd.Context(),
-		http.MethodGet,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
-		nil,
-		at.Account,
-		verbose,
-		&result); err != nil {
+	if _, err := apiCallForAccount(ctx, http.MethodGet, scope.path(), nil, scope.account, verbose, &result); err != nil {
+		return nil, err
+	}
+	return result.Variables, nil
+}
+
+func runSecretList(cmd *cobra.Command, args []string) error {
+	scope, verbose, err := secretsAuth(cmd)
+	if err != nil {
+		return err
+	}
+	variables, err := listVaultVariables(cmd.Context(), scope, verbose)
+	if err != nil {
 		return err
 	}
 
@@ -156,19 +217,27 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
-	if len(result.Variables) == 0 {
-		fmt.Fprintf(w, "%sNo secrets found in account %s%s\n", colorDim, at.Account, colorReset) //nolint:errcheck,gosec
+	if len(variables) == 0 {
+		fmt.Fprintf(w, "%sNo secrets found in %s%s\n", colorDim, scope.label(), colorReset) //nolint:errcheck,gosec
 		return nil
 	}
 
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		return writeJSON(w, result.Variables)
+		return writeJSON(w, variables)
+	}
+
+	overridden := map[string]bool{}
+	if scope.environment != nil {
+		overridden, err = fetchExistingVarNames(cmd.Context(), vaultScope{account: scope.account}, verbose)
+		if err != nil {
+			return err
+		}
 	}
 
 	showValues, _ := cmd.Flags().GetBool("values")
 
 	nameWidth := len("Name")
-	for _, v := range result.Variables {
+	for _, v := range variables {
 		if len(v.Name) > nameWidth {
 			nameWidth = len(v.Name)
 		}
@@ -180,7 +249,7 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 	}
 	dim.Fprintf(w, "%-*s  %-*s  %s\n", tableTimeWidth, "Updated", nameWidth, "Name", typeHeader) //nolint:errcheck,gosec
 
-	for _, v := range result.Variables {
+	for _, v := range variables {
 		date := v.UpdatedAt.Format(tableTimeFmt)
 		if v.UpdatedAt.IsZero() {
 			date = strings.Repeat("—", tableTimeWidth)
@@ -202,7 +271,10 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 		dim.Fprintf(w, "%s", date)                   //nolint:errcheck,gosec
 		cyan.Fprintf(w, "  %-*s", nameWidth, v.Name) //nolint:errcheck,gosec
 		dim.Fprintf(w, "  %s", typeOrValue)          //nolint:errcheck,gosec
-		fmt.Fprintln(w)                              //nolint:errcheck,gosec
+		if overridden[v.Name] {
+			dim.Fprint(w, "  "+msgOverridesAccountValue()) //nolint:errcheck,gosec
+		}
+		fmt.Fprintln(w) //nolint:errcheck,gosec
 	}
 	return nil
 }
@@ -254,13 +326,13 @@ func runSecretCreate(cmd *cobra.Command, args []string) error {
 
 func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, plain, overwrite bool) error {
 	name := args[0]
-	at, verbose, err := cmdAuth(cmd)
+	scope, verbose, err := secretsAuth(cmd)
 	if err != nil {
 		return err
 	}
 
 	if !overwrite {
-		if status, _, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose); err == nil {
+		if status, _, err := fetchVariableMeta(cmd.Context(), scope, name, verbose); err == nil {
 			return fmt.Errorf("%q already exists; use '%s secrets update' to change its value", name, buildinfo.BinaryName)
 		} else if status != http.StatusNotFound {
 			return err
@@ -282,9 +354,9 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPost,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
+		scope.path(),
 		map[string]any{"variables": []map[string]any{variable}},
-		at.Account,
+		scope.account,
 		verbose,
 		&result)
 	if status == http.StatusConflict {
@@ -303,9 +375,9 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 	green := color.New(color.FgGreen)
 	green.Fprint(w, "✓ ") //nolint:errcheck,gosec
 	if plain {
-		_, _ = fmt.Fprintf(w, "Created variable %q\n", name)
+		_, _ = fmt.Fprintf(w, "Created variable %q%s\n", name, scope.suffix())
 	} else {
-		_, _ = fmt.Fprintf(w, "Created secret %q\n", name)
+		_, _ = fmt.Fprintf(w, "Created secret %q%s\n", name, scope.suffix())
 	}
 	return nil
 }
@@ -313,7 +385,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	at, verbose, err := cmdAuth(cmd)
+	scope, verbose, err := secretsAuth(cmd)
 	if err != nil {
 		return err
 	}
@@ -323,7 +395,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	// Fetch the variable's type to pick the right echo mode and success message.
 	// Fall back to treating it as a secret if the fetch fails (safe default).
 	isSecret := true
-	if _, meta, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose); err == nil {
+	if _, meta, err := fetchVariableMeta(cmd.Context(), scope, name, verbose); err == nil {
 		isSecret = meta.Secret
 	}
 	if plain {
@@ -371,18 +443,18 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 		_ = cmd.Flags().Set("description", strings.TrimSpace(description))
 	}
 
-	return runSecretUpdateWithValue(cmd, args, value, isSecret, plain, verbose)
+	return runSecretUpdateWithValue(cmd, scope, args, value, isSecret, plain, verbose)
 }
 
 // fetchVariableMeta returns the status code and metadata for a single variable via GET /:varName.
-func fetchVariableMeta(ctx context.Context, account string, name string, verbose bool) (int, *secretVariableMetadata, error) {
+func fetchVariableMeta(ctx context.Context, scope vaultScope, name string, verbose bool) (int, *secretVariableMetadata, error) {
 	var meta secretVariableMetadata
 	status, err := apiCallForAccount(
 		ctx,
 		http.MethodGet,
-		apiPath(secretsBaseURL(), account, "accounts", "variables", name),
+		scope.path(name),
 		nil,
-		account,
+		scope.account,
 		verbose,
 		&meta)
 	if err != nil {
@@ -391,13 +463,8 @@ func fetchVariableMeta(ctx context.Context, account string, name string, verbose
 	return status, &meta, nil
 }
 
-func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, isSecret, plain, verbose bool) error { //nolint:unparam
+func runSecretUpdateWithValue(cmd *cobra.Command, scope vaultScope, args []string, value string, isSecret, plain, verbose bool) error { //nolint:unparam
 	name := args[0]
-
-	at, err := getCurrentAccountToken(cmd.Context())
-	if err != nil {
-		return err
-	}
 
 	payload := map[string]any{"value": value}
 	if plain {
@@ -410,9 +477,9 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPut,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
+		scope.path(name),
 		payload,
-		at.Account,
+		scope.account,
 		verbose,
 		nil)
 	if status == http.StatusNotFound {
@@ -426,9 +493,9 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 	green := color.New(color.FgGreen)
 	green.Fprint(w, "✓ ") //nolint:errcheck,gosec
 	if isSecret {
-		_, _ = fmt.Fprintf(w, "Updated secret %q\n", name)
+		_, _ = fmt.Fprintf(w, "Updated secret %q%s\n", name, scope.suffix())
 	} else {
-		_, _ = fmt.Fprintf(w, "Updated variable %q\n", name)
+		_, _ = fmt.Fprintf(w, "Updated variable %q%s\n", name, scope.suffix())
 	}
 	return nil
 }
@@ -436,12 +503,12 @@ func runSecretUpdateWithValue(cmd *cobra.Command, args []string, value string, i
 func runSecretGet(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	at, verbose, err := cmdAuth(cmd)
+	scope, verbose, err := secretsAuth(cmd)
 	if err != nil {
 		return err
 	}
 
-	_, meta, err := fetchVariableMeta(cmd.Context(), at.Account, name, verbose)
+	_, meta, err := fetchVariableMeta(cmd.Context(), scope, name, verbose)
 	if err != nil {
 		return err
 	}
@@ -461,6 +528,9 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 	}
 
 	printField("Name", meta.Name)
+	if scope.environment != nil {
+		printField("Environment", scope.environment.Name)
+	}
 	printField("Created", meta.CreatedAt.Format(tableTimeFmt))
 	printField("Updated", meta.UpdatedAt.Format(tableTimeFmt))
 
@@ -480,7 +550,7 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 func runSecretDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	at, verbose, err := cmdAuth(cmd)
+	scope, verbose, err := secretsAuth(cmd)
 	if err != nil {
 		return err
 	}
@@ -488,9 +558,9 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 	status, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodDelete,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables", name),
+		scope.path(name),
 		nil,
-		at.Account,
+		scope.account,
 		verbose,
 		nil)
 	if status == http.StatusNotFound {
@@ -503,12 +573,12 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	green := color.New(color.FgGreen)
 	green.Fprint(w, "✓ ") //nolint:errcheck,gosec
-	_, _ = fmt.Fprintf(w, "Deleted secret %q\n", name)
+	_, _ = fmt.Fprintf(w, "Deleted secret %q%s\n", name, scope.suffix())
 	return nil
 }
 
 func runSecretImport(cmd *cobra.Command, _ []string) error {
-	at, verbose, err := cmdAuth(cmd)
+	scope, verbose, err := secretsAuth(cmd)
 	if err != nil {
 		return err
 	}
@@ -556,7 +626,7 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 
 	// Unless --overwrite, fetch existing names and skip them.
 	if !overwrite {
-		existing, err := fetchExistingVarNames(cmd.Context(), at.Account, verbose)
+		existing, err := fetchExistingVarNames(cmd.Context(), scope, verbose)
 		if err != nil {
 			return fmt.Errorf("failed to fetch existing variables: %w", err)
 		}
@@ -593,9 +663,9 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 	if _, err := apiCallForAccount(
 		cmd.Context(),
 		http.MethodPost,
-		apiPath(secretsBaseURL(), at.Account, "accounts", "variables"),
+		scope.path(),
 		map[string]any{"variables": vars},
-		at.Account,
+		scope.account,
 		verbose,
 		&result); err != nil {
 		return err
@@ -614,25 +684,14 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// fetchExistingVarNames returns a set of variable names already in the account.
-func fetchExistingVarNames(ctx context.Context, account string, verbose bool) (map[string]bool, error) {
-	var result struct {
-		Variables []struct {
-			Name string `json:"name"`
-		} `json:"variables"`
-	}
-	if _, err := apiCallForAccount(
-		ctx,
-		http.MethodGet,
-		apiPath(secretsBaseURL(), account, "accounts", "variables"),
-		nil,
-		account,
-		verbose,
-		&result); err != nil {
+// fetchExistingVarNames returns a set of variable names already in the scope.
+func fetchExistingVarNames(ctx context.Context, scope vaultScope, verbose bool) (map[string]bool, error) {
+	variables, err := listVaultVariables(ctx, scope, verbose)
+	if err != nil {
 		return nil, err
 	}
-	names := make(map[string]bool, len(result.Variables))
-	for _, v := range result.Variables {
+	names := make(map[string]bool, len(variables))
+	for _, v := range variables {
 		names[v.Name] = true
 	}
 	return names, nil

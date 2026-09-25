@@ -126,13 +126,15 @@ func init() {
 }
 
 type agentDeployment struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name,omitempty"`
-	BuildID     string `json:"build_id"`
-	Namespace   string `json:"namespace"`
-	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	DisplayName     string `json:"display_name,omitempty"`
+	BuildID         string `json:"build_id"`
+	Namespace       string `json:"namespace"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`
+	EnvironmentID   string `json:"environment_id,omitempty"`
+	EnvironmentName string `json:"environment_name,omitempty"`
 }
 
 type listDeploymentsResponse struct {
@@ -326,6 +328,9 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(w, bold.Render(deploymentLabel(dep))+"  "+dim.Render(at.Account)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Status:     %s\n", statusStyle.Render(dep.Status))           //nolint:errcheck,gosec
 	printStatusDetail(w, status)
+	if dep.EnvironmentName != "" {
+		fmt.Fprintf(w, "  Environment: %s\n", dep.EnvironmentName) //nolint:errcheck,gosec
+	}
 	fmt.Fprintf(w, "  Build:      %s\n", accent.Render(dep.BuildID)) //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Deployed:   %s\n", deployed)                   //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Namespace:  %s\n", dep.Namespace)              //nolint:errcheck,gosec
@@ -397,6 +402,7 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 	// compute dynamic column widths from data
 	statusW := len("Status")
 	blueprintW := len("Blueprint")
+	envW := len("Environment")
 	for _, d := range result.Deployments {
 		if n := len(d.Status); n > statusW {
 			statusW = n
@@ -404,10 +410,13 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		if n := min(len(d.Name), 20); n > blueprintW {
 			blueprintW = n
 		}
+		if n := min(len(d.EnvironmentName), 20); n > envW {
+			envW = n
+		}
 	}
 
 	const tableIDWidth = 11
-	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", statusW, "Status", blueprintW, "Blueprint", tableIDWidth, "ID", "Name") //nolint:errcheck,gosec
+	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %-*s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", statusW, "Status", blueprintW, "Blueprint", envW, "Environment", tableIDWidth, "ID", "Name") //nolint:errcheck,gosec
 
 	for _, d := range result.Deployments {
 		deployed := truncate(d.CreatedAt, tableTimeWidth)
@@ -425,8 +434,12 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 			dim.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
 		}
 
-		dim.Fprintf(w, "%-*s  %-*s  ", blueprintW, blueprint, tableIDWidth, d.ID) //nolint:errcheck,gosec
-		cyan.Fprintf(w, "%s\n", d.DisplayName)                                    //nolint:errcheck,gosec
+		environment := truncate(d.EnvironmentName, envW)
+		if environment == "" {
+			environment = "—"
+		}
+		dim.Fprintf(w, "%-*s  %-*s  %-*s  ", blueprintW, blueprint, envW, environment, tableIDWidth, d.ID) //nolint:errcheck,gosec
+		cyan.Fprintf(w, "%s\n", d.DisplayName)                                                             //nolint:errcheck,gosec
 	}
 	return nil
 }

@@ -258,7 +258,7 @@ func TestSecretUpdate(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretUpdateCmd.SetOut(buf)
-	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_KEY"}, "newval", true, false, false))
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, vaultScope{account: "alice"}, []string{"MY_KEY"}, "newval", true, false, false))
 	require.Equal(t, "newval", received["value"])
 	require.Contains(t, buf.String(), "Updated secret")
 }
@@ -274,7 +274,7 @@ func TestSecretUpdate_Plain(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretUpdateCmd.SetOut(buf)
-	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_VAR"}, "newval", false, false, false))
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, vaultScope{account: "alice"}, []string{"MY_VAR"}, "newval", false, false, false))
 	require.Contains(t, buf.String(), "Updated variable")
 }
 
@@ -291,7 +291,7 @@ func TestSecretUpdate_PlainFlag(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	secretUpdateCmd.SetOut(buf)
-	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, []string{"MY_KEY"}, "newval", false, true, false))
+	require.NoError(t, runSecretUpdateWithValue(secretUpdateCmd, vaultScope{account: "alice"}, []string{"MY_KEY"}, "newval", false, true, false))
 	require.Equal(t, false, received["secret"])
 	require.Contains(t, buf.String(), "Updated variable")
 }
@@ -305,7 +305,7 @@ func TestSecretUpdate_NotFound(t *testing.T) {
 	_, setup := secretTestServer(t, handler)
 	setup()
 
-	err := runSecretUpdateWithValue(secretUpdateCmd, []string{"MISSING"}, "v", true, false, false)
+	err := runSecretUpdateWithValue(secretUpdateCmd, vaultScope{account: "alice"}, []string{"MISSING"}, "v", true, false, false)
 	require.ErrorContains(t, err, "not found")
 }
 
