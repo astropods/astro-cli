@@ -173,6 +173,19 @@ func resolveSpecPathFromCwd(specFile string) (string, error) {
 	return specPath, err
 }
 
+// resolveBlueprintName returns name when set, otherwise the name in the
+// current directory's spec.
+func resolveBlueprintName(name string) (string, error) {
+	if name != "" {
+		return name, nil
+	}
+	specPath, err := resolveSpecPathFromCwd("")
+	if err != nil {
+		return "", errBlueprintRequired()
+	}
+	return specFileBlueprintName(specPath)
+}
+
 // exitCodeFor maps an error to the process exit code. A billing suspension gets
 // its own, because a script that retries on failure has to be able to tell a
 // transient server problem from an account that cannot run anything until

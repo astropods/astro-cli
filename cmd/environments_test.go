@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -264,12 +266,13 @@ func TestSecretsInAnEnvironment(t *testing.T) {
 		name, env, blueprint string
 		want                 error
 	}{
-		{name: "env without blueprint", env: "main", want: errEnvironmentNeedsBlueprint()},
+		{name: "env outside a project without blueprint", env: "main", want: errBlueprintRequired()},
 		{name: "blueprint without env", blueprint: "mybot", want: errBlueprintNeedsEnvironment()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			setupEnvTest(t)
+			t.Chdir(t.TempDir())
 			setFlag(t, secretListCmd, "env", tc.env)
 			setFlag(t, secretListCmd, "blueprint", tc.blueprint)
 			_, err := runWithOutput(t, secretListCmd, runSecretList)
@@ -349,5 +352,59 @@ func TestDeployIntoAnEnvironment(t *testing.T) {
 		setDeployFlag(t, "env", "staging")
 		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy, "mybot")
 		require.EqualError(t, err, errEnvironmentOccupied("staging", "mybot").Error())
+	})
+}
+
+func TestBlueprintDefaultsToTheProjectSpec(t *testing.T) {
+	enterProject := func(t *testing.T, name string) {
+		t.Helper()
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "astropods.yml"), []byte("name: \""+name+"\"\n"), 0o600))
+		t.Chdir(dir)
+	}
+
+	t.Run("env list reads the blueprint from astropods.yml", func(t *testing.T) {
+		fake := setupEnvTest(t)
+		enterProject(t, "@testaccount/mybot")
+		_, err := runWithOutput(t, envListCmd, runEnvList)
+		require.NoError(t, err)
+		assert.True(t, fake.called("GET /api/v1/agents/testaccount/mybot/environments"))
+	})
+
+	t.Run("an explicit --blueprint wins over the project", func(t *testing.T) {
+		fake := setupEnvTest(t)
+		enterProject(t, "otherbot")
+		setFlag(t, envListCmd, "blueprint", "mybot")
+		_, err := runWithOutput(t, envListCmd, runEnvList)
+		require.NoError(t, err)
+		assert.True(t, fake.called("GET /api/v1/agents/testaccount/mybot/environments"))
+	})
+
+	t.Run("agent targeting takes just --env", func(t *testing.T) {
+		setupEnvTest(t)
+		enterProject(t, "mybot")
+		cmd := &cobra.Command{}
+		registerAgentTargetFlags(cmd)
+		cmd.SetContext(context.Background())
+		setFlag(t, cmd, "env", "main")
+		dep, err := resolveAgentTarget(cmd, AccountToken{Account: "testaccount"}, false)
+		require.NoError(t, err)
+		assert.Equal(t, "dep-1", dep.ID)
+	})
+
+	t.Run("deploy takes no blueprint argument", func(t *testing.T) {
+		fake := setupEnvTest(t)
+		enterProject(t, "mybot")
+		setDeployFlag(t, "env", "staging")
+		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy)
+		require.NoError(t, err)
+		assert.True(t, fake.called("POST /api/v1/agents/testaccount/mybot/deployment-template"))
+	})
+
+	t.Run("outside a project the blueprint is required", func(t *testing.T) {
+		setupEnvTest(t)
+		t.Chdir(t.TempDir())
+		_, err := runWithOutput(t, envListCmd, runEnvList)
+		require.EqualError(t, err, errBlueprintRequired().Error())
 	})
 }

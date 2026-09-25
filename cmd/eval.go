@@ -144,7 +144,12 @@ func resolveEvalAgentName(specPath string, args []string) (string, error) {
 	if len(args) > 0 {
 		return args[0], nil
 	}
+	return specFileBlueprintName(specPath)
+}
 
+// specFileBlueprintName reads only the spec's name, so a spec that fails full
+// validation still names its blueprint.
+func specFileBlueprintName(specPath string) (string, error) {
 	data, err := os.ReadFile(specPath) //nolint:gosec
 	if err != nil {
 		return "", fmt.Errorf("failed to read %s: %w", filepath.Base(specPath), err)

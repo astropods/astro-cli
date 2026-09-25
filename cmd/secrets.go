@@ -101,8 +101,8 @@ Existing variables are skipped unless --overwrite is set.`,
 }
 
 func init() {
-	secretCmd.PersistentFlags().String("env", "", "Environment to use instead of the account vault (needs --blueprint)")
-	secretCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environment belongs to")
+	secretCmd.PersistentFlags().String("env", "", "Environment to use instead of the account vault")
+	secretCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environment belongs to (default: the name in ./astropods.yml)")
 	secretCreateCmd.Flags().Bool("plain", false, "Store as plaintext instead of an encrypted secret")
 	secretCreateCmd.Flags().String("value", "", "Value to set (skips interactive prompt)")
 	secretCreateCmd.Flags().Bool("overwrite", false, "Overwrite if the variable already exists")
@@ -166,16 +166,19 @@ func (s vaultScope) suffix() string {
 }
 
 func resolveVaultScope(cmd *cobra.Command, at AccountToken, verbose bool) (vaultScope, error) {
-	env, blueprint := flagString(cmd, "env"), flagString(cmd, "blueprint")
-	scope := vaultScope{account: at.Account, blueprint: blueprint}
-	switch {
-	case env == "" && blueprint == "":
+	env := flagString(cmd, "env")
+	scope := vaultScope{account: at.Account}
+	if env == "" {
+		if flagString(cmd, "blueprint") != "" {
+			return scope, errBlueprintNeedsEnvironment()
+		}
 		return scope, nil
-	case env == "":
-		return scope, errBlueprintNeedsEnvironment()
-	case blueprint == "":
-		return scope, errEnvironmentNeedsBlueprint()
 	}
+	blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+	if err != nil {
+		return scope, err
+	}
+	scope.blueprint = blueprint
 	e, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, env, verbose)
 	if err != nil {
 		return scope, err

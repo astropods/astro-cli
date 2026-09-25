@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	"net/http"
-	"net/url"
 
 	"github.com/spf13/cobra"
 )
@@ -25,11 +23,12 @@ func deploymentLabel(dep *agentDeployment) string {
 func registerAgentTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "Display name or blueprint name (from agent list; not a deployment ID)")
 	cmd.Flags().String("id", "", "Deployment ID (from agent list)")
-	cmd.Flags().String("env", "", "Environment the agent runs in (with --blueprint)")
-	cmd.Flags().StringP("blueprint", "b", "", "Blueprint of the agent (with --env)")
+	cmd.Flags().String("env", "", "Environment the agent runs in")
+	cmd.Flags().StringP("blueprint", "b", "", "Blueprint of the agent, with --env (default: the name in ./astropods.yml)")
 	cmd.MarkFlagsOneRequired("name", "id", "env")       //nolint:errcheck,gosec
 	cmd.MarkFlagsMutuallyExclusive("name", "id", "env") //nolint:errcheck,gosec
-	cmd.MarkFlagsRequiredTogether("env", "blueprint")   //nolint:errcheck,gosec
+	cmd.MarkFlagsMutuallyExclusive("name", "blueprint") //nolint:errcheck,gosec
+	cmd.MarkFlagsMutuallyExclusive("id", "blueprint")   //nolint:errcheck,gosec
 }
 
 func resolveAgentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*agentDeployment, error) {
@@ -37,9 +36,9 @@ func resolveAgentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*age
 		return fetchAgentDeploymentSummary(cmd.Context(), id, at, verbose)
 	}
 	if env := flagString(cmd, "env"); env != "" {
-		blueprint := flagString(cmd, "blueprint")
-		if blueprint == "" {
-			return nil, errEnvironmentNeedsBlueprint()
+		blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+		if err != nil {
+			return nil, err
 		}
 		e, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, env, verbose)
 		if err != nil {
@@ -78,9 +77,8 @@ func fetchAgentDeploymentSummary(ctx context.Context, id string, at AccountToken
 }
 
 func findDeploymentByTarget(cmd *cobra.Command, target string, at AccountToken, verbose bool) (*agentDeployment, error) {
-	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
-	var result listDeploymentsResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	result, err := listAccountDeployments(cmd.Context(), at, verbose)
+	if err != nil {
 		return nil, err
 	}
 	var byBlueprint []*agentDeployment

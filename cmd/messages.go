@@ -507,8 +507,8 @@ func errEnvironmentHasNoAgent(name, blueprint string) error {
 		name, buildinfo.BinaryName, blueprint, name)
 }
 
-func errEnvironmentNeedsBlueprint() error {
-	return fmt.Errorf("--env needs --blueprint to say whose environment it is")
+func errBlueprintRequired() error {
+	return fmt.Errorf("name a blueprint, or run this in a project directory with an astropods.yml")
 }
 
 func errAgentTargetAmbiguous(target string, matches []string) error {

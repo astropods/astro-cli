@@ -3,10 +3,12 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -377,9 +379,8 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
-	var result listDeploymentsResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	result, err := listAccountDeployments(cmd.Context(), at, verbose)
+	if err != nil {
 		return err
 	}
 
@@ -442,6 +443,36 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		cyan.Fprintf(w, "%s\n", d.DisplayName)                                                             //nolint:errcheck,gosec
 	}
 	return nil
+}
+
+// confirmDelete passes when --confirm names one of accepted, and otherwise
+// prompts. It prints why it stopped when it returns false.
+func confirmDelete(cmd *cobra.Command, title, description string, accepted ...string) bool {
+	w := cmd.OutOrStdout()
+	confirm, _ := cmd.Flags().GetString("confirm")
+	if slices.Contains(accepted, confirm) {
+		return true
+	}
+	if confirm != "" {
+		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+		return false
+	}
+	var confirmed bool
+	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Description(description).Value(&confirmed)))
+	if err := runForm(form); err != nil || !confirmed {
+		printCanceled(w)
+		return false
+	}
+	return true
+}
+
+func listAccountDeployments(ctx context.Context, at AccountToken, verbose bool) (*listDeploymentsResponse, error) {
+	u := agentBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
+	var result listDeploymentsResponse
+	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func runAgentPause(cmd *cobra.Command, args []string) error {
@@ -512,26 +543,11 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 	}
 	label := deploymentLabel(dep)
 
-	confirm, _ := cmd.Flags().GetString("confirm")
-	if confirm != "" && confirm != label && confirm != dep.ID {
-		w := cmd.OutOrStdout()
-		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+	if !confirmDelete(cmd,
+		fmt.Sprintf("Delete agent %q?", label),
+		"This will permanently remove the deployment and cannot be undone.",
+		label, dep.ID) {
 		return nil
-	}
-	if confirm != label && confirm != dep.ID {
-		var confirmed bool
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title(fmt.Sprintf("Delete agent %q?", label)).
-					Description("This will permanently remove the deployment and cannot be undone.").
-					Value(&confirmed),
-			),
-		)
-		if err := runForm(form); err != nil || !confirmed {
-			printCanceled(cmd.OutOrStdout())
-			return nil
-		}
 	}
 
 	w := cmd.OutOrStdout()

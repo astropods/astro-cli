@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"text/tabwriter"
 
-	"github.com/charmbracelet/huh"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
@@ -75,8 +73,7 @@ var envDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	envCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environments belong to")
-	envCmd.MarkPersistentFlagRequired("blueprint") //nolint:errcheck,gosec
+	envCmd.PersistentFlags().StringP("blueprint", "b", "", "Blueprint the environments belong to (default: the name in ./astropods.yml)")
 	envListCmd.Flags().Bool("json", false, "Output as JSON")
 	envDeleteCmd.Flags().String("confirm", "", "Skip the prompt by passing the environment name as confirmation")
 	envCmd.AddCommand(envListCmd)
@@ -150,7 +147,10 @@ func runEnvList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	blueprint := flagString(cmd, "blueprint")
+	blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+	if err != nil {
+		return err
+	}
 	envs, err := listBlueprintEnvironments(cmd.Context(), at, blueprint, verbose)
 	if err != nil {
 		return err
@@ -217,9 +217,8 @@ func deploymentsByID(ctx context.Context, at AccountToken, envs []blueprintEnvir
 	if !needed {
 		return byID, nil
 	}
-	u := environmentsBaseURL() + "/api/v1/deployments?account=" + url.QueryEscape(at.Account)
-	var result listDeploymentsResponse
-	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	result, err := listAccountDeployments(ctx, at, verbose)
+	if err != nil {
 		return nil, err
 	}
 	for _, d := range result.Deployments {
@@ -254,7 +253,11 @@ func runEnvCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	name, blueprint := args[0], flagString(cmd, "blueprint")
+	name := args[0]
+	blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+	if err != nil {
+		return err
+	}
 
 	var created blueprintEnvironment
 	status, err := apiCall(cmd.Context(), http.MethodPost,
@@ -281,7 +284,11 @@ func runEnvRename(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	name, newName, blueprint := args[0], args[1], flagString(cmd, "blueprint")
+	name, newName := args[0], args[1]
+	blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+	if err != nil {
+		return err
+	}
 	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
 	if err != nil {
 		return err
@@ -308,7 +315,11 @@ func runEnvDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	name, blueprint := args[0], flagString(cmd, "blueprint")
+	name := args[0]
+	blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
+	if err != nil {
+		return err
+	}
 	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
 	if err != nil {
 		return err
@@ -317,26 +328,11 @@ func runEnvDelete(cmd *cobra.Command, args []string) error {
 		return errEnvironmentHasAgent(name, blueprint)
 	}
 
-	w := cmd.OutOrStdout()
-	confirm, _ := cmd.Flags().GetString("confirm")
-	if confirm != "" && confirm != name {
-		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
+	if !confirmDelete(cmd,
+		fmt.Sprintf("Delete environment %q?", name),
+		"This permanently deletes its variables and secrets.",
+		name) {
 		return nil
-	}
-	if confirm != name {
-		var confirmed bool
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title(fmt.Sprintf("Delete environment %q?", name)).
-					Description("This permanently deletes its variables and secrets.").
-					Value(&confirmed),
-			),
-		)
-		if err := runForm(form); err != nil || !confirmed {
-			printCanceled(w)
-			return nil
-		}
 	}
 
 	status, err := apiCallForAccount(cmd.Context(), http.MethodDelete, environmentPath(at, env.ID), nil, at.Account, verbose, nil)
@@ -346,6 +342,7 @@ func runEnvDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	w := cmd.OutOrStdout()
 	color.New(color.FgGreen).Fprint(w, "✓ ")     //nolint:errcheck,gosec
 	fmt.Fprintln(w, msgEnvironmentDeleted(name)) //nolint:errcheck,gosec
 	return nil

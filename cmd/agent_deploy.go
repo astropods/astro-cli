@@ -362,10 +362,14 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
 		return err
 	}
-	if len(args) == 0 {
-		return fmt.Errorf("this command expected exactly one argument <blueprint name>, but got 0")
+	var arg string
+	if len(args) > 0 {
+		arg = args[0]
 	}
-	name := args[0]
+	name, err := resolveBlueprintName(arg)
+	if err != nil {
+		return err
+	}
 
 	schedules, err := parseDeploySchedulesFromCmd(cmd)
 	if err != nil {
