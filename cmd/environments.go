@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
@@ -193,17 +194,26 @@ func runEnvList(cmd *cobra.Command, _ []string) error {
 
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	dim.Fprintln(tw, "Name\tAgent\tStatus\tValues") //nolint:errcheck,gosec
+	t := table.New().
+		Border(lipgloss.HiddenBorder()).
+		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false).
+		BorderHeader(false).BorderColumn(false).
+		StyleFunc(func(_, col int) lipgloss.Style {
+			if col == 3 {
+				return lipgloss.NewStyle()
+			}
+			return lipgloss.NewStyle().PaddingRight(2)
+		}).
+		Headers(dim.Sprint("Name"), dim.Sprint("Agent"), dim.Sprint("Status"), dim.Sprint("Values"))
 	for _, e := range entries {
 		agent, status := e.AgentName, e.Status
 		if e.AgentID == "" {
 			agent, status = "—", "empty"
 		}
-		cyan.Fprintf(tw, "%s", e.Name)                                                        //nolint:errcheck,gosec
-		fmt.Fprintf(tw, "\t%s\t%s\t%s\n", agent, status, vaultCounts(e.Variables, e.Secrets)) //nolint:errcheck,gosec
+		t.Row(cyan.Sprint(e.Name), agent, deploymentStatusColor(status).Sprint(status), dim.Sprint(vaultCounts(e.Variables, e.Secrets)))
 	}
-	return tw.Flush()
+	fmt.Fprintln(w, t.Render()) //nolint:errcheck,gosec
+	return nil
 }
 
 // deploymentsByID loads the account's deployments only when an environment

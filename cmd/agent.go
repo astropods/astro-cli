@@ -397,8 +397,6 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
-	green := color.New(color.FgGreen)
-	red := color.New(color.FgRed)
 
 	// compute dynamic column widths from data
 	statusW := len("Status")
@@ -426,14 +424,7 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 
 		dim.Fprintf(w, "%-*s  %-*s  ", tableTimeWidth, deployed, tableBuildWidth, buildID) //nolint:errcheck,gosec
 
-		switch d.Status {
-		case "active":
-			green.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		case "failed":
-			red.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		default:
-			dim.Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
-		}
+		deploymentStatusColor(d.Status).Fprintf(w, "%-*s  ", statusW, d.Status) //nolint:errcheck,gosec
 
 		environment := truncate(d.EnvironmentName, envW)
 		if environment == "" {
@@ -443,6 +434,17 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 		cyan.Fprintf(w, "%s\n", d.DisplayName)                                                             //nolint:errcheck,gosec
 	}
 	return nil
+}
+
+func deploymentStatusColor(status string) *color.Color {
+	switch status {
+	case "active":
+		return color.New(color.FgGreen)
+	case "failed":
+		return color.New(color.FgRed)
+	default:
+		return color.New(color.Faint)
+	}
 }
 
 // confirmDelete passes when --confirm names one of accepted, and otherwise
@@ -596,8 +598,6 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 	}
 
 	dim := color.New(color.Faint)
-	green := color.New(color.FgGreen)
-	red := color.New(color.FgRed)
 
 	dim.Fprintf(w, "%-*s  %-*s  %-4s  %s\n", tableTimeWidth, "Deployed", tableBuildWidth, "Build", "Rev", "Status") //nolint:errcheck,gosec
 
@@ -607,14 +607,7 @@ func runAgentHistory(cmd *cobra.Command, args []string) error {
 
 		dim.Fprintf(w, "%-*s  %-*s  %-4d  ", tableTimeWidth, deployed, tableBuildWidth, buildID, d.Revision) //nolint:errcheck,gosec
 
-		switch d.Status {
-		case "active":
-			green.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		case "failed":
-			red.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		default:
-			dim.Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
-		}
+		deploymentStatusColor(d.Status).Fprintf(w, "%s\n", d.Status) //nolint:errcheck,gosec
 	}
 	return nil
 }
