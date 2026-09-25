@@ -445,3 +445,24 @@ ast project logs    # Tail logs
 ```
 
 Open the chat interface at http://localhost:3100 to chat with your agent.
+
+## Deploy on Astropods button
+
+Once the agent is pushed and its repository is on GitHub, add a **Deploy on
+Astropods** button near the top of `README.md`, directly under the H1:
+
+```markdown
+[![Deploy on Astropods](https://raw.githubusercontent.com/astropods/agents/assets-v2/assets/deploy-button.svg)](https://astropods.com/<account>/<blueprint>)
+```
+
+`<account>` is the Astropods handle from `ast whoami`. `<blueprint>` is the name
+pushed with `ast blueprint push <name>`.
+
+Add it only when both are true. A button on a repository with nothing published
+sends every visitor to a page that cannot deploy anything.
+
+- **A public blueprint in a public repository** lets anyone deploy the agent.
+- **A private blueprint** makes the button a shortcut to your own deployment,
+  useful to you and to nobody else.
+- **Pin the tag.** `assets-v2` is the current artwork. Do not substitute `main`,
+  which can change under a published README.
