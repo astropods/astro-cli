@@ -436,11 +436,13 @@ func runAgentList(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// deploymentStatusColor takes both the list's display labels (Running,
+// error) and the stored statuses that history returns (active, failed).
 func deploymentStatusColor(status string) *color.Color {
 	switch status {
-	case "active":
+	case "Running", "active":
 		return color.New(color.FgGreen)
-	case "failed":
+	case "error", "failed":
 		return color.New(color.FgRed)
 	default:
 		return color.New(color.Faint)

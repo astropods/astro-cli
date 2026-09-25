@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -407,4 +408,23 @@ func TestBlueprintDefaultsToTheProjectSpec(t *testing.T) {
 		_, err := runWithOutput(t, envListCmd, runEnvList)
 		require.EqualError(t, err, errBlueprintRequired().Error())
 	})
+}
+
+func TestDeploymentStatusColor(t *testing.T) {
+	cases := []struct {
+		status string
+		want   *color.Color
+	}{
+		{"Running", color.New(color.FgGreen)},
+		{"active", color.New(color.FgGreen)},
+		{"error", color.New(color.FgRed)},
+		{"failed", color.New(color.FgRed)},
+		{"pending", color.New(color.Faint)},
+		{"empty", color.New(color.Faint)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status, func(t *testing.T) {
+			assert.True(t, deploymentStatusColor(tc.status).Equals(tc.want), "the list returns display labels and history returns stored statuses; both must color")
+		})
+	}
 }
