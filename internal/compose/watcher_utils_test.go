@@ -36,8 +36,7 @@ func TestPlanWatchDirs_RefusesAPathOutsideTheProject(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(work, "agent"), 0o755))
 
 	for _, dir := range []string{"/etc", "../sibling", "..", "", ".", "src/../.."} {
-		plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{dir}}, work)
-		require.NoError(t, err, "a bad entry is reported, not an error")
+		plan := PlanWatchDirs(&spec.Dev{Watch: []string{dir}}, work)
 
 		assert.Empty(t, plan.Mount, "%q must not be mounted", dir)
 		require.Len(t, plan.Rejected, 1, "%q must be reported with a reason", dir)
@@ -92,8 +91,7 @@ func TestPlanWatchDirs_MountsAPathEquivalentEntryOnce(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan, err := PlanWatchDirs(&spec.Dev{Watch: tt.watch}, work)
-			require.NoError(t, err)
+			plan := PlanWatchDirs(&spec.Dev{Watch: tt.watch}, work)
 
 			assert.Equal(t, tt.wantMount, plan.Mount,
 				"two mounts on one container path make Docker refuse the container")
@@ -109,8 +107,7 @@ func TestPlanWatchDirs_RefusesASymlinkOutOfTheProject(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(outside, "elsewhere"), 0o755))
 	symlinkOrSkip(t, filepath.Join(outside, "elsewhere"), filepath.Join(work, "src"))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
 
 	assert.Empty(t, plan.Mount, "a symlink out of the project must not be mounted")
 	require.Len(t, plan.Rejected, 1)
@@ -123,8 +120,7 @@ func TestPlanWatchDirs_AllowsASymlinkInsideTheProject(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(work, "packages", "core"), 0o755))
 	symlinkOrSkip(t, filepath.Join(work, "packages", "core"), filepath.Join(work, "src"))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
 
 	assert.Equal(t, []string{"src"}, plan.Mount,
 		"a symlink that stays inside the project is a normal layout")
@@ -134,8 +130,7 @@ func TestPlanWatchDirs_AllowsASymlinkInsideTheProject(t *testing.T) {
 func TestPlanWatchDirs_RefusesTheProjectRoot(t *testing.T) {
 	work := t.TempDir()
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"."}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"."}}, work)
 
 	assert.Contains(t, plan.Rejected[0].Reason, "hide everything the image built",
 		"mounting the root is the failure dev.watch exists to avoid")
@@ -145,8 +140,7 @@ func TestPlanWatchDirs_AllowsANestedDir(t *testing.T) {
 	work := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(work, "packages", "core"), 0o755))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"packages/core"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"packages/core"}}, work)
 
 	assert.Equal(t, []string{"packages/core"}, plan.Mount,
 		"a nested path inside the project is fine, and Mount is slash form on every host")
@@ -157,8 +151,7 @@ func TestPlanWatchDirs_ReportsANamedDirThatIsMissing(t *testing.T) {
 	work := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(work, "agent"), 0o755))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"agent", "srcc"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"agent", "srcc"}}, work)
 
 	assert.Equal(t, []string{"agent"}, plan.Mount)
 	assert.Equal(t, []string{"srcc"}, plan.Missing,
@@ -166,8 +159,7 @@ func TestPlanWatchDirs_ReportsANamedDirThatIsMissing(t *testing.T) {
 }
 
 func TestPlanWatchDirs_StaysQuietAboutTheImplicitDefault(t *testing.T) {
-	plan, err := PlanWatchDirs(nil, t.TempDir())
-	require.NoError(t, err)
+	plan := PlanWatchDirs(nil, t.TempDir())
 
 	assert.Empty(t, plan.Mount)
 	assert.Empty(t, plan.Missing,
@@ -178,8 +170,7 @@ func TestPlanWatchDirs_ReportsANamedPathThatIsNotADirectory(t *testing.T) {
 	work := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(work, "src"), []byte("x"), 0o600))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
 
 	assert.Empty(t, plan.Mount)
 	require.Len(t, plan.Rejected, 1, "a file is present, so it is unmountable rather than missing")
@@ -187,21 +178,60 @@ func TestPlanWatchDirs_ReportsANamedPathThatIsNotADirectory(t *testing.T) {
 	assert.Contains(t, plan.Rejected[0].Reason, "only a directory can be mounted")
 }
 
-func TestPlanWatchDirs_FailsOnAStatErrorThatIsNotAbsence(t *testing.T) {
+func TestPlanWatchDirs_ReportsAStatErrorThatIsNotAbsence(t *testing.T) {
 	work := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(work, "src"), 0o755))
+	for _, d := range []string{"src", "agent"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(work, d), 0o755))
+	}
 
 	// chmod cannot force this for a process running as root, which is how CI
 	// containers commonly run, so the stat is replaced instead.
 	original := statDir
-	statDir = func(string) (os.FileInfo, error) { return nil, fs.ErrPermission }
+	statDir = func(name string) (os.FileInfo, error) {
+		if filepath.Base(name) == "src" {
+			return nil, fs.ErrPermission
+		}
+		return original(name)
+	}
 	t.Cleanup(func() { statDir = original })
 
-	_, err := PlanWatchDirs(&spec.Dev{Watch: []string{"src"}}, work)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"src", "agent"}}, work)
 
-	require.Error(t, err, "an unreadable directory is a broken checkout, not an optional one")
-	assert.Contains(t, err.Error(), "src", "the error must name the directory it could not read")
-	assert.ErrorIs(t, err, fs.ErrPermission, "the cause must survive wrapping")
+	require.Len(t, plan.Rejected, 1,
+		"an unreadable directory costs its own reload, not the whole project")
+	assert.Equal(t, "src", plan.Rejected[0].Dir)
+	assert.Contains(t, plan.Rejected[0].Reason, "cannot be read")
+	assert.Contains(t, plan.Rejected[0].Reason, fs.ErrPermission.Error(),
+		"the cause is what tells the reader which checkout problem to fix")
+	assert.Equal(t, []string{"agent"}, plan.Mount,
+		"the entries after an unreadable one must still be planned")
+}
+
+func TestPlanWatchDirs_TreatsBothFilesystemCallsAlike(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "agent"), 0o755))
+	locked := filepath.Join(work, "locked")
+	require.NoError(t, os.MkdirAll(filepath.Join(locked, "src"), 0o755))
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	// chmod does not make a directory unreadable everywhere: Windows maps the
+	// mode to a read-only attribute that still permits traversal, and root
+	// ignores it outright. Check the permission actually bites rather than
+	// guessing which platform and user it holds for.
+	if _, err := filepath.EvalSymlinks(filepath.Join(locked, "src")); err == nil {
+		t.Skip("this platform or user does not enforce the directory permission")
+	}
+
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"locked/src", "agent"}}, work)
+
+	// An unreadable parent surfaces from EvalSymlinks, which resolves every
+	// component, rather than from the stat after it. Both report the same way,
+	// so which call notices does not change the outcome.
+	require.Len(t, plan.Rejected, 1)
+	assert.Equal(t, "locked/src", plan.Rejected[0].Dir)
+	assert.Contains(t, plan.Rejected[0].Reason, "cannot be read")
+	assert.Equal(t, []string{"agent"}, plan.Mount)
 }
 
 func TestSubdir(t *testing.T) {
@@ -275,8 +305,7 @@ func TestPlanWatchDirs_ReportsARepeatedEntryOnceWhateverItsOutcome(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan, err := PlanWatchDirs(&spec.Dev{Watch: tt.watch}, work)
-			require.NoError(t, err)
+			plan := PlanWatchDirs(&spec.Dev{Watch: tt.watch}, work)
 
 			assert.Empty(t, plan.Mount, "none of these entries is mountable")
 			assert.Equal(t, tt.wantMissing, plan.Missing,
@@ -293,8 +322,7 @@ func TestPlanWatchDirs_RefusesASymlinkToTheProjectRoot(t *testing.T) {
 	work := t.TempDir()
 	symlinkOrSkip(t, ".", filepath.Join(work, "rootlink"))
 
-	plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{"rootlink"}}, work)
-	require.NoError(t, err)
+	plan := PlanWatchDirs(&spec.Dev{Watch: []string{"rootlink"}}, work)
 
 	assert.Empty(t, plan.Mount,
 		"a link to the root mounts the whole project, the same thing watch: [.] is refused for")
@@ -348,10 +376,8 @@ func TestPlanWatchDirs_ReportsAnUnresolvablePathAndKeepsGoing(t *testing.T) {
 
 	for _, entry := range []string{"afile/sub", "loop"} {
 		t.Run(entry, func(t *testing.T) {
-			plan, err := PlanWatchDirs(&spec.Dev{Watch: []string{entry, "agent"}}, work)
+			plan := PlanWatchDirs(&spec.Dev{Watch: []string{entry, "agent"}}, work)
 
-			require.NoError(t, err,
-				"a mistake in dev-only config must not stop the compose project being built")
 			assert.Equal(t, []string{"agent"}, plan.Mount,
 				"the entries after an unresolvable one must still be planned")
 
