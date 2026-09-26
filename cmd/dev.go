@@ -196,8 +196,8 @@ func devEnvFileFlag(cmd *cobra.Command, workingDir string) (string, bool, error)
 		explicit = true
 	}
 	if explicit {
-		if _, err := loadDevEnvFile(workingDir, envFile, true); err != nil {
-			return "", false, err
+		if err := utils.CheckEnvFile(workingDir, envFile); err != nil {
+			return "", false, errEnvFileNotFound(utils.ResolveEnvPath(workingDir, envFile))
 		}
 	}
 	return envFile, explicit, nil
@@ -209,7 +209,7 @@ func loadDevEnvFile(workingDir, envFile string, explicit bool) (map[string]strin
 		return nil, errEnvFileNotFound(utils.ResolveEnvPath(workingDir, envFile))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to read .env file: %w", err)
+		return nil, errEnvFileUnreadable(utils.ResolveEnvPath(workingDir, envFile), err)
 	}
 	return envVars, nil
 }

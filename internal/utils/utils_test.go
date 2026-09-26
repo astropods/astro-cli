@@ -30,6 +30,35 @@ func TestResolveEnvPath(t *testing.T) {
 	}
 }
 
+func TestCheckEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "run.env"), []byte("A=1\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.env"), []byte("A=\"unterminated\n"), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0o700))
+
+	tests := []struct {
+		name    string
+		envFile string
+		wantErr error
+	}{
+		{name: "an existing file passes", envFile: "run.env"},
+		{name: "a file that doesn't parse still passes, since the check never reads it", envFile: "broken.env"},
+		{name: "an absolute path is checked as given", envFile: filepath.Join(dir, "run.env")},
+		{name: "a missing file fails", envFile: "absent.env", wantErr: ErrEnvFileNotFound},
+		{name: "a directory fails", envFile: "subdir", wantErr: ErrEnvFileNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckEnvFile(dir, tt.envFile)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestLoadEnvFile(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, DefaultEnvFile), []byte("A=1\n"), 0o600))

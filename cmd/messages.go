@@ -63,6 +63,10 @@ func errEnvFileNotFound(path string) error {
 	return fmt.Errorf("env file %s not found; pass --env-file with the path to an existing file", path)
 }
 
+func errEnvFileUnreadable(path string, err error) error {
+	return fmt.Errorf("could not read env file %s: %w", path, err)
+}
+
 func msgDevEnvFileLoaded(count int, path string) string {
 	return fmt.Sprintf("%s→%s Environment: %d variable(s) from %s\n", colorCyan, colorReset, count, path)
 }
