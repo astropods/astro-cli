@@ -665,10 +665,7 @@ func BuildProject(
 	// directory the spec does not name keeps the image's copy, which is what a
 	// built directory needs.
 	if s.Agent.Build != nil {
-		plan, err := PlanWatchDirs(s.Dev, workingDir)
-		if err != nil {
-			return nil, err
-		}
+		plan := PlanWatchDirs(s.Dev, workingDir)
 		plan.PrintWarnings(out.warnings)
 		agentService.Volumes = append(agentService.Volumes, plan.BindMounts(workingDir)...)
 	}

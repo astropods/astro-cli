@@ -99,11 +99,14 @@ var statDir = os.Stat
 // to exist, be a directory, and sit inside the project. Anything else is
 // reported rather than mounted.
 //
+// It returns no error. Every way an entry can fail is a bucket on the plan, so
+// a bad entry costs its own reload and nothing else.
+//
 // The project root is resolved once, before the loop. A temp directory is
 // commonly reached through a symlinked prefix, /var to /private/var on macOS
 // among them, so comparing a resolved entry against an unresolved root would
 // reject every directory under one.
-func PlanWatchDirs(dev *spec.Dev, workingDir string) (WatchDirPlan, error) {
+func PlanWatchDirs(dev *spec.Dev, workingDir string) WatchDirPlan {
 	var plan WatchDirPlan
 	named := dev != nil && len(dev.Watch) > 0
 	seen := map[string]bool{}
@@ -153,15 +156,15 @@ func PlanWatchDirs(dev *spec.Dev, workingDir string) (WatchDirPlan, error) {
 		}
 
 		// Resolution answers existence too: EvalSymlinks fails for a path that
-		// is not there. Any other failure is the entry's problem rather than
-		// the project's, so it is reported like every other unmountable entry
-		// instead of abandoning the remaining ones.
+		// is not there. Absence is reported as missing and anything else as
+		// unreadable, and neither abandons the entries after it: dev.watch is
+		// dev-only configuration, so nothing in it can stop a project building.
 		real, err := filepath.EvalSymlinks(filepath.Join(workingDir, dir))
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				miss()
 			} else {
-				reject(fmt.Sprintf("the path cannot be resolved: %v", err))
+				reject(fmt.Sprintf("the path cannot be read: %v", err))
 			}
 			continue
 		}
@@ -172,7 +175,8 @@ func PlanWatchDirs(dev *spec.Dev, workingDir string) (WatchDirPlan, error) {
 			miss()
 			continue
 		case err != nil:
-			return WatchDirPlan{}, fmt.Errorf("reading watch directory %s: %w", dir, err)
+			reject(fmt.Sprintf("the path cannot be read: %v", err))
+			continue
 		case !fi.IsDir():
 			reject("only a directory can be mounted")
 			continue
@@ -186,7 +190,7 @@ func PlanWatchDirs(dev *spec.Dev, workingDir string) (WatchDirPlan, error) {
 
 		plan.Mount = append(plan.Mount, dir)
 	}
-	return plan, nil
+	return plan
 }
 
 // PrintWarnings reports every entry the plan could not mount. Nothing is
