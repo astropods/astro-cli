@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"io"
 	"testing"
 
 	spec "github.com/astropods/astro-spec"
@@ -43,7 +44,7 @@ func TestTheSandboxTokenDoesNotReachTheMessagingSidecar(t *testing.T) {
 
 	env := buildMessagingEnvironment(s, map[string]string{
 		"ASTRO_AUTHZ_TOKEN": "a.dev.session.token",
-	})
+	}, io.Discard)
 
 	assert.NotContains(t, env, "ASTRO_AUTHZ_TOKEN",
 		"a dev session is not a deployment, so the sidecar's authorize callback would be refused")

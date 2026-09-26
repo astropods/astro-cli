@@ -2,6 +2,9 @@ package compose
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	spec "github.com/astropods/astro-spec"
@@ -119,6 +122,144 @@ func TestBuildProject_AgentDataVolumeScopedName(t *testing.T) {
 	require.NotEmpty(t, vol.Name, "agent-data volume needs a non-empty name")
 	assert.Equal(t, "my-agent-agent-data", vol.Name)
 	assert.Contains(t, vol.Name, project.Name, "volume name must be project-scoped")
+}
+
+// bindTargets returns the agent service's bind-mount targets, in mount order.
+func bindTargets(t *testing.T, project *types.Project) []string {
+	t.Helper()
+	svc, err := project.GetService("agent")
+	require.NoError(t, err)
+	var out []string
+	for _, v := range svc.Volumes {
+		if v.Type == types.VolumeTypeBind {
+			out = append(out, v.Target)
+		}
+	}
+	return out
+}
+
+// warned renders what warnf writes for msgs, in order. It calls warnf itself so
+// an assertion cannot drift from the real prefix and line ending.
+func warned(msgs ...string) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		warnf(&b, "%s", m)
+	}
+	return b.String()
+}
+
+func buildWithWatch(t *testing.T, dev *spec.Dev, dirs ...string) *types.Project {
+	t.Helper()
+	work := t.TempDir()
+	for _, d := range dirs {
+		require.NoError(t, os.MkdirAll(filepath.Join(work, d), 0o755))
+	}
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Build: &spec.BuildConfig{Context: "."}},
+		Dev:   dev,
+	}
+	project, err := BuildProject(s, work, nil)
+	require.NoError(t, err)
+	return project
+}
+
+func TestBuildProject_MountsEveryWatchedDir(t *testing.T) {
+	project := buildWithWatch(t, &spec.Dev{Watch: []string{"agent", "src"}}, "agent", "src")
+
+	assert.Equal(t, []string{"/app/agent", "/app/src"}, bindTargets(t, project),
+		"an edit under a watched dir must not keep running the image's copy")
+}
+
+func TestBuildProject_MountsOnlyAgentWhenTheSpecNamesNothing(t *testing.T) {
+	project := buildWithWatch(t, nil, "agent", "src")
+
+	assert.Equal(t, []string{"/app/agent"}, bindTargets(t, project),
+		"an existing agent keeps the behavior it had before dev.watch existed")
+}
+
+func TestBuildProject_LeavesAnUnwatchedDirToTheImage(t *testing.T) {
+	project := buildWithWatch(t, &spec.Dev{Watch: []string{"agent"}}, "agent", "dist", "node_modules")
+
+	targets := bindTargets(t, project)
+	assert.NotContains(t, targets, "/app/dist",
+		"a directory the image builds must keep the image's copy")
+	assert.NotContains(t, targets, "/app/node_modules",
+		"the host tree may be absent, or built for another platform")
+}
+
+func TestBuildProject_MountsNoSourceWithoutABuild(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "agent"), 0o755))
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+	}
+
+	project, err := BuildProject(s, work, nil)
+	require.NoError(t, err)
+
+	assert.Empty(t, bindTargets(t, project), "a prebuilt image has no source to reload from")
+}
+
+func TestBuildProject_WarnsAboutAWatchDirThatIsNotThere(t *testing.T) {
+	work := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "agent"), 0o755))
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Build: &spec.BuildConfig{Context: "."}},
+		Dev:   &spec.Dev{Watch: []string{"agent", "srcc"}},
+	}
+
+	var warnings strings.Builder
+	_, err := BuildProject(s, work, nil, WithWarnings(&warnings))
+	require.NoError(t, err)
+
+	assert.Equal(t, warned(msgWatchDirMissing("srcc")), warnings.String(),
+		"the typo itself is the useful part, and agent/ mounted fine so nothing else warns")
+}
+
+func TestBuildProject_StaysQuietWhenEveryWatchDirIsThere(t *testing.T) {
+	work := t.TempDir()
+	for _, d := range []string{"agent", "src"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(work, d), 0o755))
+	}
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Build: &spec.BuildConfig{Context: "."}},
+		Dev:   &spec.Dev{Watch: []string{"agent", "src"}},
+	}
+
+	var warnings strings.Builder
+	_, err := BuildProject(s, work, nil, WithWarnings(&warnings))
+	require.NoError(t, err)
+
+	assert.Empty(t, warnings.String(), "a spec that names what exists has nothing to be told")
+}
+
+// The Slack warning printed to real stdout before BuildProject took a writer,
+// so nothing could assert it.
+func TestBuildProject_WarnsAboutSlackWithoutABotToken(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Meta:  spec.Meta{},
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev: &spec.Dev{
+			Interfaces: &spec.DevInterfaces{
+				Messaging: &spec.DevMessaging{Adapters: []string{"slack"}},
+			},
+		},
+	}
+
+	var warnings strings.Builder
+	_, err := BuildProject(s, t.TempDir(), nil, WithWarnings(&warnings))
+	require.NoError(t, err)
+
+	assert.Equal(t, warned(msgSlackTokenMissing()), warnings.String())
 }
 
 func TestBuildProject_SlackInterface(t *testing.T) {
