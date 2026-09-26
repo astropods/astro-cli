@@ -411,6 +411,15 @@ func TestDevEnvFileFlag(t *testing.T) {
 				assert.True(t, explicit, "a set --%s must reach assembleDevEnv as explicit", flag)
 			})
 		}
+		t.Run(c.CommandPath()+" an existing file passes the early check without being parsed", func(t *testing.T) {
+			broken := filepath.Join(t.TempDir(), "broken.env")
+			require.NoError(t, os.WriteFile(broken, []byte("A=\"unterminated\n"), 0o600))
+			setEnvFlagForTest(t, c, envFileFlag, broken)
+			envFile, explicit, err := devEnvFileFlag(c, workingDir)
+			require.NoError(t, err, "the early check confirms the file exists; assembleDevEnv is the one place that parses it")
+			assert.Equal(t, broken, envFile)
+			assert.True(t, explicit)
+		})
 		t.Run(c.CommandPath()+" --env-file wins over --env", func(t *testing.T) {
 			setEnvFlagForTest(t, c, envFileFlag, present)
 			setEnvFlagForTest(t, c, deprecatedEnvFileFlag, filepath.Join(t.TempDir(), "absent.env"))
@@ -429,6 +438,10 @@ func TestAssembleDevEnv_EnvFileResolution(t *testing.T) {
 	absFile := filepath.Join(t.TempDir(), "abs.env")
 	require.NoError(t, os.WriteFile(absFile, []byte("ABS=1\n"), 0o600))
 	missing := filepath.Join(t.TempDir(), "absent.env")
+	broken := filepath.Join(t.TempDir(), "broken.env")
+	require.NoError(t, os.WriteFile(broken, []byte("A=\"unterminated\n"), 0o600))
+	_, parseErr := utils.LoadEnvFile(workingDir, broken, true)
+	require.Error(t, parseErr, "the fixture must be a file godotenv rejects")
 
 	for _, tc := range []struct {
 		name     string
@@ -438,6 +451,7 @@ func TestAssembleDevEnv_EnvFileResolution(t *testing.T) {
 		wantPath string
 		wantErr  error
 	}{
+		{name: "a file that doesn't parse names that file", envFile: broken, explicit: true, wantErr: errEnvFileUnreadable(broken, parseErr)},
 		{name: "explicit absolute path is read as given", envFile: absFile, explicit: true, wantKey: "ABS", wantPath: absFile},
 		{name: "explicit relative path resolves against the working directory", envFile: "rel.env", explicit: true, wantKey: "REL", wantPath: filepath.Join(workingDir, "rel.env")},
 		{name: "explicit missing file fails", envFile: missing, explicit: true, wantErr: errEnvFileNotFound(missing)},
