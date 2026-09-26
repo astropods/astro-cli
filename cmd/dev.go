@@ -87,12 +87,12 @@ demand, or --all-logs to tail every service.
 
 Use -b/--background to start in the background and exit immediately.`
 
-	devTriggerCmd.Flags().String("env", utils.DefaultEnvFile, envFlagUsage)
+	addEnvFileFlags(devTriggerCmd)
 	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
-		cmd.Flags().String("env", utils.DefaultEnvFile, envFlagUsage)
+		addEnvFileFlags(cmd)
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
@@ -176,11 +176,25 @@ type devEnvOptions struct {
 	OnStage     func(devEnvStage, devEnvCounts)
 }
 
-const envFlagUsage = "Environment file for integration credentials, absolute or relative to the current directory; must exist when set"
+const (
+	envFileFlag           = "env-file"
+	deprecatedEnvFileFlag = "env"
+	envFileFlagUsage      = "Environment file for integration credentials, absolute or relative to the current directory; must exist when set"
+)
+
+func addEnvFileFlags(cmd *cobra.Command) {
+	cmd.Flags().String(envFileFlag, utils.DefaultEnvFile, envFileFlagUsage)
+	cmd.Flags().String(deprecatedEnvFileFlag, utils.DefaultEnvFile, envFileFlagUsage)
+	_ = cmd.Flags().MarkDeprecated(deprecatedEnvFileFlag, "use --"+envFileFlag+" instead")
+}
 
 func devEnvFileFlag(cmd *cobra.Command, workingDir string) (string, bool, error) {
-	envFile := flagString(cmd, "env")
-	explicit := cmd.Flags().Changed("env")
+	envFile := flagString(cmd, envFileFlag)
+	explicit := cmd.Flags().Changed(envFileFlag)
+	if !explicit && cmd.Flags().Changed(deprecatedEnvFileFlag) {
+		envFile = flagString(cmd, deprecatedEnvFileFlag)
+		explicit = true
+	}
 	if explicit {
 		if _, err := loadDevEnvFile(workingDir, envFile, true); err != nil {
 			return "", false, err
