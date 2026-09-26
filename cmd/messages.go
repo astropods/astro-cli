@@ -60,7 +60,7 @@ func msgSandboxSessionCloseFailed(err error) string {
 }
 
 func errEnvFileNotFound(path string) error {
-	return fmt.Errorf("env file %s not found; pass --env with the path to an existing file", path)
+	return fmt.Errorf("env file %s not found; pass --env-file with the path to an existing file", path)
 }
 
 func msgDevEnvFileLoaded(count int, path string) string {

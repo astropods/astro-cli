@@ -75,10 +75,19 @@ func TestReadDevProjectName(t *testing.T) {
 	})
 }
 
-func TestDevTriggerHasEnvFlag(t *testing.T) {
-	f := devTriggerCmd.Flags().Lookup("env")
-	require.NotNil(t, f, "dev trigger is missing the --env flag")
-	assert.Equal(t, utils.DefaultEnvFile, f.DefValue)
+func TestDevCommandsHaveEnvFileFlag(t *testing.T) {
+	for _, c := range []*cobra.Command{devCmd, devStartCmd, devTriggerCmd} {
+		t.Run(c.CommandPath(), func(t *testing.T) {
+			f := c.Flags().Lookup(envFileFlag)
+			require.NotNil(t, f, "%s is missing the --env-file flag", c.CommandPath())
+			assert.Equal(t, utils.DefaultEnvFile, f.DefValue)
+
+			old := c.Flags().Lookup(deprecatedEnvFileFlag)
+			require.NotNil(t, old, "%s must keep --env as an alias until it is removed", c.CommandPath())
+			assert.Equal(t, "use --env-file instead", old.Deprecated, "--env must warn and point at --env-file")
+			assert.True(t, old.Hidden, "--env must not appear in help")
+		})
+	}
 }
 
 // assembleDevEnv is what stands between a triggered job and an
@@ -344,15 +353,15 @@ func TestDeclaresSandboxReadsTheSectionAndNothingElse(t *testing.T) {
 	}))
 }
 
-func setEnvFlagForTest(t *testing.T, c *cobra.Command, value string) {
+func setEnvFlagForTest(t *testing.T, c *cobra.Command, name, value string) {
 	t.Helper()
-	f := c.Flags().Lookup("env")
+	f := c.Flags().Lookup(name)
 	require.NotNil(t, f)
 	t.Cleanup(func() {
 		require.NoError(t, f.Value.Set(f.DefValue))
 		f.Changed = false
 	})
-	require.NoError(t, c.Flags().Set("env", value))
+	require.NoError(t, c.Flags().Set(name, value))
 }
 
 func TestDevEnvCommands_FailBeforeWorkOnMissingExplicitEnvFile(t *testing.T) {
@@ -367,15 +376,17 @@ func TestDevEnvCommands_FailBeforeWorkOnMissingExplicitEnvFile(t *testing.T) {
 		{name: "project start", cmd: devStartCmd},
 		{name: "project trigger", cmd: devTriggerCmd, args: []string{"job"}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			setEnvFlagForTest(t, tc.cmd, missing)
+		for _, flag := range []string{envFileFlag, deprecatedEnvFileFlag} {
+			t.Run(tc.name+" --"+flag, func(t *testing.T) {
+				setEnvFlagForTest(t, tc.cmd, flag, missing)
 
-			err := tc.cmd.RunE(tc.cmd, tc.args)
+				err := tc.cmd.RunE(tc.cmd, tc.args)
 
-			require.Error(t, err)
-			assert.Equal(t, errEnvFileNotFound(missing).Error(), err.Error(),
-				"an explicit --env that does not exist must stop the command before Docker or the spec is touched")
-		})
+				require.Error(t, err)
+				assert.Equal(t, errEnvFileNotFound(missing).Error(), err.Error(),
+					"an explicit --%s that does not exist must stop the command before Docker or the spec is touched", flag)
+			})
+		}
 	}
 }
 
@@ -391,12 +402,22 @@ func TestDevEnvFileFlag(t *testing.T) {
 			assert.Equal(t, utils.DefaultEnvFile, envFile)
 			assert.False(t, explicit)
 		})
-		t.Run(c.CommandPath()+" explicit existing file", func(t *testing.T) {
-			setEnvFlagForTest(t, c, present)
+		for _, flag := range []string{envFileFlag, deprecatedEnvFileFlag} {
+			t.Run(c.CommandPath()+" explicit existing file via --"+flag, func(t *testing.T) {
+				setEnvFlagForTest(t, c, flag, present)
+				envFile, explicit, err := devEnvFileFlag(c, workingDir)
+				require.NoError(t, err)
+				assert.Equal(t, present, envFile)
+				assert.True(t, explicit, "a set --%s must reach assembleDevEnv as explicit", flag)
+			})
+		}
+		t.Run(c.CommandPath()+" --env-file wins over --env", func(t *testing.T) {
+			setEnvFlagForTest(t, c, envFileFlag, present)
+			setEnvFlagForTest(t, c, deprecatedEnvFileFlag, filepath.Join(t.TempDir(), "absent.env"))
 			envFile, explicit, err := devEnvFileFlag(c, workingDir)
-			require.NoError(t, err)
+			require.NoError(t, err, "a missing --env must be ignored when --env-file is set")
 			assert.Equal(t, present, envFile)
-			assert.True(t, explicit, "a set --env must reach assembleDevEnv as explicit")
+			assert.True(t, explicit)
 		})
 	}
 }
