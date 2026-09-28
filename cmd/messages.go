@@ -607,3 +607,135 @@ func msgDeployed(environment string) string {
 	}
 	return "deployed into environment " + environment
 }
+
+// --- blueprint connect ---
+
+func errConnectNeedsBlueprintName(err error) error {
+	return fmt.Errorf(
+		"could not tell which blueprint to connect: %w\npass the name, as in '%s blueprint connect my-agent'",
+		err, buildinfo.BinaryName,
+	)
+}
+
+func errConnectNoRepo(err error) error {
+	return fmt.Errorf(
+		"could not read a repository from this directory: %w\npass one with --repo, as in '--repo https://github.com/acme/agents'",
+		err,
+	)
+}
+
+func errConnectNotGitHub(raw string) error {
+	return fmt.Errorf(
+		"%s is not a github.com repository, and Astropods builds from GitHub only",
+		raw,
+	)
+}
+
+func errConnectUnreadableRepo(raw string) error {
+	return fmt.Errorf("could not read an owner and repository from %q", raw)
+}
+
+func errConnectNeedsBranch() error {
+	return fmt.Errorf("could not tell which branch to build; pass one with --branch")
+}
+
+func errConnectGitHubCheckFailed(err error) error {
+	return fmt.Errorf("could not check the account's GitHub connection: %w", err)
+}
+
+func errConnectNoAuthorizationURL() error {
+	return fmt.Errorf("the server reported GitHub as disconnected but returned no authorization URL")
+}
+
+func errConnectGitHubTimedOut() error {
+	return fmt.Errorf(
+		"gave up waiting for GitHub authorization after %s; run the command again once you have finished in the browser",
+		githubGrantTimeout,
+	)
+}
+
+func errConnectRepoTakenByAnotherBlueprint(repo, serverMessage string) error {
+	if serverMessage != "" {
+		return fmt.Errorf("%s", serverMessage)
+	}
+	return fmt.Errorf("%s is already connected to another blueprint in this account", repo)
+}
+
+func errConnectOwnedByAnotherMember() error {
+	return fmt.Errorf(
+		"this blueprint's GitHub connection belongs to another member, and replacing it would spend their authorization",
+	)
+}
+
+func errConnectBlueprintNotFound(name, account string) error {
+	return fmt.Errorf(
+		"blueprint %q not found in account %q; create it first with '%s blueprint create %s'",
+		name, account, buildinfo.BinaryName, name,
+	)
+}
+
+func errConnectGitHubDisconnected() error {
+	return fmt.Errorf("the account's GitHub authorization is no longer valid; run the command again to reauthorize")
+}
+
+func errConnectRejected(serverMessage string) error {
+	if serverMessage == "" {
+		return fmt.Errorf("the server refused the connection")
+	}
+	return fmt.Errorf("%s", serverMessage)
+}
+
+func errConnectRepairUnsupported() error {
+	return fmt.Errorf("this server does not support repairing a push webhook; reconnect the repository instead")
+}
+
+func errConnectNothingToRepair(name string) error {
+	return fmt.Errorf("blueprint %q has no GitHub connection to repair", name)
+}
+
+func msgConnectGitHubAuthorizationNeeded() string {
+	return "This account has not authorized GitHub yet. Opening your browser:"
+}
+
+func msgConnectBrowserFailed() string {
+	return "Could not open the browser automatically; visit the URL above."
+}
+
+func msgConnectGitHubAuthorized(login string) string {
+	if login == "" {
+		return "GitHub authorized"
+	}
+	return fmt.Sprintf("GitHub authorized as %s", login)
+}
+
+func msgConnectLinkedAndBuilding(repo, branch string) string {
+	return fmt.Sprintf("Connected to %s on %s. Pushes to %s will build this blueprint.", repo, branch, branch)
+}
+
+func msgConnectLinked(repo, branch string) string {
+	return fmt.Sprintf("Connected to %s on %s.", repo, branch)
+}
+
+func msgConnectWebhookMissing() string {
+	return "The push webhook did not install, so pushes will not build yet. Installing one needs admin on the repository."
+}
+
+func msgConnectWebhookMissingRemedy() string {
+	return fmt.Sprintf("Ask someone with admin to run '%s blueprint connect --repair'.", buildinfo.BinaryName)
+}
+
+func msgConnectWebhookUnknown() string {
+	return "This server does not report webhook state; check the blueprint's GitHub tab to confirm pushes will build."
+}
+
+func msgConnectBuildStarted(buildID string) string {
+	return fmt.Sprintf("Build %s started.", buildID)
+}
+
+func msgConnectBuildNotStarted(err error) string {
+	return fmt.Sprintf("Connected, but the first build did not start: %v", err)
+}
+
+func msgConnectNoBuildRequested() string {
+	return fmt.Sprintf("No build started (--no-build). Run '%s blueprint build' or push to build.", buildinfo.BinaryName)
+}
