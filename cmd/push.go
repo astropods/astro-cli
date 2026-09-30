@@ -169,11 +169,9 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 	}
 }
 
-// blueprintExists reports whether name already exists at at.Account (live
-// or archived), via a plain read. Never use the create-only endpoint for
-// this: agentindex.CreateWithResourceID un-archives and deletes all
-// versions of an archived blueprint with that name as a side effect of
-// probing it.
+// blueprintExists reports whether name exists at at.Account, via a plain
+// read — never the create-only endpoint, which un-archives and wipes an
+// archived blueprint's versions as a side effect of probing it.
 func blueprintExists(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) (bool, error) {
 	u := apiPath(serverURL, at.Account, "agents", name)
 	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, nil)
@@ -189,19 +187,14 @@ func blueprintExists(ctx context.Context, serverURL string, at AccountToken, nam
 	return false, errBlueprintExistenceCheckUnexpectedStatus(name, at.Account, status)
 }
 
-// errBlueprintAlreadyExists is createBlueprintShell's signal that the name
-// is taken; any other error it returns is a real failure, not an existence
-// answer.
+// errBlueprintAlreadyExists signals a 409 from createBlueprintShell; any
+// other error is a real failure.
 var errBlueprintAlreadyExists = errors.New("blueprint already exists")
 
 // createBlueprintShell atomically reserves name at at.Account via the
-// server's create-only endpoint (the same one the UI uses to let someone
-// connect a repo before ever pushing), closing the gap a read-then-act check
-// leaves open: two pushes of a name that neither has seen yet can no longer
-// both "win", because the unique constraint lets exactly one INSERT through.
-// Returns errBlueprintAlreadyExists on 409; call only after blueprintExists
-// has already reported the name free, since this endpoint's own quota check
-// (blueprint count) has no exemption for a name that turns out to exist.
+// create-only endpoint. Call only when blueprintExists reported name
+// free — its quota check has no exemption for a name that turns out to
+// exist.
 func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) error {
 	u := apiPath(serverURL, at.Account, "agents")
 	status, err := apiCall(ctx, http.MethodPost, u, map[string]string{"name": name}, at.Token, verbose, nil)
@@ -221,17 +214,11 @@ func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken
 	return errBlueprintCreateFailed(name, at.Account, fmt.Errorf("unexpected status %d", status))
 }
 
-// resolveOrRenameBlueprint checks whether name already exists at
-// at.Account (see blueprintExists). A name that doesn't exist is reserved
-// there and then via createBlueprintShell before returning, so a second
-// push racing the same new name can't silently land on top of the first —
-// it gets errBlueprintAlreadyExists back and falls into the same existing
-// flow below as if the read itself had found the name taken. An existing
-// name returns immediately when at.Account is personalAccount or yes is
-// true; otherwise it prompts via confirmUpdateOrRename, looping under the
-// new name on a rename choice. When the existence check itself is
-// inconclusive, name is treated as existing rather than assumed free, and
-// warnW gets a note explaining why.
+// resolveOrRenameBlueprint checks whether name exists at at.Account. A
+// free name is reserved via createBlueprintShell, so a race there falls
+// into the same flow as an existing name. An existing name returns
+// immediately for personalAccount or yes; otherwise it prompts via
+// confirmUpdateOrRename, looping under the new name on a rename choice.
 func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
 	isPersonal := at.Account == personalAccount
 	originalName := name
@@ -248,9 +235,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			} else if !errors.Is(createErr, errBlueprintAlreadyExists) {
 				return "", createErr
 			}
-			// Someone else's push won the race in the gap between the read
-			// above and this attempt; fall through exactly as if the read
-			// had found name existing.
+			// Someone else won the race between the read and this attempt.
 		}
 		if isPersonal || yes {
 			return name, nil
