@@ -103,6 +103,175 @@ func checkBlueprintPushPermission(ctx context.Context, serverURL string, at Acco
 	return errBlueprintPushPermissionVerdict(at.Account, agentName, status)
 }
 
+// blueprintPushChoice is the user's answer to confirmUpdateOrRename.
+type blueprintPushChoice int
+
+const (
+	blueprintPushUpdate blueprintPushChoice = iota
+	blueprintPushRename
+)
+
+// suggestedRename is the rename prompt's placeholder and tab-completable
+// suggestion: {name}-{personalAccount}.
+func suggestedRename(name, personalAccount string) string {
+	return name + "-" + personalAccount
+}
+
+// confirmUpdateOrRename asks whether to push to an already-existing
+// blueprint or create a new one under a different name instead, offering
+// suggested as the rename prompt's placeholder and tab-completable
+// suggestion. Returns (blueprintPushRename, newName, nil), newName already
+// validated, when the user picks rename, re-prompting on an invalid
+// name rather than failing the push outright. Returns tui.ErrCanceled (via
+// runForm) on esc/ctrl+c.
+func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (blueprintPushChoice, string, error) {
+	var choice string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title(fmt.Sprintf("%q already exists in %q", name, account)).
+				Description("Pushing will update it, not create a new one.").
+				Options(
+					huh.NewOption("Yes, push and update it", "update"),
+					huh.NewOption("No, create a new blueprint instead", "rename"),
+				).
+				Value(&choice),
+		),
+	)
+	if err := runForm(form); err != nil {
+		return blueprintPushUpdate, "", err
+	}
+	if choice == "update" {
+		return blueprintPushUpdate, "", nil
+	}
+
+	for {
+		var newName string
+		nameForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("New blueprint name").
+					Description("Tab to accept the suggestion, or type your own.").
+					Placeholder(suggested).
+					Suggestions([]string{suggested}).
+					Value(&newName),
+			),
+		)
+		if err := runForm(nameForm); err != nil {
+			return blueprintPushRename, "", err
+		}
+		newName = strings.TrimSpace(newName)
+		if err := spec.ValidateName(newName); err != nil {
+			fmt.Fprintf(warnW, "%s⚠%s  %v\n", colorYellow, colorReset, err) //nolint:errcheck
+			continue
+		}
+		return blueprintPushRename, newName, nil
+	}
+}
+
+// blueprintExists reports whether name already exists at at.Account (live
+// or archived), via a plain read. Never use the create-only endpoint for
+// this: agentindex.CreateWithResourceID un-archives and deletes all
+// versions of an archived blueprint with that name as a side effect of
+// probing it.
+func blueprintExists(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) (bool, error) {
+	u := apiPath(serverURL, at.Account, "agents", name)
+	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, nil)
+	switch status {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, errBlueprintExistenceCheckUnexpectedStatus(name, at.Account, status)
+}
+
+// errBlueprintAlreadyExists is createBlueprintShell's signal that the name
+// is taken; any other error it returns is a real failure, not an existence
+// answer.
+var errBlueprintAlreadyExists = errors.New("blueprint already exists")
+
+// createBlueprintShell atomically reserves name at at.Account via the
+// server's create-only endpoint (the same one the UI uses to let someone
+// connect a repo before ever pushing), closing the gap a read-then-act check
+// leaves open: two pushes of a name that neither has seen yet can no longer
+// both "win", because the unique constraint lets exactly one INSERT through.
+// Returns errBlueprintAlreadyExists on 409; call only after blueprintExists
+// has already reported the name free, since this endpoint's own quota check
+// (blueprint count) has no exemption for a name that turns out to exist.
+func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) error {
+	u := apiPath(serverURL, at.Account, "agents")
+	status, err := apiCall(ctx, http.MethodPost, u, map[string]string{"name": name}, at.Token, verbose, nil)
+	if status == http.StatusCreated {
+		return nil
+	}
+	if status == http.StatusConflict {
+		return errBlueprintAlreadyExists
+	}
+	if err != nil {
+		var response *apiError
+		if errors.As(err, &response) && response.isStructured() {
+			return response
+		}
+		return errBlueprintCreateFailed(name, at.Account, err)
+	}
+	return errBlueprintCreateFailed(name, at.Account, fmt.Errorf("unexpected status %d", status))
+}
+
+// resolveOrRenameBlueprint checks whether name already exists at
+// at.Account (see blueprintExists). A name that doesn't exist is reserved
+// there and then via createBlueprintShell before returning, so a second
+// push racing the same new name can't silently land on top of the first —
+// it gets errBlueprintAlreadyExists back and falls into the same existing
+// flow below as if the read itself had found the name taken. An existing
+// name returns immediately when at.Account is personalAccount or yes is
+// true; otherwise it prompts via confirmUpdateOrRename, looping under the
+// new name on a rename choice. When the existence check itself is
+// inconclusive, name is treated as existing rather than assumed free, and
+// warnW gets a note explaining why.
+func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
+	isPersonal := at.Account == personalAccount
+	originalName := name
+	attempt := 0
+	for {
+		exists, err := blueprintExists(ctx, serverURL, at, name, verbose)
+		if err != nil {
+			fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintExistenceCheckInconclusive(name, at.Account, err)) //nolint:errcheck
+			exists = true
+		}
+		if !exists {
+			if createErr := createBlueprintShell(ctx, serverURL, at, name, verbose); createErr == nil {
+				return name, nil
+			} else if !errors.Is(createErr, errBlueprintAlreadyExists) {
+				return "", createErr
+			}
+			// Someone else's push won the race in the gap between the read
+			// above and this attempt; fall through exactly as if the read
+			// had found name existing.
+		}
+		if isPersonal || yes {
+			return name, nil
+		}
+
+		attempt++
+		suggested := suggestedRename(originalName, personalAccount)
+		if attempt > 1 {
+			suggested = fmt.Sprintf("%s-%d", suggested, attempt)
+		}
+		choice, newName, err := confirmUpdateOrRename(warnW, name, at.Account, suggested)
+		if err != nil {
+			return "", err
+		}
+		if choice == blueprintPushUpdate {
+			return name, nil
+		}
+		name = newName
+	}
+}
+
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
 // w is the destination for human-readable output and errW its stderr counterpart
 // (typically cmd.OutOrStdout() and cmd.ErrOrStderr()); tests can redirect by passing

@@ -407,3 +407,18 @@ func (s *Storage) GetCurrentAccount() (string, error) {
 
 	return "", fmt.Errorf("no account set; run '%s login' to authenticate", s.binaryName)
 }
+
+// GetPersonalAccount returns the personal account name for the current
+// profile, independent of CurrentAccount.
+func (s *Storage) GetPersonalAccount() (string, error) {
+	profile, err := s.GetCurrentProfile()
+	if err != nil {
+		return "", err
+	}
+
+	if profile.User != nil && profile.User.AccountName != "" {
+		return profile.User.AccountName, nil
+	}
+
+	return "", fmt.Errorf("no personal account on file; run '%s login' to authenticate", s.binaryName)
+}
