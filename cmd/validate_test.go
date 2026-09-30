@@ -174,3 +174,32 @@ func TestValidateSpecFile_AcceptsValidAgentName(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSpecFile_Connections(t *testing.T) {
+	const base = "spec: blueprint/v1\nname: demo\nagent:\n  image: demo:latest\n"
+	tests := []struct {
+		name    string
+		section string
+		wantOut string
+	}{
+		{name: "declared connection is valid", section: "connections:\n  - provider: github\n    scopes: [repo]\n    reason: Read your repositories\n"},
+		{name: "missing reason is rejected", section: "connections:\n  - provider: github\n", wantOut: "connections[0].reason: required"},
+		{name: "duplicate provider is rejected", section: "connections:\n  - provider: github\n    reason: One\n  - provider: github\n    reason: Two\n", wantOut: "declared more than once"},
+		{name: "uppercase provider is rejected", section: "connections:\n  - provider: GitHub\n    reason: Read\n", wantOut: "connections[0].provider"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			specPath := writeSpecFile(t, base+tc.section)
+			var gotErr error
+			out := captureStdout(t, func() {
+				_, gotErr = validateSpecFile(specPath)
+			})
+			if tc.wantOut == "" {
+				require.NoError(t, gotErr)
+				return
+			}
+			require.Error(t, gotErr)
+			assert.Contains(t, out, tc.wantOut)
+		})
+	}
+}
