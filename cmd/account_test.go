@@ -500,6 +500,83 @@ func TestAccountOrgID(t *testing.T) {
 	}
 }
 
+func TestCanonicalAccountName(t *testing.T) {
+	accounts := []auth.StoredAccount{
+		{Name: "alice", Type: "personal"},
+		{Name: "acme-corp", Type: "organization"},
+	}
+
+	canon, ok := canonicalAccountName(accounts, "Acme-Corp")
+	require.True(t, ok)
+	assert.Equal(t, "acme-corp", canon)
+
+	_, ok = canonicalAccountName(accounts, "no-such-org")
+	require.False(t, ok)
+}
+
+// Unlike list and selection, validateKnownAccount only fetches on a miss,
+// so a known name (case-insensitively) must never hit the network.
+func TestValidateKnownAccount_KnownAccountNeverHitsTheNetwork(t *testing.T) {
+	var called bool
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
+	}))
+
+	storage := accountNewStorage()
+	profile, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+
+	canon, _, err := validateKnownAccount(context.Background(), storage, profile.Accounts, "Acme-Corp")
+	require.NoError(t, err)
+	assert.Equal(t, "acme-corp", canon)
+	assert.False(t, called, "an already-known account must not fetch")
+}
+
+func TestValidateKnownAccount_RefreshesForAnAccountGrantedSinceLastLogin(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org", "new-org")) //nolint:errcheck
+	}))
+
+	storage := accountNewStorage()
+	profile, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+
+	canon, accounts, err := validateKnownAccount(context.Background(), storage, profile.Accounts, "new-org")
+	require.NoError(t, err)
+	assert.Equal(t, "new-org", canon)
+	assert.True(t, auth.HasAccount(accounts, "new-org"), "refreshed list should persist to the cache")
+}
+
+func TestValidateKnownAccount_ErrorsWhenStillUnknownAfterRefresh(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
+	}))
+
+	storage := accountNewStorage()
+	profile, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+
+	_, _, err = validateKnownAccount(context.Background(), storage, profile.Accounts, "no-such-org")
+	require.EqualError(t, err, errUnknownAccount("no-such-org").Error())
+}
+
+// An inconclusive refresh (a network blip, a stale session) is not proof
+// of "no access", and must not be reported as such.
+func TestValidateKnownAccount_RefreshFailureDoesNotClaimNoAccess(t *testing.T) {
+	setupAccountRefreshTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	storage := accountNewStorage()
+	profile, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+
+	canon, _, err := validateKnownAccount(context.Background(), storage, profile.Accounts, "maybe-real-org")
+	require.NoError(t, err)
+	assert.Equal(t, "maybe-real-org", canon)
+}
+
 func TestFetchUserAccounts_KeepsDisplayName(t *testing.T) {
 	srv := httptest.NewServer(jsonHandler(http.StatusOK, map[string]any{
 		"accounts": []any{

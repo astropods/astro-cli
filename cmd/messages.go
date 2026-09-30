@@ -186,13 +186,31 @@ func errAuthFailed(cause error) error {
 	}
 }
 
-func errAccountMismatch(specAccount, currentAccount string) error {
+func errOrgFlagSpecAccountMismatch(orgFlag, specAccount string) error {
 	return fmt.Errorf(
-		"spec account %q does not match current account %q\n\n"+
-			"To push as %s, switch first:\n  %s account switch %s\n\n"+
-			"To push under the current account (%s), use --allow-account-override",
-		specAccount, currentAccount, specAccount, buildinfo.BinaryName, specAccount, currentAccount,
+		"--org %q does not match the spec's account prefix %q\n\n"+
+			"They must agree, or you can drop one: --org is sugar over the "+
+			"@account/name prefix in astropods.yml's name field, not a "+
+			"second, independent target",
+		orgFlag, specAccount,
 	)
+}
+
+func errPersonalFlagSpecAccountMismatch(specAccount string) error {
+	return fmt.Errorf(
+		"--personal does not match the spec's account prefix %q\n\n"+
+			"Drop one: they're both explicit targets, and --personal already "+
+			"means your own account, not %q",
+		specAccount, specAccount,
+	)
+}
+
+func errMultipleTargetFlags() error {
+	return fmt.Errorf("--org, --personal, and --current are mutually exclusive: pick one target")
+}
+
+func errUnknownAccount(name string) error {
+	return fmt.Errorf("you don't have access to account %q; run '%s account list' to see the accounts you belong to", name, buildinfo.BinaryName)
 }
 
 func errBlueprintPushPermissionCheck(account, name string, cause error) error {
@@ -212,6 +230,14 @@ func msgBlueprintRenamedUpdateSpec(from, to string) string {
 
 func msgBlueprintExistenceCheckInconclusive(name, account string, cause error) string {
 	return fmt.Sprintf("could not confirm whether %q already exists in %q, treating it as if it does: %v", name, account, cause)
+}
+
+func msgSpecAccountOverriddenToCurrent(specAccount, currentAccount string) string {
+	return fmt.Sprintf("spec account %q overridden to current account %q", specAccount, currentAccount)
+}
+
+func msgCouldNotSavePushTarget(cause error) string {
+	return fmt.Sprintf("could not save push target: %v", cause)
 }
 
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {

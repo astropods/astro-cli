@@ -1303,7 +1303,6 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Spec with @org/name format — the push should resolve to org namespace
 	specPath := filepath.Join(tmpDir, "astropods.yml")
 	if err := os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: \"@my-org/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -1313,20 +1312,53 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 	_ = os.Chdir(tmpDir)
 	defer os.Chdir(origDir) //nolint:errcheck
 
-	// The spec has @my-org/test-agent but the logged-in account is personal; expect mismatch error
-	rootCmd.SetArgs([]string{"push", "test-agent"})
+	var registeredAccount string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredAccount = parts[len(parts)-2]
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	// Non-personal target: token resolution is a live WorkOS org-scoped
+	// refresh (see accountToken).
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+			AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer",
+		})
+	}))
+	defer workos.Close()
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	rootCmd.SetArgs([]string{"push", "test-agent", "--no-build"})
 	err := rootCmd.Execute()
 
-	if err == nil {
-		t.Fatal("expected push to fail with account mismatch, got nil")
-	}
-	if !strings.Contains(err.Error(), "does not match current account") {
-		t.Errorf("expected account mismatch error, got: %s", err.Error())
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "my-org", registeredAccount)
 }
 
-func TestPush_AllowAccountOverride(t *testing.T) {
+func TestPush_OrgFlagTargetsOrgDirectly(t *testing.T) {
 	registerCalled := false
+	var registeredAccount string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
 			if r.URL.Query().Get("dryrun") == "true" {
@@ -1334,6 +1366,8 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 				return
 			}
 			registerCalled = true
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredAccount = parts[len(parts)-2]
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
@@ -1355,27 +1389,34 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
-	// Standard creds: current account is "alice" (personal).
 	writeAccountTestCredentials(t, accountTestCreds(""))
 
-	// Spec references a different account (@acme-corp/test-agent).
+	// Non-personal account: token resolution is a live WorkOS org-scoped
+	// refresh (see accountToken).
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+			AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer",
+		})
+	}))
+	defer workos.Close()
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
 	specPath := filepath.Join(tmpDir, "astropods.yml")
-	specContent := "spec: blueprint/v1\nname: \"@acme-corp/test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"
+	specContent := "spec: blueprint/v1\nname: \"test-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"
 	require.NoError(t, os.WriteFile(specPath, []byte(specContent), 0600))
 
 	origDir, _ := os.Getwd()
 	_ = os.Chdir(tmpDir)
 	defer os.Chdir(origDir) //nolint:errcheck
 
-	var err error
-	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"push", "test-agent", "--allow-account-override", "--no-build"})
-		err = rootCmd.Execute()
-	})
+	rootCmd.SetArgs([]string{"push", "test-agent", "--org", "acme-corp", "--no-build"})
+	err := rootCmd.Execute()
 
 	require.NoError(t, err)
 	assert.True(t, registerCalled, "expected /register endpoint to be called")
-	assert.Contains(t, out, "overridden to current account", "expected account override warning in output")
+	assert.Equal(t, "acme-corp", registeredAccount)
 }
 
 // setupPushHomeAndSpec creates a temp HOME, writes credentials for currentAccount,
@@ -1400,7 +1441,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "yes", "allow-account-override", "file", "json"} {
+	for _, name := range []string{"visibility", "no-build", "yes", "org", "personal", "current", "file", "json"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
@@ -1408,105 +1449,338 @@ func resetPushFlags(t *testing.T) {
 	}
 }
 
-func TestRunBlueprintPush_AccountMismatchErrorIsActionableNotMisleading(t *testing.T) {
-	setupPushHomeAndSpec(t, "alice", "@acme-corp/my-agent")
-	resetPushFlags(t)
-
-	blueprintPushCmd.SetContext(context.Background())
-	err := runBlueprintPush(blueprintPushCmd, []string{"my-agent"})
-
-	require.EqualError(t, err, errAccountMismatch("acme-corp", "alice").Error())
-}
-
-func TestRunBlueprintPush(t *testing.T) {
+func TestResolvePushAccount(t *testing.T) {
 	tests := []struct {
-		name           string
-		specName       string   // spec agent name (bare or @org/name)
-		args           []string // positional args (name override)
-		allowOverride  bool
-		yes            bool
-		visibility     Visibility
-		wantErr        error
-		wantOutput     []string // must appear in cmd output
-		wantNoOutput   []string // must not appear in cmd output
-		wantRegistered string   // name delivered to /register; empty if error expected
+		name             string
+		orgFlag          string
+		personalFlag     bool
+		currentFlag      bool
+		specAccount      string
+		personalAccount  string
+		currentAccount   string
+		linkedAccount    string
+		want             string
+		wantFromLink     bool
+		wantOverrodeSpec bool
+		wantErr          error
 	}{
-		// Bare spec name, no arg — name comes from spec.
 		{
-			name:           "bare spec no arg",
-			specName:       "my-agent",
-			wantRegistered: "my-agent",
+			name:            "no flag no spec account no link defaults to personal",
+			personalAccount: "alice",
+			want:            "alice",
 		},
-		// Org-scoped spec, account matches org prefix, no arg — bare name used, no warning.
 		{
-			name:           "org-scoped spec matching account no arg",
-			specName:       "@alice/my-agent",
-			wantNoOutput:   []string{"overridden"},
-			wantRegistered: "my-agent",
+			name:            "spec account wins over personal",
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			want:            "acme-corp",
 		},
-		// Org-scoped spec, account mismatches, no arg, no override — error returned.
 		{
-			name:     "org-scoped spec mismatch no arg no override",
-			specName: "@acme-corp/my-agent",
-			wantErr:  errAccountMismatch("acme-corp", "alice"),
+			name:            "org flag wins over personal",
+			orgFlag:         "acme-corp",
+			personalAccount: "alice",
+			want:            "acme-corp",
 		},
-		// Org-scoped spec, account mismatches, no arg, override flag — account warning only, spec bare name registered.
 		{
-			name:           "org-scoped spec mismatch no arg with override",
-			specName:       "@acme-corp/my-agent",
-			allowOverride:  true,
-			wantOutput:     []string{`spec account "acme-corp" overridden to current account "alice"`},
-			wantNoOutput:   []string{`spec name`},
-			wantRegistered: "my-agent",
+			name:            "org flag wins over spec account when they differ",
+			orgFlag:         "acme-corp",
+			specAccount:     "other-org",
+			personalAccount: "alice",
+			wantErr:         errOrgFlagSpecAccountMismatch("acme-corp", "other-org"),
 		},
-		// Arg matches spec bare name — no override warning emitted.
 		{
-			name:           "arg matches spec name no warning",
-			specName:       "my-agent",
-			args:           []string{"my-agent"},
-			wantNoOutput:   []string{"overridden"},
-			wantRegistered: "my-agent",
+			name:            "org flag agreeing with spec account is not a conflict",
+			orgFlag:         "acme-corp",
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			want:            "acme-corp",
 		},
-		// Arg differs from spec bare name — name override warning, arg name registered.
 		{
-			name:           "arg overrides spec name",
-			specName:       "my-agent",
-			args:           []string{"new-name"},
-			wantOutput:     []string{`spec name "my-agent" overridden to "new-name"`},
-			wantRegistered: "new-name",
+			name:            "matching is case-insensitive",
+			orgFlag:         "Acme-Corp",
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			want:            "Acme-Corp",
 		},
-		// Arg present, spec has mismatching org, no override — error before name resolution.
 		{
-			name:     "arg with account mismatch no override",
-			specName: "@acme-corp/my-agent",
-			args:     []string{"my-agent"},
-			wantErr:  errAccountMismatch("acme-corp", "alice"),
+			name:            "personal flag wins over a saved link",
+			personalFlag:    true,
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "alice",
 		},
-		// Arg differs from spec AND account mismatches with override — both warnings, arg name registered.
 		{
-			name:          "arg overrides name and account with override",
-			specName:      "@acme-corp/my-agent",
-			args:          []string{"fooo"},
-			allowOverride: true,
-			wantOutput: []string{
-				`spec account "acme-corp" overridden to current account "alice"`,
-				`spec name "my-agent" overridden to "fooo"`,
-			},
-			wantRegistered: "fooo",
+			name:            "personal flag conflicting with spec account errors",
+			personalFlag:    true,
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			wantErr:         errPersonalFlagSpecAccountMismatch("acme-corp"),
 		},
-		// --yes skips the visibility confirmation prompt for a public push.
 		{
-			name:           "yes flag skips public visibility confirmation",
-			specName:       "my-agent",
-			visibility:     VisibilityPublic,
-			yes:            true,
-			wantRegistered: "my-agent",
+			name:            "personal flag agreeing with spec account (self-reference) is not a conflict",
+			personalFlag:    true,
+			specAccount:     "alice",
+			personalAccount: "alice",
+			want:            "alice",
+		},
+		{
+			name:            "org and personal flags together error",
+			orgFlag:         "acme-corp",
+			personalFlag:    true,
+			personalAccount: "alice",
+			wantErr:         errMultipleTargetFlags(),
+		},
+		{
+			name:            "current and org flags together error",
+			orgFlag:         "acme-corp",
+			currentFlag:     true,
+			personalAccount: "alice",
+			wantErr:         errMultipleTargetFlags(),
+		},
+		{
+			name:            "current and personal flags together error",
+			personalFlag:    true,
+			currentFlag:     true,
+			personalAccount: "alice",
+			wantErr:         errMultipleTargetFlags(),
+		},
+		{
+			name:            "a link wins over the personal default",
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "acme-corp",
+			wantFromLink:    true,
+		},
+		{
+			name:            "an explicit org flag overriding the link re-targets, not yet trusted",
+			orgFlag:         "other-org",
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "other-org",
+		},
+		{
+			name:            "an explicit org flag matching the link is trusted, same as the link itself",
+			orgFlag:         "acme-corp",
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "acme-corp",
+			wantFromLink:    true,
+		},
+		{
+			name:            "a spec account overriding the link re-targets, not yet trusted",
+			specAccount:     "other-org",
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "other-org",
+		},
+		{
+			name:            "a spec account matching the link is trusted, same as the link itself",
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			linkedAccount:   "acme-corp",
+			want:            "acme-corp",
+			wantFromLink:    true,
+		},
+		{
+			name:            "current account wins over the personal default when nothing else applies",
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "acme-corp",
+		},
+		{
+			name:            "current account equal to personal is just personal",
+			personalAccount: "alice",
+			currentAccount:  "alice",
+			want:            "alice",
+		},
+		{
+			name:            "org flag wins over current account",
+			orgFlag:         "other-org",
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "other-org",
+		},
+		{
+			name:            "spec account wins over current account",
+			specAccount:     "other-org",
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "other-org",
+		},
+		{
+			name:            "personal flag wins over current account",
+			personalFlag:    true,
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "alice",
+		},
+		{
+			name:            "a link wins over current account",
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			linkedAccount:   "other-org",
+			want:            "other-org",
+			wantFromLink:    true,
+		},
+		{
+			name:             "current flag overrides a mismatched spec account without erroring",
+			currentFlag:      true,
+			specAccount:      "other-org",
+			personalAccount:  "alice",
+			currentAccount:   "acme-corp",
+			want:             "acme-corp",
+			wantOverrodeSpec: true,
+		},
+		{
+			name:            "current flag agreeing with spec account is not flagged as an override",
+			currentFlag:     true,
+			specAccount:     "acme-corp",
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "acme-corp",
+		},
+		{
+			name:            "current flag with no spec account just resolves to current",
+			currentFlag:     true,
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			want:            "acme-corp",
+		},
+		{
+			name:            "current flag matching an existing link is trusted",
+			currentFlag:     true,
+			personalAccount: "alice",
+			currentAccount:  "acme-corp",
+			linkedAccount:   "acme-corp",
+			want:            "acme-corp",
+			wantFromLink:    true,
+		},
+		{
+			name:            "current flag overriding an existing link re-targets, not yet trusted",
+			currentFlag:     true,
+			personalAccount: "alice",
+			currentAccount:  "other-org",
+			linkedAccount:   "acme-corp",
+			want:            "other-org",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var registeredName string
+			got, fromLink, overrodeSpec, err := resolvePushAccount(tt.orgFlag, tt.personalFlag, tt.currentFlag, tt.specAccount, tt.personalAccount, tt.currentAccount, tt.linkedAccount)
+			if tt.wantErr != nil {
+				require.EqualError(t, err, tt.wantErr.Error())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantFromLink, fromLink)
+			assert.Equal(t, tt.wantOverrodeSpec, overrodeSpec)
+		})
+	}
+}
+
+func TestRunBlueprintPush_OrgFlagSpecAccountMismatchIsActionable(t *testing.T) {
+	setupPushHomeAndSpec(t, "alice", "@acme-corp/my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("org", "other-org"))
+
+	blueprintPushCmd.SetContext(context.Background())
+	err := runBlueprintPush(blueprintPushCmd, []string{"my-agent"})
+
+	require.EqualError(t, err, errOrgFlagSpecAccountMismatch("other-org", "acme-corp").Error())
+}
+
+func TestRunBlueprintPush(t *testing.T) {
+	tests := []struct {
+		name                  string
+		specName              string   // spec agent name (bare or @org/name)
+		args                  []string // positional args (name override)
+		orgFlag               string
+		yes                   bool
+		visibility            Visibility
+		wantErr               error
+		wantOutput            []string // must appear in cmd output
+		wantNoOutput          []string // must not appear in cmd output
+		wantRegisteredAccount string   // account delivered to /register; empty if error expected
+		wantRegisteredName    string   // name delivered to /register; empty if error expected
+	}{
+		// Current-account fallback is covered separately by
+		// TestRunBlueprintPush_CurrentAccountFallback.
+		{
+			name:                  "bare spec no arg defaults to personal account",
+			specName:              "my-agent",
+			wantRegisteredAccount: "alice",
+			wantRegisteredName:    "my-agent",
+		},
+		{
+			name:                  "org-scoped spec name is the direct target",
+			specName:              "@acme-corp/my-agent",
+			wantNoOutput:          []string{"overridden"},
+			wantRegisteredAccount: "acme-corp",
+			wantRegisteredName:    "my-agent",
+		},
+		{
+			name:                  "org flag with bare spec name targets that org",
+			specName:              "my-agent",
+			orgFlag:               "acme-corp",
+			wantRegisteredAccount: "acme-corp",
+			wantRegisteredName:    "my-agent",
+		},
+		{
+			name:                  "org flag agreeing with spec account succeeds",
+			specName:              "@acme-corp/my-agent",
+			orgFlag:               "acme-corp",
+			wantRegisteredAccount: "acme-corp",
+			wantRegisteredName:    "my-agent",
+		},
+		{
+			name:     "org flag conflicting with spec account errors",
+			specName: "@acme-corp/my-agent",
+			orgFlag:  "other-org",
+			wantErr:  errOrgFlagSpecAccountMismatch("other-org", "acme-corp"),
+		},
+		{
+			name:                  "arg matches spec name no warning",
+			specName:              "my-agent",
+			args:                  []string{"my-agent"},
+			wantNoOutput:          []string{"overridden"},
+			wantRegisteredAccount: "alice",
+			wantRegisteredName:    "my-agent",
+		},
+		{
+			name:                  "arg overrides spec name",
+			specName:              "my-agent",
+			args:                  []string{"new-name"},
+			wantOutput:            []string{`spec name "my-agent" overridden to "new-name"`},
+			wantRegisteredAccount: "alice",
+			wantRegisteredName:    "new-name",
+		},
+		{
+			name:                  "yes flag skips public visibility confirmation",
+			specName:              "my-agent",
+			visibility:            VisibilityPublic,
+			yes:                   true,
+			wantRegisteredAccount: "alice",
+			wantRegisteredName:    "my-agent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Non-personal targets resolve their token via a live WorkOS
+			// org-scoped refresh (see accountToken).
+			workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+					AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer",
+				})
+			}))
+			defer workos.Close()
+			auth.SetWorkOSBaseURLOverride(workos.URL)
+			t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+			var registeredAccount, registeredName string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
 					if r.URL.Query().Get("dryrun") == "true" {
@@ -1515,6 +1789,7 @@ func TestRunBlueprintPush(t *testing.T) {
 					}
 					parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
 					registeredName = parts[len(parts)-1]
+					registeredAccount = parts[len(parts)-2]
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusCreated)
 					json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
@@ -1535,8 +1810,8 @@ func TestRunBlueprintPush(t *testing.T) {
 
 			resetPushFlags(t)
 			require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
-			if tt.allowOverride {
-				require.NoError(t, blueprintPushCmd.Flags().Set("allow-account-override", "true"))
+			if tt.orgFlag != "" {
+				require.NoError(t, blueprintPushCmd.Flags().Set("org", tt.orgFlag))
 			}
 			if tt.yes {
 				require.NoError(t, blueprintPushCmd.Flags().Set("yes", "true"))
@@ -1565,11 +1840,401 @@ func TestRunBlueprintPush(t *testing.T) {
 			for _, s := range tt.wantNoOutput {
 				assert.NotContains(t, out, s)
 			}
-			if tt.wantRegistered != "" {
-				assert.Equal(t, tt.wantRegistered, registeredName)
+			if tt.wantRegisteredName != "" {
+				assert.Equal(t, tt.wantRegisteredName, registeredName)
+				assert.Equal(t, tt.wantRegisteredAccount, registeredAccount)
 			}
 		})
 	}
+}
+
+// TestRunBlueprintPush_CurrentAccountFallback covers the fallback tier
+// between an established link and the personal default: a bare push with no
+// --org, no @account/ spec prefix, and no push link yet still follows
+// `ast account switch`, exactly as an explicit --org would.
+func TestRunBlueprintPush_CurrentAccountFallback(t *testing.T) {
+	var registeredAccount string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredAccount = parts[len(parts)-2]
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	// Non-personal target: token resolution is a live WorkOS org-scoped
+	// refresh (see accountToken).
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+			AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer",
+		})
+	}))
+	t.Cleanup(workos.Close)
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	setupPushHomeAndSpec(t, "acme-corp", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, "acme-corp", registeredAccount, "no --org, no spec prefix, no link — falls back to the switched account")
+}
+
+// TestRunBlueprintPush_CurrentFlagOverridesSpecAccount covers --current's
+// reason to exist: a spec whose name has a different account's prefix
+// (a shared template, a colleague's spec) still pushes to the caller's own
+// current account when --current is passed, with a warning rather than
+// the hard error --org/--personal would give for the same disagreement.
+func TestRunBlueprintPush_CurrentFlagOverridesSpecAccount(t *testing.T) {
+	var registeredAccount, registeredName string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredName = parts[len(parts)-1]
+			registeredAccount = parts[len(parts)-2]
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer"})
+	}))
+	t.Cleanup(workos.Close)
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	setupPushHomeAndSpec(t, "acme-corp", "@other-org/my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	require.NoError(t, blueprintPushCmd.Flags().Set("current", "true"))
+
+	buf := &bytes.Buffer{}
+	blueprintPushCmd.SetOut(buf)
+	t.Cleanup(func() { blueprintPushCmd.SetOut(nil) })
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, "acme-corp", registeredAccount, "--current wins over the spec's @other-org/ prefix")
+	assert.Equal(t, "my-agent", registeredName)
+	assert.Contains(t, buf.String(), msgSpecAccountOverriddenToCurrent("other-org", "acme-corp"))
+}
+
+func TestRunBlueprintPush_OrgFlagCaseNormalized(t *testing.T) {
+	var registeredAccount string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredAccount = parts[len(parts)-2]
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "org-scoped-jwt-token", ExpiresIn: 3600, TokenType: "Bearer"})
+	}))
+	t.Cleanup(workos.Close)
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	setupPushHomeAndSpec(t, "", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	require.NoError(t, blueprintPushCmd.Flags().Set("org", "Acme-Corp"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, "acme-corp", registeredAccount, "--org is normalized to the account's canonical casing")
+}
+
+func TestRunBlueprintPush_UnknownOrgFlagErrorsLocally(t *testing.T) {
+	accountSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(accountsResponse("alice", "acme-corp", "other-org")) //nolint:errcheck
+	}))
+	t.Cleanup(accountSrv.Close)
+	accountServerURLOverride = accountSrv.URL
+	t.Cleanup(func() { accountServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	require.NoError(t, blueprintPushCmd.Flags().Set("org", "no-such-org"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	err := runBlueprintPush(blueprintPushCmd, nil)
+	require.EqualError(t, err, errUnknownAccount("no-such-org").Error())
+}
+
+func TestRunBlueprintPush_PersonalFlagOverridesCurrentAccount(t *testing.T) {
+	var registeredAccount string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			parts := strings.Split(strings.TrimSuffix(r.URL.Path, "/register"), "/")
+			registeredAccount = parts[len(parts)-2]
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "acme-corp", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	require.NoError(t, blueprintPushCmd.Flags().Set("personal", "true"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, "alice", registeredAccount, "--personal overrides the switched current account")
+}
+
+// TestRunBlueprintPush_MultipleNamesGetIndependentLinks covers the same
+// project pushed under two names from one directory (e.g. staging/prod):
+// each name keeps its own link, and writing the second must not clobber
+// the first.
+func TestRunBlueprintPush_MultipleNamesGetIndependentLinks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, []string{"my-agent-staging"}))
+
+	specDir, err := os.Getwd()
+	require.NoError(t, err)
+	links := readPushLinks(specDir)
+	account, ok := links.account("my-agent")
+	require.True(t, ok)
+	assert.Equal(t, "alice", account)
+	account, ok = links.account("my-agent-staging")
+	require.True(t, ok, "a second name pushed from the same directory must not clobber the first name's link")
+	assert.Equal(t, "alice", account)
+}
+
+// TestRunBlueprintPush_FileFlagLinksNextToSpecNotCwd covers `-f` pointing
+// at a spec outside the current directory: the link belongs to the
+// project (the spec's own directory), not to wherever the command happened
+// to run from.
+func TestRunBlueprintPush_FileFlagLinksNextToSpecNotCwd(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	_ = os.Unsetenv(auth.EnvAccessToken)
+	writeAccountTestCredentials(t, accountTestCreds(""))
+
+	projectDir := t.TempDir()
+	specPath := filepath.Join(projectDir, "astropods.yml")
+	require.NoError(t, os.WriteFile(specPath, []byte("spec: blueprint/v1\nname: \"my-agent\"\nmeta: {}\nagent:\n  image: test:latest\n"), 0600))
+
+	cwdDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(origDir) }) //nolint:errcheck
+	require.NoError(t, os.Chdir(cwdDir))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	require.NoError(t, blueprintPushCmd.Flags().Set("file", specPath))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+
+	_, ok := readPushLinks(projectDir).account("my-agent")
+	assert.True(t, ok, "link should be written next to the spec file")
+	_, ok = readPushLinks(cwdDir).account("my-agent")
+	assert.False(t, ok, "link must not be written to the unrelated working directory")
+}
+
+// TestRunBlueprintPush_FailedPushDoesNotWriteALink guards against reopening
+// the silent-overwrite bug this whole design exists to close: if the link
+// were written as soon as the existence check passed, a retry after a
+// failed push would trust that stale link and skip the check entirely,
+// even if someone else created the same name at the target in the
+// meantime. The link must only be written once the push actually lands.
+func TestRunBlueprintPush_FailedPushDoesNotWriteALink(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.Error(t, runBlueprintPush(blueprintPushCmd, nil))
+
+	specDir, err := os.Getwd()
+	require.NoError(t, err)
+	_, ok := readPushLinks(specDir).account("my-agent")
+	assert.False(t, ok, "a failed push must not leave a link behind")
+}
+
+// TestRunBlueprintPush_WritesAndReusesLocalPushLink covers .ast/push.json
+// end to end: the first push writes the link, and a second push from the
+// same directory reads it and skips the existence check. Every push also
+// makes one GET for PushPipeline.ResolveVisibility's own agent-status
+// check (see getAgentFromServer), independent of the link: that call is
+// why the counts below are 2 and 3, not 1 and 1.
+func TestRunBlueprintPush_WritesAndReusesLocalPushLink(t *testing.T) {
+	var getHits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
+			if r.URL.Query().Get("dryrun") == "true" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodGet {
+			getHits++
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	setupPushHomeAndSpec(t, "", "my-agent")
+	resetPushFlags(t)
+	require.NoError(t, blueprintPushCmd.Flags().Set("no-build", "true"))
+	blueprintPushCmd.SetContext(context.Background())
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, 2, getHits, "first push (no link yet) should hit the existence check, plus the visibility check")
+
+	specDir, err := os.Getwd()
+	require.NoError(t, err)
+	links := readPushLinks(specDir)
+	account, ok := links.account("my-agent")
+	require.True(t, ok, "push link should have been written after a successful first push")
+	assert.Equal(t, "alice", account, "defaults to personal, matching accountTestCreds")
+
+	require.NoError(t, runBlueprintPush(blueprintPushCmd, nil))
+	assert.Equal(t, 3, getHits, "second push should read the link and skip the existence check, leaving only the visibility check")
 }
 
 func TestFindAgentReadme(t *testing.T) {

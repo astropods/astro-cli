@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -15,6 +17,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
@@ -108,9 +111,16 @@ var blueprintGetCmd = &cobra.Command{
 var blueprintPushCmd = &cobra.Command{
 	Use:   "push [name]",
 	Short: "Push blueprint image to registry",
-	Long:  "Push blueprint image to registry. If the blueprint does not yet exist it will be created automatically.",
-	Args:  optionalValidAgentName,
-	RunE:  runBlueprintPush,
+	Long: "Push blueprint image to registry. Targets your current account (see " +
+		"'ast account switch'), or your personal account if you haven't switched to one; " +
+		"an @org/name prefix in the spec's name field targets that org directly instead. " +
+		"Pass --org or --personal to target a different account for just this push, or " +
+		"--current to push to your current account even when the spec's prefix names a " +
+		"different one. If the name doesn't exist yet at the target it's created " +
+		"automatically; if it already exists there, you'll be asked to confirm before " +
+		"it's updated.",
+	Args: optionalValidAgentName,
+	RunE: runBlueprintPush,
 }
 
 var blueprintArchiveCmd = &cobra.Command{
@@ -141,7 +151,12 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
-	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
+	cmd.Flags().String("org", "", "Push to this org, overriding (and re-saving) this project's push target; sugar for an @org/name prefix in the spec's name field")
+	cmd.Flags().Bool("personal", false, "Push to your personal account, overriding (and re-saving) this project's push target")
+	cmd.Flags().Bool("current", false, "Push to your current account (ast account switch), overriding (and re-saving) this project's push target and any @org/name prefix in the spec's name field")
+	cmd.Flags().Bool("allow-account-override", false, "Deprecated alias for --current")
+	_ = cmd.Flags().MarkHidden("allow-account-override")
+	_ = cmd.Flags().MarkDeprecated("allow-account-override", "use --current instead")
 	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
 }
 
@@ -216,6 +231,66 @@ func runBlueprintBuild(cmd *cobra.Command, args []string) error {
 	return runBuild(cmd.Context(), specPath, name, generateBuildID(), []string{platform}, false, verbose, false)
 }
 
+// resolvePushAccount decides which account ast push targets, in order:
+// --org/--personal/--current flag, the spec's @account/name prefix, a
+// matching local push link (.ast/push.json, see push_link.go) for this
+// exact blueprint name, the CLI's current account (ast account switch),
+// then personalAccount. Unlike --org/--personal, --current never errors on
+// a spec-account disagreement: overriding that disagreement, not matching
+// it, is its purpose. overrodeSpec reports when it did.
+// fromLink reports whether the resolved account matches an established
+// link for this exact name, regardless of which of the above actually
+// produced it: an explicit flag or spec prefix that happens to agree with
+// the link is trusted the same as the link itself; one that disagrees
+// re-targets, and is not.
+func resolvePushAccount(orgFlag string, personalFlag, currentFlag bool, specAccount, personalAccount, currentAccount, linkedAccount string) (account string, fromLink, overrodeSpec bool, err error) {
+	flagsSet := 0
+	for _, set := range []bool{orgFlag != "", personalFlag, currentFlag} {
+		if set {
+			flagsSet++
+		}
+	}
+	if flagsSet > 1 {
+		return "", false, false, errMultipleTargetFlags()
+	}
+
+	switch {
+	case personalFlag:
+		if specAccount != "" && !strings.EqualFold(personalAccount, specAccount) {
+			return "", false, false, errPersonalFlagSpecAccountMismatch(specAccount)
+		}
+		account = personalAccount
+	case orgFlag != "":
+		if specAccount != "" && !strings.EqualFold(orgFlag, specAccount) {
+			return "", false, false, errOrgFlagSpecAccountMismatch(orgFlag, specAccount)
+		}
+		account = orgFlag
+	case currentFlag:
+		account = currentAccount
+		overrodeSpec = specAccount != "" && !strings.EqualFold(currentAccount, specAccount)
+	case specAccount != "":
+		account = specAccount
+	case linkedAccount != "":
+		account = linkedAccount
+	case currentAccount != "":
+		account = currentAccount
+	default:
+		account = personalAccount
+	}
+	fromLink = linkedAccount != "" && strings.EqualFold(linkedAccount, account)
+	return account, fromLink, overrodeSpec, nil
+}
+
+// pushAccountToken resolves a scoped token for account.
+func pushAccountToken(ctx context.Context, account string) (AccountToken, error) {
+	token, err := getAccountToken(ctx, account)
+	if err != nil {
+		return AccountToken{}, err
+	}
+	expiresAt, _ := auth.ParseJWTExpiry(token)
+	return AccountToken{Account: account, Token: token, ExpiresAt: expiresAt}, nil
+}
+
 func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	vis, err := ParseVisibility(cmd)
 	if err != nil {
@@ -229,28 +304,15 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	at, verbose, err := cmdAuth(cmd)
-	if err != nil {
-		return err
-	}
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 
-	// Resolve name: arg overrides spec; account always comes from the login token.
 	specAccount, agentName := spec.SplitAgentName(astroSpec.Name)
 
-	// --json keeps stdout to the result object alone, so the override warnings
-	// have to go to stderr with the rest of the human output.
+	// --json: human output, this warning included, moves to stderr.
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	warnW := cmd.OutOrStdout()
 	if jsonOut {
 		warnW = cmd.ErrOrStderr()
-	}
-
-	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
-	if specAccount != "" && !strings.EqualFold(specAccount, at.Account) {
-		if !allowAccountOverride {
-			return errAccountMismatch(specAccount, at.Account)
-		}
-		fmt.Fprintf(warnW, "%s⚠%s  spec account %q overridden to current account %q\n", colorYellow, colorReset, specAccount, at.Account) //nolint:errcheck
 	}
 
 	if len(args) > 0 {
@@ -260,28 +322,85 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		agentName = args[0]
 	}
 
+	specDir := filepath.Dir(specPath)
+
+	storage := accountNewStorage()
+	personalAccount, err := storage.GetPersonalAccount()
+	if err != nil {
+		return err
+	}
+	currentAccount, err := storage.GetCurrentAccount()
+	if err != nil {
+		return err
+	}
+
+	orgFlag, _ := cmd.Flags().GetString("org")
+	personalFlag, _ := cmd.Flags().GetBool("personal")
+	currentFlag, _ := cmd.Flags().GetBool("current")
+	allowAccountOverride, _ := cmd.Flags().GetBool("allow-account-override")
+	currentFlag = currentFlag || allowAccountOverride
+
+	profile, err := storage.GetCurrentProfile()
+	if err != nil {
+		return err
+	}
+	accounts := profile.Accounts
+	if orgFlag != "" {
+		canon, refreshed, verr := validateKnownAccount(cmd.Context(), storage, accounts, orgFlag)
+		if verr != nil {
+			return verr
+		}
+		orgFlag, accounts = canon, refreshed
+	}
+	// --current means the spec's account prefix, if any, is about to be
+	// overridden, not honored, so it isn't worth validating.
+	if specAccount != "" && !currentFlag {
+		canon, _, verr := validateKnownAccount(cmd.Context(), storage, accounts, specAccount)
+		if verr != nil {
+			return verr
+		}
+		specAccount = canon
+	}
+
+	links := readPushLinks(specDir)
+	linkedAccount, _ := links.account(agentName)
+
+	targetAccount, fromLink, overrodeSpec, err := resolvePushAccount(orgFlag, personalFlag, currentFlag, specAccount, personalAccount, currentAccount, linkedAccount)
+	if err != nil {
+		return err
+	}
+	if overrodeSpec {
+		fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgSpecAccountOverriddenToCurrent(specAccount, targetAccount)) //nolint:errcheck
+	}
+	at, err := pushAccountToken(cmd.Context(), targetAccount)
+	if err != nil {
+		return err
+	}
+
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 
-	personalAccount, err := accountNewStorage().GetPersonalAccount()
-	if err != nil {
-		return err
-	}
-	resolvedName, err := resolveOrRenameBlueprint(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, yes, verbose)
-	if err != nil {
-		if errors.Is(err, tui.ErrCanceled) {
-			printCanceled(cmd.OutOrStdout())
-			return nil
+	// Skipped when fromLink is true; see resolveOrRenameBlueprint for when
+	// it prompts.
+	if !fromLink {
+		resolvedName, err := resolveOrRenameBlueprint(
+			cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, yes, verbose,
+		)
+		if err != nil {
+			if errors.Is(err, tui.ErrCanceled) {
+				printCanceled(cmd.OutOrStdout())
+				return nil
+			}
+			return err
 		}
-		return err
+		if resolvedName != agentName {
+			fmt.Fprintf(warnW, "%s\n", msgBlueprintRenamedUpdateSpec(agentName, resolvedName)) //nolint:errcheck
+		}
+		agentName = resolvedName
 	}
-	if resolvedName != agentName {
-		fmt.Fprintf(warnW, "%s\n", msgBlueprintRenamedUpdateSpec(agentName, resolvedName)) //nolint:errcheck
-	}
-	agentName = resolvedName
 
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
-	return runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{
+	if err := runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{
 		SpecPath:   specPath,
 		AgentName:  agentName,
 		SkipBuild:  noBuild,
@@ -291,7 +410,19 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Yes:        yes,
 		Verbose:    verbose,
 		JSON:       jsonOut,
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Only after the push actually lands: writing it earlier would let a
+	// retry of a failed push skip the existence check above and silently
+	// overwrite a same-named blueprint someone else created in the meantime.
+	if !fromLink {
+		if err := writePushLink(specDir, agentName, at.Account); err != nil && verbose {
+			fmt.Fprintf(cmd.ErrOrStderr(), "%s⚠%s  %s\n", colorYellow, colorReset, msgCouldNotSavePushTarget(err)) //nolint:errcheck
+		}
+	}
+	return nil
 }
 
 // blueprintLatestVersion returns the version with the most recent PublishedAt, or nil if there are none.

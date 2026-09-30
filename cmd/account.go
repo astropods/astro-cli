@@ -284,6 +284,37 @@ func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
 	return AccountToken{Account: account, Token: token, ExpiresAt: expiresAt}, nil
 }
 
+// canonicalAccountName looks up name case-insensitively among accounts,
+// returning its canonical stored casing.
+func canonicalAccountName(accounts []auth.StoredAccount, name string) (string, bool) {
+	for _, a := range accounts {
+		if strings.EqualFold(a.Name, name) {
+			return a.Name, true
+		}
+	}
+	return "", false
+}
+
+// validateKnownAccount resolves name to its canonical casing among
+// accounts, refreshing the account list once if name isn't found there
+// yet (accounts granted after the last refresh). If the refresh itself
+// fails, name is returned unchanged rather than reported as inaccessible:
+// that failure could just as easily be a stale session, which
+// pushAccountToken will report on its own terms.
+func validateKnownAccount(ctx context.Context, storage *auth.Storage, accounts []auth.StoredAccount, name string) (string, []auth.StoredAccount, error) {
+	if canon, ok := canonicalAccountName(accounts, name); ok {
+		return canon, accounts, nil
+	}
+	refreshed, err := refreshAccounts(ctx, storage)
+	if err != nil {
+		return name, accounts, nil
+	}
+	if canon, ok := canonicalAccountName(refreshed, name); ok {
+		return canon, refreshed, nil
+	}
+	return name, refreshed, errUnknownAccount(name)
+}
+
 func getAccountToken(ctx context.Context, account string) (string, error) {
 	return accountToken(ctx, account, false)
 }
