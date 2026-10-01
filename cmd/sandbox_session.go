@@ -45,14 +45,28 @@ type openDevSessionResponse struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-// injectSandboxDevToken opens a dev session for this agent and puts its token
-// in envVars, so an agent running locally attaches a real sandbox through the
-// deployed control plane. There is no local sandbox runtime: the agent talks to
-// the same MicroVM it would when deployed.
-//
-// A no-op for a spec with no sandbox section, so `ast dev` keeps working for an
-// author with no interest in sandboxes.
-func injectSandboxDevToken(
+func injectDevSessionToken(
+	ctx context.Context,
+	w io.Writer,
+	agentName string,
+	envVars map[string]string,
+	declaration *spec.Sandbox,
+	wantsConnections bool,
+	verbose bool,
+) error {
+	if declaration == nil && !wantsConnections {
+		return nil
+	}
+	if declaration == nil {
+		if err := openDevSession(ctx, w, agentName, envVars, nil, verbose); err != nil {
+			fmt.Fprintf(w, "%s⚠%s  %s\n", colorYellow, colorReset, msgConnectionsDevSessionFailed(err)) //nolint:errcheck,gosec
+		}
+		return nil
+	}
+	return openDevSession(ctx, w, agentName, envVars, declaration, verbose)
+}
+
+func openDevSession(
 	ctx context.Context,
 	w io.Writer,
 	agentName string,
@@ -60,9 +74,6 @@ func injectSandboxDevToken(
 	declaration *spec.Sandbox,
 	verbose bool,
 ) error {
-	if declaration == nil {
-		return nil
-	}
 	if agentName == "" {
 		return errSandboxNeedsAgentName()
 	}
@@ -87,7 +98,11 @@ func injectSandboxDevToken(
 	}
 
 	envVars[sandboxTokenEnvVar] = resp.Token
-	fmt.Fprintf(w, "%s→%s %s\n", colorCyan, colorReset, msgSandboxSessionOpened(resp.ExpiresAt)) //nolint:errcheck,gosec
+	opened := msgSandboxSessionOpened(resp.ExpiresAt)
+	if declaration == nil {
+		opened = msgConnectionsDevSessionOpened(resp.ExpiresAt)
+	}
+	fmt.Fprintf(w, "%s→%s %s\n", colorCyan, colorReset, opened) //nolint:errcheck,gosec
 	return nil
 }
 
@@ -139,4 +154,8 @@ func sandboxDeclaration(s *spec.AstroSpec) *spec.Sandbox {
 
 func declaresSandbox(s *spec.AstroSpec) bool {
 	return sandboxDeclaration(s) != nil
+}
+
+func declaresConnections(s *spec.AstroSpec) bool {
+	return s != nil && len(s.Connections) > 0
 }
