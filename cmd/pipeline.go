@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
@@ -59,8 +60,18 @@ type PushPipeline struct {
 	readme       string
 	readmeAssets map[string]string
 	visibility   Visibility
+	gitMetadata  gitmetadata.Metadata
 
 	err error
+}
+
+// CollectGitMetadata snapshots the repository state that the build starts
+// from. Collection is best-effort and therefore never stops a push.
+func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
+	return p.step(func() error {
+		p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath))
+		return nil
+	})
 }
 
 // NewPushPipeline creates a pipeline ready for chaining.
@@ -350,7 +361,7 @@ func (p *PushPipeline) Register() *PushPipeline {
 
 		printStep("Registering agent with server...")
 		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
-			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
+			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account, p.gitMetadata); err != nil {
 			printStepFail()
 			return err
 		}

@@ -23,6 +23,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
@@ -318,6 +319,7 @@ func runPush(ctx context.Context, w, errW io.Writer, at AccountToken, cfg PushPi
 		ParseSpec().
 		CollectComponents().
 		ResolveVisibility(). // prompt before any expensive work
+		CollectGitMetadata().
 		Build().
 		Push().
 		TransformSpec().
@@ -503,8 +505,8 @@ func uploadReadmeAssets(ctx context.Context, serverURL, account, agentName, work
 	return resp.Assets, nil
 }
 
-func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string) error {
-	err := postAgentRegistration(ctx, serverURL, agentName, buildID, registry, specContent, readme, readmeAssets, visibility, verbose, skipAuth, account)
+func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata ...gitmetadata.Metadata) error {
+	err := postAgentRegistration(ctx, serverURL, agentName, buildID, registry, specContent, readme, readmeAssets, visibility, verbose, skipAuth, account, metadata...)
 	if err == nil {
 		return nil
 	}
@@ -519,7 +521,7 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	return errRegistrationFailed(err)
 }
 
-func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string) error {
+func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata ...gitmetadata.Metadata) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -540,6 +542,17 @@ func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, r
 	}
 	if len(readmeAssets) > 0 {
 		payload["readme_assets"] = readmeAssets
+	}
+	if len(metadata) > 0 {
+		if metadata[0].CommitSHA != "" {
+			payload["commit_sha"] = metadata[0].CommitSHA
+		}
+		if metadata[0].CommitMessage != "" {
+			payload["commit_message"] = metadata[0].CommitMessage
+		}
+		if metadata[0].WorkingTreeDirty {
+			payload["working_tree_dirty"] = true
+		}
 	}
 
 	jsonData, err := json.Marshal(payload)

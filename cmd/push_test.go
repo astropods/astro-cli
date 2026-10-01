@@ -20,6 +20,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -361,6 +362,57 @@ func TestRegisterAgent_PermissionRaceIsActionable(t *testing.T) {
 	)
 
 	require.EqualError(t, err, "Your access does not grant blueprint:edit.")
+}
+
+func TestRegisterAgentWithServerSendsGitMetadataWhenAvailable(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:        "0123456789abcdef",
+			CommitMessage:    "feat: preserve git context\n\nCommit body",
+			WorkingTreeDirty: true,
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, "0123456789abcdef", received["commit_sha"])
+	assert.Equal(t, "feat: preserve git context\n\nCommit body", received["commit_message"])
+	assert.Equal(t, true, received["working_tree_dirty"])
+}
+
+func TestRegisterAgentWithServerOmitsUnavailableGitMetadata(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.NotContains(t, received, "commit_sha")
+	assert.NotContains(t, received, "commit_message")
+	assert.NotContains(t, received, "working_tree_dirty")
 }
 
 const (
