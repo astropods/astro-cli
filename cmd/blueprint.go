@@ -160,6 +160,11 @@ func init() {
 	blueprintGetCmd.Flags().Bool("template", false, "Show deployment variables and secrets")
 
 	blueprintCreateCmd.Flags().StringP("visibility", "V", string(VisibilityPrivate), "Set visibility: public or private")
+	// --connect is a bool with --repo carrying the URL, rather than one flag
+	// with an optional value: cobra's NoOptDefVal only accepts --connect=<url>,
+	// and would read the space form's URL as a positional argument instead.
+	blueprintCreateCmd.Flags().Bool("connect", false, "Connect a GitHub repository so pushes build this blueprint")
+	registerConnectFlags(blueprintCreateCmd)
 	blueprintSetCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	registerPushFlags(blueprintPushCmd)
 	blueprintBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
@@ -449,6 +454,28 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	}
 	visibility := string(vis)
 
+	// --repo implies --connect; naming a repository and not connecting it would
+	// have no other meaning here.
+	connecting := flagBool(cmd, "connect") || flagString(cmd, "repo") != ""
+	connectOpts := connectOptions{
+		Name:      name,
+		Repo:      flagString(cmd, "repo"),
+		Branch:    flagString(cmd, "branch"),
+		Path:      flagString(cmd, "path"),
+		NoBuild:   flagBool(cmd, "no-build"),
+		NoBrowser: flagBool(cmd, "no-browser"),
+	}
+	// Resolve before creating anything. A repository the CLI cannot read is a
+	// local answer, and finding it out afterwards would leave behind a
+	// blueprint the caller did not ask for on its own.
+	var repoFullName, branch string
+	if connecting {
+		repoFullName, branch, err = resolveRepoAndBranch(cmd.Context(), connectOpts)
+		if err != nil {
+			return err
+		}
+	}
+
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "%s→%s Creating blueprint %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
 
@@ -466,6 +493,10 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+
+	if connecting {
+		return connectBlueprintRepo(cmd, at, connectOpts, repoFullName, branch, verbose)
 	}
 
 	printBlueprintNextSteps(w)
