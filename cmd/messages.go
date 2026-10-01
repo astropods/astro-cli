@@ -55,6 +55,14 @@ func msgSandboxSessionOpened(expiresAt string) string {
 	return fmt.Sprintf("Sandbox session opened (expires %s)", expiresAt)
 }
 
+func msgConnectionsDevSessionOpened(expiresAt string) string {
+	return fmt.Sprintf("Dev session opened for connections (expires %s)", expiresAt)
+}
+
+func msgConnectionsDevSessionFailed(err error) string {
+	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
+}
+
 func msgSandboxSessionCloseFailed(err error) string {
 	return fmt.Sprintf("Could not close the sandbox session: %v", err)
 }

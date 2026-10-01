@@ -278,8 +278,8 @@ func assembleDevEnv(
 		return nil, counts, err
 	}
 
-	if err := injectSandboxDevToken(
-		ctx, w, specAgentName(opts.Spec), envVars, sandboxDeclaration(opts.Spec), opts.Verbose,
+	if err := injectDevSessionToken(
+		ctx, w, specAgentName(opts.Spec), envVars, sandboxDeclaration(opts.Spec), declaresConnections(opts.Spec), opts.Verbose,
 	); err != nil {
 		return nil, counts, err
 	}
@@ -469,7 +469,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// A sandbox outliving `ast dev` bills for compute nobody is using, so the
 	// session goes when the containers do. Background mode leaves it, because
 	// the containers keep running and `project stop` is what ends the session.
-	if declaresSandbox(astroSpec) {
+	if declaresSandbox(astroSpec) || declaresConnections(astroSpec) {
 		closeSandboxDevSession(cmd.Context(), w, astroSpec.Name, verbose)
 	}
 	return err

@@ -90,8 +90,8 @@ func TestTheSandboxTokenIsInjectedOnlyWhenAskedFor(t *testing.T) {
 
 			envVars := map[string]string{}
 			var out strings.Builder
-			require.NoError(t, injectSandboxDevToken(
-				context.Background(), &out, "my-agent", envVars, tc.declaration, false))
+			require.NoError(t, injectDevSessionToken(
+				context.Background(), &out, "my-agent", envVars, tc.declaration, false, false))
 
 			assert.Equal(t, tc.wantCalls, srv.calls,
 				"a spec with no sandbox section must not cost an API call, or a login prompt")
@@ -113,8 +113,8 @@ func TestOpeningASessionAddressesTheAccountAndNamesTheAgent(t *testing.T) {
 	srv := &sandboxServer{}
 	newSandboxServer(t, srv)
 
-	require.NoError(t, injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false))
+	require.NoError(t, injectDevSessionToken(
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false, false))
 
 	assert.Equal(t, http.MethodPost, srv.method)
 	assert.Equal(t, "/api/v1/accounts/alice/dev-sessions", srv.path,
@@ -133,8 +133,8 @@ func TestOpeningASessionWithoutLoginSaysToLogIn(t *testing.T) {
 	srv := &sandboxServer{}
 	newSandboxServer(t, srv)
 
-	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
+	err := injectDevSessionToken(
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires login",
 		"a sandbox is the developer's, so an author who is not logged in needs telling")
@@ -146,8 +146,8 @@ func TestARefusedSessionExplainsWhichSwitchIsOff(t *testing.T) {
 	srv := &sandboxServer{status: http.StatusConflict, body: `{"error":"sandboxes are not enabled for this account"}`}
 	newSandboxServer(t, srv)
 
-	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
+	err := injectDevSessionToken(
+		context.Background(), io.Discard, "my-agent", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false, false)
 	require.Error(t, err)
 	assert.Equal(t, errSandboxNotEnabled("alice").Error(), err.Error(),
 		"a 409 means the account switch or the cluster's image, and the author can act on neither without being told")
@@ -159,8 +159,8 @@ func TestASessionWithNoTokenIsAFailureNotAnEmptyVariable(t *testing.T) {
 	newSandboxServer(t, srv)
 
 	envVars := map[string]string{}
-	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "my-agent", envVars, &spec.Sandbox{Toolchain: "auto"}, false)
+	err := injectDevSessionToken(
+		context.Background(), io.Discard, "my-agent", envVars, &spec.Sandbox{Toolchain: "auto"}, false, false)
 
 	require.Error(t, err, "an empty token would start the agent with authorization off, which is what this replaces")
 	assert.NotContains(t, envVars, sandboxTokenEnvVar)
@@ -171,8 +171,8 @@ func TestAnAgentWithNoNameCannotOpenASession(t *testing.T) {
 	srv := &sandboxServer{}
 	newSandboxServer(t, srv)
 
-	err := injectSandboxDevToken(
-		context.Background(), io.Discard, "", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false)
+	err := injectDevSessionToken(
+		context.Background(), io.Discard, "", map[string]string{}, &spec.Sandbox{Toolchain: "auto"}, false, false)
 	assert.Equal(t, errSandboxNeedsAgentName().Error(), err.Error())
 	assert.Zero(t, srv.calls)
 }
@@ -221,4 +221,51 @@ func TestClosingWithoutLoginIsSilent(t *testing.T) {
 func TestSpecAgentNameToleratesNoSpec(t *testing.T) {
 	assert.Empty(t, specAgentName(nil))
 	assert.Equal(t, "my-agent", specAgentName(&spec.AstroSpec{Name: "my-agent"}))
+}
+
+func TestDevSessionForConnections(t *testing.T) {
+	tests := []struct {
+		name             string
+		declaration      *spec.Sandbox
+		wantsConnections bool
+		status           int
+		wantCalls        int
+		wantToken        bool
+		wantOut          string
+	}{
+		{name: "neither declared", wantCalls: 0},
+		{name: "connections only", wantsConnections: true, wantCalls: 1, wantToken: true, wantOut: msgConnectionsDevSessionOpened(fakeSessionExpiry)},
+		{name: "connections only, server refuses", wantsConnections: true, status: http.StatusConflict, wantCalls: 1, wantOut: "Connections won't work in this session"},
+		{name: "sandbox and connections", declaration: &spec.Sandbox{Toolchain: "auto"}, wantsConnections: true, wantCalls: 1, wantToken: true, wantOut: msgSandboxSessionOpened(fakeSessionExpiry)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			loggedIn(t)
+			srv := &sandboxServer{status: tc.status}
+			if tc.status != 0 {
+				srv.body = `{"error":"sandboxes not configured"}`
+			}
+			newSandboxServer(t, srv)
+
+			envVars := map[string]string{}
+			var out strings.Builder
+			err := injectDevSessionToken(context.Background(), &out, "my-agent", envVars, tc.declaration, tc.wantsConnections, false)
+
+			require.NoError(t, err, "a connections-only session that fails must not stop ast dev")
+			assert.Equal(t, tc.wantCalls, srv.calls)
+			if tc.wantToken {
+				assert.Equal(t, fakeSessionToken, envVars[sandboxTokenEnvVar])
+			} else {
+				assert.NotContains(t, envVars, sandboxTokenEnvVar)
+			}
+			if tc.wantOut != "" {
+				assert.Contains(t, out.String(), tc.wantOut)
+			} else {
+				assert.Empty(t, out.String())
+			}
+			if tc.wantCalls > 0 && tc.declaration == nil {
+				assert.Nil(t, srv.request.Sandbox, "a connections-only session declares no sandbox")
+			}
+		})
+	}
 }
