@@ -214,6 +214,22 @@ func errBlueprintPushPermissionVerdict(account, name string, status int) error {
 	)
 }
 
+func msgBlueprintRenamedUpdateSpec(from, to string) string {
+	return fmt.Sprintf("%s→%s pushed as %q instead of %q; update astropods.yml's name field to keep it that way next time", colorCyan, colorReset, to, from)
+}
+
+func msgBlueprintExistenceCheckInconclusive(name, account string, cause error) string {
+	return fmt.Sprintf("could not confirm whether %q already exists in %q, treating it as if it does: %v", name, account, cause)
+}
+
+func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {
+	return fmt.Errorf("unexpected status %d checking whether %q already exists in %q", status, name, account)
+}
+
+func errBlueprintCreateFailed(name, account string, cause error) error {
+	return fmt.Errorf("failed to reserve %q in %q: %w", name, account, cause)
+}
+
 func errRegistrationFailed(cause error) error {
 	return fmt.Errorf("registration failed: %w", cause)
 }

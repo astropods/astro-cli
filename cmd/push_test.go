@@ -154,6 +154,160 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 	}
 }
 
+func TestSuggestedRename(t *testing.T) {
+	assert.Equal(t, "my-agent-alice", suggestedRename("my-agent", "alice"))
+}
+
+func TestBlueprintExists(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantExists bool
+		wantErr    bool
+	}{
+		{name: "200 means it exists", statusCode: http.StatusOK, wantExists: true},
+		{name: "404 means it does not exist", statusCode: http.StatusNotFound, wantExists: false},
+		{name: "403 is inconclusive", statusCode: http.StatusForbidden, wantErr: true},
+		{name: "500 is inconclusive", statusCode: http.StatusInternalServerError, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod = r.Method
+				gotPath = r.URL.Path
+				w.WriteHeader(tt.statusCode)
+			}))
+			t.Cleanup(srv.Close)
+
+			exists, err := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantExists, exists)
+			assert.Equal(t, http.MethodGet, gotMethod)
+			assert.Equal(t, "/api/v1/agents/acme/my-agent", gotPath)
+		})
+	}
+}
+
+// TestResolveOrRenameBlueprint covers every branch that returns without
+// reaching the interactive confirm prompt. The exists/org-target/no-flag
+// branch, which prompts, is not exercised here. personalAccount or yes is
+// set on every case so the inconclusive-response cases can be observed
+// through the warning they print, without also reaching the prompt.
+func TestResolveOrRenameBlueprint(t *testing.T) {
+	tests := []struct {
+		name string
+		// getStatus is the existence-check GET's response. createStatus is
+		// the create-shell POST's response, consulted only when getStatus
+		// is 404 (blueprintExists reported the name free).
+		getStatus       int
+		createStatus    int
+		personalAccount string
+		yes             bool
+		wantWarning     bool
+		wantErr         string
+	}{
+		{name: "fresh name (404) is reserved by the create call and needs nothing further", getStatus: http.StatusNotFound, createStatus: http.StatusCreated},
+		{
+			name:      "fresh name (404) that a concurrent push just won (create 409) still proceeds silently in the personal namespace",
+			getStatus: http.StatusNotFound, createStatus: http.StatusConflict, personalAccount: "acme",
+		},
+		{
+			name:      "fresh name (404) that a concurrent push just won (create 409) still proceeds silently with --yes",
+			getStatus: http.StatusNotFound, createStatus: http.StatusConflict, yes: true,
+		},
+		{
+			name:      "fresh name (404) whose reservation attempt fails outright aborts the push",
+			getStatus: http.StatusNotFound, createStatus: http.StatusInternalServerError, wantErr: `failed to reserve "my-agent" in "acme"`,
+		},
+		{name: "existing name (200) in personal namespace proceeds silently", getStatus: http.StatusOK, personalAccount: "acme"},
+		{name: "existing name (200) at an org target with --yes proceeds silently", getStatus: http.StatusOK, yes: true},
+		{name: "inconclusive response (403) is treated as existing", getStatus: http.StatusForbidden, personalAccount: "acme", wantWarning: true},
+		{name: "inconclusive response (500) is treated as existing", getStatus: http.StatusInternalServerError, yes: true, wantWarning: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					gotMethod, gotPath = r.Method, r.URL.Path
+					w.WriteHeader(tt.getStatus)
+					return
+				}
+				w.WriteHeader(tt.createStatus)
+			}))
+			t.Cleanup(srv.Close)
+
+			var warnBuf bytes.Buffer
+			got, err := resolveOrRenameBlueprint(
+				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
+				"my-agent", tt.personalAccount, tt.yes, false,
+			)
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "my-agent", got)
+			assert.Equal(t, http.MethodGet, gotMethod)
+			assert.Equal(t, "/api/v1/agents/acme/my-agent", gotPath)
+			if tt.wantWarning {
+				_, existsErr := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+				require.Error(t, existsErr)
+				assert.Contains(t, warnBuf.String(), msgBlueprintExistenceCheckInconclusive("my-agent", "acme", existsErr))
+			} else {
+				assert.Empty(t, warnBuf.String())
+			}
+		})
+	}
+}
+
+func TestCreateBlueprintShell(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantErr    string
+	}{
+		{name: "201 reserves the name", statusCode: http.StatusCreated},
+		{name: "409 reports it already exists", statusCode: http.StatusConflict, wantErr: errBlueprintAlreadyExists.Error()},
+		{name: "unexpected status aborts with a clear error", statusCode: http.StatusInternalServerError, wantErr: `failed to reserve "my-agent" in "acme"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath string
+			var gotBody map[string]string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod, gotPath = r.Method, r.URL.Path
+				_ = json.NewDecoder(r.Body).Decode(&gotBody)
+				w.WriteHeader(tt.statusCode)
+			}))
+			t.Cleanup(srv.Close)
+
+			err := createBlueprintShell(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+
+			assert.Equal(t, http.MethodPost, gotMethod)
+			assert.Equal(t, "/api/v1/agents/acme", gotPath)
+			assert.Equal(t, map[string]string{"name": "my-agent"}, gotBody)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestRunPush_PermissionDenialStopsBeforeThePipeline(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1186,6 +1340,11 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 			return
 		}
 		// GET agent status — return 404 (new agent)
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
@@ -1361,6 +1520,11 @@ func TestRunBlueprintPush(t *testing.T) {
 					json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
 					return
 				}
+				if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+					// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+					w.WriteHeader(http.StatusCreated)
+					return
+				}
 				w.WriteHeader(http.StatusNotFound)
 			}))
 			defer srv.Close()
@@ -1500,6 +1664,11 @@ func TestRunBlueprintPushJSONKeepsStdoutToTheResultObject(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
+			return
+		}
+		if r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/register") {
+			// create-blueprint-shell: the name doesn't exist yet in any of these tests.
+			w.WriteHeader(http.StatusCreated)
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
