@@ -21,6 +21,20 @@ func promptKeyMap() *huh.KeyMap {
 	return km
 }
 
+// runFormWithKeyMap is runForm, but with a caller-supplied keymap instead of
+// the shared one — for a form whose fields need a binding promptKeyMap
+// can't give everyone (see confirmUpdateOrRename's AcceptSuggestion override).
+func runFormWithKeyMap(form *huh.Form, km *huh.KeyMap) error {
+	form = form.WithTheme(cliHuhTheme()).WithKeyMap(km)
+	if _, err := tea.NewProgram(&promptModel{form: form}).Run(); err != nil {
+		return err
+	}
+	if form.State == huh.StateAborted {
+		return tui.ErrCanceled
+	}
+	return nil
+}
+
 // promptModel wraps a huh.Form to append a uniform "esc cancel" hint on its
 // own line below huh's per-field footer, and to translate completion/abort
 // into tea.Quit without relying on Form.Run's SubmitCmd/CancelCmd plumbing.

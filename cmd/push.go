@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"gopkg.in/yaml.v3"
 
@@ -130,9 +131,9 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title(fmt.Sprintf("%q already exists in %q", name, account)).
-				Description("Pushing will update it, not create a new one.").
+				Description("This push will update the existing blueprint instead of creating a new one. Make sure this is the blueprint you intend to update.").
 				Options(
-					huh.NewOption("Yes, push and update it", "update"),
+					huh.NewOption("Yes, push to the existing blueprint", "update"),
 					huh.NewOption("No, create a new blueprint instead", "rename"),
 				).
 				Value(&choice),
@@ -144,6 +145,14 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 	if choice == "update" {
 		return blueprintPushUpdate, "", nil
 	}
+
+	// huh's default binds tab to "submit this field," which runs first and
+	// never reaches the input's own accept-suggestion handling — only ctrl+e
+	// did. This form rebinds tab to accept the suggestion instead, matching
+	// what its own description promises; enter still submits.
+	nameKeyMap := promptKeyMap()
+	nameKeyMap.Input.Next = key.NewBinding(key.WithKeys("enter"))
+	nameKeyMap.Input.AcceptSuggestion = key.NewBinding(key.WithKeys("tab", "ctrl+e"))
 
 	for {
 		var newName string
@@ -157,7 +166,7 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 					Value(&newName),
 			),
 		)
-		if err := runForm(nameForm); err != nil {
+		if err := runFormWithKeyMap(nameForm, nameKeyMap); err != nil {
 			return blueprintPushRename, "", err
 		}
 		newName = strings.TrimSpace(newName)
