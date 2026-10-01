@@ -146,22 +146,23 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 		return blueprintPushUpdate, "", nil
 	}
 
-	// huh's default binds tab to "submit this field," which runs first and
-	// never reaches the input's own accept-suggestion handling — only ctrl+e
-	// did. This form rebinds tab to accept the suggestion instead, matching
-	// what its own description promises; enter still submits.
+	// Lets tab still autocomplete the suggestion after the field's been
+	// cleared and retyped from a matching prefix: huh's default binds tab to
+	// "submit this field" first, never reaching accept-suggestion (only
+	// ctrl+e did).
 	nameKeyMap := promptKeyMap()
 	nameKeyMap.Input.Next = key.NewBinding(key.WithKeys("enter"))
 	nameKeyMap.Input.AcceptSuggestion = key.NewBinding(key.WithKeys("tab", "ctrl+e"))
 
 	for {
-		var newName string
+		// Pre-filled with the suggestion rather than started blank, so enter
+		// alone accepts it; ctrl+u (or backspace) clears it to type another.
+		newName := suggested
 		nameForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
 					Title("New blueprint name").
-					Description("Tab to accept the suggestion, or type your own.").
-					Placeholder(suggested).
+					Description("Press enter to accept, or edit this name.").
 					Suggestions([]string{suggested}).
 					Value(&newName),
 			),
