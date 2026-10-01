@@ -128,6 +128,31 @@ func TestOpeningASessionAddressesTheAccountAndNamesTheAgent(t *testing.T) {
 		"the call is authenticated as the developer")
 }
 
+func TestADeclaredBrowserReachesTheSessionRequest(t *testing.T) {
+	loggedIn(t)
+	srv := &sandboxServer{}
+	newSandboxServer(t, srv)
+
+	parsed, err := spec.ParseSpecBytes([]byte(`spec: blueprint/v1
+name: my-agent
+agent:
+  image: example/agent:1
+sandbox:
+  toolchain: auto
+  browser:
+    name: chromium
+`))
+	require.NoError(t, err)
+
+	require.NoError(t, injectDevSessionToken(
+		context.Background(), io.Discard, "my-agent", map[string]string{}, sandboxDeclaration(parsed), false, false))
+
+	require.NotNil(t, srv.request.Sandbox)
+	require.NotNil(t, srv.request.Sandbox.Browser,
+		"the server picks the browser image from this field, so dropping it gives the dev session no browser")
+	assert.Equal(t, "chromium", srv.request.Sandbox.Browser.Name)
+}
+
 func TestOpeningASessionWithoutLoginSaysToLogIn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	srv := &sandboxServer{}
