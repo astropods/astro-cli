@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +43,7 @@ func TestCollectMetadataReadsCommitFromAContainingRepository(t *testing.T) {
 	assert.Equal(t, sha[:len(sha)-1], metadata.CommitSHA)
 	assert.Equal(t, "feat: initial blueprint\n\nCommit body", metadata.CommitMessage)
 	assert.False(t, metadata.WorkingTreeDirty, "empty nested directories must not make the repository dirty")
+	assert.True(t, metadata.WorkingTreeStatusKnown)
 }
 
 func TestCollectMetadataDetectsWorkingTreeChanges(t *testing.T) {
@@ -103,23 +106,29 @@ func TestCollectMetadataIsBestEffort(t *testing.T) {
 		gitCommand(t, dir, "init")
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "astropods.yml"), []byte("kind: blueprint\n"), 0o600))
 
-		assert.Equal(t, Metadata{WorkingTreeDirty: true}, CollectMetadata(dir))
+		assert.Equal(t, Metadata{WorkingTreeDirty: true, WorkingTreeStatusKnown: true}, CollectMetadata(dir))
 	})
 
 	t.Run("commit lookup failure does not discard status", func(t *testing.T) {
-		metadata := collectMetadata("project", func(_ string, args ...string) (string, error) {
+		metadata := collectMetadata("project", []string{"project"}, func(_ string, args ...string) (string, error) {
 			if args[0] == "show" {
 				return "", errors.New("no head")
+			}
+			if args[0] == "rev-parse" {
+				return filepath.Abs("project")
 			}
 			return " M astropods.yml\n", nil
 		})
 
-		assert.Equal(t, Metadata{WorkingTreeDirty: true}, metadata)
+		assert.Equal(t, Metadata{WorkingTreeDirty: true, WorkingTreeStatusKnown: true}, metadata)
 	})
 
 	t.Run("status failure does not discard commit", func(t *testing.T) {
-		metadata := collectMetadata("project", func(_ string, args ...string) (string, error) {
-			if args[0] == "status" {
+		metadata := collectMetadata("project", []string{"project"}, func(_ string, args ...string) (string, error) {
+			if args[0] == "rev-parse" {
+				return filepath.Abs("project")
+			}
+			if args[0] == "--no-optional-locks" {
 				return "", errors.New("status failed")
 			}
 			return "abc123\x00Message\n", nil
@@ -127,4 +136,62 @@ func TestCollectMetadataIsBestEffort(t *testing.T) {
 
 		assert.Equal(t, Metadata{CommitSHA: "abc123", CommitMessage: "Message"}, metadata)
 	})
+}
+
+func TestCollectMetadataChecksOnlyRelevantPaths(t *testing.T) {
+	dir, _ := committedRepository(t)
+	alpha := filepath.Join(dir, "blueprints", "alpha")
+	beta := filepath.Join(dir, "blueprints", "beta")
+	shared := filepath.Join(dir, "packages", "shared")
+	for _, path := range []string{alpha, beta, shared} {
+		require.NoError(t, os.MkdirAll(path, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(path, "source.txt"), []byte("initial\n"), 0o600))
+	}
+	gitCommand(t, dir, "add", "blueprints", "packages")
+	gitCommand(t, dir, "commit", "-m", "feat: add blueprints")
+
+	require.NoError(t, os.WriteFile(filepath.Join(beta, "source.txt"), []byte("changed\n"), 0o600))
+	assert.False(t, CollectMetadata(alpha, alpha, shared).WorkingTreeDirty, "an unrelated sibling blueprint must not block")
+
+	require.NoError(t, os.WriteFile(filepath.Join(shared, "source.txt"), []byte("changed\n"), 0o600))
+	assert.True(t, CollectMetadata(alpha, alpha, shared).WorkingTreeDirty, "a declared shared context must block")
+}
+
+func TestCollectMetadataUsesNoOptionalLocks(t *testing.T) {
+	var statusArgs []string
+	root, err := filepath.Abs("project")
+	require.NoError(t, err)
+	collectMetadata("project", []string{"project"}, func(_ string, args ...string) (string, error) {
+		switch args[0] {
+		case "show":
+			return "", errors.New("no head")
+		case "rev-parse":
+			return root, nil
+		default:
+			statusArgs = append([]string(nil), args...)
+			return "", nil
+		}
+	})
+
+	assert.Equal(t, []string{"--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal", "--", "."}, statusArgs)
+}
+
+func TestCollectMetadataTruncatesCommitMessagesAtAUTF8Boundary(t *testing.T) {
+	root, err := filepath.Abs("project")
+	require.NoError(t, err)
+	message := strings.Repeat("a", MaxCommitMessageBytes-1) + "é"
+	metadata := collectMetadata("project", []string{"project"}, func(_ string, args ...string) (string, error) {
+		switch args[0] {
+		case "show":
+			return strings.Repeat("a", 40) + "\x00" + message, nil
+		case "rev-parse":
+			return root, nil
+		default:
+			return "", nil
+		}
+	})
+
+	assert.LessOrEqual(t, len(metadata.CommitMessage), MaxCommitMessageBytes)
+	assert.True(t, utf8.ValidString(metadata.CommitMessage))
+	assert.Equal(t, strings.Repeat("a", MaxCommitMessageBytes-1), metadata.CommitMessage)
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
@@ -19,7 +20,8 @@ import (
 	spec "github.com/astropods/astro-spec"
 )
 
-var errDirtyWorkingTree = errors.New("uncommitted changes detected in the Git working tree; commit them before running 'ast push'")
+var errDirtyWorkingTree = errors.New("uncommitted changes detected in files used by this blueprint; commit them or rerun with '--allow-dirty'")
+var confirmDirtyPushPrompt = confirmDirtyPush
 
 // PushPipelineConfig holds all parameters for a push pipeline.
 type PushPipelineConfig struct {
@@ -28,6 +30,8 @@ type PushPipelineConfig struct {
 	Platform     string
 	SkipBuild    bool
 	SkipPush     bool
+	BuildID      string
+	AllowDirty   bool
 	RegistryHost string
 	Account      string
 	Verbose      bool
@@ -69,25 +73,99 @@ type PushPipeline struct {
 	err error
 }
 
-// CollectGitMetadata snapshots the repository state that the build starts
-// from. Git discovery is best-effort, but a successfully detected dirty
-// worktree stops the push before any build work begins.
+// CollectGitMetadata snapshots the repository state that produced the build.
+// Normal pushes read the relevant source paths; --no-build reads provenance
+// from the exact local images selected by BuildID.
 func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
 	return p.step(func() error {
-		p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath))
-		if p.gitMetadata.WorkingTreeDirty {
-			return errDirtyWorkingTree
+		if p.cfg.SkipBuild {
+			if len(p.components) == 0 {
+				return nil
+			}
+			cli, err := newDockerClient()
+			if err != nil {
+				return err
+			}
+			p.gitMetadata, err = inspectReusableBuild(p.ctx, cli, p.components, p.cfg.AgentName, p.tag, p.cfg.Platform)
+			if err != nil {
+				return err
+			}
+		} else {
+			p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
 		}
-		return nil
+		return p.confirmDirtyPush()
 	})
+}
+
+func (p *PushPipeline) relevantGitPaths() []string {
+	return relevantGitPaths(p.cfg.SpecPath, p.components)
+}
+
+func relevantGitPaths(specPath string, components []spec.Component) []string {
+	workingDir := filepath.Dir(specPath)
+	paths := []string{workingDir}
+	for _, component := range components {
+		paths = append(paths, filepath.Clean(filepath.Join(workingDir, component.Build.Context)))
+	}
+	return paths
+}
+
+func (p *PushPipeline) confirmDirtyPush() error {
+	if !p.gitMetadata.WorkingTreeDirty {
+		return nil
+	}
+	if p.cfg.AllowDirty {
+		printDirtyPushWarning()
+		return nil
+	}
+	if p.cfg.Yes || !interactiveTerminal() {
+		return errDirtyWorkingTree
+	}
+	proceed, err := confirmDirtyPushPrompt()
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return tui.ErrCanceled
+	}
+	printDirtyPushWarning()
+	return nil
+}
+
+func confirmDirtyPush() (bool, error) {
+	choice := "stop"
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Uncommitted blueprint changes detected").
+				Description("This build may not be reproducible from the recorded commit.").
+				Options(
+					huh.NewOption("Stop and commit changes", "stop"),
+					huh.NewOption("Push anyway", "push"),
+				).
+				Value(&choice),
+		),
+	)
+	if err := runForm(form); err != nil {
+		return false, err
+	}
+	return choice == "push", nil
+}
+
+func printDirtyPushWarning() {
+	fmt.Fprintf(progressW(), "%s!%s Pushing with uncommitted blueprint changes; this build may not be reproducible.\n", colorYellow, colorReset) //nolint:errcheck,gosec
 }
 
 // NewPushPipeline creates a pipeline ready for chaining.
 func NewPushPipeline(ctx context.Context, cfg PushPipelineConfig) *PushPipeline {
+	tag := cfg.BuildID
+	if tag == "" {
+		tag = generateBuildID()
+	}
 	return &PushPipeline{
 		ctx: ctx,
 		cfg: cfg,
-		tag: generateBuildID(),
+		tag: tag,
 	}
 }
 
@@ -171,11 +249,12 @@ func (p *PushPipeline) Build() *PushPipeline {
 			}
 
 			platTag := platformImageTag(comp.ImageName, p.tag, p.cfg.Platform)
+			labels := provenanceLabels(p.tag, p.cfg.AgentName, p.cfg.Platform, p.gitMetadata)
 			fmt.Fprintf(progressW(), "%s→%s Building %s[%s %s]%s %s%s%s", //nolint:errcheck,gosec
 				colorCyan, colorReset, colorDim, comp.Kind, p.cfg.Platform, colorReset, colorBold, platTag, colorReset)
 
 			if err := buildImageBuildKit(p.ctx, cli, contextPath, dockerfile, platTag,
-				comp.Build.Args, comp.Build.Secrets, envVars,
+				comp.Build.Args, comp.Build.Secrets, envVars, labels,
 				false, p.cfg.Verbose, false, p.cfg.Platform); err != nil {
 				fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
 				return fmt.Errorf("failed to build %s for %s: %w", comp.Suffix(), p.cfg.Platform, err)
@@ -223,7 +302,7 @@ func (p *PushPipeline) pushToRegistry() error {
 }
 
 func (p *PushPipeline) retagLocal() error {
-	if p.cfg.SkipBuild {
+	if p.cfg.SkipBuild && len(p.components) == 0 {
 		// Nothing to retag if we didn't build
 		fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset) //nolint:errcheck,gosec
 		return nil

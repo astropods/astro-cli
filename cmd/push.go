@@ -413,7 +413,7 @@ func registerAgent(serverURL, agentName, buildID, registry, specPath, pushTag, r
 	if err != nil {
 		return fmt.Errorf("failed to marshal transformed spec: %w", err)
 	}
-	return registerAgentWithServer(context.Background(), serverURL, agentName, buildID, registry, string(transformedSpecData), readme, nil, visibility, verbose, skipAuth, account)
+	return registerAgentWithServer(context.Background(), serverURL, agentName, buildID, registry, string(transformedSpecData), readme, nil, visibility, verbose, skipAuth, account, gitmetadata.Metadata{})
 }
 
 // readmeAssetsResponse is the server's reply to a readme-assets upload: each
@@ -505,8 +505,8 @@ func uploadReadmeAssets(ctx context.Context, serverURL, account, agentName, work
 	return resp.Assets, nil
 }
 
-func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata ...gitmetadata.Metadata) error {
-	err := postAgentRegistration(ctx, serverURL, agentName, buildID, registry, specContent, readme, readmeAssets, visibility, verbose, skipAuth, account, metadata...)
+func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata gitmetadata.Metadata) error {
+	err := postAgentRegistration(ctx, serverURL, agentName, buildID, registry, specContent, readme, readmeAssets, visibility, verbose, skipAuth, account, metadata)
 	if err == nil {
 		return nil
 	}
@@ -521,7 +521,7 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	return errRegistrationFailed(err)
 }
 
-func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata ...gitmetadata.Metadata) error {
+func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, registry, specContent, readme string, readmeAssets map[string]string, visibility string, verbose bool, skipAuth bool, account string, metadata gitmetadata.Metadata) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -543,13 +543,14 @@ func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, r
 	if len(readmeAssets) > 0 {
 		payload["readme_assets"] = readmeAssets
 	}
-	if len(metadata) > 0 {
-		if metadata[0].CommitSHA != "" {
-			payload["commit_sha"] = metadata[0].CommitSHA
-		}
-		if metadata[0].CommitMessage != "" {
-			payload["commit_message"] = metadata[0].CommitMessage
-		}
+	if metadata.CommitSHA != "" {
+		payload["commit_sha"] = metadata.CommitSHA
+	}
+	if metadata.CommitMessage != "" {
+		payload["commit_message"] = metadata.CommitMessage
+	}
+	if metadata.WorkingTreeDirty {
+		payload["working_tree_dirty"] = true
 	}
 
 	jsonData, err := json.Marshal(payload)
