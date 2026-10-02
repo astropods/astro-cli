@@ -155,6 +155,7 @@ func init() {
 	blueprintCmd.AddCommand(blueprintArchiveCmd)
 	blueprintCmd.AddCommand(blueprintSetCmd)
 	blueprintListCmd.Flags().Bool("json", false, "Print raw JSON output")
+	blueprintListCmd.Flags().Bool("archived", false, "List archived blueprints instead of active ones")
 	blueprintGetCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintGetCmd.Flags().Bool("card", false, "Show agent description")
 	blueprintGetCmd.Flags().Bool("template", false, "Show deployment variables and secrets")
@@ -382,7 +383,11 @@ func runBlueprintList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	archived, _ := cmd.Flags().GetBool("archived")
 	u := apiPath(blueprintBaseURL(), at.Account, "agents")
+	if archived {
+		u += "?archived=true"
+	}
 	var result listBlueprintsResponse
 	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
 		return err
@@ -395,14 +400,22 @@ func runBlueprintList(cmd *cobra.Command, _ []string) error {
 	}
 
 	if result.Count == 0 {
-		fmt.Fprintf(w, "%sNo blueprints found in account %s%s\n", colorDim, at.Account, colorReset) //nolint:errcheck,gosec
+		if archived {
+			fmt.Fprintf(w, "%sNo archived blueprints found in account %s%s\n", colorDim, at.Account, colorReset) //nolint:errcheck,gosec
+		} else {
+			fmt.Fprintf(w, "%sNo blueprints found in account %s%s\n", colorDim, at.Account, colorReset) //nolint:errcheck,gosec
+		}
 		return nil
 	}
 
 	cyan := color.New(theme.PrimaryFatihAttr)
 	dim := color.New(color.Faint)
 
-	dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  %s\n", tableTimeWidth, "Published", tableBuildWidth, "Build", "Visibility", "Deploys", "Name") //nolint:errcheck,gosec
+	if archived {
+		dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  %-*s  %s\n", tableTimeWidth, "Published", tableBuildWidth, "Build", "Visibility", "Deploys", tableTimeWidth, "Archived", "Name") //nolint:errcheck,gosec
+	} else {
+		dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  %s\n", tableTimeWidth, "Published", tableBuildWidth, "Build", "Visibility", "Deploys", "Name") //nolint:errcheck,gosec
+	}
 	for _, bp := range result.Agents {
 		latest := blueprintLatestVersion(bp.Versions)
 		published, buildID := "pending", ""
@@ -415,7 +428,14 @@ func runBlueprintList(cmd *cobra.Command, _ []string) error {
 			deploys = fmt.Sprintf("%d", bp.Metrics.DeployCount)
 		}
 		dim.Fprintf(w, "%-*s  %-*s  %-10s  %-7s  ", tableTimeWidth, published, tableBuildWidth, buildID, bp.Visibility, deploys) //nolint:errcheck,gosec
-		cyan.Fprintf(w, "%s\n", bp.Name)                                                                                         //nolint:errcheck,gosec
+		if archived {
+			archivedAt := ""
+			if bp.ArchivedAt != nil {
+				archivedAt = truncate(bp.ArchivedAt.Format(time.RFC3339), tableTimeWidth)
+			}
+			dim.Fprintf(w, "%-*s  ", tableTimeWidth, archivedAt) //nolint:errcheck,gosec
+		}
+		cyan.Fprintf(w, "%s\n", bp.Name) //nolint:errcheck,gosec
 	}
 	return nil
 }

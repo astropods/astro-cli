@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
@@ -121,19 +122,20 @@ func suggestedRename(name, personalAccount string) string {
 // confirmUpdateOrRename asks whether to push to an already-existing
 // blueprint or create a new one under a different name instead, offering
 // suggested as the rename prompt's placeholder and tab-completable
-// suggestion. Returns (blueprintPushRename, newName, nil), newName already
-// validated, when the user picks rename, re-prompting on an invalid
-// name rather than failing the push outright. Returns tui.ErrCanceled (via
-// runForm) on esc/ctrl+c.
-func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (blueprintPushChoice, string, error) {
+// suggestion. archived adjusts the prompt's copy to mention restoring the
+// blueprint, rather than just updating it. Returns (blueprintPushRename,
+// newName, nil), newName already validated, when the user picks rename,
+// re-prompting on an invalid name rather than failing the push outright.
+// Returns tui.ErrCanceled (via runForm) on esc/ctrl+c.
+func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string, archived bool) (blueprintPushChoice, string, error) {
 	var choice string
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title(fmt.Sprintf("%q already exists in %q", name, account)).
-				Description("This push will update the existing blueprint instead of creating a new one. Make sure this is the blueprint you intend to update.").
+				Title(msgBlueprintExistsTitle(name, account, archived)).
+				Description(msgBlueprintExistsDescription(archived)).
 				Options(
-					huh.NewOption("Yes, push to the existing blueprint", "update"),
+					huh.NewOption(msgBlueprintExistsUpdateOption(archived), "update"),
 					huh.NewOption("No, create a new blueprint instead", "rename"),
 				).
 				Value(&choice),
@@ -179,22 +181,31 @@ func confirmUpdateOrRename(warnW io.Writer, name, account, suggested string) (bl
 	}
 }
 
-// blueprintExists reports whether name exists at at.Account, via a plain
-// read — never the create-only endpoint, which un-archives and wipes an
-// archived blueprint's versions as a side effect of probing it.
-func blueprintExists(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) (bool, error) {
+// blueprintExistenceInfo is the subset of the GET /agents/:account/:name
+// response blueprintExists needs to tell a free name from an existing one,
+// and an existing one from an archived one.
+type blueprintExistenceInfo struct {
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+}
+
+// blueprintExists reports whether name exists at at.Account and, if so,
+// whether it's archived, via a plain read — never the create-only
+// endpoint, which un-archives and wipes an archived blueprint's versions
+// as a side effect of probing it.
+func blueprintExists(ctx context.Context, serverURL string, at AccountToken, name string, verbose bool) (exists, archived bool, err error) {
 	u := apiPath(serverURL, at.Account, "agents", name)
-	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, nil)
+	var info blueprintExistenceInfo
+	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &info)
 	switch status {
 	case http.StatusOK:
-		return true, nil
+		return true, info.ArchivedAt != nil, nil
 	case http.StatusNotFound:
-		return false, nil
+		return false, false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return false, errBlueprintExistenceCheckUnexpectedStatus(name, at.Account, status)
+	return false, false, errBlueprintExistenceCheckUnexpectedStatus(name, at.Account, status)
 }
 
 // errBlueprintAlreadyExists signals a 409 from createBlueprintShell; any
@@ -246,10 +257,13 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 	originalName := name
 	attempt := 0
 	for {
-		exists, err := blueprintExists(ctx, serverURL, at, name, verbose)
+		exists, archived, err := blueprintExists(ctx, serverURL, at, name, verbose)
 		if err != nil {
 			fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintExistenceCheckInconclusive(name, at.Account, err)) //nolint:errcheck
-			exists = true
+			exists, archived = true, false
+		}
+		if exists && archived {
+			fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintWillUnarchive(name, at.Account)) //nolint:errcheck
 		}
 		if !exists {
 			if createErr := createBlueprintShell(ctx, serverURL, at, name, verbose); createErr == nil {
@@ -268,7 +282,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 		if attempt > 1 {
 			suggested = fmt.Sprintf("%s-%d", suggested, attempt)
 		}
-		choice, newName, err := confirmUpdateOrRename(warnW, name, at.Account, suggested)
+		choice, newName, err := confirmUpdateOrRename(warnW, name, at.Account, suggested, archived)
 		if err != nil {
 			return "", err
 		}
