@@ -87,6 +87,7 @@ func init() {
 	knowledgeConnectCmd.Flags().String("api-key", "", "API key (for providers like Pinecone/Qdrant)")
 	knowledgeConnectCmd.Flags().Bool("skip-health-check", false, "Skip connectivity check (use when the store is behind PrivateLink or a firewall)")
 	knowledgeConnectCmd.Flags().Bool("private-link", false, "Connect via AWS PrivateLink (host must be a VPC endpoint service name)")
+	knowledgeConnectCmd.Flags().StringSlice("cluster", nil, "Cluster to create a PrivateLink endpoint on (repeatable; required with --private-link)")
 	_ = knowledgeConnectCmd.MarkFlagRequired("provider")
 	_ = knowledgeConnectCmd.MarkFlagRequired("name")
 	_ = knowledgeConnectCmd.MarkFlagRequired("host")
@@ -122,6 +123,11 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	username, _ := cmd.Flags().GetString("username")
 	password, _ := cmd.Flags().GetString("password")
 	apiKey, _ := cmd.Flags().GetString("api-key")
+	privateLink, _ := cmd.Flags().GetBool("private-link")
+	clusters, _ := cmd.Flags().GetStringSlice("cluster")
+	if privateLink && len(clusters) == 0 {
+		return errPrivateLinkNeedsCluster()
+	}
 
 	// Prompt for password interactively if not provided via flag.
 	if password == "" && apiKey == "" {
@@ -158,9 +164,9 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	if skipHealthCheck {
 		reqBody["skip_health_check"] = true
 	}
-	privateLink, _ := cmd.Flags().GetBool("private-link")
 	if privateLink {
 		reqBody["private_link"] = true
+		reqBody["private_link_clusters"] = clusters
 	}
 
 	var created knowledgeStoreResponse
@@ -400,10 +406,7 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) 
 			fmt.Printf("\n%s✓%s PrivateLink ready\n", colorGreen, colorReset)
 			if s.PrivateLink != nil {
 				for _, ep := range s.PrivateLink.Endpoints {
-					switch {
-					case ep.Status == "unavailable":
-						fmt.Printf("  %s%s:%s PrivateLink isn't available on this cluster\n", colorDim, ep.ClusterID, colorReset)
-					case ep.EndpointDNS != nil:
+					if ep.EndpointDNS != nil {
 						fmt.Printf("  %s%s:%s %s\n", colorDim, ep.ClusterID, colorReset, *ep.EndpointDNS)
 					}
 				}

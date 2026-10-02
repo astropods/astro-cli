@@ -631,3 +631,7 @@ func msgDeployed(environment string) string {
 	}
 	return "deployed into environment " + environment
 }
+
+func errPrivateLinkNeedsCluster() error {
+	return fmt.Errorf("--private-link needs at least one --cluster to create an endpoint on")
+}
