@@ -9,7 +9,8 @@ import (
 // The JSON shapes below mirror the subset of astro-server responses the chat
 // shell reads. They intentionally match the chat client's TypeScript response
 // interfaces (DeploymentsSummaryResponse, DeploymentsListResponse,
-// AgentDeploymentSummary, DeploymentStatus, DeploymentRuntime) so the embedded
+// AgentDeploymentSummary, DeploymentStatus, DeploymentRuntime,
+// DeploymentConnectionsResponse) so the embedded
 // client deserializes them unchanged.
 
 type deploymentsSummaryResponse struct {
@@ -60,6 +61,11 @@ type deploymentRuntime struct {
 	Ready              int  `json:"ready"`
 	Replicas           int  `json:"replicas"`
 	MessagingReachable bool `json:"messaging_reachable"`
+}
+
+type deploymentConnectionsResponse struct {
+	PersonalAccount string `json:"personal_account"`
+	Connections     []any  `json:"connections"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
