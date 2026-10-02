@@ -87,6 +87,7 @@ func init() {
 	knowledgeConnectCmd.Flags().String("api-key", "", "API key (for providers like Pinecone/Qdrant)")
 	knowledgeConnectCmd.Flags().Bool("skip-health-check", false, "Skip connectivity check (use when the store is behind PrivateLink or a firewall)")
 	knowledgeConnectCmd.Flags().Bool("private-link", false, "Connect via AWS PrivateLink (host must be a VPC endpoint service name)")
+	knowledgeConnectCmd.Flags().StringSlice("cluster", nil, "Cluster to create a PrivateLink endpoint on (repeatable; required with --private-link)")
 	_ = knowledgeConnectCmd.MarkFlagRequired("provider")
 	_ = knowledgeConnectCmd.MarkFlagRequired("name")
 	_ = knowledgeConnectCmd.MarkFlagRequired("host")
@@ -122,6 +123,11 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	username, _ := cmd.Flags().GetString("username")
 	password, _ := cmd.Flags().GetString("password")
 	apiKey, _ := cmd.Flags().GetString("api-key")
+	privateLink, _ := cmd.Flags().GetBool("private-link")
+	clusters, _ := cmd.Flags().GetStringSlice("cluster")
+	if privateLink && len(clusters) == 0 {
+		return errPrivateLinkNeedsCluster()
+	}
 
 	// Prompt for password interactively if not provided via flag.
 	if password == "" && apiKey == "" {
@@ -158,9 +164,9 @@ func runKnowledgeConnect(cmd *cobra.Command, _ []string) error {
 	if skipHealthCheck {
 		reqBody["skip_health_check"] = true
 	}
-	privateLink, _ := cmd.Flags().GetBool("private-link")
 	if privateLink {
 		reqBody["private_link"] = true
+		reqBody["private_link_clusters"] = clusters
 	}
 
 	var created knowledgeStoreResponse
@@ -382,11 +388,13 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) 
 				printedAcceptance = true
 				fmt.Printf("\r%sStatus:%s %spending-acceptance%s\n", colorDim, colorReset, colorYellow, colorReset)
 				fmt.Println()
-				fmt.Printf("  %sAction required:%s accept the endpoint connection request in your AWS console.\n", colorBold, colorReset)
-				if s.Endpoint != nil {
-					fmt.Printf("  %sEndpoint service:%s %s\n", colorDim, colorReset, s.Endpoint.EndpointService)
-					if s.Endpoint.EndpointID != nil {
-						fmt.Printf("  %sVPC endpoint:%s     %s\n", colorDim, colorReset, *s.Endpoint.EndpointID)
+				fmt.Printf("  %sAction required:%s accept each endpoint connection request in your AWS console.\n", colorBold, colorReset)
+				if s.PrivateLink != nil {
+					fmt.Printf("  %sEndpoint service:%s %s\n", colorDim, colorReset, s.PrivateLink.EndpointService)
+					for _, ep := range s.PrivateLink.Endpoints {
+						if ep.EndpointID != nil {
+							fmt.Printf("  %sVPC endpoint:%s     %s (%s)\n", colorDim, colorReset, *ep.EndpointID, ep.ClusterID)
+						}
 					}
 				}
 				fmt.Println()
@@ -395,15 +403,14 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) 
 				fmt.Print(".")
 			}
 		case "ready":
-			dns := ""
-			if s.Endpoint != nil && s.Endpoint.EndpointDNS != nil {
-				dns = *s.Endpoint.EndpointDNS
+			fmt.Printf("\n%s✓%s PrivateLink ready\n", colorGreen, colorReset)
+			if s.PrivateLink != nil {
+				for _, ep := range s.PrivateLink.Endpoints {
+					if ep.EndpointDNS != nil {
+						fmt.Printf("  %s%s:%s %s\n", colorDim, ep.ClusterID, colorReset, *ep.EndpointDNS)
+					}
+				}
 			}
-			fmt.Printf("\n%s✓%s PrivateLink ready", colorGreen, colorReset)
-			if dns != "" {
-				fmt.Printf(" — endpoint: %s", dns)
-			}
-			fmt.Println()
 			return nil
 		case "error":
 			if s.Error != nil && *s.Error != "" {
@@ -416,13 +423,20 @@ func pollKnowledgePrivateLink(ctx context.Context, account, name, token string) 
 }
 
 type knowledgeStoreEndpointResponse struct {
-	CloudProvider   string  `json:"cloud_provider"`
-	EndpointService string  `json:"endpoint_service"`
-	Region          string  `json:"region"`
-	EndpointID      *string `json:"endpoint_id,omitempty"`
-	EndpointDNS     *string `json:"endpoint_dns,omitempty"`
-	Status          string  `json:"status"`
-	Error           *string `json:"error,omitempty"`
+	ClusterID   string  `json:"cluster_id"`
+	ClusterName string  `json:"cluster_name,omitempty"`
+	Region      string  `json:"region"`
+	EndpointID  *string `json:"endpoint_id,omitempty"`
+	EndpointDNS *string `json:"endpoint_dns,omitempty"`
+	Status      string  `json:"status"`
+	Error       *string `json:"error,omitempty"`
+}
+
+type knowledgeStorePrivateLinkResponse struct {
+	CloudProvider   string                           `json:"cloud_provider"`
+	EndpointService string                           `json:"endpoint_service"`
+	Region          string                           `json:"region"`
+	Endpoints       []knowledgeStoreEndpointResponse `json:"endpoints"`
 }
 
 // knowledgeStoreResponse mirrors the server's knowledge response shape.
@@ -438,13 +452,13 @@ type knowledgeListResponse struct {
 }
 
 type knowledgeStoreResponse struct {
-	ID        string                          `json:"id"`
-	ARN       string                          `json:"arn"`
-	Name      string                          `json:"name"`
-	Provider  string                          `json:"provider"`
-	Mode      string                          `json:"mode"`
-	Status    string                          `json:"status"`
-	Endpoint  *knowledgeStoreEndpointResponse `json:"endpoint,omitempty"`
-	Error     *string                         `json:"error,omitempty"`
-	CreatedAt time.Time                       `json:"created_at"`
+	ID          string                             `json:"id"`
+	ARN         string                             `json:"arn"`
+	Name        string                             `json:"name"`
+	Provider    string                             `json:"provider"`
+	Mode        string                             `json:"mode"`
+	Status      string                             `json:"status"`
+	PrivateLink *knowledgeStorePrivateLinkResponse `json:"private_link,omitempty"`
+	Error       *string                            `json:"error,omitempty"`
+	CreatedAt   time.Time                          `json:"created_at"`
 }
