@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/deployments", s.handleListDeployments)
 	mux.HandleFunc("GET /api/v1/deployments/{id}/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/deployments/{id}/runtime", s.handleRuntime)
+	mux.HandleFunc("GET /api/v1/deployments/{id}/connections", s.handleConnections)
 
 	// Proxy the deployment-scoped chat + messaging contract to the sidecar,
 	// translating to its native /api/* and /api/chat/* paths — exactly the
@@ -232,6 +233,10 @@ func (s *Server) handleRuntime(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, deploymentRuntimeResponse{
 		Runtime: deploymentRuntime{Ready: 1, Replicas: 1, MessagingReachable: true},
 	})
+}
+
+func (s *Server) handleConnections(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, deploymentConnectionsResponse{Connections: []any{}})
 }
 
 func (s *Server) localDeployment() agentDeploymentSummary {
