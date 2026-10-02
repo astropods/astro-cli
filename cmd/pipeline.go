@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,8 @@ import (
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
+
+var errDirtyWorkingTree = errors.New("uncommitted changes detected in the Git working tree; commit them before running 'ast push'")
 
 // PushPipelineConfig holds all parameters for a push pipeline.
 type PushPipelineConfig struct {
@@ -42,6 +45,7 @@ type PushPipelineConfig struct {
 //		ParseSpec().
 //		CollectComponents().
 //		ResolveVisibility().
+//		CollectGitMetadata().
 //		Build().
 //		Push().
 //		TransformSpec().
@@ -66,10 +70,14 @@ type PushPipeline struct {
 }
 
 // CollectGitMetadata snapshots the repository state that the build starts
-// from. Collection is best-effort and therefore never stops a push.
+// from. Git discovery is best-effort, but a successfully detected dirty
+// worktree stops the push before any build work begins.
 func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
 	return p.step(func() error {
 		p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath))
+		if p.gitMetadata.WorkingTreeDirty {
+			return errDirtyWorkingTree
+		}
 		return nil
 	})
 }

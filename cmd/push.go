@@ -550,9 +550,6 @@ func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, r
 		if metadata[0].CommitMessage != "" {
 			payload["commit_message"] = metadata[0].CommitMessage
 		}
-		if metadata[0].WorkingTreeDirty {
-			payload["working_tree_dirty"] = true
-		}
 	}
 
 	jsonData, err := json.Marshal(payload)

@@ -15,8 +15,8 @@ type Metadata struct {
 type commandRunner func(dir string, args ...string) (string, error)
 
 // CollectMetadata reads the current commit and worktree state for dir. Each
-// lookup is independent and best-effort: ast push must still work without Git,
-// outside a repository, or in a repository without a first commit.
+// lookup is independent and best-effort: command failures, missing Git, and
+// directories outside a repository return whatever information is available.
 func CollectMetadata(dir string) Metadata {
 	return collectMetadata(dir, runGit)
 }

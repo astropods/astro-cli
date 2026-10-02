@@ -379,9 +379,8 @@ func TestRegisterAgentWithServerSendsGitMetadataWhenAvailable(t *testing.T) {
 		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
 		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
 		gitmetadata.Metadata{
-			CommitSHA:        "0123456789abcdef",
-			CommitMessage:    "feat: preserve git context\n\nCommit body",
-			WorkingTreeDirty: true,
+			CommitSHA:     "0123456789abcdef",
+			CommitMessage: "feat: preserve git context\n\nCommit body",
 		},
 	)
 
@@ -389,7 +388,7 @@ func TestRegisterAgentWithServerSendsGitMetadataWhenAvailable(t *testing.T) {
 	require.NoError(t, decodeErr)
 	assert.Equal(t, "0123456789abcdef", received["commit_sha"])
 	assert.Equal(t, "feat: preserve git context\n\nCommit body", received["commit_message"])
-	assert.Equal(t, true, received["working_tree_dirty"])
+	assert.NotContains(t, received, "working_tree_dirty")
 }
 
 func TestRegisterAgentWithServerOmitsUnavailableGitMetadata(t *testing.T) {

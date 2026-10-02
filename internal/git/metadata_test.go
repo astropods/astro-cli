@@ -78,6 +78,16 @@ func TestCollectMetadataDetectsWorkingTreeChanges(t *testing.T) {
 	}
 }
 
+func TestCollectMetadataDetectsModifiedSubmodules(t *testing.T) {
+	submoduleSource, _ := committedRepository(t)
+	parent, _ := committedRepository(t)
+	gitCommand(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", submoduleSource, "dependency")
+	gitCommand(t, parent, "commit", "-m", "chore: add dependency")
+	require.NoError(t, os.WriteFile(filepath.Join(parent, "dependency", "tracked.txt"), []byte("changed\n"), 0o600))
+
+	assert.True(t, CollectMetadata(parent).WorkingTreeDirty)
+}
+
 func TestCollectMetadataIsBestEffort(t *testing.T) {
 	t.Run("git executable unavailable", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
