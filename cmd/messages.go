@@ -222,6 +222,31 @@ func msgBlueprintExistenceCheckInconclusive(name, account string, cause error) s
 	return fmt.Sprintf("could not confirm whether %q already exists in %q, treating it as if it does: %v", name, account, cause)
 }
 
+func msgBlueprintWillUnarchive(name, account string) string {
+	return fmt.Sprintf("%q is archived in %q; this push will restore it", name, account)
+}
+
+func msgBlueprintExistsTitle(name, account string, archived bool) string {
+	if archived {
+		return fmt.Sprintf("%q is archived in %q", name, account)
+	}
+	return fmt.Sprintf("%q already exists in %q", name, account)
+}
+
+func msgBlueprintExistsDescription(archived bool) string {
+	if archived {
+		return "This push will restore the archived blueprint and update it, instead of creating a new one. Make sure this is the blueprint you intend to restore."
+	}
+	return "This push will update the existing blueprint instead of creating a new one. Make sure this is the blueprint you intend to update."
+}
+
+func msgBlueprintExistsUpdateOption(archived bool) string {
+	if archived {
+		return "Yes, restore and push to it"
+	}
+	return "Yes, push to the existing blueprint"
+}
+
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {
 	return fmt.Errorf("unexpected status %d checking whether %q already exists in %q", status, name, account)
 }
