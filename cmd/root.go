@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,13 +66,22 @@ func Execute() {
 	}
 
 	if execErr != nil {
-		fmt.Fprintln(os.Stderr, execErr)
+		printExecutionError(os.Stderr, execErr)
 		os.Exit(exitCodeFor(execErr))
 	}
 
 	if invoked == nil || invoked.Name() != "upgrade" {
 		notifyIfUpdateAvailable()
 	}
+}
+
+func printExecutionError(w io.Writer, err error) {
+	if errors.Is(err, errDirtyWorkingTree) {
+		fmt.Fprintf(w, "%s✗ Push blocked: files used by this blueprint have uncommitted changes.%s\n", colorRed, colorReset) //nolint:errcheck,gosec
+		fmt.Fprintln(w, "  Commit them, or rerun this command with --allow-dirty to push anyway.")                           //nolint:errcheck
+		return
+	}
+	fmt.Fprintln(w, err) //nolint:errcheck
 }
 
 // resolveCommandName returns a command name like "deploy" or "configure.set".

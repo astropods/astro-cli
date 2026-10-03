@@ -2,20 +2,36 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
+
+var errDirtyWorkingTree = errors.New("push blocked: files used by this blueprint have uncommitted changes; commit them, or rerun this command with --allow-dirty to push anyway")
+
+const (
+	dirtyPushPromptTitle       = "Push with uncommitted changes?"
+	dirtyPushPromptDescription = "Some files used by this blueprint have changes that are not included in the current Git commit. If you continue, the pushed build may not be reproducible from that commit."
+	dirtyPushCancelLabel       = "Cancel the push"
+	dirtyPushProceedLabel      = "Push with uncommitted changes"
+	dirtyPushCancelChoice      = "cancel"
+	dirtyPushProceedChoice     = "push"
+)
+
+var confirmDirtyPushPrompt = confirmDirtyPush
 
 // PushPipelineConfig holds all parameters for a push pipeline.
 type PushPipelineConfig struct {
@@ -24,6 +40,8 @@ type PushPipelineConfig struct {
 	Platform     string
 	SkipBuild    bool
 	SkipPush     bool
+	BuildID      string
+	AllowDirty   bool
 	RegistryHost string
 	Account      string
 	Verbose      bool
@@ -41,6 +59,7 @@ type PushPipelineConfig struct {
 //		ParseSpec().
 //		CollectComponents().
 //		ResolveVisibility().
+//		CollectGitMetadata().
 //		Build().
 //		Push().
 //		TransformSpec().
@@ -59,16 +78,108 @@ type PushPipeline struct {
 	readme       string
 	readmeAssets map[string]string
 	visibility   Visibility
+	gitMetadata  gitmetadata.Metadata
 
 	err error
 }
 
+// CollectGitMetadata snapshots the repository state that produced the build.
+// Normal pushes read the relevant source paths; --no-build reads provenance
+// from the exact local images selected by BuildID.
+func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
+	return p.step(func() error {
+		if p.cfg.SkipBuild {
+			if len(p.components) == 0 {
+				return nil
+			}
+			cli, err := newDockerClient()
+			if err != nil {
+				return err
+			}
+			p.gitMetadata, err = inspectReusableBuild(p.ctx, cli, p.components, p.cfg.AgentName, p.tag, p.cfg.Platform)
+			if err != nil {
+				return err
+			}
+		} else {
+			p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
+		}
+		return p.confirmDirtyPush()
+	})
+}
+
+func (p *PushPipeline) relevantGitPaths() []string {
+	return relevantGitPaths(p.cfg.SpecPath, p.components)
+}
+
+func relevantGitPaths(specPath string, components []spec.Component) []string {
+	workingDir := filepath.Dir(specPath)
+	paths := []string{workingDir}
+	for _, component := range components {
+		paths = append(paths, filepath.Clean(filepath.Join(workingDir, component.Build.Context)))
+	}
+	return paths
+}
+
+func (p *PushPipeline) confirmDirtyPush() error {
+	if !p.gitMetadata.WorkingTreeDirty {
+		return nil
+	}
+	if p.cfg.AllowDirty {
+		printDirtyPushWarning()
+		return nil
+	}
+	if p.cfg.Yes || !interactiveTerminal() {
+		return errDirtyWorkingTree
+	}
+	proceed, err := confirmDirtyPushPrompt()
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return tui.ErrCanceled
+	}
+	printDirtyPushWarning()
+	return nil
+}
+
+func confirmDirtyPush() (bool, error) {
+	choice := dirtyPushCancelChoice
+	form := huh.NewForm(
+		huh.NewGroup(
+			newDirtyPushSelect(&choice),
+		),
+	)
+	if err := runForm(form); err != nil {
+		return false, err
+	}
+	return choice == dirtyPushProceedChoice, nil
+}
+
+func newDirtyPushSelect(choice *string) *huh.Select[string] {
+	return huh.NewSelect[string]().
+		Title(dirtyPushPromptTitle).
+		Description(dirtyPushPromptDescription).
+		Options(
+			huh.NewOption(dirtyPushCancelLabel, dirtyPushCancelChoice),
+			huh.NewOption(dirtyPushProceedLabel, dirtyPushProceedChoice),
+		).
+		Value(choice)
+}
+
+func printDirtyPushWarning() {
+	fmt.Fprintf(progressW(), "%s!%s Pushing with uncommitted blueprint changes; this build may not be reproducible.\n", colorYellow, colorReset) //nolint:errcheck,gosec
+}
+
 // NewPushPipeline creates a pipeline ready for chaining.
 func NewPushPipeline(ctx context.Context, cfg PushPipelineConfig) *PushPipeline {
+	tag := cfg.BuildID
+	if tag == "" {
+		tag = generateBuildID()
+	}
 	return &PushPipeline{
 		ctx: ctx,
 		cfg: cfg,
-		tag: generateBuildID(),
+		tag: tag,
 	}
 }
 
@@ -152,11 +263,12 @@ func (p *PushPipeline) Build() *PushPipeline {
 			}
 
 			platTag := platformImageTag(comp.ImageName, p.tag, p.cfg.Platform)
+			labels := provenanceLabels(p.tag, p.cfg.AgentName, p.cfg.Platform, p.gitMetadata)
 			fmt.Fprintf(progressW(), "%s→%s Building %s[%s %s]%s %s%s%s", //nolint:errcheck,gosec
 				colorCyan, colorReset, colorDim, comp.Kind, p.cfg.Platform, colorReset, colorBold, platTag, colorReset)
 
 			if err := buildImageBuildKit(p.ctx, cli, contextPath, dockerfile, platTag,
-				comp.Build.Args, comp.Build.Secrets, envVars,
+				comp.Build.Args, comp.Build.Secrets, envVars, labels,
 				false, p.cfg.Verbose, false, p.cfg.Platform); err != nil {
 				fmt.Fprintf(progressW(), " %s✗%s\n", colorRed, colorReset) //nolint:errcheck,gosec
 				return fmt.Errorf("failed to build %s for %s: %w", comp.Suffix(), p.cfg.Platform, err)
@@ -204,7 +316,7 @@ func (p *PushPipeline) pushToRegistry() error {
 }
 
 func (p *PushPipeline) retagLocal() error {
-	if p.cfg.SkipBuild {
+	if p.cfg.SkipBuild && len(p.components) == 0 {
 		// Nothing to retag if we didn't build
 		fmt.Fprintf(progressW(), "%s→%s Skipping image push %s(local dev server detected)%s\n", colorCyan, colorReset, colorDim, colorReset) //nolint:errcheck,gosec
 		return nil
@@ -350,7 +462,7 @@ func (p *PushPipeline) Register() *PushPipeline {
 
 		printStep("Registering agent with server...")
 		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
-			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
+			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account, p.gitMetadata); err != nil {
 			printStepFail()
 			return err
 		}
