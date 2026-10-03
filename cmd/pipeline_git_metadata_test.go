@@ -65,9 +65,26 @@ func TestCollectGitMetadataRejectsADirtyRepositoryBeforeLaterSteps(t *testing.T)
 			return nil
 		})
 
-	require.EqualError(t, pipeline.Err(), "uncommitted changes detected in files used by this blueprint; commit them or rerun with '--allow-dirty'")
+	require.EqualError(t, pipeline.Err(), "push blocked: files used by this blueprint have uncommitted changes; commit them, or rerun this command with --allow-dirty to push anyway")
 	assert.ErrorIs(t, pipeline.Err(), errDirtyWorkingTree)
 	assert.False(t, reachedNextStep, "--yes must not bypass the dirty-input check")
+}
+
+func TestDirtyPushPromptCopyAndDefault(t *testing.T) {
+	choice := dirtyPushCancelChoice
+	selectField := newDirtyPushSelect(&choice)
+	selectField.WithTheme(cliHuhTheme())
+	selectField.WithWidth(120)
+	_ = selectField.Init()
+	_ = selectField.Focus()
+
+	rendered := stripANSI(selectField.View())
+	compact := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "┃", "")), " ")
+	assert.Contains(t, compact, "Push with uncommitted changes?")
+	assert.Contains(t, compact, dirtyPushPromptDescription)
+	assert.Contains(t, compact, "Cancel the push")
+	assert.Contains(t, compact, "Push with uncommitted changes")
+	assert.Equal(t, dirtyPushCancelChoice, selectField.GetValue(), "cancel must remain the default choice")
 }
 
 func TestCollectGitMetadataAllowsDirtyWithExplicitFlag(t *testing.T) {

@@ -20,7 +20,17 @@ import (
 	spec "github.com/astropods/astro-spec"
 )
 
-var errDirtyWorkingTree = errors.New("uncommitted changes detected in files used by this blueprint; commit them or rerun with '--allow-dirty'")
+var errDirtyWorkingTree = errors.New("push blocked: files used by this blueprint have uncommitted changes; commit them, or rerun this command with --allow-dirty to push anyway")
+
+const (
+	dirtyPushPromptTitle       = "Push with uncommitted changes?"
+	dirtyPushPromptDescription = "Some files used by this blueprint have changes that are not included in the current Git commit. If you continue, the pushed build may not be reproducible from that commit."
+	dirtyPushCancelLabel       = "Cancel the push"
+	dirtyPushProceedLabel      = "Push with uncommitted changes"
+	dirtyPushCancelChoice      = "cancel"
+	dirtyPushProceedChoice     = "push"
+)
+
 var confirmDirtyPushPrompt = confirmDirtyPush
 
 // PushPipelineConfig holds all parameters for a push pipeline.
@@ -133,23 +143,27 @@ func (p *PushPipeline) confirmDirtyPush() error {
 }
 
 func confirmDirtyPush() (bool, error) {
-	choice := "stop"
+	choice := dirtyPushCancelChoice
 	form := huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Uncommitted blueprint changes detected").
-				Description("This build may not be reproducible from the recorded commit.").
-				Options(
-					huh.NewOption("Stop and commit changes", "stop"),
-					huh.NewOption("Push anyway", "push"),
-				).
-				Value(&choice),
+			newDirtyPushSelect(&choice),
 		),
 	)
 	if err := runForm(form); err != nil {
 		return false, err
 	}
-	return choice == "push", nil
+	return choice == dirtyPushProceedChoice, nil
+}
+
+func newDirtyPushSelect(choice *string) *huh.Select[string] {
+	return huh.NewSelect[string]().
+		Title(dirtyPushPromptTitle).
+		Description(dirtyPushPromptDescription).
+		Options(
+			huh.NewOption(dirtyPushCancelLabel, dirtyPushCancelChoice),
+			huh.NewOption(dirtyPushProceedLabel, dirtyPushProceedChoice),
+		).
+		Value(choice)
 }
 
 func printDirtyPushWarning() {

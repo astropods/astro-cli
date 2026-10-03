@@ -1,13 +1,37 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
+	var output bytes.Buffer
+	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree))
+
+	require.Equal(t,
+		colorRed+"✗ Push blocked: files used by this blueprint have uncommitted changes."+colorReset+"\n"+
+			"  Commit them, or rerun this command with --allow-dirty to push anyway.\n",
+		output.String(),
+	)
+	plain := stripANSI(output.String())
+	assert.Equal(t, 1, strings.Count(plain, "Push blocked"), "the failure must be printed exactly once")
+}
+
+func TestPrintExecutionErrorLeavesOtherFailuresUnchanged(t *testing.T) {
+	var output bytes.Buffer
+	printExecutionError(&output, errors.New("ordinary failure"))
+	assert.Equal(t, "ordinary failure\n", output.String())
+}
 
 func TestResolveSpecPathFromCwd(t *testing.T) {
 	tests := []struct {
