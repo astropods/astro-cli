@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	// KeyringService is the service name for keyring storage
+	// KeyringService is used by ast; other binaries append their name, so logins do not replace each other's tokens.
 	KeyringService = "astro-cli"
 
 	// KeyringAccessTokenKey is the key for the access token in keyring
@@ -26,6 +26,14 @@ const (
 	// KeyringRefreshTokenKey is the key for the refresh token in keyring
 	KeyringRefreshTokenKey = "refresh_token"
 )
+
+// ast keeps the original name, so existing ast logins stay valid.
+func keyringService(binaryName string) string {
+	if binaryName == "ast" {
+		return KeyringService
+	}
+	return KeyringService + "-" + binaryName
+}
 
 // Credentials represents stored authentication credentials
 type Credentials struct {
@@ -165,11 +173,12 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 
 	// Load tokens from keyring if available
 	if s.useKeyring {
+		service := keyringService(s.binaryName)
 		for name, profile := range creds.Profiles {
-			if accessToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey)); err == nil {
+			if accessToken, err := keyring.Get(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey)); err == nil {
 				profile.AccessToken = accessToken
 			}
-			if refreshToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey)); err == nil {
+			if refreshToken, err := keyring.Get(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey)); err == nil {
 				profile.RefreshToken = refreshToken
 			}
 		}
@@ -193,16 +202,17 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 	// If using keyring, store tokens there and remove from file
 	credsToSave := *creds
 	if s.useKeyring {
+		service := keyringService(s.binaryName)
 		credsToSave.Profiles = make(map[string]*Profile)
 		for name, profile := range creds.Profiles {
 			// Store tokens in keyring
 			if profile.AccessToken != "" {
-				if err := keyring.Set(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey), profile.AccessToken); err != nil {
+				if err := keyring.Set(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey), profile.AccessToken); err != nil {
 					return fmt.Errorf("failed to store access token in keyring: %w", err)
 				}
 			}
 			if profile.RefreshToken != "" {
-				if err := keyring.Set(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey), profile.RefreshToken); err != nil {
+				if err := keyring.Set(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey), profile.RefreshToken); err != nil {
 					return fmt.Errorf("failed to store refresh token in keyring: %w", err)
 				}
 			}
@@ -211,7 +221,7 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 			profileCopy := *profile
 			profileCopy.AccessToken = ""
 			profileCopy.RefreshToken = ""
-			profileCopy.OrgTokens = moveOrgTokensToKeyring(name, profile.OrgTokens)
+			profileCopy.OrgTokens = moveOrgTokensToKeyring(service, name, profile.OrgTokens)
 			credsToSave.Profiles[name] = &profileCopy
 		}
 	} else {
@@ -266,7 +276,7 @@ func (s *Storage) cachedOrgToken(profileName, orgID string, t *OrgToken) string 
 	if t.AccessToken != "" || !s.useKeyring {
 		return t.AccessToken
 	}
-	token, err := keyring.Get(KeyringService, orgTokenKeyringKey(profileName, orgID))
+	token, err := keyring.Get(keyringService(s.binaryName), orgTokenKeyringKey(profileName, orgID))
 	if err != nil {
 		return ""
 	}
@@ -275,7 +285,7 @@ func (s *Storage) cachedOrgToken(profileName, orgID string, t *OrgToken) string 
 
 // Entries loaded without their token are not rewritten. A refused entry is dropped, so a later
 // load cannot pair its expiry with an older token.
-func moveOrgTokensToKeyring(profileName string, tokens map[string]*OrgToken) map[string]*OrgToken {
+func moveOrgTokensToKeyring(service, profileName string, tokens map[string]*OrgToken) map[string]*OrgToken {
 	if len(tokens) == 0 {
 		return nil
 	}
@@ -285,7 +295,7 @@ func moveOrgTokensToKeyring(profileName string, tokens map[string]*OrgToken) map
 			continue
 		}
 		if t.AccessToken != "" {
-			if err := keyring.Set(KeyringService, orgTokenKeyringKey(profileName, orgID), t.AccessToken); err != nil {
+			if err := keyring.Set(service, orgTokenKeyringKey(profileName, orgID), t.AccessToken); err != nil {
 				continue
 			}
 		}
@@ -358,7 +368,7 @@ func (s *Storage) DeleteProfile(name string) error {
 
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
-		deleteKeyringTokens(name, creds.Profiles[name])
+		deleteKeyringTokens(keyringService(s.binaryName), name, creds.Profiles[name])
 	}
 
 	delete(creds.Profiles, name)
@@ -377,8 +387,9 @@ func (s *Storage) DeleteAllProfiles() error {
 
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
+		service := keyringService(s.binaryName)
 		for name, profile := range creds.Profiles {
-			deleteKeyringTokens(name, profile)
+			deleteKeyringTokens(service, name, profile)
 		}
 	}
 
@@ -398,9 +409,9 @@ func (s *Storage) DeleteAllProfiles() error {
 }
 
 // Accounts are tried too: an older CLI rewriting the file drops org token entries but not their keyring items.
-func deleteKeyringTokens(name string, profile *Profile) {
-	_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
-	_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+func deleteKeyringTokens(service, name string, profile *Profile) {
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
 	if profile == nil {
 		return
 	}
@@ -414,7 +425,7 @@ func deleteKeyringTokens(name string, profile *Profile) {
 		}
 	}
 	for orgID := range orgIDs {
-		_ = keyring.Delete(KeyringService, orgTokenKeyringKey(name, orgID))
+		_ = keyring.Delete(service, orgTokenKeyringKey(name, orgID))
 	}
 }
 
