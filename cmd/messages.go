@@ -557,7 +557,23 @@ func errBlueprintNotFound(name, account string) error {
 }
 
 func errBlueprintNoPublishedBuild(name string) error {
-	return fmt.Errorf("blueprint %q has no published build to redeploy", name)
+	return fmt.Errorf("blueprint %q has no published build", name)
+}
+
+func errBlueprintBuildsNotFound(name, account string) error {
+	return fmt.Errorf("blueprint %q not found in account %q, or you lack the edit access its build history needs", name, account)
+}
+
+func msgNoBlueprintBuilds(name string) string {
+	return fmt.Sprintf("No builds found for blueprint %s", name)
+}
+
+func errBlueprintVulnerabilitiesArgs(got int) error {
+	return fmt.Errorf("expected <blueprint name> and an optional [build-id], but got %d arguments", got)
+}
+
+func msgNoBuildScans(name, buildID string) string {
+	return fmt.Sprintf("No image scans found for build %s (list builds with: %s blueprint builds %s)", buildID, buildinfo.BinaryName, name)
 }
 
 func errEnvironmentsUnavailable(blueprint string) error {
