@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -69,6 +70,16 @@ permissions you hold there.`,
 	RunE: runAccountToken,
 }
 
+var accountSetCmd = &cobra.Command{
+	Use:   "set",
+	Short: "Update an organization setting for the active account",
+	Long: `Update an organization-level setting for the active account.
+
+Requires admin permission on the account.`,
+	Args: cobra.NoArgs,
+	RunE: runAccountSet,
+}
+
 func init() {
 	accountListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	accountCmd.AddCommand(accountListCmd)
@@ -76,6 +87,8 @@ func init() {
 	if buildinfo.BuildType == buildinfo.BuildTypeDev {
 		accountCmd.AddCommand(accountTokenCmd)
 	}
+	accountSetCmd.Flags().Bool("block-personal-push", false, "Block org members from pushing blueprints to their own personal account")
+	accountCmd.AddCommand(accountSetCmd)
 	rootCmd.AddCommand(accountCmd)
 }
 
@@ -232,6 +245,34 @@ func runAccountToken(cmd *cobra.Command, args []string) error {
 		"token":      at.Token,
 		"expires_at": at.ExpiresAt.UTC().Format(time.RFC3339),
 	})
+}
+
+// blockMemberPersonalPushResponse mirrors handlers.BlockMemberPersonalPushResponse on the server.
+type blockMemberPersonalPushResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+func runAccountSet(cmd *cobra.Command, args []string) error {
+	if !cmd.Flags().Changed("block-personal-push") {
+		return errAccountSetNothingToUpdate()
+	}
+	enabled, _ := cmd.Flags().GetBool("block-personal-push")
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+
+	var resp blockMemberPersonalPushResponse
+	u := apiPath(accountBaseURL(), at.Account, "accounts", "block-member-personal-push")
+	if _, err := apiCall(cmd.Context(), http.MethodPatch, u, map[string]bool{"enabled": enabled}, at.Token, verbose, &resp); err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	color.New(color.FgGreen).Fprint(w, "✓ ")                                  //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s\n", msgBlockPersonalPushSet(at.Account, resp.Enabled)) //nolint:errcheck,gosec
+	return nil
 }
 
 type accountListEntry struct {

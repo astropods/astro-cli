@@ -595,6 +595,18 @@ func errBlueprintRequired() error {
 	return fmt.Errorf("name a blueprint, or run this in a project directory with an astropods.yml")
 }
 
+func errAccountSetNothingToUpdate() error {
+	return fmt.Errorf("nothing to update — specify --block-personal-push=true or --block-personal-push=false")
+}
+
+func msgBlockPersonalPushSet(account string, enabled bool) string {
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	return fmt.Sprintf("Blocking members from pushing to personal accounts is now %s for %q", state, account)
+}
+
 func errAgentTargetAmbiguous(target string, matches []string) error {
 	return fmt.Errorf("%q matches %d agents; pick one with --id, or with --blueprint and --env:\n  %s",
 		target, len(matches), strings.Join(matches, "\n  "))
