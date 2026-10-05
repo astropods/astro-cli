@@ -94,9 +94,7 @@ func runBlueprintBuildsLogs(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fetch := func() (buildLogsResponse, error) {
-		return fetchBuildLogs(cmd.Context(), at, name, buildID, verbose)
-	}
+	fetch := buildLogsFetcher(cmd.Context(), at, name, buildID, verbose)
 	w := cmd.OutOrStdout()
 	if tail, _ := cmd.Flags().GetBool("tail"); tail {
 		return tailBuildLogs(cmd.Context(), w, buildID, fetch)
@@ -161,9 +159,18 @@ func runBlueprintBuildsRebuild(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	fmt.Fprintln(w) //nolint:errcheck,gosec
-	return tailBuildLogs(cmd.Context(), w, started.BuildID, func() (buildLogsResponse, error) {
-		return fetchBuildLogs(cmd.Context(), at, name, started.BuildID, verbose)
-	})
+	return tailBuildLogs(cmd.Context(), w, started.BuildID, buildLogsFetcher(cmd.Context(), at, name, started.BuildID, verbose))
+}
+
+// A build can outlast a 5-minute access token, so each poll resolves the token again.
+func buildLogsFetcher(ctx context.Context, at AccountToken, name, buildID string, verbose bool) func() (buildLogsResponse, error) {
+	return func() (buildLogsResponse, error) {
+		token, err := getAccountToken(ctx, at.Account)
+		if err != nil {
+			return buildLogsResponse{}, err
+		}
+		return fetchBuildLogs(ctx, AccountToken{Account: at.Account, Token: token}, name, buildID, verbose)
+	}
 }
 
 func fetchBuildLogs(ctx context.Context, at AccountToken, name, buildID string, verbose bool) (buildLogsResponse, error) {
