@@ -123,47 +123,71 @@ func TestApiCallForAccount_RetryOn401BypassesCachedOrgToken(t *testing.T) {
 func TestGetDockerRegistryAuth_UsesFreshAccountToken(t *testing.T) {
 	_ = os.Unsetenv(auth.EnvAccessToken)
 
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	orgCreds := accountTestCreds("acme-corp")
+	orgCreds.Profiles["default"].OrgTokens = map[string]*auth.OrgToken{
+		"org_acme": {AccessToken: "cached_org_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
 
-	writeAccountTestCredentials(t, &auth.Credentials{
-		CurrentProfile: "default",
-		Profiles: map[string]*auth.Profile{
-			"default": {
-				AccessToken:  authTestJWT(time.Now().Add(-10 * time.Minute)),
-				RefreshToken: "valid_refresh_token",
-				ExpiresAt:    time.Now().Add(1 * time.Hour),
-				User: &auth.StoredUser{
-					ID:          "user-1",
-					Email:       "test@example.com",
-					AccountName: "alice",
-					AccountID:   "acct-1",
-				},
-				Accounts: []auth.StoredAccount{
-					{ID: "acct-1", Name: "alice", Type: "personal"},
+	tests := []struct {
+		name    string
+		creds   *auth.Credentials
+		account string
+	}{
+		{
+			name: "personal account with an expired token",
+			creds: &auth.Credentials{
+				CurrentProfile: "default",
+				Profiles: map[string]*auth.Profile{
+					"default": {
+						AccessToken:  authTestJWT(time.Now().Add(-10 * time.Minute)),
+						RefreshToken: "valid_refresh_token",
+						ExpiresAt:    time.Now().Add(1 * time.Hour),
+						User: &auth.StoredUser{
+							ID:          "user-1",
+							Email:       "test@example.com",
+							AccountName: "alice",
+							AccountID:   "acct-1",
+						},
+						Accounts: []auth.StoredAccount{
+							{ID: "acct-1", Name: "alice", Type: "personal"},
+						},
+					},
 				},
 			},
+			account: "alice",
 		},
-	})
+		{
+			name:    "organization account with a cached token",
+			creds:   orgCreds,
+			account: "acme-corp",
+		},
+	}
 
-	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(auth.TokenResponse{
-			AccessToken:  "fresh_push_token",
-			RefreshToken: "new_refresh_token",
-			ExpiresIn:    3600,
-			TokenType:    "Bearer",
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			writeAccountTestCredentials(t, tt.creds)
+
+			workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(auth.TokenResponse{
+					AccessToken:  "fresh_push_token",
+					RefreshToken: "new_refresh_token",
+					ExpiresIn:    3600,
+					TokenType:    "Bearer",
+				})
+			}))
+			t.Cleanup(workos.Close)
+			auth.SetWorkOSBaseURLOverride(workos.URL)
+			t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+			authStr, err := getDockerRegistryAuth(context.Background(), tt.account)
+			require.NoError(t, err)
+			decoded, err := base64.URLEncoding.DecodeString(authStr)
+			require.NoError(t, err)
+			require.Contains(t, string(decoded), "fresh_push_token")
 		})
-	}))
-	defer workos.Close()
-	auth.SetWorkOSBaseURLOverride(workos.URL)
-	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
-
-	authStr, err := getDockerRegistryAuth(context.Background(), "alice")
-	require.NoError(t, err)
-	decoded, err := base64.URLEncoding.DecodeString(authStr)
-	require.NoError(t, err)
-	require.Contains(t, string(decoded), "fresh_push_token")
+	}
 }
 
 func sessionTestCreds(accessToken, refreshToken string, expiresAt time.Time) *auth.Credentials {
