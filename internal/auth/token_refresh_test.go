@@ -24,12 +24,13 @@ type fakeTokenEndpoint struct {
 	lifetime time.Duration
 	delay    time.Duration
 
-	mu        sync.Mutex
-	current   string
-	requests  int
-	exchanges int
-	issued    string
-	onReject  func()
+	mu         sync.Mutex
+	current    string
+	requests   int
+	exchanges  int
+	issued     string
+	onReject   func()
+	onExchange func()
 }
 
 func newFakeTokenEndpoint(t *testing.T, refreshToken string, lifetime time.Duration) *fakeTokenEndpoint {
@@ -60,6 +61,9 @@ func (f *fakeTokenEndpoint) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if f.onExchange != nil {
+		f.onExchange()
+	}
 	// Hold the old token valid long enough for concurrent callers to read it.
 	time.Sleep(f.delay)
 	f.exchanges++
@@ -333,4 +337,27 @@ func TestTokenManager_RetriesRejectedGrantWithRotatedToken(t *testing.T) {
 			assert.Equal(t, "refresh_stale", loadTestProfile(t).RefreshToken)
 		})
 	}
+}
+
+func TestStorage_WriteDuringRefreshKeepsBothChanges(t *testing.T) {
+	setupRefreshTest(t, &Profile{
+		AccessToken:  makeTestJWT(time.Now().Add(time.Hour)),
+		RefreshToken: "refresh_0",
+		ExpiresAt:    time.Now().Add(time.Hour),
+	})
+	endpoint := newFakeTokenEndpoint(t, "refresh_0", 15*time.Minute)
+	endpoint.delay = 100 * time.Millisecond
+	accounts := []StoredAccount{{Name: "acme", OrganizationID: testOrgID}}
+	saved := make(chan error, 1)
+	endpoint.onExchange = func() {
+		go func() { saved <- createTestStorage().SetAccounts(accounts) }()
+	}
+
+	_, err := endpoint.manager().GetOrgScopedAccessToken(context.Background(), testOrgID)
+	require.NoError(t, err)
+	require.NoError(t, <-saved)
+
+	stored := loadTestProfile(t)
+	assert.Equal(t, "refresh_1", stored.RefreshToken, "a write must not restore the spent refresh token")
+	assert.Equal(t, accounts, stored.Accounts, "the refresh must not drop the other write")
 }

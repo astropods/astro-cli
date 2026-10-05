@@ -258,6 +258,7 @@ func moveOrgTokensToKeyring(profileName string, tokens map[string]*OrgToken) map
 // credentialsLockTimeout outlasts one token exchange, whose HTTP client gives up after 30s.
 const credentialsLockTimeout = 45 * time.Second
 
+// Every credentials write takes this lock, because concurrent keychain writes to one item fail.
 // When the lock cannot be taken, the caller proceeds unlocked rather than failing.
 func (s *Storage) lock(ctx context.Context) (unlock func()) {
 	noop := func() {}
@@ -294,6 +295,9 @@ func (s *Storage) GetCurrentProfile() (*Profile, error) {
 
 // SaveProfile saves a profile to storage
 func (s *Storage) SaveProfile(name string, profile *Profile) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -305,6 +309,9 @@ func (s *Storage) SaveProfile(name string, profile *Profile) error {
 
 // DeleteProfile deletes a profile from storage
 func (s *Storage) DeleteProfile(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -321,6 +328,9 @@ func (s *Storage) DeleteProfile(name string) error {
 
 // DeleteAllProfiles deletes all profiles from storage
 func (s *Storage) DeleteAllProfiles() error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -371,6 +381,9 @@ func deleteKeyringTokens(name string, profile *Profile) {
 
 // SetCurrentProfile sets the current profile
 func (s *Storage) SetCurrentProfile(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -398,6 +411,9 @@ func (s *Storage) HasValidCredentials() bool {
 // match an account name already stored in the profile. The previous account is
 // saved so that SwitchToPreviousAccount can restore it.
 func (s *Storage) SetCurrentAccount(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -438,6 +454,9 @@ func HasAccount(accounts []StoredAccount, name string) bool {
 // SetAccounts overwrites the current profile's account list, e.g. after a
 // live refresh from the server.
 func (s *Storage) SetAccounts(accounts []StoredAccount) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -455,6 +474,9 @@ func (s *Storage) SetAccounts(accounts []StoredAccount) error {
 // SwitchToPreviousAccount switches back to the account that was active before the
 // last account switch. Returns an error if there is no previous account recorded.
 func (s *Storage) SwitchToPreviousAccount() (string, error) {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return "", err
