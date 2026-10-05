@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -55,6 +56,9 @@ func init() {
 	blueprintBuildsListCmd.Flags().Int("limit", 0, "Maximum builds to list (server default 50, max 200)")
 	blueprintBuildsListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	blueprintBuildsGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	blueprintBuildsGetCmd.Flags().Bool("summary", false, "Show one vulnerability summary line per image instead of every finding")
+	blueprintBuildsGetCmd.Flags().StringSlice("severity", nil, "Only list findings at these severities: critical, high, medium, low, unknown")
+	blueprintBuildsGetCmd.MarkFlagsMutuallyExclusive("summary", "severity")
 	blueprintBuildsLogsCmd.Flags().BoolP("tail", "t", false, "Stream logs until the build finishes")
 	blueprintBuildsRebuildCmd.Flags().BoolP("tail", "t", false, "Stream the new build's logs until it finishes")
 	blueprintBuildsRebuildCmd.Flags().BoolP("yes", "y", false, "Rebuild even when a build is still running")
@@ -187,6 +191,11 @@ func runBlueprintBuildsList(cmd *cobra.Command, args []string) error {
 
 func runBlueprintBuildsGet(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	severityFlag, _ := cmd.Flags().GetStringSlice("severity")
+	severities, err := parseSeverities(severityFlag)
+	if err != nil {
+		return err
+	}
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
@@ -209,6 +218,8 @@ func runBlueprintBuildsGet(cmd *cobra.Command, args []string) error {
 	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &vulns); err != nil {
 		return err
 	}
+	summaryOnly, _ := cmd.Flags().GetBool("summary")
+	vulns = filterFindings(vulns, severities, summaryOnly)
 
 	w := cmd.OutOrStdout()
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -385,6 +396,42 @@ func vulnerabilitySummary(status string, c vulnerabilityCounts) string {
 		return "none found"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func parseSeverities(values []string) (map[string]bool, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	known := []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN"}
+	out := make(map[string]bool, len(values))
+	for _, v := range values {
+		s := strings.ToUpper(strings.TrimSpace(v))
+		if !slices.Contains(known, s) {
+			return nil, errUnknownSeverity(v)
+		}
+		out[s] = true
+	}
+	return out, nil
+}
+
+// filterFindings keeps the scan counts intact: they describe the image, not the filter.
+func filterFindings(v buildVulnerabilitiesResponse, severities map[string]bool, summaryOnly bool) buildVulnerabilitiesResponse {
+	if severities == nil && !summaryOnly {
+		return v
+	}
+	components := make([]componentVulnerabilities, len(v.Components))
+	for i, c := range v.Components {
+		kept := []vulnerabilityFinding{}
+		for _, f := range c.Findings {
+			if !summaryOnly && severities[f.Severity] {
+				kept = append(kept, f)
+			}
+		}
+		c.Findings = kept
+		components[i] = c
+	}
+	v.Components = components
+	return v
 }
 
 // Use only in a tabwriter's last column: escape codes count toward cell width.

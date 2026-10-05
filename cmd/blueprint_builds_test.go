@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,11 @@ func runBlueprintSubcommand(t *testing.T, cmd *cobra.Command, flags map[string]s
 		def := f.DefValue
 		require.NoError(t, cmd.Flags().Set(name, value))
 		t.Cleanup(func() {
-			cmd.Flags().Set(name, def) //nolint:errcheck
+			if sv, ok := f.Value.(pflag.SliceValue); ok {
+				sv.Replace(nil) //nolint:errcheck
+			} else {
+				cmd.Flags().Set(name, def) //nolint:errcheck
+			}
 			f.Changed = false
 		})
 	}
@@ -155,6 +160,7 @@ func TestBlueprintBuildsGet(t *testing.T) {
 		builds        any
 		scans         any
 		wantScansPath string
+		noRequest     bool
 		wantErr       error
 		wantOut       []string
 		wantAbsent    []string
@@ -207,6 +213,43 @@ func TestBlueprintBuildsGet(t *testing.T) {
 			wantOut:       []string{`"build": {`, `"commit_sha": "0123456789abcdef"`, `"vulnerabilities": {`, `"id": "CVE-2026-0001"`},
 		},
 		{
+			name:          "--severity lists only those findings",
+			args:          []string{"my-agent", "abc12345"},
+			flags:         map[string]string{"severity": "critical"},
+			builds:        testBuildsPayload,
+			scans:         scans,
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/abc12345/vulnerabilities",
+			wantOut:       []string{"Vulnerabilities  1 critical, 1 medium (1 fixable)", "CVE-2026-0001"},
+			wantAbsent:    []string{"CVE-2026-0002"},
+		},
+		{
+			name:          "--summary drops the findings table",
+			args:          []string{"my-agent", "abc12345"},
+			flags:         map[string]string{"summary": "true"},
+			builds:        testBuildsPayload,
+			scans:         scans,
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/abc12345/vulnerabilities",
+			wantOut:       []string{"Build abc12345", "agent  1 critical, 1 medium"},
+			wantAbsent:    []string{"SEVERITY", "CVE-2026-0001"},
+		},
+		{
+			name:          "--severity filters the JSON findings too",
+			args:          []string{"my-agent", "abc12345"},
+			flags:         map[string]string{"json": "true", "severity": "medium,low"},
+			builds:        testBuildsPayload,
+			scans:         scans,
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/abc12345/vulnerabilities",
+			wantOut:       []string{`"id": "CVE-2026-0002"`, `"critical": 1`},
+			wantAbsent:    []string{"CVE-2026-0001"},
+		},
+		{
+			name:      "unknown severity",
+			args:      []string{"my-agent", "abc12345"},
+			flags:     map[string]string{"severity": "severe"},
+			noRequest: true,
+			wantErr:   errUnknownSeverity("severe"),
+		},
+		{
 			name:    "build not in the history",
 			args:    []string{"my-agent", "ffffffff"},
 			builds:  testBuildsPayload,
@@ -237,7 +280,11 @@ func TestBlueprintBuildsGet(t *testing.T) {
 			out, err := runBlueprintSubcommand(t, blueprintBuildsGetCmd, tc.flags, func() error {
 				return runBlueprintBuildsGet(blueprintBuildsGetCmd, tc.args)
 			})
-			assert.Equal(t, "limit=200", gotQuery)
+			if tc.noRequest {
+				assert.Empty(t, gotQuery)
+			} else {
+				assert.Equal(t, "limit=200", gotQuery)
+			}
 			assert.Equal(t, tc.wantScansPath, gotScansPath)
 			if tc.wantErr != nil {
 				require.EqualError(t, err, tc.wantErr.Error())

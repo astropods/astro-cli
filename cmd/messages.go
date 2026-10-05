@@ -572,6 +572,10 @@ func errBlueprintBuildArgs(got int) error {
 	return fmt.Errorf("expected <blueprint name> and an optional [build-id], but got %d arguments", got)
 }
 
+func errUnknownSeverity(value string) error {
+	return fmt.Errorf("unknown severity %q: use critical, high, medium, low, or unknown", value)
+}
+
 func errBuildNotFound(name, buildID string, searched int) error {
 	return fmt.Errorf("build %s not found in the last %d builds of blueprint %q (list them with: %s blueprint builds list %s)", buildID, searched, name, buildinfo.BinaryName, name)
 }
