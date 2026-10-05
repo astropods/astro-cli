@@ -34,7 +34,7 @@ func sequenceHandler(bodies ...any) http.HandlerFunc {
 func buildLogsBody(phase, logs string) map[string]any {
 	return map[string]any{
 		"phase":      phase,
-		"components": []any{map[string]any{"name": "agent", "status": phase, "logs": logs}},
+		"components": []any{map[string]any{"name": "agent", "logs": logs}},
 	}
 }
 
@@ -54,7 +54,7 @@ func TestBlueprintBuildsLogs(t *testing.T) {
 			args:         []string{"my-agent", "abc12345"},
 			logs:         buildLogsBody("registered", "=== build ===\nstep 1\nstep 2\n\n"),
 			wantLogsPath: "/api/v1/agents/testaccount/my-agent/github/builds/abc12345/logs",
-			wantOut:      "agent  registered\n=== build ===\nstep 1\nstep 2\n",
+			wantOut:      "Build abc12345  registered\n\nagent\n=== build ===\nstep 1\nstep 2\n",
 		},
 		{
 			name:         "defaults to the newest server-side build",
@@ -62,14 +62,14 @@ func TestBlueprintBuildsLogs(t *testing.T) {
 			builds:       map[string]any{"builds": []any{map[string]any{"build_id": "cli00001", "source": "cli"}, map[string]any{"build_id": "srv00002", "source": "hosted"}}},
 			logs:         buildLogsBody("registered", "done\n"),
 			wantLogsPath: "/api/v1/agents/testaccount/my-agent/github/builds/srv00002/logs",
-			wantOut:      "agent  registered\ndone\n",
+			wantOut:      "Build srv00002  registered\n\nagent\ndone\n",
 		},
 		{
 			name:         "falls back to the flat logs of an older build",
 			args:         []string{"my-agent", "abc12345"},
 			logs:         map[string]any{"phase": "failed", "logs": "boom\n"},
 			wantLogsPath: "/api/v1/agents/testaccount/my-agent/github/builds/abc12345/logs",
-			wantOut:      "agent  failed\nboom\n",
+			wantOut:      "Build abc12345  failed\n\nagent\nboom\n",
 		},
 		{
 			name:         "a queued build has no logs yet",
@@ -134,33 +134,33 @@ func TestTailBuildLogs(t *testing.T) {
 			name: "prints each line once as sections grow",
 			snapshots: []buildLogsResponse{
 				{Phase: "pending"},
-				{Phase: "building", Components: []buildLogComponent{{Name: "agent", Status: "building",
+				{Phase: "building", Components: []buildLogComponent{{Name: "agent",
 					Logs: "=== clone ===\ncloned\n\n=== build ===\nstep 1\n\n=== push ===\n(no output)\n"}}},
-				{Phase: "building", Components: []buildLogComponent{{Name: "agent", Status: "building",
+				{Phase: "building", Components: []buildLogComponent{{Name: "agent",
 					Logs: "=== clone ===\ncloned\n\n=== build ===\nstep 1\nstep 2\n\n=== push ===\n(no output)\n"}}},
-				{Phase: "registered", Components: []buildLogComponent{{Name: "agent", Status: "registered",
+				{Phase: "registered", Components: []buildLogComponent{{Name: "agent",
 					Logs: "=== clone ===\ncloned\n\n=== build ===\nstep 1\nstep 2\n\n=== push ===\npushed\n\n"}}},
 			},
-			wantOut: "agent  building\n=== clone ===\ncloned\n=== build ===\nstep 1\nstep 2\n=== push ===\npushed\n" +
+			wantOut: "agent\n=== clone ===\ncloned\n=== build ===\nstep 1\nstep 2\n=== push ===\npushed\n" +
 				msgBuildFinished("abc12345", "registered") + "\n",
 		},
 		{
 			name: "follows a container past the server's tail window",
 			snapshots: []buildLogsResponse{
-				{Phase: "building", Components: []buildLogComponent{{Name: "agent", Status: "building",
+				{Phase: "building", Components: []buildLogComponent{{Name: "agent",
 					Logs: "=== build ===\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\n"}}},
-				{Phase: "registered", Components: []buildLogComponent{{Name: "agent", Status: "registered",
+				{Phase: "registered", Components: []buildLogComponent{{Name: "agent",
 					Logs: "=== build ===\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n"}}},
 			},
-			wantOut: "agent  building\n=== build ===\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n" +
+			wantOut: "agent\n=== build ===\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\n" +
 				msgBuildFinished("abc12345", "registered") + "\n",
 		},
 		{
 			name: "a failed build is an error",
 			snapshots: []buildLogsResponse{
-				{Phase: "failed", Components: []buildLogComponent{{Name: "agent", Status: "failed", Logs: "=== build ===\nboom\n"}}},
+				{Phase: "failed", Components: []buildLogComponent{{Name: "agent", Logs: "=== build ===\nboom\n"}}},
 			},
-			wantOut: "agent  failed\n=== build ===\nboom\n",
+			wantOut: "agent\n=== build ===\nboom\n",
 			wantErr: errBuildFailed("abc12345"),
 		},
 	}

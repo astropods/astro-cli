@@ -41,9 +41,8 @@ var blueprintBuildsRebuildCmd = &cobra.Command{
 }
 
 type buildLogComponent struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Logs   string `json:"logs"`
+	Name string `json:"name"`
+	Logs string `json:"logs"`
 }
 
 type buildLogsResponse struct {
@@ -58,7 +57,7 @@ func (r buildLogsResponse) components() []buildLogComponent {
 		return r.Components
 	}
 	if r.Logs != "" {
-		return []buildLogComponent{{Name: "agent", Status: r.Phase, Logs: r.Logs}}
+		return []buildLogComponent{{Name: "agent", Logs: r.Logs}}
 	}
 	return nil
 }
@@ -109,11 +108,11 @@ func runBlueprintBuildsLogs(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(w, colorDim+msgNoBuildLogsYet(buildID, resp.Phase)+colorReset) //nolint:errcheck,gosec
 		return nil
 	}
-	for i, c := range components {
-		if i > 0 {
-			fmt.Fprintln(w) //nolint:errcheck,gosec
-		}
-		printBuildLogComponentHeader(w, c)
+	bold := color.New(color.Bold)
+	fmt.Fprintf(w, "%s  %s\n", bold.Sprint("Build "+buildID), buildStatusColor(resp.Phase).Sprint(resp.Phase)) //nolint:errcheck,gosec
+	for _, c := range components {
+		fmt.Fprintln(w)                                  //nolint:errcheck,gosec
+		fmt.Fprintln(w, bold.Sprint(c.Name))             //nolint:errcheck,gosec
 		fmt.Fprintln(w, strings.TrimRight(c.Logs, "\n")) //nolint:errcheck,gosec
 	}
 	return nil
@@ -192,10 +191,6 @@ func newestServerBuild(builds []blueprintBuild, name string) (string, error) {
 	return "", errBlueprintNoServerBuilds(name)
 }
 
-func printBuildLogComponentHeader(w io.Writer, c buildLogComponent) {
-	fmt.Fprintf(w, "%s  %s\n", color.New(color.Bold).Sprint(c.Name), buildStatusColor(c.Status).Sprint(c.Status)) //nolint:errcheck,gosec
-}
-
 // Each poll returns the whole log again, so this diffs it per section.
 func tailBuildLogs(ctx context.Context, w io.Writer, buildID string, fetch func() (buildLogsResponse, error)) error {
 	printed := map[string][]string{}
@@ -214,7 +209,7 @@ func tailBuildLogs(ctx context.Context, w io.Writer, buildID string, fetch func(
 					continue
 				}
 				if c.Name != lastComponent {
-					printBuildLogComponentHeader(w, c)
+					fmt.Fprintln(w, color.New(color.Bold).Sprint(c.Name)) //nolint:errcheck,gosec
 					lastComponent, lastSection = c.Name, ""
 				}
 				if key != lastSection && s.title != "" {

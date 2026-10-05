@@ -270,7 +270,10 @@ func printBuildDetails(w io.Writer, b blueprintBuild) {
 	row("Source", b.Source)
 	row("Started", b.StartedAt)
 	row("Completed", buildCompletedText(b))
-	row("Step", b.Step)
+	// The server keeps the last step after a build succeeds.
+	if isRunningBuild(b.Status) || b.Status == "failed" {
+		row("Step", b.Step)
+	}
 	if b.Error != "" {
 		row("Error", color.New(color.FgRed).Sprint(b.Error))
 	}

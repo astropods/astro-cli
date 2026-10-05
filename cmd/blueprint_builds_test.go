@@ -34,7 +34,7 @@ func runBlueprintSubcommand(t *testing.T, cmd *cobra.Command, flags map[string]s
 var testBuildsPayload = map[string]any{
 	"builds": []any{
 		map[string]any{
-			"build_id": "abc12345", "source": "github", "status": "registered", "is_latest": true,
+			"build_id": "abc12345", "source": "github", "status": "registered", "is_latest": true, "step": "registering",
 			"started_at": "2026-10-01T12:00:00Z", "completed_at": "2026-10-01T12:02:30Z",
 			"commit_sha": "0123456789abcdef", "commit_message": "Fix the parser\n\nLonger body.",
 			"branch": "main", "repo_full_name": "example/agent", "pushed_by": "Ada Lovelace",
@@ -157,6 +157,7 @@ func TestBlueprintBuildsGet(t *testing.T) {
 		wantScansPath string
 		wantErr       error
 		wantOut       []string
+		wantAbsent    []string
 	}{
 		{
 			name:          "shows the latest published build without a build ID",
@@ -178,6 +179,7 @@ func TestBlueprintBuildsGet(t *testing.T) {
 				"CVE-2026-0002", "zlib",
 				"worker  none found",
 			},
+			wantAbsent: []string{"Step:"},
 		},
 		{
 			name:          "shows the step and error of a failed build",
@@ -236,6 +238,9 @@ func TestBlueprintBuildsGet(t *testing.T) {
 			require.NoError(t, err)
 			for _, want := range tc.wantOut {
 				assert.Contains(t, out, want)
+			}
+			for _, absent := range tc.wantAbsent {
+				assert.NotContains(t, out, absent)
 			}
 		})
 	}
