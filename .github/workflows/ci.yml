@@ -102,6 +102,12 @@ jobs:
         run: |
           go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v
 
+      # Only Windows refuses to rename over a file a reader holds open, so only
+      # here does the credentials write take its retry path. These tests use
+      # t.TempDir paths, not HOME, so they are safe on the shared profile.
+      - name: Test the credentials write seam
+        run: go test ./internal/auth/ -run '^TestWriteFileAtomic' -v
+
       # The watch path's separator and symlink handling only differ here, so
       # this package runs in full rather than by test name.
       - name: Test the compose path seam

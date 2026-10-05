@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zalando/go-keyring"
@@ -400,4 +401,62 @@ func TestGetOrgScopedAccessToken_KeyringReadsOnlyTheRequestedOrg(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tokenA, got)
 	assert.Equal(t, 1, endpoint.exchangeCount())
+}
+
+func (f *fakeTokenEndpoint) currentRefresh() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.current
+}
+
+// With the lock stuck, every caller runs unlocked: some may fail, but the stored
+// refresh token must still be the one the endpoint will accept next.
+func TestTokenManager_UnlockedRefreshesKeepTheLiveRefreshToken(t *testing.T) {
+	for round := range 5 {
+		t.Run(fmt.Sprintf("round %d", round), func(t *testing.T) {
+			setupRefreshTest(t, &Profile{
+				AccessToken:  makeTestJWT(time.Now().Add(time.Hour)),
+				RefreshToken: "refresh_0",
+				ExpiresAt:    time.Now().Add(time.Hour),
+			})
+			endpoint := newFakeTokenEndpoint(t, "refresh_0", 15*time.Minute)
+			endpoint.delay = 20 * time.Millisecond
+
+			prevTimeout := credentialsLockTimeout
+			credentialsLockTimeout = 30 * time.Millisecond
+			t.Cleanup(func() { credentialsLockTimeout = prevTimeout })
+			path, err := CredentialsPath("ast")
+			require.NoError(t, err)
+			held := flock.New(path + ".lock")
+			require.NoError(t, held.Lock())
+			t.Cleanup(func() { _ = held.Unlock() })
+
+			const callers = 8
+			errs := make([]error, callers)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := range callers {
+				m := endpoint.manager()
+				wg.Go(func() {
+					<-start
+					_, errs[i] = m.GetOrgScopedAccessToken(context.Background(), testOrgID)
+				})
+			}
+			close(start)
+			wg.Wait()
+
+			succeeded := 0
+			for _, err := range errs {
+				if err == nil {
+					succeeded++
+				}
+			}
+			assert.Positive(t, succeeded)
+			assert.Greater(t, endpoint.requestCount(), 1, "the callers must have run unlocked and collided")
+			assert.Equal(t, endpoint.currentRefresh(), loadTestProfile(t).RefreshToken, "a stale save must not leave a spent refresh token")
+
+			_, err = endpoint.manager().ForceRefreshOrgScopedAccessToken(context.Background(), testOrgID)
+			assert.NoError(t, err, "the session must survive the unlocked race")
+		})
+	}
 }

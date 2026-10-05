@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -526,4 +527,60 @@ func TestStorage_KeyringHoldsOrgTokens(t *testing.T) {
 		_, err := keyring.Get(KeyringService, orgTokenKeyringKey("default", orgID))
 		assert.ErrorIs(t, err, keyring.ErrNotFound, orgID)
 	}
+}
+
+func TestWriteFileAtomic(t *testing.T) {
+	tests := []struct {
+		name      string
+		failures  int
+		wantCalls int
+	}{
+		{name: "rename succeeds", failures: 0, wantCalls: 1},
+		{name: "rename is retried after a transient failure", failures: 3, wantCalls: 4},
+		{name: "a rename that never succeeds falls back to an in-place write", failures: renameAttempts, wantCalls: renameAttempts},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "credentials.json")
+			require.NoError(t, os.WriteFile(path, []byte("old"), 0600))
+
+			calls := 0
+			prev := renameFile
+			renameFile = func(from, to string) error {
+				calls++
+				if calls <= tt.failures {
+					return errors.New("sharing violation")
+				}
+				return os.Rename(from, to)
+			}
+			t.Cleanup(func() { renameFile = prev })
+
+			require.NoError(t, writeFileAtomic(path, []byte(`{"new":true}`)))
+			assert.Equal(t, tt.wantCalls, calls)
+			got, err := os.ReadFile(path) //nolint:gosec
+			require.NoError(t, err)
+			assert.Equal(t, `{"new":true}`, string(got))
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			assert.Len(t, entries, 1, "the temp file must not be left behind")
+		})
+	}
+}
+
+// On Windows the open reader makes the first renames fail, so this exercises the retry there.
+func TestWriteFileAtomic_ReaderHoldsTheFileOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0600))
+	reader, err := os.Open(path) //nolint:gosec
+	require.NoError(t, err)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = reader.Close()
+	}()
+
+	require.NoError(t, writeFileAtomic(path, []byte("new")))
+	got, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(got))
 }

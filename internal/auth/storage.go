@@ -244,12 +244,19 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		// Windows refuses to replace a file another process holds open.
-		return os.WriteFile(path, data, 0600)
+	// Windows refuses to replace a file another process holds open, and a reader holds it only briefly.
+	for attempt := range renameAttempts {
+		if err := renameFile(tmp.Name(), path); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
 	}
-	return nil
+	return os.WriteFile(path, data, 0600)
 }
+
+const renameAttempts = 10
+
+var renameFile = os.Rename
 
 // On macOS each keyring read starts a process, so org tokens are read one at a time, on use.
 func (s *Storage) cachedOrgToken(profileName, orgID string, t *OrgToken) string {
@@ -288,7 +295,7 @@ func moveOrgTokensToKeyring(profileName string, tokens map[string]*OrgToken) map
 }
 
 // credentialsLockTimeout outlasts one token exchange, whose HTTP client gives up after 30s.
-const credentialsLockTimeout = 45 * time.Second
+var credentialsLockTimeout = 45 * time.Second
 
 // Every credentials write takes this lock, because concurrent keychain writes to one item fail.
 // When the lock cannot be taken, the caller proceeds unlocked rather than failing.
