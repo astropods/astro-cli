@@ -225,11 +225,19 @@ func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken
 }
 
 // resolveOrRenameBlueprint checks whether name exists at at.Account. A
-// free name is reserved via createBlueprintShell, so a race there falls
-// into the same flow as an existing name. An existing name returns
-// immediately for personalAccount or yes; otherwise it prompts via
-// confirmUpdateOrRename, looping under the new name on a rename choice.
+// matching .ast/push.json link from a prior resolution short-circuits all
+// of that, so a routine repeat push from the same directory doesn't
+// re-check or re-ask. Otherwise, a free name is reserved via
+// createBlueprintShell, so a race there falls into the same flow as an
+// existing name. An existing name returns immediately for personalAccount
+// or yes; otherwise it prompts via confirmUpdateOrRename, looping under
+// the new name on a rename choice. Every path that resolves successfully
+// writes (or refreshes) the link.
 func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
+	if link := readPushLink(); link != nil && link.Account == at.Account && link.Name == name {
+		return name, nil
+	}
+
 	isPersonal := at.Account == personalAccount
 	originalName := name
 	attempt := 0
@@ -241,6 +249,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 		}
 		if !exists {
 			if createErr := createBlueprintShell(ctx, serverURL, at, name, verbose); createErr == nil {
+				writePushLink(at.Account, name)
 				return name, nil
 			} else if !errors.Is(createErr, errBlueprintAlreadyExists) {
 				return "", createErr
@@ -248,6 +257,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			// Someone else won the race between the read and this attempt.
 		}
 		if isPersonal || yes {
+			writePushLink(at.Account, name)
 			return name, nil
 		}
 
@@ -261,6 +271,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			return "", err
 		}
 		if choice == blueprintPushUpdate {
+			writePushLink(at.Account, name)
 			return name, nil
 		}
 		name = newName

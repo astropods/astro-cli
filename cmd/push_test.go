@@ -234,6 +234,8 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+
 			var gotMethod, gotPath string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
@@ -267,6 +269,70 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 			} else {
 				assert.Empty(t, warnBuf.String())
 			}
+		})
+	}
+}
+
+// TestResolveOrRenameBlueprintPushLink covers the .ast/push.json short
+// circuit: a repeat push from the same directory, for the same account and
+// name a prior resolution already settled, must not re-check existence or
+// re-prompt. It also covers that every successful resolution (not just the
+// link hit) leaves a link behind for the next push to find.
+func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
+	tests := []struct {
+		name         string
+		existingLink *pushLink
+		wantGETCalls int
+	}{
+		{name: "no link falls back to the existence check", wantGETCalls: 1},
+		{
+			name:         "a link for a different name falls back to the existence check",
+			existingLink: &pushLink{Account: "acme", Name: "other-agent"},
+			wantGETCalls: 1,
+		},
+		{
+			name:         "a link for a different account falls back to the existence check",
+			existingLink: &pushLink{Account: "other-org", Name: "my-agent"},
+			wantGETCalls: 1,
+		},
+		{
+			name:         "a matching link skips the existence check entirely",
+			existingLink: &pushLink{Account: "acme", Name: "my-agent"},
+			wantGETCalls: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if tt.existingLink != nil {
+				writePushLink(tt.existingLink.Account, tt.existingLink.Name)
+			}
+
+			getCalls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					getCalls++
+				}
+				// The name already exists; yes=true keeps this from reaching
+				// the interactive prompt when the existence check does run.
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(srv.Close)
+
+			var warnBuf bytes.Buffer
+			got, err := resolveOrRenameBlueprint(
+				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
+				"my-agent", "", true, false,
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, "my-agent", got)
+			assert.Equal(t, tt.wantGETCalls, getCalls)
+
+			link := readPushLink()
+			require.NotNil(t, link)
+			assert.Equal(t, pushLink{Account: "acme", Name: "my-agent"}, *link)
 		})
 	}
 }
