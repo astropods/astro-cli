@@ -80,6 +80,18 @@ Requires admin permission on the account.`,
 	RunE: runAccountSet,
 }
 
+// accountBoolSettings are the organization-level booleans ast account set
+// can write, each as a PATCH .../accounts/:account/<path> call taking and
+// returning {"enabled": bool}.
+var accountBoolSettings = []struct {
+	flag     string
+	path     string
+	describe func(account string, enabled bool) string
+}{
+	{flag: "block-personal-push", path: "block-member-personal-push", describe: msgBlockPersonalPushSet},
+	{flag: "everyone-sharing", path: "everyone-sharing", describe: msgEveryoneSharingSet},
+}
+
 func init() {
 	accountListCmd.Flags().Bool("json", false, "Print raw JSON output")
 	accountCmd.AddCommand(accountListCmd)
@@ -88,6 +100,7 @@ func init() {
 		accountCmd.AddCommand(accountTokenCmd)
 	}
 	accountSetCmd.Flags().Bool("block-personal-push", false, "Block org members from pushing blueprints to their own personal account")
+	accountSetCmd.Flags().Bool("everyone-sharing", false, "Share new resources with everyone in the account by default")
 	accountCmd.AddCommand(accountSetCmd)
 	rootCmd.AddCommand(accountCmd)
 }
@@ -247,31 +260,43 @@ func runAccountToken(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// blockMemberPersonalPushResponse mirrors handlers.BlockMemberPersonalPushResponse on the server.
-type blockMemberPersonalPushResponse struct {
+// accountBoolSettingResponse mirrors handlers.BlockMemberPersonalPushResponse
+// and handlers.EveryoneSharingResponse on the server, which share this shape.
+type accountBoolSettingResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
 func runAccountSet(cmd *cobra.Command, args []string) error {
-	if !cmd.Flags().Changed("block-personal-push") {
+	var toUpdate []int
+	for i, s := range accountBoolSettings {
+		if cmd.Flags().Changed(s.flag) {
+			toUpdate = append(toUpdate, i)
+		}
+	}
+	if len(toUpdate) == 0 {
 		return errAccountSetNothingToUpdate()
 	}
-	enabled, _ := cmd.Flags().GetBool("block-personal-push")
 
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
 	}
-
-	var resp blockMemberPersonalPushResponse
-	u := apiPath(accountBaseURL(), at.Account, "accounts", "block-member-personal-push")
-	if _, err := apiCall(cmd.Context(), http.MethodPatch, u, map[string]bool{"enabled": enabled}, at.Token, verbose, &resp); err != nil {
-		return err
-	}
-
 	w := cmd.OutOrStdout()
-	color.New(color.FgGreen).Fprint(w, "✓ ")                                  //nolint:errcheck,gosec
-	fmt.Fprintf(w, "%s\n", msgBlockPersonalPushSet(at.Account, resp.Enabled)) //nolint:errcheck,gosec
+	green := color.New(color.FgGreen)
+
+	for _, i := range toUpdate {
+		s := accountBoolSettings[i]
+		enabled, _ := cmd.Flags().GetBool(s.flag)
+
+		var resp accountBoolSettingResponse
+		u := apiPath(accountBaseURL(), at.Account, "accounts", s.path)
+		if _, err := apiCall(cmd.Context(), http.MethodPatch, u, map[string]bool{"enabled": enabled}, at.Token, verbose, &resp); err != nil {
+			return err
+		}
+
+		green.Fprint(w, "✓ ")                                        //nolint:errcheck,gosec
+		fmt.Fprintf(w, "%s\n", s.describe(at.Account, resp.Enabled)) //nolint:errcheck,gosec
+	}
 	return nil
 }
 

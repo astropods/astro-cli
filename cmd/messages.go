@@ -596,7 +596,7 @@ func errBlueprintRequired() error {
 }
 
 func errAccountSetNothingToUpdate() error {
-	return fmt.Errorf("nothing to update — specify --block-personal-push=true or --block-personal-push=false")
+	return fmt.Errorf("nothing to update — specify --block-personal-push and/or --everyone-sharing, each true or false")
 }
 
 func msgBlockPersonalPushSet(account string, enabled bool) string {
@@ -605,6 +605,14 @@ func msgBlockPersonalPushSet(account string, enabled bool) string {
 		state = "enabled"
 	}
 	return fmt.Sprintf("Blocking members from pushing to personal accounts is now %s for %q", state, account)
+}
+
+func msgEveryoneSharingSet(account string, enabled bool) string {
+	state := "disabled"
+	if enabled {
+		state = "enabled"
+	}
+	return fmt.Sprintf("Sharing new resources with everyone in the account is now %s for %q", state, account)
 }
 
 func errAgentTargetAmbiguous(target string, matches []string) error {
