@@ -43,7 +43,7 @@ func TestBlueprintBuilds(t *testing.T) {
 			},
 			map[string]any{
 				"build_id": "def67890", "source": "github", "status": "registered",
-				"started_at": "2026-09-30T09:00:00Z",
+				"started_at":      "2026-09-30T09:00:00Z",
 				"vulnerabilities": map[string]any{"status": "scanning"},
 			},
 			map[string]any{"build_id": "0f0f0f0f", "source": "github", "status": "failed", "started_at": "2026-09-29T09:00:00Z"},
