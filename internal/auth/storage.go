@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	// KeyringService is the service name for keyring storage
+	// KeyringService is used by ast; other binaries append their name, so logins do not replace each other's tokens.
 	KeyringService = "astro-cli"
 
 	// KeyringAccessTokenKey is the key for the access token in keyring
@@ -22,7 +22,18 @@ const (
 
 	// KeyringRefreshTokenKey is the key for the refresh token in keyring
 	KeyringRefreshTokenKey = "refresh_token"
+
+	// legacyTokenTolerance covers request latency and clock skew between a saved expiry and its JWT exp.
+	legacyTokenTolerance = time.Minute
 )
+
+// ast keeps the original name, so existing ast logins stay valid.
+func keyringService(binaryName string) string {
+	if binaryName == "ast" {
+		return KeyringService
+	}
+	return KeyringService + "-" + binaryName
+}
 
 // Credentials represents stored authentication credentials
 type Credentials struct {
@@ -150,17 +161,42 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 
 	// Load tokens from keyring if available
 	if s.useKeyring {
+		service := keyringService(s.binaryName)
 		for name, profile := range creds.Profiles {
-			if accessToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey)); err == nil {
+			if accessToken, err := keyring.Get(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey)); err == nil {
 				profile.AccessToken = accessToken
 			}
-			if refreshToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey)); err == nil {
+			if refreshToken, err := keyring.Get(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey)); err == nil {
+				profile.RefreshToken = refreshToken
+			} else if accessToken, refreshToken, ok := s.legacyTokens(name, profile); ok {
+				profile.AccessToken = accessToken
 				profile.RefreshToken = refreshToken
 			}
 		}
 	}
 
 	return &creds, nil
+}
+
+// Older builds shared KeyringService, so the expiry check skips another binary's
+// session: refreshing it would end that session.
+func (s *Storage) legacyTokens(name string, profile *Profile) (accessToken, refreshToken string, ok bool) {
+	if keyringService(s.binaryName) == KeyringService || profile == nil {
+		return "", "", false
+	}
+	accessToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
+	if err != nil {
+		return "", "", false
+	}
+	exp, err := ParseJWTExpiry(accessToken)
+	if err != nil || exp.Sub(profile.ExpiresAt).Abs() > legacyTokenTolerance {
+		return "", "", false
+	}
+	refreshToken, err = keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+	if err != nil {
+		return "", "", false
+	}
+	return accessToken, refreshToken, true
 }
 
 // SaveCredentials saves credentials to storage
@@ -178,16 +214,17 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 	// If using keyring, store tokens there and remove from file
 	credsToSave := *creds
 	if s.useKeyring {
+		service := keyringService(s.binaryName)
 		credsToSave.Profiles = make(map[string]*Profile)
 		for name, profile := range creds.Profiles {
 			// Store tokens in keyring
 			if profile.AccessToken != "" {
-				if err := keyring.Set(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey), profile.AccessToken); err != nil {
+				if err := keyring.Set(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey), profile.AccessToken); err != nil {
 					return fmt.Errorf("failed to store access token in keyring: %w", err)
 				}
 			}
 			if profile.RefreshToken != "" {
-				if err := keyring.Set(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey), profile.RefreshToken); err != nil {
+				if err := keyring.Set(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey), profile.RefreshToken); err != nil {
 					return fmt.Errorf("failed to store refresh token in keyring: %w", err)
 				}
 			}
@@ -245,8 +282,7 @@ func (s *Storage) DeleteProfile(name string) error {
 
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
-		_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
-		_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+		s.deleteKeyringTokens(name, creds.Profiles[name])
 	}
 
 	delete(creds.Profiles, name)
@@ -262,9 +298,8 @@ func (s *Storage) DeleteAllProfiles() error {
 
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
-		for name := range creds.Profiles {
-			_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
-			_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+		for name, profile := range creds.Profiles {
+			s.deleteKeyringTokens(name, profile)
 		}
 	}
 
@@ -281,6 +316,16 @@ func (s *Storage) DeleteAllProfiles() error {
 	}
 
 	return nil
+}
+
+func (s *Storage) deleteKeyringTokens(name string, profile *Profile) {
+	if _, _, ok := s.legacyTokens(name, profile); ok {
+		_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
+		_ = keyring.Delete(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+	}
+	service := keyringService(s.binaryName)
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
 }
 
 // SetCurrentProfile sets the current profile
