@@ -87,6 +87,39 @@ func TestApiCallForAccount_RetriesOn401(t *testing.T) {
 	require.Equal(t, "true", dest["ok"])
 }
 
+func TestApiCallForAccount_RetryOn401BypassesCachedOrgToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	creds := accountTestCreds("acme-corp")
+	creds.Profiles["default"].OrgTokens = map[string]*auth.OrgToken{
+		"org_acme": {AccessToken: "cached_org_token", ExpiresAt: time.Now().Add(time.Hour)},
+	}
+	writeAccountTestCredentials(t, creds)
+
+	workos := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(auth.TokenResponse{AccessToken: "fresh_org_token", RefreshToken: "rotated", ExpiresIn: 900})
+	}))
+	t.Cleanup(workos.Close)
+	auth.SetWorkOSBaseURLOverride(workos.URL)
+	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
+
+	var sawAuth []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = append(sawAuth, r.Header.Get("Authorization"))
+		if len(sawAuth) == 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	}))
+	t.Cleanup(api.Close)
+
+	status, err := apiCallForAccount(context.Background(), http.MethodGet, api.URL, nil, "acme-corp", false, nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{"Bearer cached_org_token", "Bearer fresh_org_token"}, sawAuth)
+}
+
 func TestGetDockerRegistryAuth_UsesFreshAccountToken(t *testing.T) {
 	_ = os.Unsetenv(auth.EnvAccessToken)
 

@@ -55,6 +55,9 @@ const (
 	ErrorExpiredToken         = "expired_token"
 )
 
+// errInvalidGrant's text is the OAuth error code, so wrapping it leaves the message unchanged.
+var errInvalidGrant = errors.New("invalid_grant")
+
 // Client handles WorkOS device authorization flow
 type Client struct {
 	clientID   string
@@ -306,6 +309,9 @@ func (c *Client) RefreshAccessTokenForOrg(ctx context.Context, refreshToken, org
 	if resp.StatusCode != http.StatusOK {
 		var tokenErr TokenError
 		if err := json.Unmarshal(body, &tokenErr); err == nil {
+			if tokenErr.Error == "invalid_grant" {
+				return nil, fmt.Errorf("org-scoped token refresh failed: %w - %s", errInvalidGrant, tokenErr.ErrorDescription)
+			}
 			return nil, fmt.Errorf("org-scoped token refresh failed: %s - %s", tokenErr.Error, tokenErr.ErrorDescription)
 		}
 		return nil, fmt.Errorf("org-scoped token refresh failed with status %d", resp.StatusCode)

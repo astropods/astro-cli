@@ -19,6 +19,8 @@ const (
 var (
 	ErrSessionEnded   = errors.New("session has ended")
 	ErrNoRefreshToken = errors.New("no refresh token available")
+
+	errCredentialsNotSaved = errors.New("failed to save refreshed credentials")
 )
 
 // TokenManager handles token lifecycle
@@ -53,12 +55,7 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 		if profile.RefreshToken == "" {
 			return "", ErrNoRefreshToken
 		}
-
-		newProfile, err := m.refreshToken(ctx, profile)
-		if err != nil {
-			return "", err
-		}
-		profile = newProfile
+		return m.refreshPersonalToken(ctx, false)
 	}
 
 	return profile.AccessToken, nil
@@ -66,18 +63,22 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 
 // shouldRefresh checks if the token should be refreshed
 func (m *TokenManager) shouldRefresh(profile *Profile) bool {
+	return tokenNeedsRefresh(profile.AccessToken, profile.ExpiresAt)
+}
+
+func tokenNeedsRefresh(accessToken string, expiresAt time.Time) bool {
 	// Zero expiry means unknown — refresh to be safe (e.g. corrupted storage, old credentials)
-	if profile.ExpiresAt.IsZero() {
+	if expiresAt.IsZero() {
 		return true
 	}
 	threshold := time.Now().Add(RefreshThreshold)
-	if threshold.After(profile.ExpiresAt) {
+	if threshold.After(expiresAt) {
 		return true
 	}
 	// Also honor JWT exp — stored ExpiresAt can drift from the bearer after upgrades
 	// or when org-scoped refreshes rotate the refresh token without updating profile metadata.
-	if profile.AccessToken != "" {
-		if jwtExp, err := ParseJWTExpiry(profile.AccessToken); err == nil && threshold.After(jwtExp) {
+	if accessToken != "" {
+		if jwtExp, err := ParseJWTExpiry(accessToken); err == nil && threshold.After(jwtExp) {
 			return true
 		}
 	}
@@ -89,42 +90,88 @@ func (m *TokenManager) ForceRefreshAccessToken(ctx context.Context) (string, err
 	return m.forceRefresh(ctx)
 }
 
-func (m *TokenManager) refreshToken(ctx context.Context, profile *Profile) (*Profile, error) {
-	tokenResp, err := m.client.RefreshAccessToken(ctx, profile.RefreshToken)
+func (m *TokenManager) refreshPersonalToken(ctx context.Context, force bool) (string, error) {
+	token, err := m.rotate(ctx,
+		func(p *Profile) (string, bool) {
+			return p.AccessToken, !force && p.AccessToken != "" && !m.shouldRefresh(p)
+		},
+		func(refreshToken string) (*TokenResponse, error) {
+			return m.client.RefreshAccessToken(ctx, refreshToken)
+		},
+		func(p *Profile, resp *TokenResponse) {
+			p.AccessToken = resp.AccessToken
+			p.ExpiresAt = tokenExpiry(resp)
+		},
+	)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
+	return token, nil
+}
 
-	// Update profile with new tokens
-	profile.AccessToken = tokenResp.AccessToken
-	if tokenResp.RefreshToken != "" {
-		profile.RefreshToken = tokenResp.RefreshToken
-	}
+// rotate holds the credentials lock because each exchange invalidates the refresh token other processes have read.
+func (m *TokenManager) rotate(
+	ctx context.Context,
+	reuse func(*Profile) (string, bool),
+	exchange func(refreshToken string) (*TokenResponse, error),
+	apply func(*Profile, *TokenResponse),
+) (string, error) {
+	unlock := m.storage.lock(ctx)
+	defer unlock()
 
-	// Update expiry time
-	if tokenResp.ExpiresIn > 0 {
-		profile.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
-	} else {
-		// Parse expiry from JWT if expires_in not provided
-		if exp, err := ParseJWTExpiry(tokenResp.AccessToken); err == nil {
-			profile.ExpiresAt = exp
-		} else {
-			// Fallback to 5 minutes if we can't parse
-			profile.ExpiresAt = time.Now().Add(5 * time.Minute)
+	var rejected string
+	var rejectErr error
+	for {
+		creds, err := m.storage.LoadCredentials()
+		if err != nil {
+			return "", fmt.Errorf("not authenticated: %w", err)
 		}
-	}
+		profile, ok := creds.Profiles[creds.CurrentProfile]
+		if !ok {
+			return "", errors.New("not authenticated: no current profile found")
+		}
+		if token, ok := reuse(profile); ok {
+			return token, nil
+		}
+		if profile.RefreshToken == "" {
+			return "", ErrNoRefreshToken
+		}
+		if rejectErr != nil && profile.RefreshToken == rejected {
+			return "", rejectErr
+		}
 
-	// Save updated profile
-	creds, err := m.storage.LoadCredentials()
-	if err != nil {
-		return nil, err
-	}
+		resp, err := exchange(profile.RefreshToken)
+		if err != nil {
+			if rejectErr != nil || !isRejectedGrant(err) {
+				return "", err
+			}
+			rejected, rejectErr = profile.RefreshToken, err
+			continue
+		}
 
-	if err := m.storage.SaveProfile(creds.CurrentProfile, profile); err != nil {
-		return nil, fmt.Errorf("failed to save refreshed credentials: %w", err)
+		if resp.RefreshToken != "" {
+			profile.RefreshToken = resp.RefreshToken
+		}
+		apply(profile, resp)
+		if err := m.storage.SaveCredentials(creds); err != nil {
+			return resp.AccessToken, fmt.Errorf("%w: %w", errCredentialsNotSaved, err)
+		}
+		return resp.AccessToken, nil
 	}
+}
 
-	return profile, nil
+func isRejectedGrant(err error) bool {
+	return errors.Is(err, ErrSessionEnded) || errors.Is(err, errInvalidGrant)
+}
+
+func tokenExpiry(resp *TokenResponse) time.Time {
+	if resp.ExpiresIn > 0 {
+		return time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	}
+	if exp, err := ParseJWTExpiry(resp.AccessToken); err == nil {
+		return exp
+	}
+	return time.Now().Add(5 * time.Minute)
 }
 
 // GetCurrentUser returns the currently authenticated user
@@ -175,36 +222,52 @@ func (m *TokenManager) RequireAuth() error {
 	return nil
 }
 
-// GetOrgScopedAccessToken returns an access token scoped to the given WorkOS organization.
-// The org-scoped access token is returned for immediate use but NOT saved to the profile
-// (the stored profile keeps the unscoped personal token). However, if WorkOS rotates the
-// refresh token during this call, we must persist the new refresh token — otherwise the
-// stored one becomes stale and subsequent refreshes will fail.
+// GetOrgScopedAccessToken returns a token for the organization, cached until it is within RefreshThreshold of expiry.
 func (m *TokenManager) GetOrgScopedAccessToken(ctx context.Context, organizationID string) (string, error) {
+	return m.orgScopedAccessToken(ctx, organizationID, false)
+}
+
+// ForceRefreshOrgScopedAccessToken bypasses the org token cache.
+func (m *TokenManager) ForceRefreshOrgScopedAccessToken(ctx context.Context, organizationID string) (string, error) {
+	return m.orgScopedAccessToken(ctx, organizationID, true)
+}
+
+func (m *TokenManager) orgScopedAccessToken(ctx context.Context, organizationID string, force bool) (string, error) {
+	reuse := func(p *Profile) (string, bool) {
+		t := p.OrgTokens[organizationID]
+		if force || t == nil || t.AccessToken == "" || tokenNeedsRefresh(t.AccessToken, t.ExpiresAt) {
+			return "", false
+		}
+		return t.AccessToken, true
+	}
+
 	profile, err := m.storage.GetCurrentProfile()
 	if err != nil {
 		return "", fmt.Errorf("not authenticated: %w", err)
 	}
-
+	if token, ok := reuse(profile); ok {
+		return token, nil
+	}
 	if profile.RefreshToken == "" {
 		return "", ErrNoRefreshToken
 	}
 
-	tokenResp, err := m.client.RefreshAccessTokenForOrg(ctx, profile.RefreshToken, organizationID)
-	if err != nil {
+	token, err := m.rotate(ctx, reuse,
+		func(refreshToken string) (*TokenResponse, error) {
+			return m.client.RefreshAccessTokenForOrg(ctx, refreshToken, organizationID)
+		},
+		func(p *Profile, resp *TokenResponse) {
+			if p.OrgTokens == nil {
+				p.OrgTokens = make(map[string]*OrgToken)
+			}
+			p.OrgTokens[organizationID] = &OrgToken{AccessToken: resp.AccessToken, ExpiresAt: tokenExpiry(resp)}
+		},
+	)
+	// The token is valid even when it could not be saved.
+	if err != nil && !errors.Is(err, errCredentialsNotSaved) {
 		return "", err
 	}
-
-	// Persist rotated refresh token so future refreshes don't use a stale token.
-	if tokenResp.RefreshToken != "" {
-		profile.RefreshToken = tokenResp.RefreshToken
-		creds, err := m.storage.LoadCredentials()
-		if err == nil {
-			_ = m.storage.SaveProfile(creds.CurrentProfile, profile)
-		}
-	}
-
-	return tokenResp.AccessToken, nil
+	return token, nil
 }
 
 // AddAuthHeader adds the authorization header to an existing request
@@ -242,11 +305,7 @@ func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
 		return "", ErrNoRefreshToken
 	}
 
-	newProfile, err := m.refreshToken(ctx, profile)
-	if err != nil {
-		return "", err
-	}
-	return newProfile.AccessToken, nil
+	return m.refreshPersonalToken(ctx, true)
 }
 
 // ParseJWTExpiry extracts the expiry time from a JWT token

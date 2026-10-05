@@ -313,11 +313,14 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 	orgID := accountOrgID(profile.Accounts, account)
 	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
 	var token string
-	if orgID != "" {
+	switch {
+	case orgID != "" && force:
+		token, err = tokenManager.ForceRefreshOrgScopedAccessToken(ctx, orgID)
+	case orgID != "":
 		token, err = tokenManager.GetOrgScopedAccessToken(ctx, orgID)
-	} else if force {
+	case force:
 		token, err = tokenManager.ForceRefreshAccessToken(ctx)
-	} else {
+	default:
 		token, err = tokenManager.GetValidAccessToken(ctx)
 	}
 	if err != nil {

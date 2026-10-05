@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 // setupTestDir creates a temp directory and sets HOME for testing
@@ -465,5 +469,51 @@ func TestGetCurrentProfile_NoProfile(t *testing.T) {
 	_, err := storage.GetCurrentProfile()
 	if err == nil {
 		t.Fatal("expected error when current profile doesn't exist, got nil")
+	}
+}
+
+func TestStorage_KeyringHoldsOrgTokens(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	keyring.MockInit()
+	storage := &Storage{binaryName: "ast", useKeyring: true}
+
+	creds := &Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				AccessToken:  "personal_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(time.Hour),
+				Accounts:     []StoredAccount{{Name: "acme", OrganizationID: "org_dropped"}},
+				OrgTokens: map[string]*OrgToken{
+					"org_fresh":   {AccessToken: "fresh_token", ExpiresAt: time.Now().Add(time.Hour)},
+					"org_expired": {AccessToken: "expired_token", ExpiresAt: time.Now().Add(-time.Minute)},
+				},
+			},
+		},
+	}
+	require.NoError(t, storage.SaveCredentials(creds))
+	assert.Equal(t, "fresh_token", creds.Profiles["default"].OrgTokens["org_fresh"].AccessToken, "saving must not strip the caller's tokens")
+
+	path, err := CredentialsPath("ast")
+	require.NoError(t, err)
+	data, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "fresh_token")
+	assert.NotContains(t, string(data), "expired_token")
+
+	loaded, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+	require.Contains(t, loaded.OrgTokens, "org_fresh")
+	assert.Equal(t, "fresh_token", loaded.OrgTokens["org_fresh"].AccessToken)
+	require.Contains(t, loaded.OrgTokens, "org_expired")
+	assert.Empty(t, loaded.OrgTokens["org_expired"].AccessToken)
+
+	// An older CLI rewriting the file drops the entry but leaves the keyring item.
+	require.NoError(t, keyring.Set(KeyringService, orgTokenKeyringKey("default", "org_dropped"), "orphan_token"))
+	require.NoError(t, storage.DeleteAllProfiles())
+	for _, orgID := range []string{"org_fresh", "org_expired", "org_dropped"} {
+		_, err := keyring.Get(KeyringService, orgTokenKeyringKey("default", orgID))
+		assert.ErrorIs(t, err, keyring.ErrNotFound, orgID)
 	}
 }
