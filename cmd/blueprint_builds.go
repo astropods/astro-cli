@@ -292,7 +292,8 @@ func buildCompletedText(b blueprintBuild) string {
 	}
 	started, err1 := time.Parse(time.RFC3339, b.StartedAt)
 	completed, err2 := time.Parse(time.RFC3339, b.CompletedAt)
-	if err1 != nil || err2 != nil {
+	// A CLI push records one timestamp for both.
+	if err1 != nil || err2 != nil || !completed.After(started) {
 		return b.CompletedAt
 	}
 	return fmt.Sprintf("%s (%s)", b.CompletedAt, completed.Sub(started).Round(time.Second))

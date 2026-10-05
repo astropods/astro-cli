@@ -44,7 +44,7 @@ var testBuildsPayload = map[string]any{
 		},
 		map[string]any{
 			"build_id": "def67890", "source": "cli", "status": "registered",
-			"started_at":      "2026-09-30T09:00:00Z",
+			"started_at": "2026-09-30T09:00:00Z", "completed_at": "2026-09-30T09:00:00Z",
 			"vulnerabilities": map[string]any{"status": "scanning"},
 		},
 		map[string]any{
@@ -188,6 +188,14 @@ func TestBlueprintBuildsGet(t *testing.T) {
 			scans:         noScans,
 			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/0f0f0f0f/vulnerabilities",
 			wantOut:       []string{"Build 0f0f0f0f  failed", "Step:", "build", "Error:", "exit status 1", "Vulnerabilities  not scanned"},
+		},
+		{
+			name:          "a CLI push has no duration",
+			args:          []string{"my-agent", "def67890"},
+			builds:        testBuildsPayload,
+			scans:         noScans,
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/def67890/vulnerabilities",
+			wantOut:       []string{"Completed:  2026-09-30T09:00:00Z\n"},
 		},
 		{
 			name:          "json output",
