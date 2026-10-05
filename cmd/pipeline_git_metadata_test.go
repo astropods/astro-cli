@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro-cli/internal/tui"
+	spec "github.com/astropods/astro-spec"
 )
 
 func pipelineGitCommand(t *testing.T, dir string, args ...string) string {
@@ -49,6 +50,38 @@ func TestCollectGitMetadataAllowsACleanRepository(t *testing.T) {
 	assert.True(t, reachedNextStep)
 	assert.Equal(t, sha[:len(sha)-1], pipeline.gitMetadata.CommitSHA)
 	assert.Equal(t, "feat: add example blueprint", pipeline.gitMetadata.CommitMessage)
+}
+
+func TestCollectGitMetadataWarnsWhenProvenanceIsIncomplete(t *testing.T) {
+	root := t.TempDir()
+	specRepo := filepath.Join(root, "blueprint")
+	contextRepo := filepath.Join(root, "shared")
+	require.NoError(t, os.MkdirAll(specRepo, 0o755))
+	require.NoError(t, os.MkdirAll(contextRepo, 0o755))
+
+	for _, dir := range []string{specRepo, contextRepo} {
+		pipelineGitCommand(t, dir, "init")
+		pipelineGitCommand(t, dir, "config", "user.email", "test@example.com")
+		pipelineGitCommand(t, dir, "config", "user.name", "Astro Test")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("initial\n"), 0o600))
+		pipelineGitCommand(t, dir, "add", ".")
+		pipelineGitCommand(t, dir, "commit", "-m", "feat: initial")
+	}
+	specPath := filepath.Join(specRepo, "astropods.yml")
+	require.NoError(t, os.WriteFile(specPath, []byte("name: example\n"), 0o600))
+	pipelineGitCommand(t, specRepo, "add", "astropods.yml")
+	pipelineGitCommand(t, specRepo, "commit", "-m", "feat: add blueprint")
+
+	var progress strings.Builder
+	t.Cleanup(redirectProgress(&progress))
+	pipeline := NewPushPipeline(context.Background(), PushPipelineConfig{SpecPath: specPath})
+	pipeline.components = []spec.Component{{Build: &spec.BuildConfig{Context: "../shared"}}}
+	pipeline.CollectGitMetadata()
+
+	require.NoError(t, pipeline.Err())
+	assert.NotEmpty(t, pipeline.gitMetadata.CommitSHA)
+	assert.False(t, pipeline.gitMetadata.WorkingTreeStatusKnown)
+	assert.Contains(t, stripANSI(progress.String()), "some files used by this blueprint may not be represented by the recorded commit")
 }
 
 func TestCollectGitMetadataRejectsADirtyRepositoryBeforeLaterSteps(t *testing.T) {

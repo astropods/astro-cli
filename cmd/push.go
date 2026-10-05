@@ -551,6 +551,8 @@ func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, r
 	}
 	if metadata.WorkingTreeDirty {
 		payload["working_tree_dirty"] = true
+	} else if metadata.WorkingTreeStatusKnown {
+		payload["working_tree_dirty"] = false
 	}
 
 	jsonData, err := json.Marshal(payload)

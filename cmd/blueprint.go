@@ -233,6 +233,8 @@ func runBlueprintBuild(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	if metadata.WorkingTreeDirty {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s!%s Building with uncommitted blueprint changes; pushing this build will require confirmation or --allow-dirty.\n", colorYellow, colorReset) //nolint:errcheck,gosec
+	} else if metadata.CommitSHA != "" && !metadata.WorkingTreeStatusKnown {
+		printIncompleteGitProvenanceWarning(cmd.ErrOrStderr())
 	}
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	platform, _ := resolveBuildPlatform(buildinfo.DefaultServerURL, runtime)

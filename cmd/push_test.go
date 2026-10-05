@@ -417,6 +417,59 @@ func TestRegisterAgentWithServerOmitsUnavailableGitMetadata(t *testing.T) {
 	assert.NotContains(t, received, "working_tree_dirty")
 }
 
+func TestRegisterAgentWithServerOmitsUnknownGitStatusButKeepsCommit(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:     "0123456789abcdef0123456789abcdef01234567",
+			CommitMessage: "feat: incomplete provenance",
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", received["commit_sha"])
+	assert.Equal(t, "feat: incomplete provenance", received["commit_message"])
+	assert.NotContains(t, received, "working_tree_dirty")
+}
+
+func TestRegisterAgentWithServerSendsVerifiedCleanGitStatus(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:              "0123456789abcdef0123456789abcdef01234567",
+			CommitMessage:          "feat: clean build",
+			WorkingTreeStatusKnown: true,
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, false, received["working_tree_dirty"])
+}
+
 const (
 	quotaDetails = "Blueprints limit reached (5 of 5 used): Your account has reached its Blueprint limit. To continue, request a quota increase from Settings > Usage."
 	planDetails  = "Custom domains are not included in your current plan. To access this feature, contact your account admin about upgrading your plan."

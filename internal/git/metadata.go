@@ -1,6 +1,7 @@
 package git
 
 import (
+	"encoding/hex"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -43,7 +44,10 @@ func collectMetadata(dir string, paths []string, run commandRunner) Metadata {
 		paths = []string{dir}
 	}
 	groups, complete := statusGroups(paths, run)
-	metadata.WorkingTreeStatusKnown = complete && len(groups) > 0
+	// A single commit can only describe one repository. Even when status checks
+	// succeed, paths spanning repositories are incomplete provenance for the
+	// commit read from dir.
+	metadata.WorkingTreeStatusKnown = complete && len(groups) == 1
 	for _, root := range sortedKeys(groups) {
 		args := []string{"--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal", "--"}
 		args = append(args, groups[root]...)
@@ -58,6 +62,28 @@ func collectMetadata(dir string, paths []string, run commandRunner) Metadata {
 	}
 
 	return metadata
+}
+
+// CommitMessageAt returns the message for an exact commit in the repository
+// containing dir. It is best-effort so reusable builds can still be pushed
+// when the original commit is no longer available locally.
+func CommitMessageAt(dir, sha string) string {
+	if !validObjectID(sha) {
+		return ""
+	}
+	output, err := runGit(dir, "show", "-s", "--format=%B", sha)
+	if err != nil {
+		return ""
+	}
+	return truncateUTF8(strings.TrimRight(output, "\r\n"), MaxCommitMessageBytes)
+}
+
+func validObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func statusGroups(paths []string, run commandRunner) (map[string][]string, bool) {

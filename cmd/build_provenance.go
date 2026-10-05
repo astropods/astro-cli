@@ -14,7 +14,6 @@ import (
 
 const (
 	labelCommitSHA     = "org.opencontainers.image.revision"
-	labelCommitMessage = "io.astropods.git.commit-message"
 	labelDirty         = "io.astropods.git.working-tree-dirty"
 	labelBuildID       = "io.astropods.build-id"
 	labelBlueprintName = "io.astropods.blueprint-name"
@@ -41,7 +40,6 @@ func provenanceLabels(buildID, blueprintName, platform string, metadata gitmetad
 		labelBlueprintName: blueprintName,
 		labelBuildPlatform: platform,
 		labelCommitSHA:     metadata.CommitSHA,
-		labelCommitMessage: metadata.CommitMessage,
 		labelDirty:         dirty,
 	}
 }
@@ -88,8 +86,7 @@ func provenanceFromLabels(labels map[string]string, blueprintName, buildID, plat
 	}
 
 	metadata := gitmetadata.Metadata{
-		CommitSHA:     labels[labelCommitSHA],
-		CommitMessage: labels[labelCommitMessage],
+		CommitSHA: labels[labelCommitSHA],
 	}
 	switch labels[labelDirty] {
 	case "true":

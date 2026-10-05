@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,11 +101,17 @@ func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
 			if err != nil {
 				return err
 			}
+			p.gitMetadata = hydrateReusableBuildCommitMessage(filepath.Dir(p.cfg.SpecPath), p.gitMetadata)
 		} else {
 			p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
 		}
 		return p.confirmDirtyPush()
 	})
+}
+
+func hydrateReusableBuildCommitMessage(dir string, metadata gitmetadata.Metadata) gitmetadata.Metadata {
+	metadata.CommitMessage = gitmetadata.CommitMessageAt(dir, metadata.CommitSHA)
+	return metadata
 }
 
 func (p *PushPipeline) relevantGitPaths() []string {
@@ -122,6 +129,9 @@ func relevantGitPaths(specPath string, components []spec.Component) []string {
 
 func (p *PushPipeline) confirmDirtyPush() error {
 	if !p.gitMetadata.WorkingTreeDirty {
+		if p.gitMetadata.CommitSHA != "" && !p.gitMetadata.WorkingTreeStatusKnown {
+			printIncompleteGitProvenanceWarning(progressW())
+		}
 		return nil
 	}
 	if p.cfg.AllowDirty {
@@ -168,6 +178,10 @@ func newDirtyPushSelect(choice *string) *huh.Select[string] {
 
 func printDirtyPushWarning() {
 	fmt.Fprintf(progressW(), "%s!%s Pushing with uncommitted blueprint changes; this build may not be reproducible.\n", colorYellow, colorReset) //nolint:errcheck,gosec
+}
+
+func printIncompleteGitProvenanceWarning(w io.Writer) {
+	fmt.Fprintf(w, "%s!%s Git provenance could not be fully verified; some files used by this blueprint may not be represented by the recorded commit.\n", colorYellow, colorReset) //nolint:errcheck,gosec
 }
 
 // NewPushPipeline creates a pipeline ready for chaining.

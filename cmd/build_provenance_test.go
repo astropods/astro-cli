@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
@@ -44,7 +45,6 @@ func reusableComponents() []spec.Component {
 func TestInspectReusableBuildReadsConsistentProvenance(t *testing.T) {
 	metadata := gitmetadata.Metadata{
 		CommitSHA:              "0123456789abcdef0123456789abcdef01234567",
-		CommitMessage:          "feat: reusable build",
 		WorkingTreeDirty:       true,
 		WorkingTreeStatusKnown: true,
 	}
@@ -58,6 +58,7 @@ func TestInspectReusableBuildReadsConsistentProvenance(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, metadata, got)
+	assert.NotContains(t, labels, "io.astropods.git.commit-message")
 }
 
 func TestInspectReusableBuildRejectsMissingAndMismatchedImages(t *testing.T) {
@@ -96,6 +97,21 @@ func TestProvenanceLabelsPreserveProvenDirtyStateWhenAnotherStatusCheckFailed(t 
 
 	labels = provenanceLabels("deadbeef", "example", "linux/amd64", gitmetadata.Metadata{})
 	assert.Equal(t, "unknown", labels[labelDirty])
+}
+
+func TestHydrateReusableBuildCommitMessageUsesRecordedSHA(t *testing.T) {
+	specPath, sha := pipelineGitRepository(t)
+	metadata := gitmetadata.Metadata{
+		CommitSHA:              strings.TrimSpace(sha),
+		WorkingTreeStatusKnown: true,
+	}
+
+	got := hydrateReusableBuildCommitMessage(filepath.Dir(specPath), metadata)
+	assert.Equal(t, "feat: add example blueprint", got.CommitMessage)
+
+	metadata.CommitSHA = strings.Repeat("f", 40)
+	got = hydrateReusableBuildCommitMessage(filepath.Dir(specPath), metadata)
+	assert.Empty(t, got.CommitMessage)
 }
 
 func TestValidBuildID(t *testing.T) {

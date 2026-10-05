@@ -157,6 +157,30 @@ func TestCollectMetadataChecksOnlyRelevantPaths(t *testing.T) {
 	assert.True(t, CollectMetadata(alpha, alpha, shared).WorkingTreeDirty, "a declared shared context must block")
 }
 
+func TestCollectMetadataMarksMultipleRepositoriesIncomplete(t *testing.T) {
+	specRepo, sha := committedRepository(t)
+	contextRepo, _ := committedRepository(t)
+
+	metadata := CollectMetadata(specRepo, specRepo, contextRepo)
+
+	assert.Equal(t, strings.TrimSpace(sha), metadata.CommitSHA)
+	assert.False(t, metadata.WorkingTreeDirty)
+	assert.False(t, metadata.WorkingTreeStatusKnown, "one SHA cannot fully describe multiple repositories")
+
+	require.NoError(t, os.WriteFile(filepath.Join(contextRepo, "tracked.txt"), []byte("changed\n"), 0o600))
+	metadata = CollectMetadata(specRepo, specRepo, contextRepo)
+	assert.True(t, metadata.WorkingTreeDirty, "dirtiness remains actionable even when provenance is incomplete")
+	assert.False(t, metadata.WorkingTreeStatusKnown)
+}
+
+func TestCommitMessageAtIsBestEffort(t *testing.T) {
+	dir, sha := committedRepository(t)
+
+	assert.Equal(t, "feat: initial blueprint\n\nCommit body", CommitMessageAt(dir, strings.TrimSpace(sha)))
+	assert.Empty(t, CommitMessageAt(dir, strings.Repeat("f", 40)))
+	assert.Empty(t, CommitMessageAt(dir, "not-an-object-id"))
+}
+
 func TestCollectMetadataUsesNoOptionalLocks(t *testing.T) {
 	var statusArgs []string
 	root, err := filepath.Abs("project")
