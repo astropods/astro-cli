@@ -31,25 +31,30 @@ func runBlueprintSubcommand(t *testing.T, cmd *cobra.Command, flags map[string]s
 	return buf.String(), err
 }
 
-func TestBlueprintBuilds(t *testing.T) {
-	payload := map[string]any{
-		"builds": []any{
-			map[string]any{
-				"build_id": "abc12345", "source": "cli", "status": "registered", "is_latest": true,
-				"started_at": "2026-10-01T12:00:00Z",
-				"vulnerabilities": map[string]any{
-					"status": "succeeded", "critical": 2, "high": 5, "medium": 0, "low": 1, "unknown": 0, "fixable": 3,
-				},
+var testBuildsPayload = map[string]any{
+	"builds": []any{
+		map[string]any{
+			"build_id": "abc12345", "source": "github", "status": "registered", "is_latest": true,
+			"started_at": "2026-10-01T12:00:00Z", "completed_at": "2026-10-01T12:02:30Z",
+			"commit_sha": "0123456789abcdef", "commit_message": "Fix the parser\n\nLonger body.",
+			"branch": "main", "repo_full_name": "example/agent", "pushed_by": "Ada Lovelace",
+			"vulnerabilities": map[string]any{
+				"status": "succeeded", "critical": 2, "high": 5, "medium": 0, "low": 1, "unknown": 0, "fixable": 3,
 			},
-			map[string]any{
-				"build_id": "def67890", "source": "github", "status": "registered",
-				"started_at":      "2026-09-30T09:00:00Z",
-				"vulnerabilities": map[string]any{"status": "scanning"},
-			},
-			map[string]any{"build_id": "0f0f0f0f", "source": "github", "status": "failed", "started_at": "2026-09-29T09:00:00Z"},
 		},
-	}
+		map[string]any{
+			"build_id": "def67890", "source": "cli", "status": "registered",
+			"started_at":      "2026-09-30T09:00:00Z",
+			"vulnerabilities": map[string]any{"status": "scanning"},
+		},
+		map[string]any{
+			"build_id": "0f0f0f0f", "source": "github", "status": "failed", "started_at": "2026-09-29T09:00:00Z",
+			"step": "build", "error": "exit status 1",
+		},
+	},
+}
 
+func TestBlueprintBuildsList(t *testing.T) {
 	cases := []struct {
 		name       string
 		flags      map[string]string
@@ -62,7 +67,7 @@ func TestBlueprintBuilds(t *testing.T) {
 		{
 			name:       "lists builds with their vulnerability summary",
 			statusCode: http.StatusOK,
-			body:       payload,
+			body:       testBuildsPayload,
 			wantOut: []string{
 				"abc12345", "registered (latest)", "2 critical, 5 high, 1 low",
 				"def67890", "scanning",
@@ -73,7 +78,7 @@ func TestBlueprintBuilds(t *testing.T) {
 			name:       "passes --limit to the server",
 			flags:      map[string]string{"limit": "5"},
 			statusCode: http.StatusOK,
-			body:       payload,
+			body:       testBuildsPayload,
 			wantQuery:  "limit=5",
 			wantOut:    []string{"abc12345"},
 		},
@@ -81,7 +86,7 @@ func TestBlueprintBuilds(t *testing.T) {
 			name:       "json output",
 			flags:      map[string]string{"json": "true"},
 			statusCode: http.StatusOK,
-			body:       payload,
+			body:       testBuildsPayload,
 			wantOut:    []string{`"build_id": "abc12345"`, `"critical": 2`},
 		},
 		{
@@ -91,7 +96,7 @@ func TestBlueprintBuilds(t *testing.T) {
 			wantOut:    []string{msgNoBlueprintBuilds("my-agent")},
 		},
 		{
-			name:       "blueprint not found",
+			name:       "hidden or missing blueprint",
 			statusCode: http.StatusNotFound,
 			body:       map[string]any{"error": "not found"},
 			wantErr:    errBlueprintBuildsNotFound("my-agent", "testaccount"),
@@ -106,8 +111,8 @@ func TestBlueprintBuilds(t *testing.T) {
 				jsonHandler(tc.statusCode, tc.body)(w, r)
 			}))
 
-			out, err := runBlueprintSubcommand(t, blueprintBuildsCmd, tc.flags, func() error {
-				return runBlueprintBuilds(blueprintBuildsCmd, []string{"my-agent"})
+			out, err := runBlueprintSubcommand(t, blueprintBuildsListCmd, tc.flags, func() error {
+				return runBlueprintBuildsList(blueprintBuildsListCmd, []string{"my-agent"})
 			})
 			assert.Equal(t, "/api/v1/agents/testaccount/my-agent/builds", gotPath)
 			assert.Equal(t, tc.wantQuery, gotQuery)
@@ -123,22 +128,15 @@ func TestBlueprintBuilds(t *testing.T) {
 	}
 }
 
-func TestBlueprintVulnerabilities(t *testing.T) {
-	blueprint := map[string]any{
-		"account": "testaccount", "name": "my-agent", "visibility": "private",
-		"versions": []any{
-			map[string]any{"build_id": "old11111", "published_at": "2026-09-01T00:00:00Z"},
-			map[string]any{"build_id": "new22222", "published_at": "2026-10-01T00:00:00Z"},
-		},
-	}
+func TestBlueprintBuildsGet(t *testing.T) {
 	scans := map[string]any{
-		"build_id": "new22222",
+		"build_id": "abc12345",
 		"summary":  map[string]any{"status": "succeeded", "critical": 1, "high": 0, "medium": 1, "low": 0, "unknown": 0, "fixable": 1},
 		"components": []any{
 			map[string]any{
 				"component": "agent", "status": "succeeded",
 				"image_digest": "sha256:0123456789abcdef0123456789abcdef",
-				"scanned_at":   "2026-10-01T00:05:00Z",
+				"scanned_at":   "2026-10-01T12:05:00Z",
 				"counts":       map[string]any{"critical": 1, "medium": 1, "fixable": 1},
 				"findings": []any{
 					map[string]any{"id": "CVE-2026-0001", "severity": "CRITICAL", "package": "openssl", "installed_version": "3.0.1", "fixed_version": "3.0.2", "title": "Buffer overflow"},
@@ -148,89 +146,88 @@ func TestBlueprintVulnerabilities(t *testing.T) {
 			map[string]any{"component": "worker", "status": "succeeded", "counts": map[string]any{}, "findings": []any{}},
 		},
 	}
-	noScans := map[string]any{"build_id": "new22222", "summary": nil, "components": []any{}}
+	noScans := map[string]any{"build_id": "0f0f0f0f", "summary": nil, "components": []any{}}
 
 	cases := []struct {
 		name          string
 		args          []string
 		flags         map[string]string
-		blueprint     any
+		builds        any
 		scans         any
-		scansStatus   int
 		wantScansPath string
 		wantErr       error
 		wantOut       []string
 	}{
 		{
-			name:          "shows the findings of the named build",
-			args:          []string{"my-agent", "old11111"},
+			name:          "shows the latest published build without a build ID",
+			args:          []string{"my-agent"},
+			builds:        testBuildsPayload,
 			scans:         scans,
-			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/old11111/vulnerabilities",
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/abc12345/vulnerabilities",
 			wantOut: []string{
-				"1 critical, 1 medium (1 fixable)",
-				"agent", "sha256:0123456789ab", "scanned 2026-10-01T00:05:00Z",
+				"Build abc12345  registered (latest)",
+				"Source:", "github",
+				"Completed:", "2026-10-01T12:02:30Z (2m30s)",
+				"Commit:", "0123456 Fix the parser",
+				"Branch:", "main",
+				"Repository:", "example/agent",
+				"Pushed by:", "Ada Lovelace",
+				"Vulnerabilities  1 critical, 1 medium (1 fixable)",
+				"agent", "sha256:0123456789ab", "scanned 2026-10-01T12:05:00Z",
 				"CRITICAL", "CVE-2026-0001", "openssl", "3.0.1", "3.0.2", "Buffer overflow",
 				"CVE-2026-0002", "zlib",
 				"worker  none found",
 			},
 		},
 		{
-			name:          "defaults to the latest published build",
-			args:          []string{"my-agent"},
-			blueprint:     blueprint,
-			scans:         scans,
-			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/new22222/vulnerabilities",
-			wantOut:       []string{"build new22222", "CVE-2026-0001"},
+			name:          "shows the step and error of a failed build",
+			args:          []string{"my-agent", "0f0f0f0f"},
+			builds:        testBuildsPayload,
+			scans:         noScans,
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/0f0f0f0f/vulnerabilities",
+			wantOut:       []string{"Build 0f0f0f0f  failed", "Step:", "build", "Error:", "exit status 1", "Vulnerabilities  not scanned"},
 		},
 		{
 			name:          "json output",
-			args:          []string{"my-agent", "new22222"},
+			args:          []string{"my-agent", "abc12345"},
 			flags:         map[string]string{"json": "true"},
+			builds:        testBuildsPayload,
 			scans:         scans,
-			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/new22222/vulnerabilities",
-			wantOut:       []string{`"id": "CVE-2026-0001"`, `"fixed_version": "3.0.2"`},
+			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/abc12345/vulnerabilities",
+			wantOut:       []string{`"build": {`, `"commit_sha": "0123456789abcdef"`, `"vulnerabilities": {`, `"id": "CVE-2026-0001"`},
 		},
 		{
-			name:          "build with no scans",
-			args:          []string{"my-agent", "new22222"},
-			scans:         noScans,
-			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/new22222/vulnerabilities",
-			wantOut:       []string{msgNoBuildScans("my-agent", "new22222")},
+			name:    "build not in the history",
+			args:    []string{"my-agent", "ffffffff"},
+			builds:  testBuildsPayload,
+			wantErr: errBuildNotFound("my-agent", "ffffffff", maxBuildListLimit),
 		},
 		{
-			name:      "blueprint with no published build",
-			args:      []string{"my-agent"},
-			blueprint: map[string]any{"account": "testaccount", "name": "my-agent", "versions": []any{}},
-			wantErr:   errBlueprintNoPublishedBuild("my-agent"),
-		},
-		{
-			name:          "blueprint not found",
-			args:          []string{"my-agent", "new22222"},
-			scansStatus:   http.StatusNotFound,
-			scans:         map[string]any{"error": "not found"},
-			wantScansPath: "/api/v1/agents/testaccount/my-agent/builds/new22222/vulnerabilities",
-			wantErr:       errBlueprintNotFound("my-agent", "testaccount"),
+			name:    "no published build",
+			args:    []string{"my-agent"},
+			builds:  map[string]any{"builds": []any{}},
+			wantErr: errBlueprintNoPublishedBuild("my-agent"),
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotScansPath string
+			var gotQuery, gotScansPath string
 			mux := http.NewServeMux()
-			mux.HandleFunc("/api/v1/agents/testaccount/my-agent", jsonHandler(http.StatusOK, tc.blueprint))
+			mux.HandleFunc("/api/v1/agents/testaccount/my-agent/builds", func(w http.ResponseWriter, r *http.Request) {
+				gotQuery = r.URL.RawQuery
+				jsonHandler(http.StatusOK, tc.builds)(w, r)
+			})
 			mux.HandleFunc("/api/v1/agents/testaccount/my-agent/builds/", func(w http.ResponseWriter, r *http.Request) {
 				gotScansPath = r.URL.Path
-				status := tc.scansStatus
-				if status == 0 {
-					status = http.StatusOK
-				}
-				jsonHandler(status, tc.scans)(w, r)
+				jsonHandler(http.StatusOK, tc.scans)(w, r)
 			})
 			setupBlueprintTest(t, mux)
 
-			out, err := runBlueprintSubcommand(t, blueprintVulnerabilitiesCmd, tc.flags, func() error {
-				return runBlueprintVulnerabilities(blueprintVulnerabilitiesCmd, tc.args)
+			out, err := runBlueprintSubcommand(t, blueprintBuildsGetCmd, tc.flags, func() error {
+				return runBlueprintBuildsGet(blueprintBuildsGetCmd, tc.args)
 			})
+			assert.Equal(t, "limit=200", gotQuery)
 			assert.Equal(t, tc.wantScansPath, gotScansPath)
 			if tc.wantErr != nil {
 				require.EqualError(t, err, tc.wantErr.Error())
@@ -244,7 +241,7 @@ func TestBlueprintVulnerabilities(t *testing.T) {
 	}
 }
 
-func TestBlueprintVulnerabilitiesArgs(t *testing.T) {
+func TestBlueprintBuildArgs(t *testing.T) {
 	cases := []struct {
 		name    string
 		args    []string
@@ -258,7 +255,7 @@ func TestBlueprintVulnerabilitiesArgs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := blueprintVulnerabilitiesArgs(nil, tc.args)
+			err := blueprintBuildArgs(nil, tc.args)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {

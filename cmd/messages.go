@@ -568,12 +568,56 @@ func msgNoBlueprintBuilds(name string) string {
 	return fmt.Sprintf("No builds found for blueprint %s", name)
 }
 
-func errBlueprintVulnerabilitiesArgs(got int) error {
+func errBlueprintBuildArgs(got int) error {
 	return fmt.Errorf("expected <blueprint name> and an optional [build-id], but got %d arguments", got)
 }
 
-func msgNoBuildScans(name, buildID string) string {
-	return fmt.Sprintf("No image scans found for build %s (list builds with: %s blueprint builds %s)", buildID, buildinfo.BinaryName, name)
+func errBuildNotFound(name, buildID string, searched int) error {
+	return fmt.Errorf("build %s not found in the last %d builds of blueprint %q (list them with: %s blueprint builds list %s)", buildID, searched, name, buildinfo.BinaryName, name)
+}
+
+func errBlueprintNoServerBuilds(name string) error {
+	return fmt.Errorf("blueprint %q has no server-side builds; builds pushed with the CLI run on your machine, so their logs stay there", name)
+}
+
+func errBuildLogsNotFound(name, buildID string) error {
+	return fmt.Errorf("no server-side logs for build %s of blueprint %q: builds pushed with the CLI run on your machine, so their logs stay there (reading build logs also needs edit access)", buildID, name)
+}
+
+func msgNoBuildLogsYet(buildID, phase string) string {
+	return fmt.Sprintf("No logs yet for build %s (%s)", buildID, phase)
+}
+
+func msgBuildFinished(buildID, phase string) string {
+	return fmt.Sprintf("Build %s %s", buildID, phase)
+}
+
+func errBuildFailed(buildID string) error {
+	return fmt.Errorf("build %s failed", buildID)
+}
+
+func errBuildCancelled(buildID string) error {
+	return fmt.Errorf("build %s was cancelled", buildID)
+}
+
+func errRebuildCancelsRunningBuild(buildID, status string) error {
+	return fmt.Errorf("build %s is still %s, and a rebuild cancels it; run again with --yes to rebuild anyway", buildID, status)
+}
+
+func errRebuildUnavailable(name, account string) error {
+	return fmt.Errorf("blueprint %q in account %q has no connected GitHub repository or hosted source to rebuild, or you lack the operate access a rebuild needs", name, account)
+}
+
+func errRebuildGitHubNotConnected() error {
+	return fmt.Errorf("your GitHub account is not connected in this organization, so the server cannot read the branch head; connect GitHub in the web app and try again")
+}
+
+func msgRebuildStarted(buildID, commitSHA, commitMessage string) string {
+	return strings.TrimSpace(fmt.Sprintf("Rebuild started: build %s from commit %s %s", buildID, shortSHA(commitSHA), commitTitle(commitMessage)))
+}
+
+func msgTailBuildLogs(name, buildID string) string {
+	return fmt.Sprintf("Stream its logs with: %s blueprint builds logs %s %s --tail", buildinfo.BinaryName, name, buildID)
 }
 
 func errEnvironmentsUnavailable(blueprint string) error {
