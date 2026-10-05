@@ -338,3 +338,38 @@ func TestBlueprintBuildsRebuild(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildLogsFetcherToken(t *testing.T) {
+	cases := []struct {
+		name      string
+		at        AccountToken
+		wantToken string
+	}{
+		{
+			name:      "keeps a token that is not near expiry",
+			at:        AccountToken{Account: "alice", Token: "held", ExpiresAt: time.Now().Add(time.Hour)},
+			wantToken: "held",
+		},
+		{
+			name:      "renews a token about to expire",
+			at:        AccountToken{Account: "alice", Token: "held", ExpiresAt: time.Now().Add(time.Second)},
+			wantToken: "tok",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotAuth []string
+			setupBlueprintTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+				jsonHandler(http.StatusOK, buildLogsBody("building", ""))(w, r)
+			}))
+
+			fetch := buildLogsFetcher(context.Background(), tc.at, "my-agent", "abc12345", false)
+			for range 2 {
+				_, err := fetch()
+				require.NoError(t, err)
+			}
+			assert.Equal(t, []string{"Bearer " + tc.wantToken, "Bearer " + tc.wantToken}, gotAuth)
+		})
+	}
+}

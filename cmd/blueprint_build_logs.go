@@ -13,12 +13,17 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/auth"
 )
 
 // buildLogsPollInterval matches the web UI's poll of a running build's logs.
 var buildLogsPollInterval = 3 * time.Second
 
-const minLogOverlapLines = 5
+const (
+	minLogOverlapLines = 5
+	tokenRenewMargin   = time.Minute
+)
 
 var logSectionHeader = regexp.MustCompile(`^=== (.+) ===$`)
 
@@ -161,14 +166,19 @@ func runBlueprintBuildsRebuild(cmd *cobra.Command, args []string) error {
 	return tailBuildLogs(cmd.Context(), w, started.BuildID, buildLogsFetcher(cmd.Context(), at, name, started.BuildID, verbose))
 }
 
-// A build can outlast a 5-minute access token, so each poll resolves the token again.
+// Resolving an org token rotates the stored refresh token, which breaks any other
+// CLI process refreshing at that moment, so a poll renews the token only near expiry.
 func buildLogsFetcher(ctx context.Context, at AccountToken, name, buildID string, verbose bool) func() (buildLogsResponse, error) {
 	return func() (buildLogsResponse, error) {
-		token, err := getAccountToken(ctx, at.Account)
-		if err != nil {
-			return buildLogsResponse{}, err
+		if !at.ExpiresAt.IsZero() && time.Until(at.ExpiresAt) < tokenRenewMargin {
+			token, err := getAccountToken(ctx, at.Account)
+			if err != nil {
+				return buildLogsResponse{}, err
+			}
+			expiresAt, _ := auth.ParseJWTExpiry(token)
+			at = AccountToken{Account: at.Account, Token: token, ExpiresAt: expiresAt}
 		}
-		return fetchBuildLogs(ctx, AccountToken{Account: at.Account, Token: token}, name, buildID, verbose)
+		return fetchBuildLogs(ctx, at, name, buildID, verbose)
 	}
 }
 
