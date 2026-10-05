@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 const testOrgID = "org_a"
@@ -360,4 +361,43 @@ func TestStorage_WriteDuringRefreshKeepsBothChanges(t *testing.T) {
 	stored := loadTestProfile(t)
 	assert.Equal(t, "refresh_1", stored.RefreshToken, "a write must not restore the spent refresh token")
 	assert.Equal(t, accounts, stored.Accounts, "the refresh must not drop the other write")
+}
+
+func TestGetOrgScopedAccessToken_KeyringReadsOnlyTheRequestedOrg(t *testing.T) {
+	setupRefreshTest(t, &Profile{})
+	keyring.MockInit()
+	storage := &Storage{binaryName: "ast", useKeyring: true}
+	tokenA := makeScopedTestJWT(time.Now().Add(time.Hour), "org_a", 0)
+	tokenB := makeScopedTestJWT(time.Now().Add(time.Hour), "org_b", 0)
+	require.NoError(t, storage.SaveCredentials(&Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*Profile{"default": {
+			AccessToken:  makeTestJWT(time.Now().Add(time.Hour)),
+			RefreshToken: "refresh_0",
+			ExpiresAt:    time.Now().Add(time.Hour),
+			OrgTokens: map[string]*OrgToken{
+				"org_a": {AccessToken: tokenA, ExpiresAt: time.Now().Add(time.Hour)},
+				"org_b": {AccessToken: tokenB, ExpiresAt: time.Now().Add(time.Hour)},
+			},
+		}},
+	}))
+	endpoint := newFakeTokenEndpoint(t, "refresh_0", 15*time.Minute)
+	m := &TokenManager{storage: storage, client: createTestClient(endpoint.URL)}
+
+	got, err := m.GetOrgScopedAccessToken(context.Background(), "org_a")
+	require.NoError(t, err)
+	assert.Equal(t, tokenA, got)
+
+	// A missing keyring item is a cache miss, not an error.
+	require.NoError(t, keyring.Delete(KeyringService, orgTokenKeyringKey("default", "org_b")))
+	renewed, err := m.GetOrgScopedAccessToken(context.Background(), "org_b")
+	require.NoError(t, err)
+	assert.Equal(t, endpoint.lastIssued(), renewed)
+	assert.Equal(t, 1, endpoint.exchangeCount())
+
+	// The exchange for org_b rewrote only org_b, so org_a is still served from the cache.
+	got, err = m.GetOrgScopedAccessToken(context.Background(), "org_a")
+	require.NoError(t, err)
+	assert.Equal(t, tokenA, got)
+	assert.Equal(t, 1, endpoint.exchangeCount())
 }

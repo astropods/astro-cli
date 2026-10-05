@@ -92,7 +92,7 @@ func (m *TokenManager) ForceRefreshAccessToken(ctx context.Context) (string, err
 
 func (m *TokenManager) refreshPersonalToken(ctx context.Context, force bool) (string, error) {
 	token, err := m.rotate(ctx,
-		func(p *Profile) (string, bool) {
+		func(_ string, p *Profile) (string, bool) {
 			return p.AccessToken, !force && p.AccessToken != "" && !m.shouldRefresh(p)
 		},
 		func(refreshToken string) (*TokenResponse, error) {
@@ -112,7 +112,7 @@ func (m *TokenManager) refreshPersonalToken(ctx context.Context, force bool) (st
 // rotate holds the credentials lock because each exchange invalidates the refresh token other processes have read.
 func (m *TokenManager) rotate(
 	ctx context.Context,
-	reuse func(*Profile) (string, bool),
+	reuse func(profileName string, p *Profile) (string, bool),
 	exchange func(refreshToken string) (*TokenResponse, error),
 	apply func(*Profile, *TokenResponse),
 ) (string, error) {
@@ -130,7 +130,7 @@ func (m *TokenManager) rotate(
 		if !ok {
 			return "", errors.New("not authenticated: no current profile found")
 		}
-		if token, ok := reuse(profile); ok {
+		if token, ok := reuse(creds.CurrentProfile, profile); ok {
 			return token, nil
 		}
 		if profile.RefreshToken == "" {
@@ -233,19 +233,27 @@ func (m *TokenManager) ForceRefreshOrgScopedAccessToken(ctx context.Context, org
 }
 
 func (m *TokenManager) orgScopedAccessToken(ctx context.Context, organizationID string, force bool) (string, error) {
-	reuse := func(p *Profile) (string, bool) {
+	reuse := func(profileName string, p *Profile) (string, bool) {
 		t := p.OrgTokens[organizationID]
-		if force || t == nil || t.AccessToken == "" || tokenNeedsRefresh(t.AccessToken, t.ExpiresAt) {
+		if force || t == nil || tokenNeedsRefresh("", t.ExpiresAt) {
 			return "", false
 		}
-		return t.AccessToken, true
+		token := m.storage.cachedOrgToken(profileName, organizationID, t)
+		if token == "" || tokenNeedsRefresh(token, t.ExpiresAt) {
+			return "", false
+		}
+		return token, true
 	}
 
-	profile, err := m.storage.GetCurrentProfile()
+	creds, err := m.storage.LoadCredentials()
 	if err != nil {
 		return "", fmt.Errorf("not authenticated: %w", err)
 	}
-	if token, ok := reuse(profile); ok {
+	profile, ok := creds.Profiles[creds.CurrentProfile]
+	if !ok {
+		return "", errors.New("not authenticated: no current profile found")
+	}
+	if token, ok := reuse(creds.CurrentProfile, profile); ok {
 		return token, nil
 	}
 	if profile.RefreshToken == "" {

@@ -505,9 +505,19 @@ func TestStorage_KeyringHoldsOrgTokens(t *testing.T) {
 	loaded, err := storage.GetCurrentProfile()
 	require.NoError(t, err)
 	require.Contains(t, loaded.OrgTokens, "org_fresh")
-	assert.Equal(t, "fresh_token", loaded.OrgTokens["org_fresh"].AccessToken)
 	require.Contains(t, loaded.OrgTokens, "org_expired")
-	assert.Empty(t, loaded.OrgTokens["org_expired"].AccessToken)
+	assert.Empty(t, loaded.OrgTokens["org_fresh"].AccessToken, "a load must not read every org token from the keyring")
+	assert.Equal(t, "fresh_token", storage.cachedOrgToken("default", "org_fresh", loaded.OrgTokens["org_fresh"]))
+
+	// Saving entries loaded without their token keeps the keyring items and their expiries.
+	reloaded, err := storage.LoadCredentials()
+	require.NoError(t, err)
+	require.NoError(t, storage.SaveCredentials(reloaded))
+	again, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+	require.Contains(t, again.OrgTokens, "org_fresh")
+	assert.WithinDuration(t, creds.Profiles["default"].OrgTokens["org_fresh"].ExpiresAt, again.OrgTokens["org_fresh"].ExpiresAt, time.Second)
+	assert.Equal(t, "fresh_token", storage.cachedOrgToken("default", "org_fresh", again.OrgTokens["org_fresh"]))
 
 	// An older CLI rewriting the file drops the entry but leaves the keyring item.
 	require.NoError(t, keyring.Set(KeyringService, orgTokenKeyringKey("default", "org_dropped"), "orphan_token"))

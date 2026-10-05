@@ -172,15 +172,6 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 			if refreshToken, err := keyring.Get(KeyringService, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey)); err == nil {
 				profile.RefreshToken = refreshToken
 			}
-			for orgID, t := range profile.OrgTokens {
-				// On macOS each keyring read starts a process, so skip tokens the cache would not use.
-				if t == nil || tokenNeedsRefresh("", t.ExpiresAt) {
-					continue
-				}
-				if accessToken, err := keyring.Get(KeyringService, orgTokenKeyringKey(name, orgID)); err == nil {
-					t.AccessToken = accessToken
-				}
-			}
 		}
 	}
 
@@ -235,7 +226,23 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// A refused entry is dropped, so a later load cannot pair its expiry with an older token.
+// On macOS each keyring read starts a process, so org tokens are read one at a time, on use.
+func (s *Storage) cachedOrgToken(profileName, orgID string, t *OrgToken) string {
+	if t == nil {
+		return ""
+	}
+	if t.AccessToken != "" || !s.useKeyring {
+		return t.AccessToken
+	}
+	token, err := keyring.Get(KeyringService, orgTokenKeyringKey(profileName, orgID))
+	if err != nil {
+		return ""
+	}
+	return token
+}
+
+// Entries loaded without their token are not rewritten. A refused entry is dropped, so a later
+// load cannot pair its expiry with an older token.
 func moveOrgTokensToKeyring(profileName string, tokens map[string]*OrgToken) map[string]*OrgToken {
 	if len(tokens) == 0 {
 		return nil
