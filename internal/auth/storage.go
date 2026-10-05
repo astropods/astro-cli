@@ -223,7 +223,32 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return writeFileAtomic(path, data)
+}
+
+// Readers do not take the credentials lock, so a write in place could show them a half-written file.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close() //nolint:errcheck,gosec
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close() //nolint:errcheck,gosec
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		// Windows refuses to replace a file another process holds open.
+		return os.WriteFile(path, data, 0600)
+	}
+	return nil
 }
 
 // On macOS each keyring read starts a process, so org tokens are read one at a time, on use.
