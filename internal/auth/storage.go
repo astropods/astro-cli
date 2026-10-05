@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,18 +84,18 @@ func isKeyringAvailable() bool {
 	if testing.Testing() || isHomeTempDir() {
 		return false
 	}
+	return probeKeyring()
+}
 
-	testKey := "astro-cli-test"
-	testValue := "test"
-
-	err := keyring.Set(KeyringService, testKey, testValue)
-	if err != nil {
+// A shared key fails under concurrent writes, and a failed probe hides the tokens in the keyring.
+var probeKeyring = sync.OnceValue(func() bool {
+	testKey := fmt.Sprintf("astro-cli-test-%d", os.Getpid())
+	if err := keyring.Set(KeyringService, testKey, "test"); err != nil {
 		return false
 	}
-
 	_ = keyring.Delete(KeyringService, testKey)
 	return true
-}
+})
 
 // isHomeTempDir returns true when the effective HOME directory lives inside
 // the system temp directory. Both paths are symlink-resolved before comparison
