@@ -173,7 +173,7 @@ func (s *Storage) LoadCredentials() (*Credentials, error) {
 				profile.RefreshToken = refreshToken
 			}
 			for orgID, t := range profile.OrgTokens {
-				// Each read runs a keychain process, so skip tokens the cache would not use.
+				// On macOS each keyring read starts a process, so skip tokens the cache would not use.
 				if t == nil || tokenNeedsRefresh("", t.ExpiresAt) {
 					continue
 				}
