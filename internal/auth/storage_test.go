@@ -2,10 +2,15 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 // setupTestDir creates a temp directory and sets HOME for testing
@@ -466,4 +471,116 @@ func TestGetCurrentProfile_NoProfile(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when current profile doesn't exist, got nil")
 	}
+}
+
+func TestStorage_KeyringHoldsOrgTokens(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	keyring.MockInit()
+	storage := &Storage{binaryName: "ast", useKeyring: true}
+
+	creds := &Credentials{
+		CurrentProfile: "default",
+		Profiles: map[string]*Profile{
+			"default": {
+				AccessToken:  "personal_token",
+				RefreshToken: "refresh_token",
+				ExpiresAt:    time.Now().Add(time.Hour),
+				Accounts:     []StoredAccount{{Name: "acme", OrganizationID: "org_dropped"}},
+				OrgTokens: map[string]*OrgToken{
+					"org_fresh":   {AccessToken: "fresh_token", ExpiresAt: time.Now().Add(time.Hour)},
+					"org_expired": {AccessToken: "expired_token", ExpiresAt: time.Now().Add(-time.Minute)},
+				},
+			},
+		},
+	}
+	require.NoError(t, storage.SaveCredentials(creds))
+	assert.Equal(t, "fresh_token", creds.Profiles["default"].OrgTokens["org_fresh"].AccessToken, "saving must not strip the caller's tokens")
+
+	path, err := CredentialsPath("ast")
+	require.NoError(t, err)
+	data, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "fresh_token")
+	assert.NotContains(t, string(data), "expired_token")
+
+	loaded, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+	require.Contains(t, loaded.OrgTokens, "org_fresh")
+	require.Contains(t, loaded.OrgTokens, "org_expired")
+	assert.Empty(t, loaded.OrgTokens["org_fresh"].AccessToken, "a load must not read every org token from the keyring")
+	assert.Equal(t, "fresh_token", storage.cachedOrgToken("default", "org_fresh", loaded.OrgTokens["org_fresh"]))
+
+	// Saving entries loaded without their token keeps the keyring items and their expiries.
+	reloaded, err := storage.LoadCredentials()
+	require.NoError(t, err)
+	require.NoError(t, storage.SaveCredentials(reloaded))
+	again, err := storage.GetCurrentProfile()
+	require.NoError(t, err)
+	require.Contains(t, again.OrgTokens, "org_fresh")
+	assert.WithinDuration(t, creds.Profiles["default"].OrgTokens["org_fresh"].ExpiresAt, again.OrgTokens["org_fresh"].ExpiresAt, time.Second)
+	assert.Equal(t, "fresh_token", storage.cachedOrgToken("default", "org_fresh", again.OrgTokens["org_fresh"]))
+
+	// An older CLI rewriting the file drops the entry but leaves the keyring item.
+	require.NoError(t, keyring.Set(KeyringService, orgTokenKeyringKey("default", "org_dropped"), "orphan_token"))
+	require.NoError(t, storage.DeleteAllProfiles())
+	for _, orgID := range []string{"org_fresh", "org_expired", "org_dropped"} {
+		_, err := keyring.Get(KeyringService, orgTokenKeyringKey("default", orgID))
+		assert.ErrorIs(t, err, keyring.ErrNotFound, orgID)
+	}
+}
+
+func TestWriteFileAtomic(t *testing.T) {
+	tests := []struct {
+		name      string
+		failures  int
+		wantCalls int
+	}{
+		{name: "rename succeeds", failures: 0, wantCalls: 1},
+		{name: "rename is retried after a transient failure", failures: 3, wantCalls: 4},
+		{name: "a rename that never succeeds falls back to an in-place write", failures: renameAttempts, wantCalls: renameAttempts},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "credentials.json")
+			require.NoError(t, os.WriteFile(path, []byte("old"), 0600))
+
+			calls := 0
+			prev := renameFile
+			renameFile = func(from, to string) error {
+				calls++
+				if calls <= tt.failures {
+					return errors.New("sharing violation")
+				}
+				return os.Rename(from, to)
+			}
+			t.Cleanup(func() { renameFile = prev })
+
+			require.NoError(t, writeFileAtomic(path, []byte(`{"new":true}`)))
+			assert.Equal(t, tt.wantCalls, calls)
+			got, err := os.ReadFile(path) //nolint:gosec
+			require.NoError(t, err)
+			assert.Equal(t, `{"new":true}`, string(got))
+			entries, err := os.ReadDir(dir)
+			require.NoError(t, err)
+			assert.Len(t, entries, 1, "the temp file must not be left behind")
+		})
+	}
+}
+
+// On Windows the open reader makes the first renames fail, so this exercises the retry there.
+func TestWriteFileAtomic_ReaderHoldsTheFileOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credentials.json")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0600))
+	reader, err := os.Open(path) //nolint:gosec
+	require.NoError(t, err)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = reader.Close()
+	}()
+
+	require.NoError(t, writeFileAtomic(path, []byte("new")))
+	got, err := os.ReadFile(path) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(got))
 }

@@ -45,3 +45,35 @@ func TestStorage_BinariesKeepSeparateKeyringTokens(t *testing.T) {
 		})
 	}
 }
+
+func TestStorage_BinariesKeepSeparateOrgTokens(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	keyring.MockInit()
+
+	binaries := []string{"ast", "ast-preview", "ast-dev"}
+	for _, bin := range binaries {
+		s := &Storage{binaryName: bin, useKeyring: true}
+		profile := createTestProfile(bin+"-access", bin+"-refresh", time.Now().Add(time.Hour))
+		profile.OrgTokens = map[string]*OrgToken{"org_x": {AccessToken: bin + "-org", ExpiresAt: time.Now().Add(time.Hour)}}
+		require.NoError(t, s.SaveProfile("default", profile))
+	}
+
+	for _, bin := range binaries {
+		t.Run(bin, func(t *testing.T) {
+			s := &Storage{binaryName: bin, useKeyring: true}
+			profile, err := s.GetCurrentProfile()
+			require.NoError(t, err)
+			assert.Equal(t, bin+"-org", s.cachedOrgToken("default", "org_x", profile.OrgTokens["org_x"]))
+		})
+	}
+
+	// Logging out of one binary leaves the others' org tokens in place.
+	require.NoError(t, (&Storage{binaryName: "ast-preview", useKeyring: true}).DeleteAllProfiles())
+	_, err := keyring.Get(keyringService("ast-preview"), orgTokenKeyringKey("default", "org_x"))
+	assert.ErrorIs(t, err, keyring.ErrNotFound)
+	for _, bin := range []string{"ast", "ast-dev"} {
+		got, err := keyring.Get(keyringService(bin), orgTokenKeyringKey("default", "org_x"))
+		require.NoError(t, err, bin)
+		assert.Equal(t, bin+"-org", got)
+	}
+}

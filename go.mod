@@ -19,6 +19,7 @@ require (
 	github.com/docker/compose/v5 v5.1.4
 	github.com/fatih/color v1.18.0
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.20.7
 	github.com/joho/godotenv v1.5.1
 	github.com/moby/buildkit v0.29.0
@@ -91,7 +92,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

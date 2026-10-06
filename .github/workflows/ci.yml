@@ -44,6 +44,10 @@ jobs:
       - name: Test
         run: go test ./cmd/... ./internal/...
 
+      # Real CLI processes against a fake auth server. Needs no Docker, unlike the other e2e tests.
+      - name: Auth e2e
+        run: go test -tags integration -run '^TestAuth' ./e2e/...
+
       # The process seam under cmd/chatui_process_*.go only compiles on its own
       # platform, so a Unix-only call reaching cmd/ would not fail the job above.
       - name: Cross-compile every released target
@@ -97,6 +101,12 @@ jobs:
       - name: Test the Windows seam
         run: |
           go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v
+
+      # Only Windows refuses to rename over a file a reader holds open, so only
+      # here does the credentials write take its retry path. These tests use
+      # t.TempDir paths, not HOME, so they are safe on the shared profile.
+      - name: Test the credentials write seam
+        run: go test ./internal/auth/ -run '^TestWriteFileAtomic' -v
 
       # The watch path's separator and symlink handling only differ here, so
       # this package runs in full rather than by test name.

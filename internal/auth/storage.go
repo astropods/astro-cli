@@ -1,15 +1,18 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/zalando/go-keyring"
 )
 
@@ -47,6 +50,18 @@ type Profile struct {
 	Accounts        []StoredAccount `json:"accounts,omitempty"`
 	CurrentAccount  string          `json:"current_account,omitempty"`
 	PreviousAccount string          `json:"previous_account,omitempty"`
+	// OrgTokens is keyed by WorkOS organization ID.
+	OrgTokens map[string]*OrgToken `json:"org_tokens,omitempty"`
+}
+
+// OrgToken is a cached organization-scoped access token.
+type OrgToken struct {
+	AccessToken string    `json:"access_token,omitempty"` //nolint:gosec
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+func orgTokenKeyringKey(profileName, orgID string) string {
+	return fmt.Sprintf("%s_%s_%s", profileName, orgID, KeyringAccessTokenKey)
 }
 
 // StoredUser represents user info stored with credentials
@@ -91,18 +106,18 @@ func isKeyringAvailable() bool {
 	if testing.Testing() || isHomeTempDir() {
 		return false
 	}
+	return probeKeyring()
+}
 
-	testKey := "astro-cli-test"
-	testValue := "test"
-
-	err := keyring.Set(KeyringService, testKey, testValue)
-	if err != nil {
+// A shared key fails under concurrent writes, and a failed probe hides the tokens in the keyring.
+var probeKeyring = sync.OnceValue(func() bool {
+	testKey := fmt.Sprintf("astro-cli-test-%d", os.Getpid())
+	if err := keyring.Set(KeyringService, testKey, "test"); err != nil {
 		return false
 	}
-
 	_ = keyring.Delete(KeyringService, testKey)
 	return true
-}
+})
 
 // isHomeTempDir returns true when the effective HOME directory lives inside
 // the system temp directory. Both paths are symlink-resolved before comparison
@@ -206,6 +221,7 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 			profileCopy := *profile
 			profileCopy.AccessToken = ""
 			profileCopy.RefreshToken = ""
+			profileCopy.OrgTokens = moveOrgTokensToKeyring(service, name, profile.OrgTokens)
 			credsToSave.Profiles[name] = &profileCopy
 		}
 	} else {
@@ -217,7 +233,98 @@ func (s *Storage) SaveCredentials(creds *Credentials) error {
 		return err
 	}
 
+	return writeFileAtomic(path, data)
+}
+
+// Readers do not take the credentials lock, so a write in place could show them a half-written file.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close() //nolint:errcheck,gosec
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close() //nolint:errcheck,gosec
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// Windows refuses to replace a file another process holds open, and a reader holds it only briefly.
+	for attempt := range renameAttempts {
+		if err := renameFile(tmp.Name(), path); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+	}
 	return os.WriteFile(path, data, 0600)
+}
+
+const renameAttempts = 10
+
+var renameFile = os.Rename
+
+// On macOS each keyring read starts a process, so org tokens are read one at a time, on use.
+func (s *Storage) cachedOrgToken(profileName, orgID string, t *OrgToken) string {
+	if t == nil {
+		return ""
+	}
+	if t.AccessToken != "" || !s.useKeyring {
+		return t.AccessToken
+	}
+	token, err := keyring.Get(keyringService(s.binaryName), orgTokenKeyringKey(profileName, orgID))
+	if err != nil {
+		return ""
+	}
+	return token
+}
+
+// Entries loaded without their token are not rewritten. A refused entry is dropped, so a later
+// load cannot pair its expiry with an older token.
+func moveOrgTokensToKeyring(service, profileName string, tokens map[string]*OrgToken) map[string]*OrgToken {
+	if len(tokens) == 0 {
+		return nil
+	}
+	stripped := make(map[string]*OrgToken, len(tokens))
+	for orgID, t := range tokens {
+		if t == nil {
+			continue
+		}
+		if t.AccessToken != "" {
+			if err := keyring.Set(service, orgTokenKeyringKey(profileName, orgID), t.AccessToken); err != nil {
+				continue
+			}
+		}
+		stripped[orgID] = &OrgToken{ExpiresAt: t.ExpiresAt}
+	}
+	return stripped
+}
+
+// credentialsLockTimeout outlasts one token exchange, whose HTTP client gives up after 30s.
+var credentialsLockTimeout = 45 * time.Second
+
+// Every credentials write takes this lock, because concurrent keychain writes to one item fail.
+// When the lock cannot be taken, the caller proceeds unlocked rather than failing.
+func (s *Storage) lock(ctx context.Context) (unlock func()) {
+	noop := func() {}
+	path, err := CredentialsPath(s.binaryName)
+	if err != nil {
+		return noop
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return noop
+	}
+	ctx, cancel := context.WithTimeout(ctx, credentialsLockTimeout)
+	defer cancel()
+	fileLock := flock.New(path + ".lock")
+	if locked, err := fileLock.TryLockContext(ctx, 20*time.Millisecond); err != nil || !locked {
+		return noop
+	}
+	return func() { _ = fileLock.Unlock() }
 }
 
 // GetCurrentProfile returns the current profile
@@ -237,6 +344,9 @@ func (s *Storage) GetCurrentProfile() (*Profile, error) {
 
 // SaveProfile saves a profile to storage
 func (s *Storage) SaveProfile(name string, profile *Profile) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -248,6 +358,9 @@ func (s *Storage) SaveProfile(name string, profile *Profile) error {
 
 // DeleteProfile deletes a profile from storage
 func (s *Storage) DeleteProfile(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -255,9 +368,7 @@ func (s *Storage) DeleteProfile(name string) error {
 
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
-		service := keyringService(s.binaryName)
-		_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
-		_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+		deleteKeyringTokens(keyringService(s.binaryName), name, creds.Profiles[name])
 	}
 
 	delete(creds.Profiles, name)
@@ -266,6 +377,9 @@ func (s *Storage) DeleteProfile(name string) error {
 
 // DeleteAllProfiles deletes all profiles from storage
 func (s *Storage) DeleteAllProfiles() error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -274,9 +388,8 @@ func (s *Storage) DeleteAllProfiles() error {
 	// Delete tokens from keyring if using it
 	if s.useKeyring {
 		service := keyringService(s.binaryName)
-		for name := range creds.Profiles {
-			_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
-			_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+		for name, profile := range creds.Profiles {
+			deleteKeyringTokens(service, name, profile)
 		}
 	}
 
@@ -295,8 +408,32 @@ func (s *Storage) DeleteAllProfiles() error {
 	return nil
 }
 
+// Accounts are tried too: an older CLI rewriting the file drops org token entries but not their keyring items.
+func deleteKeyringTokens(service, name string, profile *Profile) {
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringAccessTokenKey))
+	_ = keyring.Delete(service, fmt.Sprintf("%s_%s", name, KeyringRefreshTokenKey))
+	if profile == nil {
+		return
+	}
+	orgIDs := make(map[string]bool, len(profile.OrgTokens)+len(profile.Accounts))
+	for orgID := range profile.OrgTokens {
+		orgIDs[orgID] = true
+	}
+	for _, a := range profile.Accounts {
+		if a.OrganizationID != "" {
+			orgIDs[a.OrganizationID] = true
+		}
+	}
+	for orgID := range orgIDs {
+		_ = keyring.Delete(service, orgTokenKeyringKey(name, orgID))
+	}
+}
+
 // SetCurrentProfile sets the current profile
 func (s *Storage) SetCurrentProfile(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -324,6 +461,9 @@ func (s *Storage) HasValidCredentials() bool {
 // match an account name already stored in the profile. The previous account is
 // saved so that SwitchToPreviousAccount can restore it.
 func (s *Storage) SetCurrentAccount(name string) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -364,6 +504,9 @@ func HasAccount(accounts []StoredAccount, name string) bool {
 // SetAccounts overwrites the current profile's account list, e.g. after a
 // live refresh from the server.
 func (s *Storage) SetAccounts(accounts []StoredAccount) error {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return err
@@ -381,6 +524,9 @@ func (s *Storage) SetAccounts(accounts []StoredAccount) error {
 // SwitchToPreviousAccount switches back to the account that was active before the
 // last account switch. Returns an error if there is no previous account recorded.
 func (s *Storage) SwitchToPreviousAccount() (string, error) {
+	unlock := s.lock(context.Background())
+	defer unlock()
+
 	creds, err := s.LoadCredentials()
 	if err != nil {
 		return "", err
