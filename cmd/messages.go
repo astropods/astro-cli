@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
@@ -651,6 +652,10 @@ func errGatewaySetupInProgress() error {
 	return fmt.Errorf("another setup for this device is already running; wait a moment and retry")
 }
 
+func errGatewayConnectIncomplete(binary string, err error) error {
+	return fmt.Errorf("couldn't finish connecting this device (%w); run `%s gateway connect` again", err, binary)
+}
+
 func errGatewayRequestFailed(action string, err error) error {
 	return fmt.Errorf("could not %s: %w", action, err)
 }
@@ -701,6 +706,13 @@ func msgGatewayConnected(account, binary string) string {
 
 func msgGatewayNotConnected(binary string) string {
 	return fmt.Sprintf("This machine isn't connected to an AI Gateway. Run `%s gateway connect` to connect it.", binary)
+}
+
+func msgGatewaySwitchRevokeFailed(account, prefix, binary string, err error) string {
+	return fmt.Sprintf(
+		"! This device's old key on %s could not be revoked (%v).\n  Revoke it with `%s gateway revoke %s` while signed in to %s.",
+		account, err, binary, prefix, account,
+	)
 }
 
 func msgGatewayDisconnectRevokeFailed(prefix, binary string, err error) string {
@@ -758,6 +770,67 @@ func msgGatewayStatusShellExport(key, value string) string {
 	return fmt.Sprintf("  ! Your shell exports %s=%s, which may override the settings above.", key, value)
 }
 
-func msgGatewayStatusHeadersMissing(binary string) string {
-	return fmt.Sprintf("  ! Your Claude Code settings are missing this device's gateway headers. Run `%s gateway connect` to repair them.", binary)
+func msgGatewayStatusSettingsMissing(binary string) string {
+	return fmt.Sprintf("  ! Your Claude Code settings no longer hold what connect wrote for this device. Run `%s gateway connect` to repair them.", binary)
+}
+
+func msgGatewayConnectTarget(device, goos, goarch, settingsPath string) string {
+	return fmt.Sprintf("  Device     %s (%s %s)\n  Settings   %s\n", device, goos, goarch, settingsPath)
+}
+
+func msgGatewayKeyIssued(prefix string) string {
+	return fmt.Sprintf("✓ Issued a key for this device (%s…)", prefix)
+}
+
+func msgGatewaySettingsUpdated(path string) string {
+	return fmt.Sprintf("✓ Updated %s", path)
+}
+
+func msgGatewaySettingWritten(key, label string) string {
+	return fmt.Sprintf("    %-26s %s", key, label)
+}
+
+// msgGatewaySettingHidden stands in for a written value that can be a credential.
+func msgGatewaySettingHidden() string {
+	return "(set)"
+}
+
+func msgGatewaySettingsRestored(path string) string {
+	return fmt.Sprintf("✓ Restored %s to how it was before connect", path)
+}
+
+func msgGatewaySettingKept(key string) string {
+	return fmt.Sprintf("  %s changed after connect, so it was left as it is", key)
+}
+
+func msgGatewayThisDeviceKeyRevoked(prefix string) string {
+	return fmt.Sprintf("✓ Revoked this device's key (%s…)", prefix)
+}
+
+func msgGatewayNoDevices(account string) string {
+	return fmt.Sprintf("No devices are connected to %s's AI Gateway.", account)
+}
+
+func msgGatewayDeviceKeyRevoked(device, prefix string) string {
+	return fmt.Sprintf("✓ Revoked %s's key (%s…)", device, prefix)
+}
+
+func msgGatewayStatusRouting(url, setBy string, alsoIn []string) string {
+	line := fmt.Sprintf("  Routing       %s\n  Set by        %s", url, setBy)
+	if len(alsoIn) > 0 {
+		line += ", also in " + strings.Join(alsoIn, ", ")
+	}
+	return line
+}
+
+func msgGatewaySettingsScope(scope claudesettings.Scope) string {
+	switch scope {
+	case claudesettings.ScopeManaged:
+		return "managed settings (your organization)"
+	case claudesettings.ScopeProjectLocal:
+		return "this project's local settings"
+	case claudesettings.ScopeProject:
+		return "this project's shared settings"
+	}
+	return "your user settings"
 }

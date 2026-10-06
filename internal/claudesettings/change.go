@@ -96,6 +96,9 @@ func Undo(f *File, c *Change) (kept []string, err error) {
 		}
 		if key == EnvCustomHeaders {
 			rest := RemoveHeaders(current, edit.HeaderNames)
+			if edit.Previous != nil {
+				rest = MergeHeaders(rest, KeepHeaders(*edit.Previous, edit.HeaderNames))
+			}
 			if rest == "" && edit.Previous == nil {
 				err = f.DeleteEnv(key)
 			} else {

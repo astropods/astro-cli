@@ -34,16 +34,25 @@ func MergeHeaders(existing, ours string) string {
 
 // RemoveHeaders drops every header in block whose name is in names.
 func RemoveHeaders(block string, names []string) string {
-	drop := map[string]bool{}
+	return filterHeaders(block, names, false)
+}
+
+// KeepHeaders returns only the headers in block whose name is in names.
+func KeepHeaders(block string, names []string) string {
+	return filterHeaders(block, names, true)
+}
+
+func filterHeaders(block string, names []string, keepNamed bool) string {
+	named := map[string]bool{}
 	for _, n := range names {
-		drop[strings.ToLower(n)] = true
+		named[strings.ToLower(n)] = true
 	}
 	kept := make([]string, 0, 4)
 	for _, line := range splitLines(block) {
-		if name, _, ok := splitHeader(line); ok && drop[strings.ToLower(name)] {
-			continue
+		name, _, ok := splitHeader(line)
+		if (ok && named[strings.ToLower(name)]) == keepNamed {
+			kept = append(kept, line)
 		}
-		kept = append(kept, line)
 	}
 	return strings.Join(kept, "\n")
 }

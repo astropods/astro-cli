@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -34,7 +35,11 @@ type fakeGatewayServer struct {
 	revoked     []string
 	unavailable bool
 	failRevoke  bool
-	seq         int
+	// mintRefusal, when set, is the body of a 409 the mint route answers with.
+	mintRefusal string
+	// userEnv, when set, replaces the profile's user settings env.
+	userEnv func(apiKey string) map[string]string
+	seq     int
 }
 
 func (f *fakeGatewayServer) handler(t *testing.T) http.HandlerFunc {
@@ -63,7 +68,11 @@ func (f *fakeGatewayServer) handler(t *testing.T) http.HandlerFunc {
 		case strings.HasSuffix(path, "/devtool-gateway/my-keys") && r.Method == http.MethodPost:
 			account := accountFromPath(path)
 			if _, ok := f.enabled[account]; !ok {
-				http.Error(w, `{"error":"the dev-tool gateway is not enabled for this account"}`, http.StatusConflict)
+				http.Error(w, `{"error":"the dev-tool gateway is not enabled for this account","code":"DEVTOOL_GATEWAY_DISABLED"}`, http.StatusConflict)
+				return
+			}
+			if f.mintRefusal != "" {
+				http.Error(w, f.mintRefusal, http.StatusConflict)
 				return
 			}
 			var body map[string]string
@@ -77,15 +86,19 @@ func (f *fakeGatewayServer) handler(t *testing.T) http.HandlerFunc {
 				CreatedAt: time.Now().UTC(),
 			}
 			f.keys[account] = append(f.keys[account], meta)
+			userEnv := map[string]string{
+				claudesettings.EnvBaseURL:       testGatewayURL,
+				claudesettings.EnvCustomHeaders: "x-bf-direct-key: true\nx-bf-vk: " + apiKey,
+			}
+			if f.userEnv != nil {
+				userEnv = f.userEnv(apiKey)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"key": meta, "api_key": apiKey,
 				"profile": map[string]any{
 					"base_url":         testGatewayURL,
 					"managed_settings": map[string]any{"env": map[string]string{claudesettings.EnvBaseURL: testGatewayURL}},
-					"user_settings": map[string]any{"env": map[string]string{
-						claudesettings.EnvBaseURL:       testGatewayURL,
-						claudesettings.EnvCustomHeaders: "x-bf-direct-key: true\nx-bf-vk: " + apiKey,
-					}},
+					"user_settings":    map[string]any{"env": userEnv},
 				},
 			})
 		case (strings.HasSuffix(path, "/devtool-gateway/my-keys") || strings.HasSuffix(path, "/devtool-gateway/keys")) && r.Method == http.MethodGet:
@@ -200,7 +213,14 @@ func TestGatewayConnect_WritesTheProfileAndRecordsWhatItChanged(t *testing.T) {
 	assert.Len(t, mint["device_id"], 32, "the device id is a hash")
 	assert.NotContains(t, mint["device_id"], "machine-1", "the OS machine id never leaves the machine")
 	assert.Equal(t, buildinfo.BinaryName+" "+buildinfo.Version, mint["client_version"])
-	assert.Contains(t, buf.String(), msgGatewayConnected("alice", buildinfo.BinaryName))
+	hostname, _ := os.Hostname()
+	assert.Equal(t, msgGatewayConnecting("alice")+"\n\n"+
+		msgGatewayConnectTarget(hostname, runtime.GOOS, runtime.GOARCH, h.settingsPath)+"\n"+
+		msgGatewayKeyIssued("sk-bf-0001")+"\n"+
+		msgGatewaySettingsUpdated(h.settingsPath)+"\n"+
+		msgGatewaySettingWritten(claudesettings.EnvBaseURL, testGatewayURL)+"\n"+
+		msgGatewaySettingWritten(claudesettings.EnvCustomHeaders, "x-bf-direct-key, x-bf-vk")+"\n"+
+		"\n"+msgGatewayConnected("alice", buildinfo.BinaryName)+"\n", buf.String())
 
 	state, err := loadGatewayState()
 	require.NoError(t, err)
@@ -208,6 +228,62 @@ func TestGatewayConnect_WritesTheProfileAndRecordsWhatItChanged(t *testing.T) {
 	assert.Equal(t, "vk-1", state.KeyID)
 	require.NotNil(t, state.Change)
 	assert.Equal(t, h.settingsPath, state.Change.Path)
+}
+
+func federatedUserEnv(string) map[string]string {
+	return map[string]string{
+		claudesettings.EnvBaseURL: testGatewayURL,
+		"ANTHROPIC_AUTH_TOKEN":    "sk-federated-secret",
+	}
+}
+
+func TestGatewayConnect_NeverPrintsACredentialItWrote(t *testing.T) {
+	h := newGatewayHarness(t)
+	h.server.userEnv = federatedUserEnv
+	buf := &bytes.Buffer{}
+
+	require.NoError(t, connectGateway(context.Background(), buf, connectOpts("alice")))
+
+	assert.Equal(t, "sk-federated-secret", h.env(t)["ANTHROPIC_AUTH_TOKEN"])
+	assert.NotContains(t, buf.String(), "sk-federated-secret", "a token in the profile must never reach the terminal")
+	assert.Contains(t, buf.String(), msgGatewaySettingWritten("ANTHROPIC_AUTH_TOKEN", msgGatewaySettingHidden())+"\n")
+	assert.Contains(t, buf.String(), msgGatewaySettingWritten(claudesettings.EnvBaseURL, testGatewayURL)+"\n")
+}
+
+func TestGatewayConnect_MapsTheServersRefusalCodes(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantErr error
+	}{
+		{
+			name:    "the gateway was turned off",
+			body:    `{"error":"the dev-tool gateway is not enabled for this account","code":"DEVTOOL_GATEWAY_DISABLED"}`,
+			wantErr: errGatewayNotEnabled("alice"),
+		},
+		{
+			name:    "another setup is running",
+			body:    `{"error":"another setup for this device is in progress; retry","code":"DEVTOOL_DEVICE_SETUP_IN_PROGRESS"}`,
+			wantErr: errGatewaySetupInProgress(),
+		},
+		{
+			name:    "an uncoded conflict",
+			body:    `{"error":"conflict"}`,
+			wantErr: errGatewayRequestFailed("issue a key for this device", newAPIError(http.StatusConflict, []byte(`{"error":"conflict"}`))),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newGatewayHarness(t)
+			h.server.mintRefusal = tc.body
+
+			err := connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice"))
+			require.Error(t, err)
+			assert.Equal(t, tc.wantErr.Error(), err.Error())
+			_, statErr := os.Stat(h.settingsPath)
+			assert.True(t, os.IsNotExist(statErr), "a refused mint must not touch the settings file")
+		})
+	}
 }
 
 func TestGatewayConnect_StopsBeforeMintingWhenTheAccountHasNotTurnedTheGatewayOn(t *testing.T) {
@@ -262,6 +338,20 @@ func TestGatewayConnect_NeverReplacesAnotherGatewayWithoutConsent(t *testing.T) 
 	}
 }
 
+func TestGatewayConnect_AFailedSettingsWriteSaysToConnectAgain(t *testing.T) {
+	h := newGatewayHarness(t)
+	require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
+	dir := filepath.Dir(h.settingsPath)
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	err := connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fmt.Sprintf("run `%s gateway connect` again", buildinfo.BinaryName),
+		"the rerun's mint replaced this device's key, so the developer must connect again")
+	assert.Equal(t, []string{"vk-2"}, h.server.revoked, "the key minted for the failed attempt does not stay live")
+}
+
 func TestGatewayConnect_RerunReplacesThisDevicesHeaderWithoutAsking(t *testing.T) {
 	h := newGatewayHarness(t)
 	require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
@@ -288,6 +378,19 @@ func TestGatewayConnect_RefusesToSwitchAccountsFromAScript(t *testing.T) {
 	assert.Equal(t, "alice", state.Account, "--replace-existing moves the machine to the new account")
 }
 
+func TestGatewayConnect_WarnsWhenTheOldAccountsKeyCannotBeRevoked(t *testing.T) {
+	h := newGatewayHarness(t)
+	require.NoError(t, saveGatewayState(&gatewayState{Account: "gone-org", KeyID: "vk-old", KeyPrefix: "sk-bf-old"}))
+	h.server.failRevoke = true
+	buf := &bytes.Buffer{}
+
+	require.NoError(t, connectGateway(context.Background(), buf, gatewayConnectOptions{account: "alice", replaceExisting: true}),
+		"the new connection works, so a stale key elsewhere must not fail it")
+	assert.Contains(t, buf.String(), "! This device's old key on gone-org could not be revoked",
+		"nothing records the old key once the machine moves, so the developer has to hear about it")
+	assert.Contains(t, buf.String(), fmt.Sprintf("`%s gateway revoke sk-bf-old`", buildinfo.BinaryName))
+}
+
 func TestGatewayDisconnect_RestoresTheSettingsFileThenRevokes(t *testing.T) {
 	h := newGatewayHarness(t)
 	original := `{"model":"opus","env":{"ANTHROPIC_CUSTOM_HEADERS":"x-team: platform"}}`
@@ -304,11 +407,24 @@ func TestGatewayDisconnect_RestoresTheSettingsFileThenRevokes(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(original), &want))
 	assert.Equal(t, want, got, "disconnect must leave the file exactly as it was before connect")
 	assert.Equal(t, []string{"vk-1"}, h.server.revoked)
+	assert.Equal(t, msgGatewaySettingsRestored(h.settingsPath)+"\n"+msgGatewayThisDeviceKeyRevoked("sk-bf-0001")+"\n", buf.String())
 
 	state, err := loadGatewayState()
 	require.NoError(t, err)
 	assert.False(t, state.connected())
 	assert.True(t, state.disconnectedFrom("alice"), "a deliberate disconnect is remembered, so login won't reconnect")
+}
+
+func TestGatewayDisconnect_LeavesAValueChangedAfterConnect(t *testing.T) {
+	h := newGatewayHarness(t)
+	require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
+	h.writeSettings(t, `{"env":{"ANTHROPIC_BASE_URL":"https://elsewhere.example.com"}}`)
+	buf := &bytes.Buffer{}
+
+	require.NoError(t, disconnectGateway(context.Background(), buf, false))
+
+	assert.Equal(t, "https://elsewhere.example.com", h.env(t)[claudesettings.EnvBaseURL])
+	assert.Contains(t, buf.String(), msgGatewaySettingKept(claudesettings.EnvBaseURL)+"\n")
 }
 
 func TestGatewayDisconnect_StillRestoresSettingsWhenTheServerIsDown(t *testing.T) {
@@ -342,8 +458,7 @@ func TestGatewayStatus(t *testing.T) {
 		require.NoError(t, statusGateway(context.Background(), buf, false, now))
 		out := buf.String()
 		assert.Contains(t, out, msgGatewayStatusConnected("alice", h.server.keys["alice"][0].DeviceName, "sk-bf-0001", "2 minutes ago"))
-		assert.Contains(t, out, "Routing       "+testGatewayURL)
-		assert.Contains(t, out, "Set by        your user settings")
+		assert.Contains(t, out, msgGatewayStatusRouting(testGatewayURL, msgGatewaySettingsScope(claudesettings.ScopeUser), nil)+"\n")
 		assert.NotContains(t, out, "!", "a healthy connection shows no warnings")
 	})
 
@@ -374,7 +489,30 @@ func TestGatewayStatus(t *testing.T) {
 		h.writeSettings(t, `{"env":{"ANTHROPIC_BASE_URL":"`+testGatewayURL+`"}}`)
 		buf := &bytes.Buffer{}
 		require.NoError(t, statusGateway(context.Background(), buf, false, now))
-		assert.Contains(t, buf.String(), msgGatewayStatusHeadersMissing(buildinfo.BinaryName))
+		assert.Contains(t, buf.String(), msgGatewayStatusSettingsMissing(buildinfo.BinaryName))
+	})
+
+	t.Run("a header replaced by hand", func(t *testing.T) {
+		h := newGatewayHarness(t)
+		require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
+		h.writeSettings(t, `{"env":{"ANTHROPIC_BASE_URL":"`+testGatewayURL+`","ANTHROPIC_CUSTOM_HEADERS":"x-bf-direct-key: true\nx-bf-vk: sk-bf-stale"}}`)
+		buf := &bytes.Buffer{}
+		require.NoError(t, statusGateway(context.Background(), buf, false, now))
+		assert.Contains(t, buf.String(), msgGatewayStatusSettingsMissing(buildinfo.BinaryName), "another device's key in the header is not this device's connection")
+	})
+
+	t.Run("a profile without headers", func(t *testing.T) {
+		h := newGatewayHarness(t)
+		h.server.userEnv = federatedUserEnv
+		require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
+		buf := &bytes.Buffer{}
+		require.NoError(t, statusGateway(context.Background(), buf, false, now))
+		assert.NotContains(t, buf.String(), msgGatewayStatusSettingsMissing(buildinfo.BinaryName), "a profile that sets no headers is intact without them")
+
+		h.writeSettings(t, `{"env":{"ANTHROPIC_BASE_URL":"`+testGatewayURL+`"}}`)
+		buf.Reset()
+		require.NoError(t, statusGateway(context.Background(), buf, false, now))
+		assert.Contains(t, buf.String(), msgGatewayStatusSettingsMissing(buildinfo.BinaryName), "a removed token is reported like removed headers")
 	})
 
 	t.Run("a shell export may override", func(t *testing.T) {
@@ -401,6 +539,13 @@ func TestGatewayDevices_MarksThisDevice(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(buf.String(), "(this device)"), "only the key this machine holds is marked")
 }
 
+func TestGatewayDevices_SaysSoWhenThereAreNone(t *testing.T) {
+	newGatewayHarness(t)
+	buf := &bytes.Buffer{}
+	require.NoError(t, listGatewayDevices(context.Background(), buf, false, false, time.Now()))
+	assert.Equal(t, msgGatewayNoDevices("alice")+"\n", buf.String())
+}
+
 func TestGatewayRevoke(t *testing.T) {
 	t.Run("by prefix, with the hint when it is this machine", func(t *testing.T) {
 		h := newGatewayHarness(t)
@@ -408,7 +553,8 @@ func TestGatewayRevoke(t *testing.T) {
 		buf := &bytes.Buffer{}
 		require.NoError(t, revokeGatewayDevice(context.Background(), buf, "sk-bf-0001…", false, false))
 		assert.Equal(t, []string{"vk-1"}, h.server.revoked)
-		assert.Contains(t, buf.String(), msgGatewayRevokedThisDevice(buildinfo.BinaryName))
+		hostname, _ := os.Hostname()
+		assert.Equal(t, msgGatewayDeviceKeyRevoked(hostname, "sk-bf-0001")+"\n"+msgGatewayRevokedThisDevice(buildinfo.BinaryName)+"\n", buf.String())
 	})
 	t.Run("unknown key", func(t *testing.T) {
 		newGatewayHarness(t)

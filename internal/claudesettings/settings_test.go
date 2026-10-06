@@ -55,9 +55,6 @@ func TestApplyThenUndo_LeavesEveryOtherSettingAsItWas(t *testing.T) {
 		"the user's own header must survive, with ours appended")
 	assert.Equal(t, "keep", env["MY_VAR"])
 	assert.Equal(t, "opus", doc["model"], "keys outside env are not ours to touch")
-	info, err := os.Stat(path)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), "saving must keep the file's permissions")
 
 	f, err = Load(path)
 	require.NoError(t, err)
@@ -88,6 +85,51 @@ func TestUndo_RestoresAPreviousValueAndRemovesAnEnvBlockItCreated(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, f.Save())
 	assert.Equal(t, map[string]any{"theme": "dark"}, readDoc(t, path), "the file must read exactly as it did before connect")
+}
+
+func TestSave_RemovesGroupAndOtherAccessFromAnExistingFile(t *testing.T) {
+	path := writeFile(t, `{"model": "opus"}`, 0o644)
+	require.NoError(t, os.Chmod(path, 0o644))
+	f, err := Load(path)
+	require.NoError(t, err)
+	_, err = Apply(f, profile(), nil)
+	require.NoError(t, err)
+	require.NoError(t, f.Save())
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "the file now holds a device key, so only its owner may read it")
+}
+
+func TestSave_WritesThroughASymlinkedSettingsFile(t *testing.T) {
+	dotfiles := writeFile(t, `{"model": "opus"}`, 0o600)
+	link := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.Symlink(dotfiles, link))
+	f, err := Load(link)
+	require.NoError(t, err)
+	_, err = Apply(f, profile(), nil)
+	require.NoError(t, err)
+	require.NoError(t, f.Save())
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "the settings file must stay a link into the user's dotfiles")
+	assert.Equal(t, gatewayURL, readDoc(t, dotfiles)["env"].(map[string]any)[EnvBaseURL], "the link's target holds the new value")
+}
+
+func TestUndo_RestoresAHeaderTheProfileReplaced(t *testing.T) {
+	path := writeFile(t, `{"env": {"ANTHROPIC_CUSTOM_HEADERS": "x-team: platform\nx-bf-vk: sk-bf-mine"}}`, 0o600)
+	f, err := Load(path)
+	require.NoError(t, err)
+	change, err := Apply(f, profile(), nil)
+	require.NoError(t, err)
+	got, _, _ := f.Env(EnvCustomHeaders)
+	require.Equal(t, "x-team: platform\nx-bf-direct-key: true\nx-bf-vk: sk-bf-abc", got)
+
+	_, err = Undo(f, change)
+	require.NoError(t, err)
+	got, _, _ = f.Env(EnvCustomHeaders)
+	assert.Equal(t, "x-team: platform\nx-bf-vk: sk-bf-mine", got, "a header the user set before connect comes back once ours is removed")
 }
 
 func TestUndo_LeavesAValueSomeoneChangedSinceApply(t *testing.T) {
@@ -153,7 +195,6 @@ func TestLoad_MissingFileIsEmptyAndSaveCreatesItOwnerOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "settings.json")
 	f, err := Load(path)
 	require.NoError(t, err)
-	assert.False(t, f.Exists())
 	_, err = Apply(f, profile(), nil)
 	require.NoError(t, err)
 	require.NoError(t, f.Save())
@@ -203,6 +244,13 @@ func TestMergeHeaders(t *testing.T) {
 			assert.Equal(t, tc.want, MergeHeaders(tc.existing, tc.ours))
 		})
 	}
+}
+
+func TestFilterHeaders(t *testing.T) {
+	block := "x-team: p\nX-BF-VK: sk-bf-1\nx-env: dev"
+	names := []string{"x-bf-vk", "x-env"}
+	assert.Equal(t, "x-team: p", RemoveHeaders(block, names))
+	assert.Equal(t, "X-BF-VK: sk-bf-1\nx-env: dev", KeepHeaders(block, names))
 }
 
 func TestHeaderValue(t *testing.T) {

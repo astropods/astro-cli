@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -34,13 +35,49 @@ func UserSettingsPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
+// ManagedSettingsPath is where an organization's managed settings live on this OS.
+func ManagedSettingsPath() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "/Library/Application Support/ClaudeCode/managed-settings.json"
+	case "windows":
+		return `C:\ProgramData\ClaudeCode\managed-settings.json`
+	}
+	return "/etc/claude-code/managed-settings.json"
+}
+
+// Scope is which of Claude Code's settings files a Layer is.
+type Scope int
+
+const (
+	ScopeManaged Scope = iota
+	ScopeProjectLocal
+	ScopeProject
+	ScopeUser
+)
+
+// Layer is one settings file Claude Code reads env from.
+type Layer struct {
+	Scope Scope
+	Path  string
+}
+
+// Layers lists the settings files Claude Code reads in cwd, highest precedence first.
+func Layers(userPath, cwd string) []Layer {
+	return []Layer{
+		{ScopeManaged, ManagedSettingsPath()},
+		{ScopeProjectLocal, filepath.Join(cwd, ".claude", "settings.local.json")},
+		{ScopeProject, filepath.Join(cwd, ".claude", "settings.json")},
+		{ScopeUser, userPath},
+	}
+}
+
 // File is one settings file, held as a generic document so unknown keys
 // round-trip untouched.
 type File struct {
-	Path   string
-	doc    map[string]any
-	mode   fs.FileMode
-	exists bool
+	Path string
+	doc  map[string]any
+	mode fs.FileMode
 }
 
 // Load reads path. A missing file loads as an empty document.
@@ -56,7 +93,6 @@ func Load(path string) (*File, error) {
 	if info, statErr := os.Stat(path); statErr == nil {
 		f.mode = info.Mode().Perm()
 	}
-	f.exists = true
 	if len(bytes.TrimSpace(data)) == 0 {
 		return f, nil
 	}
@@ -128,18 +164,23 @@ func (f *File) DeleteEnv(key string) error {
 	return nil
 }
 
-// Save writes the file atomically, keeping its permissions. A new file is
-// created readable by its owner only, because it can hold credentials.
+// Save writes the file atomically, keeping its owner's permissions and removing
+// any group or other access, because it can hold credentials.
 func (f *File) Save() error {
 	data, err := json.MarshalIndent(f.doc, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(f.Path), 0o700); err != nil {
+	// Renaming over a symlink would replace the link, so write its target.
+	target := f.Path
+	if resolved, err := filepath.EvalSymlinks(f.Path); err == nil {
+		target = resolved
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(f.Path), ".settings-*.json")
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".settings-*.json")
 	if err != nil {
 		return err
 	}
@@ -148,19 +189,12 @@ func (f *File) Save() error {
 		tmp.Close() //nolint:errcheck,gosec
 		return err
 	}
-	if err := tmp.Chmod(f.mode); err != nil {
+	if err := tmp.Chmod(f.mode &^ 0o077); err != nil {
 		tmp.Close() //nolint:errcheck,gosec
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), f.Path); err != nil {
-		return err
-	}
-	f.exists = true
-	return nil
+	return os.Rename(tmp.Name(), target)
 }
-
-// Exists reports whether the file was on disk when loaded or has been saved.
-func (f *File) Exists() bool { return f.exists }

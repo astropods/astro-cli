@@ -119,24 +119,16 @@ type gatewayState struct {
 	Disconnected []string `json:"disconnected_accounts,omitempty"`
 }
 
-func gatewayStatePath() (string, error) {
+func gatewayConfigFile(name string) (string, error) {
 	dir, err := auth.ConfigDir(buildinfo.BinaryName)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "gateway.json"), nil
-}
-
-func gatewayDeviceIDPath() (string, error) {
-	dir, err := auth.ConfigDir(buildinfo.BinaryName)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "device-id"), nil
+	return filepath.Join(dir, name), nil
 }
 
 func loadGatewayState() (*gatewayState, error) {
-	path, err := gatewayStatePath()
+	path, err := gatewayConfigFile("gateway.json")
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +147,7 @@ func loadGatewayState() (*gatewayState, error) {
 }
 
 func saveGatewayState(s *gatewayState) error {
-	path, err := gatewayStatePath()
+	path, err := gatewayConfigFile("gateway.json")
 	if err != nil {
 		return err
 	}
@@ -194,16 +186,25 @@ func (s *gatewayState) forget(account string) {
 // gateway, so callers can tell it apart with errors.Is.
 var errGatewayServerUnavailable = errGatewayUnavailable()
 
+// Codes astro-server sends with a 409 from the dev-tool gateway routes.
+const (
+	gatewayDisabledCode        = "DEVTOOL_GATEWAY_DISABLED"
+	gatewaySetupInProgressCode = "DEVTOOL_DEVICE_SETUP_IN_PROGRESS"
+)
+
 // gatewayAPIError maps the server's answers for these routes onto messages a
 // developer can act on.
 func gatewayAPIError(action, account string, status int, err error) error {
-	switch status {
-	case http.StatusConflict:
-		if strings.Contains(err.Error(), "not enabled") {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Code {
+		case gatewayDisabledCode:
 			return errGatewayNotEnabled(account)
+		case gatewaySetupInProgressCode:
+			return errGatewaySetupInProgress()
 		}
-		return errGatewaySetupInProgress()
-	case http.StatusServiceUnavailable:
+	}
+	if status == http.StatusServiceUnavailable {
 		return errGatewayServerUnavailable
 	}
 	return errGatewayRequestFailed(action, err)
@@ -218,13 +219,17 @@ func fetchMyGateways(ctx context.Context, account string, verbose bool) (*gatewa
 	return &mine, nil
 }
 
-func fetchMyDeviceKeys(ctx context.Context, account string, all, verbose bool) ([]gatewayKeyMeta, error) {
-	route := "my-keys"
+// gatewayKeysRoute is the caller's own keys, or every member's with all.
+func gatewayKeysRoute(all bool) string {
 	if all {
-		route = "keys"
+		return "keys"
 	}
+	return "my-keys"
+}
+
+func fetchMyDeviceKeys(ctx context.Context, account string, all, verbose bool) ([]gatewayKeyMeta, error) {
 	var list gatewayKeyList
-	url := apiPath(gatewayBaseURL(), account, "accounts", "devtool-gateway", route)
+	url := apiPath(gatewayBaseURL(), account, "accounts", "devtool-gateway", gatewayKeysRoute(all))
 	status, err := apiCallForAccount(ctx, http.MethodGet, url, nil, account, verbose, &list)
 	if err != nil {
 		return nil, gatewayAPIError("list device keys", account, status, err)
@@ -233,11 +238,7 @@ func fetchMyDeviceKeys(ctx context.Context, account string, all, verbose bool) (
 }
 
 func revokeDeviceKey(ctx context.Context, account, keyID string, all, verbose bool) error {
-	route := "my-keys"
-	if all {
-		route = "keys"
-	}
-	url := apiPath(gatewayBaseURL(), account, "accounts", "devtool-gateway", route, keyID)
+	url := apiPath(gatewayBaseURL(), account, "accounts", "devtool-gateway", gatewayKeysRoute(all), keyID)
 	status, err := apiCallForAccount(ctx, http.MethodDelete, url, nil, account, verbose, nil)
 	if status == http.StatusNotFound {
 		return errGatewayKeyNotFound(keyID)
@@ -303,7 +304,7 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 		}
 	}
 
-	idPath, err := gatewayDeviceIDPath()
+	idPath, err := gatewayConfigFile("device-id")
 	if err != nil {
 		return err
 	}
@@ -313,10 +314,9 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	}
 	hostname, _ := os.Hostname()
 
-	fmt.Fprintln(w, msgGatewayConnecting(opts.account))                                 //nolint:errcheck,gosec
-	fmt.Fprintln(w)                                                                     //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Device     %s (%s %s)\n", hostname, runtime.GOOS, runtime.GOARCH) //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Settings   %s\n\n", settingsPath)                                 //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewayConnecting(opts.account))                                            //nolint:errcheck,gosec
+	fmt.Fprintln(w)                                                                                //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewayConnectTarget(hostname, runtime.GOOS, runtime.GOARCH, settingsPath)) //nolint:errcheck,gosec
 
 	var minted gatewayMintResponse
 	url := apiPath(gatewayBaseURL(), opts.account, "accounts", "devtool-gateway", "my-keys")
@@ -330,12 +330,17 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	if err != nil {
 		return gatewayAPIError("issue a key for this device", opts.account, status, err)
 	}
-	fmt.Fprintf(w, "✓ Issued a key for this device (%s…)\n", minted.Key.KeyPrefix) //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewayKeyIssued(minted.Key.KeyPrefix)) //nolint:errcheck,gosec
 
+	// Minting replaced any key this device held, so a failure from here on leaves
+	// the device with no working key until connect runs again.
+	abandon := func(err error) error {
+		_ = revokeDeviceKey(ctx, opts.account, minted.Key.KeyID, false, opts.verbose)
+		return errGatewayConnectIncomplete(buildinfo.BinaryName, err)
+	}
 	change, err := claudesettings.Apply(settings, minted.Profile.UserSettings.Env, prior)
 	if err != nil {
-		_ = revokeDeviceKey(ctx, opts.account, minted.Key.KeyID, false, opts.verbose)
-		return err
+		return abandon(err)
 	}
 	previous := *state
 	state.Account = opts.account
@@ -347,24 +352,20 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	// The record is written first: if saving the settings then fails, undo
 	// skips any value that is not ours, so a stale record is harmless.
 	if err := saveGatewayState(state); err != nil {
-		_ = revokeDeviceKey(ctx, opts.account, minted.Key.KeyID, false, opts.verbose)
-		return err
+		return abandon(err)
 	}
 	if err := settings.Save(); err != nil {
-		_ = revokeDeviceKey(ctx, opts.account, minted.Key.KeyID, false, opts.verbose)
 		_ = saveGatewayState(&previous)
-		return err
+		return abandon(err)
 	}
-	fmt.Fprintf(w, "✓ Updated %s\n", settingsPath) //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewaySettingsUpdated(settingsPath)) //nolint:errcheck,gosec
 	for _, key := range sortedEnvKeys(minted.Profile.UserSettings.Env) {
-		label := minted.Profile.UserSettings.Env[key]
-		if key == claudesettings.EnvCustomHeaders {
-			label = strings.Join(claudesettings.HeaderNames(label), ", ")
-		}
-		fmt.Fprintf(w, "    %-26s %s\n", key, label) //nolint:errcheck,gosec
+		fmt.Fprintln(w, msgGatewaySettingWritten(key, gatewaySettingLabel(key, minted.Profile.UserSettings.Env[key]))) //nolint:errcheck,gosec
 	}
 	if switching {
-		_ = revokeDeviceKey(ctx, previous.Account, previous.KeyID, false, opts.verbose)
+		if err := revokeDeviceKey(ctx, previous.Account, previous.KeyID, false, opts.verbose); err != nil {
+			fmt.Fprintln(w, msgGatewaySwitchRevokeFailed(previous.Account, previous.KeyPrefix, buildinfo.BinaryName, err)) //nolint:errcheck,gosec
+		}
 	}
 	fmt.Fprintf(w, "\n%s\n", msgGatewayConnected(opts.account, buildinfo.BinaryName)) //nolint:errcheck,gosec
 	return nil
@@ -400,6 +401,18 @@ func gatewayEnabledFor(mine *gatewayMine, account string) bool {
 	return false
 }
 
+// gatewaySettingLabel is what connect prints for a value it wrote. Any key other
+// than the base URL and the header names can carry a credential.
+func gatewaySettingLabel(key, value string) string {
+	switch key {
+	case claudesettings.EnvBaseURL:
+		return value
+	case claudesettings.EnvCustomHeaders:
+		return strings.Join(claudesettings.HeaderNames(value), ", ")
+	}
+	return msgGatewaySettingHidden()
+}
+
 func sortedEnvKeys(env map[string]string) []string {
 	keys := make([]string, 0, len(env))
 	for k := range env {
@@ -430,9 +443,9 @@ func disconnectGateway(ctx context.Context, w io.Writer, verbose bool) error {
 		if err := settings.Save(); err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "✓ Restored %s to how it was before connect\n", state.Change.Path) //nolint:errcheck,gosec
+		fmt.Fprintln(w, msgGatewaySettingsRestored(state.Change.Path)) //nolint:errcheck,gosec
 		for _, key := range kept {
-			fmt.Fprintf(w, "  %s changed after connect, so it was left as it is\n", key) //nolint:errcheck,gosec
+			fmt.Fprintln(w, msgGatewaySettingKept(key)) //nolint:errcheck,gosec
 		}
 	}
 
@@ -447,7 +460,7 @@ func disconnectGateway(ctx context.Context, w io.Writer, verbose bool) error {
 		fmt.Fprintln(w, msgGatewayDisconnectRevokeFailed(prefix, buildinfo.BinaryName, err)) //nolint:errcheck,gosec
 		return nil
 	}
-	fmt.Fprintf(w, "✓ Revoked this device's key (%s…)\n", prefix) //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewayThisDeviceKeyRevoked(prefix)) //nolint:errcheck,gosec
 	return nil
 }
 
@@ -467,31 +480,6 @@ func lastUsedLabel(t *time.Time, now time.Time) string {
 	return plural(int(d.Hours()/24), "day") + " ago"
 }
 
-// routingLayer is one place Claude Code can read ANTHROPIC_BASE_URL from,
-// highest precedence first.
-type routingLayer struct {
-	name, path string
-}
-
-func managedSettingsPath() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "/Library/Application Support/ClaudeCode/managed-settings.json"
-	case "windows":
-		return `C:\ProgramData\ClaudeCode\managed-settings.json`
-	}
-	return "/etc/claude-code/managed-settings.json"
-}
-
-func routingLayers(userPath, cwd string) []routingLayer {
-	return []routingLayer{
-		{"managed settings (your organization)", managedSettingsPath()},
-		{"this project's local settings", filepath.Join(cwd, ".claude", "settings.local.json")},
-		{"this project's shared settings", filepath.Join(cwd, ".claude", "settings.json")},
-		{"your user settings", userPath},
-	}
-}
-
 func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time) error {
 	state, err := loadGatewayState()
 	if err != nil {
@@ -501,8 +489,23 @@ func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time
 		fmt.Fprintln(w, msgGatewayNotConnected(buildinfo.BinaryName)) //nolint:errcheck,gosec
 		return nil
 	}
+	reportGatewayKey(ctx, w, state, verbose, now)
 
-	keys, keysErr := fetchMyDeviceKeys(ctx, state.Account, false, verbose)
+	userPath, err := claudesettings.UserSettingsPath()
+	if err != nil {
+		return err
+	}
+	cwd, _ := os.Getwd()
+	reportGatewayRouting(w, state, userPath, cwd)
+
+	if f, err := claudesettings.Load(userPath); err == nil && !gatewaySettingsIntact(f, state.Change) {
+		fmt.Fprintln(w, msgGatewayStatusSettingsMissing(buildinfo.BinaryName)) //nolint:errcheck,gosec
+	}
+	return nil
+}
+
+func reportGatewayKey(ctx context.Context, w io.Writer, state *gatewayState, verbose bool, now time.Time) {
+	keys, err := fetchMyDeviceKeys(ctx, state.Account, false, verbose)
 	var mine *gatewayKeyMeta
 	for i := range keys {
 		if keys[i].KeyID == state.KeyID {
@@ -510,8 +513,8 @@ func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time
 		}
 	}
 	switch {
-	case keysErr != nil:
-		fmt.Fprintln(w, msgGatewayStatusUnreachable(state.Account, keysErr)) //nolint:errcheck,gosec
+	case err != nil:
+		fmt.Fprintln(w, msgGatewayStatusUnreachable(state.Account, err)) //nolint:errcheck,gosec
 	case mine == nil:
 		fmt.Fprintln(w, msgGatewayStatusKeyGone(state.Account, buildinfo.BinaryName)) //nolint:errcheck,gosec
 	case mine.RevokedAt != nil:
@@ -519,17 +522,16 @@ func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time
 	default:
 		fmt.Fprintln(w, msgGatewayStatusConnected(state.Account, mine.DeviceName, mine.KeyPrefix, lastUsedLabel(mine.LastUsedAt, now))) //nolint:errcheck,gosec
 	}
+}
 
-	userPath, err := claudesettings.UserSettingsPath()
-	if err != nil {
-		return err
-	}
-	cwd, _ := os.Getwd()
-	var winner *routingLayer
+// reportGatewayRouting prints which settings file decides where Claude Code
+// sends requests from cwd, and warns when that is not the gateway.
+func reportGatewayRouting(w io.Writer, state *gatewayState, userPath, cwd string) {
+	var winner *claudesettings.Layer
 	var winningURL string
 	var also []string
-	for _, layer := range routingLayers(userPath, cwd) {
-		f, err := claudesettings.Load(layer.path)
+	for _, layer := range claudesettings.Layers(userPath, cwd) {
+		f, err := claudesettings.Load(layer.Path)
 		if err != nil {
 			continue
 		}
@@ -542,40 +544,52 @@ func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time
 			winner, winningURL = &l, v
 			continue
 		}
-		also = append(also, layer.path)
+		also = append(also, layer.Path)
 	}
 	if winner == nil {
 		fmt.Fprintln(w, msgGatewayStatusNoRouting(buildinfo.BinaryName)) //nolint:errcheck,gosec
 	} else {
-		fmt.Fprintf(w, "  Routing       %s\n", winningURL) //nolint:errcheck,gosec
-		fmt.Fprintf(w, "  Set by        %s", winner.name)  //nolint:errcheck,gosec
-		if len(also) > 0 {
-			fmt.Fprintf(w, ", also in %s", strings.Join(also, ", ")) //nolint:errcheck,gosec
-		}
-		fmt.Fprintln(w) //nolint:errcheck,gosec
-		if winner.path != userPath && state.Change != nil {
+		fmt.Fprintln(w, msgGatewayStatusRouting(winningURL, msgGatewaySettingsScope(winner.Scope), also)) //nolint:errcheck,gosec
+		if winner.Scope != claudesettings.ScopeUser && state.Change != nil {
 			if want, ok := state.Change.Env[claudesettings.EnvBaseURL]; ok && want.Wrote != winningURL {
-				fmt.Fprintln(w, msgGatewayStatusOverridden(winner.name)) //nolint:errcheck,gosec
+				fmt.Fprintln(w, msgGatewayStatusOverridden(msgGatewaySettingsScope(winner.Scope))) //nolint:errcheck,gosec
 			}
 		}
 	}
 	if v := os.Getenv(claudesettings.EnvBaseURL); v != "" && v != winningURL {
 		fmt.Fprintln(w, msgGatewayStatusShellExport(claudesettings.EnvBaseURL, v)) //nolint:errcheck,gosec
 	}
+}
 
-	if f, err := claudesettings.Load(userPath); err == nil {
-		headers, _, _ := f.Env(claudesettings.EnvCustomHeaders)
-		vk, hasVK := claudesettings.HeaderValue(headers, "x-bf-vk")
-		direct, hasDirect := claudesettings.HeaderValue(headers, "x-bf-direct-key")
-		if !hasVK || !hasDirect || !strings.EqualFold(direct, "true") || !strings.HasPrefix(vk, state.KeyPrefix) {
-			fmt.Fprintln(w, msgGatewayStatusHeadersMissing(buildinfo.BinaryName)) //nolint:errcheck,gosec
+// gatewaySettingsIntact reports whether f still holds every value change wrote,
+// header by header for the custom headers.
+func gatewaySettingsIntact(f *claudesettings.File, change *claudesettings.Change) bool {
+	if change == nil {
+		return true
+	}
+	for key, edit := range change.Env {
+		current, present, err := f.Env(key)
+		if err != nil || !present {
+			return false
+		}
+		if key != claudesettings.EnvCustomHeaders {
+			if current != edit.Wrote {
+				return false
+			}
+			continue
+		}
+		for _, name := range edit.HeaderNames {
+			wrote, _ := claudesettings.HeaderValue(edit.Wrote, name)
+			if got, ok := claudesettings.HeaderValue(current, name); !ok || got != wrote {
+				return false
+			}
 		}
 	}
-	return nil
+	return true
 }
 
 func listGatewayDevices(ctx context.Context, w io.Writer, all, verbose bool, now time.Time) error {
-	account, err := gatewayAccount(ctx, "")
+	account, err := gatewayAccount(ctx)
 	if err != nil {
 		return err
 	}
@@ -588,7 +602,7 @@ func listGatewayDevices(ctx context.Context, w io.Writer, all, verbose bool, now
 		return err
 	}
 	if len(keys) == 0 {
-		fmt.Fprintf(w, "No devices are connected to %s's AI Gateway.\n", account) //nolint:errcheck,gosec
+		fmt.Fprintln(w, msgGatewayNoDevices(account)) //nolint:errcheck,gosec
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -640,7 +654,7 @@ func matchDeviceKey(keys []gatewayKeyMeta, query string) (*gatewayKeyMeta, error
 }
 
 func revokeGatewayDevice(ctx context.Context, w io.Writer, query string, all, verbose bool) error {
-	account, err := gatewayAccount(ctx, "")
+	account, err := gatewayAccount(ctx)
 	if err != nil {
 		return err
 	}
@@ -655,19 +669,16 @@ func revokeGatewayDevice(ctx context.Context, w io.Writer, query string, all, ve
 	if err := revokeDeviceKey(ctx, account, key.KeyID, all, verbose); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "✓ Revoked %s's key (%s…)\n", key.DeviceName, key.KeyPrefix) //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgGatewayDeviceKeyRevoked(key.DeviceName, key.KeyPrefix)) //nolint:errcheck,gosec
 	if state, err := loadGatewayState(); err == nil && state.KeyID == key.KeyID {
 		fmt.Fprintln(w, msgGatewayRevokedThisDevice(buildinfo.BinaryName)) //nolint:errcheck,gosec
 	}
 	return nil
 }
 
-// gatewayAccount is the account a gateway command acts on: --account when
-// given, else the account this machine is connected to, else the active one.
-func gatewayAccount(ctx context.Context, flag string) (string, error) {
-	if flag != "" {
-		return flag, nil
-	}
+// gatewayAccount is the account a gateway command acts on: the one this
+// machine is connected to, else the active one.
+func gatewayAccount(ctx context.Context) (string, error) {
 	if state, err := loadGatewayState(); err == nil && state.connected() {
 		return state.Account, nil
 	}
