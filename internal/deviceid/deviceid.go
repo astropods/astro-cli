@@ -1,5 +1,4 @@
-// Package deviceid derives a stable identifier for this machine without
-// sending the operating system's own machine id anywhere.
+// Package deviceid never sends the OS machine id itself, only a hash of it.
 package deviceid
 
 import (
@@ -16,16 +15,12 @@ import (
 	"strings"
 )
 
-// domain separates this hash from any other tool hashing the same machine id,
-// so the two values cannot be matched.
+// domain keeps this hash from matching another tool's hash of the same machine id.
 const domain = "astropods-gateway-device:"
 
-// Source reads the operating system's machine id. Tests replace it.
 var Source = osMachineID
 
-// ID returns the device id: a hash of the OS machine id, so reinstalling the
-// CLI keeps the same device. Where the OS exposes none, a random id is created
-// once and kept in fallbackPath.
+// Where the OS exposes no machine id, a random one is created once and kept in fallbackPath.
 func ID(fallbackPath string) (string, error) {
 	if raw, err := Source(); err == nil && strings.TrimSpace(raw) != "" {
 		return hash(strings.TrimSpace(raw)), nil

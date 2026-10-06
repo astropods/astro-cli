@@ -173,8 +173,7 @@ func TestLoginAccountFlagOverridesPriorSelection(t *testing.T) {
 	require.Equal(t, "other-org", account)
 }
 
-// loginWaitTestServers fakes WorkOS and astro-server for runLogin. gateway, when
-// set, serves every astro-server route other than /api/v1/me.
+// gateway, when set, serves every astro-server route other than /api/v1/me.
 func loginWaitTestServers(t *testing.T, gateway http.Handler) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

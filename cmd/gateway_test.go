@@ -26,7 +26,6 @@ import (
 
 const testGatewayURL = "https://aig.example.com/anthropic"
 
-// fakeGatewayServer implements astro-server's dev-tool gateway routes.
 type fakeGatewayServer struct {
 	mu          sync.Mutex
 	enabled     map[string]bool // account -> auto_connect_on_login
@@ -35,11 +34,9 @@ type fakeGatewayServer struct {
 	revoked     []string
 	unavailable bool
 	failRevoke  bool
-	// mintRefusal, when set, is the body of a 409 the mint route answers with.
 	mintRefusal string
-	// userEnv, when set, replaces the profile's user settings env.
-	userEnv func(apiKey string) map[string]string
-	seq     int
+	userEnv     func(apiKey string) map[string]string
+	seq         int
 }
 
 func (f *fakeGatewayServer) handler(t *testing.T) http.HandlerFunc {

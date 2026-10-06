@@ -637,8 +637,7 @@ func errPrivateLinkNeedsCluster() error {
 	return fmt.Errorf("--private-link needs at least one --cluster to create an endpoint on")
 }
 
-// AI Gateway (ast gateway). These name the gateway the way the settings page
-// does, "AI Gateway", and never the vendor behind it.
+// AI Gateway (ast gateway).
 
 func errGatewayNotEnabled(account string) error {
 	return fmt.Errorf("the AI Gateway isn't turned on for %s; an admin can turn it on in Settings → AI Gateway", account)
@@ -790,7 +789,6 @@ func msgGatewaySettingWritten(key, label string) string {
 	return fmt.Sprintf("    %-26s %s", key, label)
 }
 
-// msgGatewaySettingHidden stands in for a written value that can be a credential.
 func msgGatewaySettingHidden() string {
 	return "(set)"
 }

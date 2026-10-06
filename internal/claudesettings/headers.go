@@ -4,7 +4,7 @@ import "strings"
 
 // ANTHROPIC_CUSTOM_HEADERS holds one "Name: value" header per line.
 
-// HeaderNames returns the names in a header block, lowercased, in order.
+// HeaderNames returns lowercased names, in order.
 func HeaderNames(block string) []string {
 	var names []string
 	for _, line := range splitLines(block) {
@@ -15,8 +15,7 @@ func HeaderNames(block string) []string {
 	return names
 }
 
-// MergeHeaders replaces every header in existing that ours also sets, keeps the
-// rest in their original order, and appends ours in their own order.
+// MergeHeaders replaces headers ours also sets and appends the rest of ours, keeping existing order.
 func MergeHeaders(existing, ours string) string {
 	replace := map[string]bool{}
 	for _, n := range HeaderNames(ours) {
@@ -32,12 +31,10 @@ func MergeHeaders(existing, ours string) string {
 	return strings.Join(append(kept, splitLines(ours)...), "\n")
 }
 
-// RemoveHeaders drops every header in block whose name is in names.
 func RemoveHeaders(block string, names []string) string {
 	return filterHeaders(block, names, false)
 }
 
-// KeepHeaders returns only the headers in block whose name is in names.
 func KeepHeaders(block string, names []string) string {
 	return filterHeaders(block, names, true)
 }
@@ -57,7 +54,6 @@ func filterHeaders(block string, names []string, keepNamed bool) string {
 	return strings.Join(kept, "\n")
 }
 
-// HeaderValue returns the value of the first header named name.
 func HeaderValue(block, name string) (string, bool) {
 	for _, line := range splitLines(block) {
 		if n, v, ok := splitHeader(line); ok && strings.EqualFold(n, name) {

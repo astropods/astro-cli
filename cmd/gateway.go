@@ -26,7 +26,6 @@ import (
 	"github.com/astropods/astro-cli/internal/tui"
 )
 
-// gatewayServerURLOverride is set in tests to redirect API calls to a test server.
 var gatewayServerURLOverride string
 
 func gatewayBaseURL() string {
@@ -36,7 +35,6 @@ func gatewayBaseURL() string {
 	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
-// gatewayConfirm and gatewayPick are replaced in tests.
 var (
 	gatewayConfirm = func(title, description string) (bool, error) {
 		var ok bool
@@ -59,8 +57,6 @@ var (
 		return picked, nil
 	}
 )
-
-// Wire types for astro-server's dev-tool gateway routes.
 
 type gatewayKeyMeta struct {
 	KeyID         string     `json:"key_id"`
@@ -106,16 +102,14 @@ type gatewayMine struct {
 	} `json:"accounts"`
 }
 
-// gatewayState is ~/.<binary>/gateway.json: what connect did to this machine,
-// so status can report it and disconnect can undo exactly that.
+// gatewayState is ~/.<binary>/gateway.json.
 type gatewayState struct {
 	Account   string                 `json:"account,omitempty"`
 	KeyID     string                 `json:"key_id,omitempty"`
 	KeyPrefix string                 `json:"key_prefix,omitempty"`
 	DeviceID  string                 `json:"device_id,omitempty"`
 	Change    *claudesettings.Change `json:"change,omitempty"`
-	// Disconnected lists accounts the user disconnected from on purpose, so
-	// login's auto-connect does not reconnect them.
+	// Login's auto-connect skips Disconnected accounts.
 	Disconnected []string `json:"disconnected_accounts,omitempty"`
 }
 
@@ -182,18 +176,13 @@ func (s *gatewayState) forget(account string) {
 	s.Disconnected = kept
 }
 
-// errGatewayServerUnavailable is the one value for an environment without a
-// gateway, so callers can tell it apart with errors.Is.
 var errGatewayServerUnavailable = errGatewayUnavailable()
 
-// Codes astro-server sends with a 409 from the dev-tool gateway routes.
 const (
 	gatewayDisabledCode        = "DEVTOOL_GATEWAY_DISABLED"
 	gatewaySetupInProgressCode = "DEVTOOL_DEVICE_SETUP_IN_PROGRESS"
 )
 
-// gatewayAPIError maps the server's answers for these routes onto messages a
-// developer can act on.
 func gatewayAPIError(action, account string, status int, err error) error {
 	var apiErr *apiError
 	if errors.As(err, &apiErr) {
@@ -219,7 +208,6 @@ func fetchMyGateways(ctx context.Context, account string, verbose bool) (*gatewa
 	return &mine, nil
 }
 
-// gatewayKeysRoute is the caller's own keys, or every member's with all.
 func gatewayKeysRoute(all bool) string {
 	if all {
 		return "keys"
@@ -256,8 +244,6 @@ type gatewayConnectOptions struct {
 	verbose         bool
 }
 
-// connectGateway sets this machine up for account. It checks every reason to
-// stop before minting a key, so a refusal leaves nothing behind.
 func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions) error {
 	state, err := loadGatewayState()
 	if err != nil {
@@ -332,8 +318,6 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	}
 	fmt.Fprintln(w, msgGatewayKeyIssued(minted.Key.KeyPrefix)) //nolint:errcheck,gosec
 
-	// Minting replaced any key this device held, so a failure from here on leaves
-	// the device with no working key until connect runs again.
 	abandon := func(err error) error {
 		_ = revokeDeviceKey(ctx, opts.account, minted.Key.KeyID, false, opts.verbose)
 		return errGatewayConnectIncomplete(buildinfo.BinaryName, err)
@@ -349,8 +333,7 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	state.DeviceID = device
 	state.Change = change
 	state.forget(opts.account)
-	// The record is written first: if saving the settings then fails, undo
-	// skips any value that is not ours, so a stale record is harmless.
+	// Write the record before the settings: undo skips any value that isn't ours.
 	if err := saveGatewayState(state); err != nil {
 		return abandon(err)
 	}
@@ -371,9 +354,6 @@ func connectGateway(ctx context.Context, w io.Writer, opts gatewayConnectOptions
 	return nil
 }
 
-// gatewayResolve asks to proceed past a blocking condition. A non-interactive
-// run never proceeds without --replace-existing, so a script cannot take over
-// another gateway silently.
 func gatewayResolve(opts gatewayConnectOptions, refusal error, prompt func() (string, string)) error {
 	if opts.replaceExisting {
 		return nil
@@ -401,8 +381,7 @@ func gatewayEnabledFor(mine *gatewayMine, account string) bool {
 	return false
 }
 
-// gatewaySettingLabel is what connect prints for a value it wrote. Any key other
-// than the base URL and the header names can carry a credential.
+// Any other key can hold a credential, so its value is never printed.
 func gatewaySettingLabel(key, value string) string {
 	switch key {
 	case claudesettings.EnvBaseURL:
@@ -524,8 +503,6 @@ func reportGatewayKey(ctx context.Context, w io.Writer, state *gatewayState, ver
 	}
 }
 
-// reportGatewayRouting prints which settings file decides where Claude Code
-// sends requests from cwd, and warns when that is not the gateway.
 func reportGatewayRouting(w io.Writer, state *gatewayState, userPath, cwd string) {
 	var winner *claudesettings.Layer
 	var winningURL string
@@ -561,8 +538,6 @@ func reportGatewayRouting(w io.Writer, state *gatewayState, userPath, cwd string
 	}
 }
 
-// gatewaySettingsIntact reports whether f still holds every value change wrote,
-// header by header for the custom headers.
 func gatewaySettingsIntact(f *claudesettings.File, change *claudesettings.Change) bool {
 	if change == nil {
 		return true
@@ -630,8 +605,6 @@ func listGatewayDevices(ctx context.Context, w io.Writer, all, verbose bool, now
 	return tw.Flush()
 }
 
-// matchDeviceKey finds the key a user named, by full id or by key prefix. A
-// trailing ellipsis, as the CLI prints prefixes, is accepted.
 func matchDeviceKey(keys []gatewayKeyMeta, query string) (*gatewayKeyMeta, error) {
 	q := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(query), "…"), "...")
 	var matches []*gatewayKeyMeta
@@ -676,8 +649,6 @@ func revokeGatewayDevice(ctx context.Context, w io.Writer, query string, all, ve
 	return nil
 }
 
-// gatewayAccount is the account a gateway command acts on: the one this
-// machine is connected to, else the active one.
 func gatewayAccount(ctx context.Context) (string, error) {
 	if state, err := loadGatewayState(); err == nil && state.connected() {
 		return state.Account, nil
@@ -733,8 +704,7 @@ connection unless --replace-existing is given.`,
 	},
 }
 
-// gatewayAccountForConnect defaults to the active account, not the connected
-// one: connect is how a machine switches accounts.
+// Unlike gatewayAccount, this defaults to the active account: connect is how a machine switches accounts.
 func gatewayAccountForConnect(ctx context.Context, flag string) (string, error) {
 	if flag != "" {
 		return flag, nil

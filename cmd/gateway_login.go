@@ -11,10 +11,7 @@ import (
 	"github.com/astropods/astro-cli/internal/tui"
 )
 
-// autoConnectGatewayAfterLogin connects this machine for the accounts that ask
-// for it at login. It never fails the login: a problem prints a hint instead.
-// It leaves an existing connection alone and skips any account the user
-// disconnected from on purpose.
+// autoConnectGatewayAfterLogin never fails the login; a problem prints a hint.
 func autoConnectGatewayAfterLogin(ctx context.Context, w io.Writer, verbose bool) {
 	at, err := getCurrentAccountToken(ctx)
 	if err != nil {

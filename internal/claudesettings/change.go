@@ -5,33 +5,26 @@ import (
 	"sort"
 )
 
-// Change records what Apply did to one settings file, so Undo can reverse it.
 type Change struct {
 	Path string             `json:"path"`
 	Env  map[string]EnvEdit `json:"env"`
 }
 
-// EnvEdit is one env key Apply wrote. Previous is nil when the key was absent
-// before the first Apply, so Undo removes it rather than restoring a value.
+// Previous is nil when the key was absent before the first Apply.
 type EnvEdit struct {
 	Wrote    string  `json:"wrote"`
 	Previous *string `json:"previous"`
-	// HeaderNames are the headers Apply added, for EnvCustomHeaders only. Undo
-	// removes just these, so headers the user set themselves survive.
+	// HeaderNames is set for EnvCustomHeaders only.
 	HeaderNames []string `json:"header_names,omitempty"`
 }
 
-// Conflict is an env key that already holds a value Apply would overwrite and
-// did not write itself.
 type Conflict struct {
 	Key      string
 	Current  string
 	Proposed string
 }
 
-// Conflicts lists the keys in want whose current value Apply would replace.
-// Headers never conflict, because Apply merges them. A value the prior Change
-// wrote is not a conflict, so re-running Apply is safe.
+// Headers never conflict, and neither does a value the prior Change wrote.
 func Conflicts(f *File, want map[string]string, prior *Change) ([]Conflict, error) {
 	var out []Conflict
 	for _, key := range sortedKeys(want) {
@@ -50,9 +43,7 @@ func Conflicts(f *File, want map[string]string, prior *Change) ([]Conflict, erro
 	return out, nil
 }
 
-// Apply writes want into the env block and returns the Change that undoes it.
-// Passing the prior Change keeps the values that were there before the first
-// Apply, so Undo after several runs still restores the original state.
+// Passing the prior Change keeps the values from before the first Apply.
 func Apply(f *File, want map[string]string, prior *Change) (*Change, error) {
 	change := &Change{Path: f.Path, Env: map[string]EnvEdit{}}
 	for _, key := range sortedKeys(want) {
@@ -79,8 +70,7 @@ func Apply(f *File, want map[string]string, prior *Change) (*Change, error) {
 	return change, nil
 }
 
-// Undo reverses c. A key whose value changed since Apply wrote it is left
-// alone and returned in kept, because someone else now owns that value.
+// Undo leaves a key whose value changed since Apply and returns it in kept.
 func Undo(f *File, c *Change) (kept []string, err error) {
 	if c == nil {
 		return nil, nil
