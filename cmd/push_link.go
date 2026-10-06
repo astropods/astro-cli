@@ -57,8 +57,8 @@ func writePushLink(account, name string) {
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o644)
+	_ = os.WriteFile(path, data, 0o600)
 }
