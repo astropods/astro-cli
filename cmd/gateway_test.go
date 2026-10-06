@@ -459,6 +459,16 @@ func TestGatewayStatus(t *testing.T) {
 		assert.NotContains(t, out, "!", "a healthy connection shows no warnings")
 	})
 
+	t.Run("gateway turned off", func(t *testing.T) {
+		h := newGatewayHarness(t)
+		require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))
+		delete(h.server.enabled, "alice")
+		buf := &bytes.Buffer{}
+		require.NoError(t, statusGateway(context.Background(), buf, false, now))
+		assert.Contains(t, buf.String(), msgGatewayStatusCollectionOff("alice", buildinfo.BinaryName)+"\n",
+			"a device that still routes after the admin turned the gateway off must say how to stop")
+	})
+
 	t.Run("revoked key", func(t *testing.T) {
 		h := newGatewayHarness(t)
 		require.NoError(t, connectGateway(context.Background(), &bytes.Buffer{}, connectOpts("alice")))

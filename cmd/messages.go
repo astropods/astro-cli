@@ -753,6 +753,10 @@ func msgGatewayStatusKeyGone(account, binary string) string {
 	return fmt.Sprintf("AI Gateway: this device's key no longer exists in %s. Run `%s gateway connect` to set it up again.\n", account, binary)
 }
 
+func msgGatewayStatusCollectionOff(account, binary string) string {
+	return fmt.Sprintf("  ! %s turned off the AI Gateway, so it no longer collects this device's usage. Claude Code still routes through it until you run `%s gateway disconnect`.", account, binary)
+}
+
 func msgGatewayStatusRevoked(when, binary string) string {
 	return fmt.Sprintf("AI Gateway: disconnected. This device's key was revoked %s. Run `%s gateway connect` to set it up again.\n", when, binary)
 }

@@ -469,6 +469,9 @@ func statusGateway(ctx context.Context, w io.Writer, verbose bool, now time.Time
 		return nil
 	}
 	reportGatewayKey(ctx, w, state, verbose, now)
+	if mine, err := fetchMyGateways(ctx, state.Account, verbose); err == nil && !gatewayEnabledFor(mine, state.Account) {
+		fmt.Fprintln(w, msgGatewayStatusCollectionOff(state.Account, buildinfo.BinaryName)) //nolint:errcheck,gosec
+	}
 
 	userPath, err := claudesettings.UserSettingsPath()
 	if err != nil {
