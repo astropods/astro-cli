@@ -234,7 +234,7 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Chdir(t.TempDir())
+			t.Setenv("HOME", t.TempDir())
 
 			var gotMethod, gotPath string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -250,7 +250,7 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 			var warnBuf bytes.Buffer
 			got, err := resolveOrRenameBlueprint(
 				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
-				"my-agent", tt.personalAccount, tt.yes, false,
+				"my-agent", tt.personalAccount, testSpecPath, tt.yes, false,
 			)
 
 			if tt.wantErr != "" {
@@ -273,15 +273,16 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 	}
 }
 
-// TestResolveOrRenameBlueprintPushLink covers the .ast/push.json short
-// circuit: a repeat push from the same directory, for the same account and
-// name a prior resolution already settled, skips straight past the
-// interactive prompt without needing yes or a personal account. The
-// existence check itself still runs every time (asserted via getCalls), so
-// a blueprint deleted and recreated server-side since the link was written
-// is still re-validated rather than blindly trusted. It also covers that
-// every successful resolution (not just the link hit) leaves a link behind
-// for the next push to find.
+// TestResolveOrRenameBlueprintPushLink covers the push-link short circuit: a
+// repeat push for the same account and name a prior resolution already
+// settled skips straight past the interactive prompt without needing yes or
+// a personal account. The existence check itself still runs every time
+// (asserted via getCalls), so a blueprint deleted and recreated server-side
+// since the link was written is still re-validated rather than blindly
+// trusted. resolveOrRenameBlueprint never writes the link itself (that's
+// runPush's job, after permission is actually granted — see
+// TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails), so this only
+// covers the read side.
 func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -307,9 +308,9 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Chdir(t.TempDir())
+			t.Setenv("HOME", t.TempDir())
 			if tt.existingLink != nil {
-				writePushLink(tt.existingLink.Account, tt.existingLink.Name)
+				writePushLink(testSpecPath, tt.existingLink.Account, tt.existingLink.Name)
 			}
 
 			getCalls := 0
@@ -324,16 +325,12 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 			var warnBuf bytes.Buffer
 			got, err := resolveOrRenameBlueprint(
 				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
-				"my-agent", "", tt.yes, false,
+				"my-agent", "", testSpecPath, tt.yes, false,
 			)
 
 			require.NoError(t, err)
 			assert.Equal(t, "my-agent", got)
 			assert.Equal(t, 1, getCalls, "the existence check always runs, link or not")
-
-			link := readPushLink()
-			require.NotNil(t, link)
-			assert.Equal(t, pushLink{Account: "acme", Name: "my-agent"}, *link)
 		})
 	}
 }
@@ -344,8 +341,8 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 // written), so resolution must still fall into the create path and
 // reserve it, rather than trusting the stale link and skipping that.
 func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *testing.T) {
-	t.Chdir(t.TempDir())
-	writePushLink("acme", "my-agent")
+	t.Setenv("HOME", t.TempDir())
+	writePushLink(testSpecPath, "acme", "my-agent")
 
 	var gotMethod string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,12 +358,73 @@ func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *tes
 	var warnBuf bytes.Buffer
 	got, err := resolveOrRenameBlueprint(
 		context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
-		"my-agent", "", false, false,
+		"my-agent", "", testSpecPath, false, false,
 	)
 
 	require.NoError(t, err)
 	assert.Equal(t, "my-agent", got)
 	assert.Equal(t, http.MethodPost, gotMethod, "a linked but now-missing name must still be reserved via createBlueprintShell")
+}
+
+// TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails covers the
+// regression a premature write would cause: a rejected permission check
+// must leave no link behind, or a retry would see a match and skip straight
+// past the confirm prompt for the same rejected target, with no rename path
+// offered, every time, until the user deletes the state file by hand.
+// Combined with TestResolveOrRenameBlueprintPushLink's "no link" case
+// (proving a missing link falls through to the normal prompt), this closes
+// the loop: after a denial, the next attempt behaves exactly as if no push
+// had happened here before.
+func TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	specPath := filepath.Join(t.TempDir(), "astropods.yml")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"authorization denied","code":"AUTHORIZATION_DENIED","action":"blueprint:create","details":"Your access does not grant blueprint:create."}`))
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	err := runPush(
+		context.Background(), io.Discard, io.Discard,
+		AccountToken{Account: "acme", Token: "token"},
+		PushPipelineConfig{SpecPath: specPath, AgentName: "daily-driver"},
+	)
+
+	require.Error(t, err)
+	assert.Nil(t, readPushLink(specPath), "a rejected permission check must not leave a link behind")
+}
+
+// TestRunPushPersistsTheLinkOncePermissionIsGranted covers the positive
+// side of the same ordering: once checkBlueprintPushPermission actually
+// allows the push, the link is written — proven by making the permission
+// check pass and then letting the pipeline fail at ParseSpec (SpecPath
+// deliberately names a file that doesn't exist), so the write is observed
+// without needing to mock a real build.
+func TestRunPushPersistsTheLinkOncePermissionIsGranted(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	specPath := filepath.Join(t.TempDir(), "astropods.yml")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	pushServerURLOverride = srv.URL
+	t.Cleanup(func() { pushServerURLOverride = "" })
+
+	err := runPush(
+		context.Background(), io.Discard, io.Discard,
+		AccountToken{Account: "acme", Token: "token"},
+		PushPipelineConfig{SpecPath: specPath, AgentName: "daily-driver"},
+	)
+	require.Error(t, err, "ParseSpec is expected to fail on the missing file, after the link write")
+
+	link := readPushLink(specPath)
+	require.NotNil(t, link)
+	assert.Equal(t, pushLink{Account: "acme", Name: "daily-driver"}, *link)
 }
 
 func TestCreateBlueprintShell(t *testing.T) {

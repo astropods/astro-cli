@@ -227,16 +227,19 @@ func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken
 // resolveOrRenameBlueprint checks whether name exists at at.Account. A free
 // name is reserved via createBlueprintShell, so a race there falls into the
 // same flow as an existing name. An existing name returns immediately for
-// personalAccount, yes, or a matching .ast/push.json link from a prior
-// resolution — the link only skips the prompt, not the existence check
-// itself, so a blueprint deleted server-side since the link was written
-// still gets recreated, and one recreated under a different owner still
-// exists for this check (the server's own permission check is what guards
-// that case, same as every other push). Otherwise it prompts via
-// confirmUpdateOrRename, looping under the new name on a rename choice.
-// Every path that resolves successfully writes (or refreshes) the link.
-func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
-	link := readPushLink()
+// personalAccount, yes, or a matching push link (see readPushLink) from a
+// prior resolution for specPath — the link only skips the prompt, not the
+// existence check itself, so a blueprint deleted server-side since the link
+// was written still gets recreated, and one recreated under a different
+// owner still exists for this check (the server's own permission check is
+// what guards that case, same as every other push). Otherwise it prompts
+// via confirmUpdateOrRename, looping under the new name on a rename choice.
+//
+// This does not write the link itself — the caller does that only once
+// checkBlueprintPushPermission has actually authorized the push; see
+// writePushLink's doc comment for why.
+func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount, specPath string, yes, verbose bool) (string, error) {
+	link := readPushLink(specPath)
 	linked := link != nil && link.Account == at.Account && link.Name == name
 
 	isPersonal := at.Account == personalAccount
@@ -250,7 +253,6 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 		}
 		if !exists {
 			if createErr := createBlueprintShell(ctx, serverURL, at, name, verbose); createErr == nil {
-				writePushLink(at.Account, name)
 				return name, nil
 			} else if !errors.Is(createErr, errBlueprintAlreadyExists) {
 				return "", createErr
@@ -258,7 +260,6 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			// Someone else won the race between the read and this attempt.
 		}
 		if isPersonal || yes || linked {
-			writePushLink(at.Account, name)
 			return name, nil
 		}
 
@@ -272,7 +273,6 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			return "", err
 		}
 		if choice == blueprintPushUpdate {
-			writePushLink(at.Account, name)
 			return name, nil
 		}
 		name = newName
@@ -310,6 +310,7 @@ func runPush(ctx context.Context, w, errW io.Writer, at AccountToken, cfg PushPi
 	if err := checkBlueprintPushPermission(ctx, serverURL, at, cfg.AgentName, cfg.Verbose); err != nil {
 		return err
 	}
+	writePushLink(cfg.SpecPath, at.Account, cfg.AgentName)
 
 	registryHost, err := getRegistryHost(registryURL)
 	if err != nil {
