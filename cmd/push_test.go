@@ -275,30 +275,33 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 
 // TestResolveOrRenameBlueprintPushLink covers the .ast/push.json short
 // circuit: a repeat push from the same directory, for the same account and
-// name a prior resolution already settled, must not re-check existence or
-// re-prompt. It also covers that every successful resolution (not just the
-// link hit) leaves a link behind for the next push to find.
+// name a prior resolution already settled, skips straight past the
+// interactive prompt without needing yes or a personal account. The
+// existence check itself still runs every time (asserted via getCalls), so
+// a blueprint deleted and recreated server-side since the link was written
+// is still re-validated rather than blindly trusted. It also covers that
+// every successful resolution (not just the link hit) leaves a link behind
+// for the next push to find.
 func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 	tests := []struct {
 		name         string
 		existingLink *pushLink
-		wantGETCalls int
+		yes          bool
 	}{
-		{name: "no link falls back to the existence check", wantGETCalls: 1},
+		{name: "no link needs yes to avoid the prompt", yes: true},
 		{
-			name:         "a link for a different name falls back to the existence check",
+			name:         "a link for a different name needs yes to avoid the prompt",
 			existingLink: &pushLink{Account: "acme", Name: "other-agent"},
-			wantGETCalls: 1,
+			yes:          true,
 		},
 		{
-			name:         "a link for a different account falls back to the existence check",
+			name:         "a link for a different account needs yes to avoid the prompt",
 			existingLink: &pushLink{Account: "other-org", Name: "my-agent"},
-			wantGETCalls: 1,
+			yes:          true,
 		},
 		{
-			name:         "a matching link skips the existence check entirely",
+			name:         "a matching link skips the prompt on its own, without yes",
 			existingLink: &pushLink{Account: "acme", Name: "my-agent"},
-			wantGETCalls: 0,
 		},
 	}
 
@@ -314,8 +317,6 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 				if r.Method == http.MethodGet {
 					getCalls++
 				}
-				// The name already exists; yes=true keeps this from reaching
-				// the interactive prompt when the existence check does run.
 				w.WriteHeader(http.StatusOK)
 			}))
 			t.Cleanup(srv.Close)
@@ -323,18 +324,49 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 			var warnBuf bytes.Buffer
 			got, err := resolveOrRenameBlueprint(
 				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
-				"my-agent", "", true, false,
+				"my-agent", "", tt.yes, false,
 			)
 
 			require.NoError(t, err)
 			assert.Equal(t, "my-agent", got)
-			assert.Equal(t, tt.wantGETCalls, getCalls)
+			assert.Equal(t, 1, getCalls, "the existence check always runs, link or not")
 
 			link := readPushLink()
 			require.NotNil(t, link)
 			assert.Equal(t, pushLink{Account: "acme", Name: "my-agent"}, *link)
 		})
 	}
+}
+
+// TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion
+// covers the case the all-or-nothing short circuit would have missed: the
+// linked name no longer exists (deleted server-side since the link was
+// written), so resolution must still fall into the create path and
+// reserve it, rather than trusting the stale link and skipping that.
+func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writePushLink("acme", "my-agent")
+
+	var gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+
+	var warnBuf bytes.Buffer
+	got, err := resolveOrRenameBlueprint(
+		context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
+		"my-agent", "", false, false,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "my-agent", got)
+	assert.Equal(t, http.MethodPost, gotMethod, "a linked but now-missing name must still be reserved via createBlueprintShell")
 }
 
 func TestCreateBlueprintShell(t *testing.T) {

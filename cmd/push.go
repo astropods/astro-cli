@@ -224,19 +224,20 @@ func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken
 	return errBlueprintCreateFailed(name, at.Account, fmt.Errorf("unexpected status %d", status))
 }
 
-// resolveOrRenameBlueprint checks whether name exists at at.Account. A
-// matching .ast/push.json link from a prior resolution short-circuits all
-// of that, so a routine repeat push from the same directory doesn't
-// re-check or re-ask. Otherwise, a free name is reserved via
-// createBlueprintShell, so a race there falls into the same flow as an
-// existing name. An existing name returns immediately for personalAccount
-// or yes; otherwise it prompts via confirmUpdateOrRename, looping under
-// the new name on a rename choice. Every path that resolves successfully
-// writes (or refreshes) the link.
+// resolveOrRenameBlueprint checks whether name exists at at.Account. A free
+// name is reserved via createBlueprintShell, so a race there falls into the
+// same flow as an existing name. An existing name returns immediately for
+// personalAccount, yes, or a matching .ast/push.json link from a prior
+// resolution — the link only skips the prompt, not the existence check
+// itself, so a blueprint deleted server-side since the link was written
+// still gets recreated, and one recreated under a different owner still
+// exists for this check (the server's own permission check is what guards
+// that case, same as every other push). Otherwise it prompts via
+// confirmUpdateOrRename, looping under the new name on a rename choice.
+// Every path that resolves successfully writes (or refreshes) the link.
 func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
-	if link := readPushLink(); link != nil && link.Account == at.Account && link.Name == name {
-		return name, nil
-	}
+	link := readPushLink()
+	linked := link != nil && link.Account == at.Account && link.Name == name
 
 	isPersonal := at.Account == personalAccount
 	originalName := name
@@ -256,7 +257,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			}
 			// Someone else won the race between the read and this attempt.
 		}
-		if isPersonal || yes {
+		if isPersonal || yes || linked {
 			writePushLink(at.Account, name)
 			return name, nil
 		}
