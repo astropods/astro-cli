@@ -329,6 +329,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	autoConnectGatewayAfterLogin(cmd.Context(), cmd.OutOrStdout(), verbose)
 	return nil
 }
 

@@ -635,3 +635,129 @@ func msgDeployed(environment string) string {
 func errPrivateLinkNeedsCluster() error {
 	return fmt.Errorf("--private-link needs at least one --cluster to create an endpoint on")
 }
+
+// AI Gateway (ast gateway). These name the gateway the way the settings page
+// does, "AI Gateway", and never the vendor behind it.
+
+func errGatewayNotEnabled(account string) error {
+	return fmt.Errorf("the AI Gateway isn't turned on for %s; an admin can turn it on in Settings → AI Gateway", account)
+}
+
+func errGatewayUnavailable() error {
+	return fmt.Errorf("the AI Gateway isn't available in this environment")
+}
+
+func errGatewaySetupInProgress() error {
+	return fmt.Errorf("another setup for this device is already running; wait a moment and retry")
+}
+
+func errGatewayRequestFailed(action string, err error) error {
+	return fmt.Errorf("could not %s: %w", action, err)
+}
+
+func errGatewayForeignBaseURL(path, current string) error {
+	return fmt.Errorf(
+		"%s already routes Claude Code to another gateway (%s); rerun with --replace-existing to replace it",
+		path, current,
+	)
+}
+
+func errGatewayOtherAccount(current, wanted string) error {
+	return fmt.Errorf(
+		"this machine reports to %s; a machine reports to one account, so rerun with --replace-existing to switch it to %s",
+		current, wanted,
+	)
+}
+
+func errGatewayKeyNotFound(key string) error {
+	return fmt.Errorf("no device key matches %q; run '%s gateway devices' to list them", key, buildinfo.BinaryName)
+}
+
+func errGatewayKeyAmbiguous(key string, n int) error {
+	return fmt.Errorf("%q matches %d device keys; use more of the key prefix or the full key id", key, n)
+}
+
+func msgGatewayConnecting(account string) string {
+	return fmt.Sprintf("Connecting this machine to the AI Gateway for %s…", account)
+}
+
+func msgGatewayConfirmForeignBaseURL(path, current string) (title, description string) {
+	return fmt.Sprintf("%s already routes Claude Code to another gateway. Replace it?", path),
+		fmt.Sprintf("It points at %s. That gateway will stop receiving Claude Code traffic from this machine.", current)
+}
+
+func msgGatewayConfirmOtherAccount(current, wanted string) (title, description string) {
+	return fmt.Sprintf("Switch this machine from %s to %s?", current, wanted),
+		fmt.Sprintf("A machine reports to one account. Its usage will appear in %s from now on.", wanted)
+}
+
+func msgGatewayConnected(account, binary string) string {
+	return fmt.Sprintf(
+		"Claude Code keeps your current login and billing. Your usage now appears in %s's Insights.\n"+
+			"Send any prompt in Claude Code, then run `%s gateway status` to confirm.",
+		account, binary,
+	)
+}
+
+func msgGatewayNotConnected(binary string) string {
+	return fmt.Sprintf("This machine isn't connected to an AI Gateway. Run `%s gateway connect` to connect it.", binary)
+}
+
+func msgGatewayDisconnectRevokeFailed(prefix, binary string, err error) string {
+	return fmt.Sprintf(
+		"! Settings restored, but the key could not be revoked (%v).\n  Retry with `%s gateway revoke %s`.",
+		err, binary, prefix,
+	)
+}
+
+func msgGatewayRevokedThisDevice(binary string) string {
+	return fmt.Sprintf("That was this machine's key. Run `%s gateway disconnect` to also remove it from your Claude Code settings.", binary)
+}
+
+func msgGatewayAutoConnectPick(binary string) (title, description string) {
+	return "Which organization should Claude Code on this machine report usage to?",
+		fmt.Sprintf("A machine reports to one organization. Change it later with `%s gateway connect --account`.", binary)
+}
+
+func msgGatewayAutoConnectSkipped(binary string, accounts []string) string {
+	return fmt.Sprintf(
+		"Several of your organizations use the AI Gateway (%s).\nRun `%s gateway connect --account <name>` to choose one for this machine.",
+		strings.Join(accounts, ", "), binary,
+	)
+}
+
+func msgGatewayAutoConnectFailed(binary string, err error) string {
+	return fmt.Sprintf("! Could not connect this machine to the AI Gateway (%v). Run `%s gateway connect` to retry.", err, binary)
+}
+
+func msgGatewayStatusConnected(account, device, prefix, lastUsed string) string {
+	return fmt.Sprintf("AI Gateway: connected (%s)\n\n  This device   %s · %s… · last used %s", account, device, prefix, lastUsed)
+}
+
+func msgGatewayStatusUnreachable(account string, err error) string {
+	return fmt.Sprintf("AI Gateway: connected to %s (could not reach the server: %v)\n", account, err)
+}
+
+func msgGatewayStatusKeyGone(account, binary string) string {
+	return fmt.Sprintf("AI Gateway: this device's key no longer exists in %s. Run `%s gateway connect` to set it up again.\n", account, binary)
+}
+
+func msgGatewayStatusRevoked(when, binary string) string {
+	return fmt.Sprintf("AI Gateway: disconnected. This device's key was revoked %s. Run `%s gateway connect` to set it up again.\n", when, binary)
+}
+
+func msgGatewayStatusNoRouting(binary string) string {
+	return fmt.Sprintf("  Routing       not set, so Claude Code talks to Anthropic directly. Run `%s gateway connect`.", binary)
+}
+
+func msgGatewayStatusOverridden(layer string) string {
+	return fmt.Sprintf("  ! %s points somewhere else, so Claude Code here bypasses the gateway.", layer)
+}
+
+func msgGatewayStatusShellExport(key, value string) string {
+	return fmt.Sprintf("  ! Your shell exports %s=%s, which may override the settings above.", key, value)
+}
+
+func msgGatewayStatusHeadersMissing(binary string) string {
+	return fmt.Sprintf("  ! Your Claude Code settings are missing this device's gateway headers. Run `%s gateway connect` to repair them.", binary)
+}
