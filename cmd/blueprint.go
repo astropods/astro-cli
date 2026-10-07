@@ -139,7 +139,7 @@ var blueprintSetCmd = &cobra.Command{
 func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
-	cmd.Flags().Bool("allow-dirty", false, "Push even when blueprint inputs have uncommitted changes")
+	cmd.Flags().Bool("allow-dirty", false, "Push even when blueprint is built from uncommitted changes")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
