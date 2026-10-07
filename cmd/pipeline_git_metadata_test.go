@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -103,23 +102,6 @@ func TestCollectGitMetadataRejectsADirtyRepositoryBeforeLaterSteps(t *testing.T)
 	assert.False(t, reachedNextStep, "--yes must not bypass the dirty-input check")
 }
 
-func TestDirtyPushPromptCopyAndDefault(t *testing.T) {
-	choice := dirtyPushCancelChoice
-	selectField := newDirtyPushSelect(&choice)
-	selectField.WithTheme(cliHuhTheme())
-	selectField.WithWidth(120)
-	_ = selectField.Init()
-	_ = selectField.Focus()
-
-	rendered := stripANSI(selectField.View())
-	compact := strings.Join(strings.Fields(strings.ReplaceAll(rendered, "┃", "")), " ")
-	assert.Contains(t, compact, "Push with uncommitted changes?")
-	assert.Contains(t, compact, dirtyPushPromptDescription)
-	assert.Contains(t, compact, "Cancel the push")
-	assert.Contains(t, compact, "Push with uncommitted changes")
-	assert.Equal(t, dirtyPushCancelChoice, selectField.GetValue(), "cancel must remain the default choice")
-}
-
 func TestCollectGitMetadataAllowsDirtyWithExplicitFlag(t *testing.T) {
 	specPath, _ := pipelineGitRepository(t)
 	require.NoError(t, os.WriteFile(specPath, []byte("name: changed\n"), 0o600))
@@ -136,25 +118,16 @@ func TestCollectGitMetadataAllowsDirtyWithExplicitFlag(t *testing.T) {
 	assert.Contains(t, progress.String(), "may not be reproducible")
 }
 
-func TestCollectGitMetadataInteractiveChoiceControlsDirtyPush(t *testing.T) {
+func TestCollectGitMetadataRejectsDirtyInteractivePush(t *testing.T) {
 	specPath, _ := pipelineGitRepository(t)
 	require.NoError(t, os.WriteFile(specPath, []byte("name: changed\n"), 0o600))
 	originalTerminal := interactiveTerminal
-	originalPrompt := confirmDirtyPushPrompt
 	interactiveTerminal = func() bool { return true }
-	t.Cleanup(func() {
-		interactiveTerminal = originalTerminal
-		confirmDirtyPushPrompt = originalPrompt
-	})
+	t.Cleanup(func() { interactiveTerminal = originalTerminal })
 
-	confirmDirtyPushPrompt = func() (bool, error) { return false, nil }
-	stopped := NewPushPipeline(context.Background(), PushPipelineConfig{SpecPath: specPath}).CollectGitMetadata()
-	assert.ErrorIs(t, stopped.Err(), tui.ErrCanceled)
+	pipeline := NewPushPipeline(context.Background(), PushPipelineConfig{SpecPath: specPath}).CollectGitMetadata()
 
-	confirmDirtyPushPrompt = func() (bool, error) { return true, nil }
-	proceeded := NewPushPipeline(context.Background(), PushPipelineConfig{SpecPath: specPath}).CollectGitMetadata()
-	require.NoError(t, proceeded.Err())
-	assert.True(t, proceeded.gitMetadata.WorkingTreeDirty)
+	assert.ErrorIs(t, pipeline.Err(), errDirtyWorkingTree)
 }
 
 func TestCollectGitMetadataRejectsDirtyNoninteractivePush(t *testing.T) {
@@ -167,4 +140,27 @@ func TestCollectGitMetadataRejectsDirtyNoninteractivePush(t *testing.T) {
 	pipeline := NewPushPipeline(context.Background(), PushPipelineConfig{SpecPath: specPath}).CollectGitMetadata()
 
 	assert.ErrorIs(t, pipeline.Err(), errDirtyWorkingTree)
+}
+
+func TestCollectGitMetadataSkipsNoBuildPushes(t *testing.T) {
+	specPath, _ := pipelineGitRepository(t)
+	require.NoError(t, os.WriteFile(specPath, []byte("name: changed\n"), 0o600))
+	reachedNextStep := false
+	pipeline := NewPushPipeline(context.Background(), PushPipelineConfig{
+		SpecPath:   specPath,
+		SkipBuild:  true,
+		AllowDirty: false,
+	}).
+		CollectGitMetadata().
+		step(func() error {
+			reachedNextStep = true
+			return nil
+		})
+
+	require.NoError(t, pipeline.Err())
+	assert.True(t, reachedNextStep)
+	assert.Empty(t, pipeline.gitMetadata.CommitSHA)
+	assert.Empty(t, pipeline.gitMetadata.CommitMessage)
+	assert.False(t, pipeline.gitMetadata.WorkingTreeDirty)
+	assert.False(t, pipeline.gitMetadata.WorkingTreeStatusKnown)
 }

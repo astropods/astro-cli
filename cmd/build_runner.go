@@ -19,12 +19,11 @@ import (
 	"github.com/moby/buildkit/util/progress/progressui"
 	"github.com/tonistiigi/fsutil"
 
-	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	spec "github.com/astropods/astro-spec"
 )
 
 // runBuild assumes the spec at specPath is valid; callers must validate before invoking.
-func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []string, noCache, verbose, quiet bool, metadata gitmetadata.Metadata) error {
+func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []string, noCache, verbose, quiet bool) error {
 	workingDir := filepath.Dir(specPath)
 
 	astroSpec, err := spec.ParseSpec(specPath)
@@ -68,12 +67,11 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 
 		for _, plat := range platforms {
 			platTag := platformImageTag(comp.ImageName, tag, plat)
-			labels := provenanceLabels(tag, agentName, plat, metadata)
 			if !quiet {
 				fmt.Printf("%s→%s Building %s[%s %s]%s %s%s%s", colorCyan, colorReset, colorDim, comp.Kind, plat, colorReset, colorBold, platTag, colorReset)
 			}
 
-			if err := buildImageBuildKit(ctx, cli, contextPath, dockerfile, platTag, comp.Build.Args, comp.Build.Secrets, envVars, labels, noCache, verbose, quiet, plat); err != nil {
+			if err := buildImageBuildKit(ctx, cli, contextPath, dockerfile, platTag, comp.Build.Args, comp.Build.Secrets, envVars, noCache, verbose, quiet, plat); err != nil {
 				if !quiet {
 					fmt.Printf(" %s✗%s\n", colorRed, colorReset)
 				}
@@ -125,7 +123,7 @@ func runBuild(ctx context.Context, specPath, agentName, tag string, platforms []
 // buildImageBuildKit builds an image via BuildKit's gRPC Solve API against
 // the Docker daemon's embedded BuildKit endpoint — the same path docker buildx
 // uses with the "docker" driver.
-func buildImageBuildKit(ctx context.Context, dockerCli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, buildSecrets []spec.BuildSecret, envVars, labels map[string]string, noCache, verbose, quiet bool, platform string) error {
+func buildImageBuildKit(ctx context.Context, dockerCli *client.Client, contextPath, dockerfile, imageName string, buildArgs map[string]string, buildSecrets []spec.BuildSecret, envVars map[string]string, noCache, verbose, quiet bool, platform string) error {
 	bkc, err := bkclient.New(ctx, "", bkclient.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return dockerCli.DialHijack(ctx, "/grpc", "h2c", nil)
 	}))
@@ -158,9 +156,6 @@ func buildImageBuildKit(ctx context.Context, dockerCli *client.Client, contextPa
 	}
 	for k, v := range buildArgs {
 		frontendAttrs["build-arg:"+k] = v
-	}
-	for key, value := range labels {
-		frontendAttrs["label:"+key] = value
 	}
 	if noCache {
 		frontendAttrs["no-cache"] = ""

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -17,7 +16,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
@@ -141,7 +139,6 @@ var blueprintSetCmd = &cobra.Command{
 func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
-	cmd.Flags().String("build-id", "", "Reuse images produced by 'ast build' (requires --no-build)")
 	cmd.Flags().Bool("allow-dirty", false, "Push even when blueprint inputs have uncommitted changes")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
@@ -167,7 +164,6 @@ func init() {
 	blueprintSetCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	registerPushFlags(blueprintPushCmd)
 	blueprintBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-	blueprintBuildCmd.Flags().Bool("json", false, "Print the reusable build ID as JSON; progress moves to stderr")
 
 	// Top-level aliases
 	topLevelBuildCmd := &cobra.Command{
@@ -178,7 +174,6 @@ func init() {
 		RunE:  runBlueprintBuild,
 	}
 	topLevelBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
-	topLevelBuildCmd.Flags().Bool("json", false, "Print the reusable build ID as JSON; progress moves to stderr")
 	rootCmd.AddCommand(topLevelBuildCmd)
 
 	topLevelPushCmd := &cobra.Command{
@@ -212,41 +207,14 @@ func resolveSpecAndName(cmd *cobra.Command, args []string) (specPath, name, runt
 	return
 }
 
-type blueprintBuildResult struct {
-	Name    string `json:"name"`
-	BuildID string `json:"build_id"`
-}
-
-var runBlueprintBuildImages = runBuild
-
 func runBlueprintBuild(cmd *cobra.Command, args []string) error {
 	specPath, name, runtime, err := resolveSpecAndName(cmd, args)
 	if err != nil {
 		return err
 	}
-	astroSpec, err := spec.ParseSpec(specPath)
-	if err != nil {
-		return fmt.Errorf("failed to parse spec: %w", err)
-	}
-	components := spec.CollectComponents(astroSpec, name)
-	metadata := gitmetadata.CollectMetadata(filepath.Dir(specPath), relevantGitPaths(specPath, components)...)
-	jsonOut, _ := cmd.Flags().GetBool("json")
-	if metadata.WorkingTreeDirty {
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s!%s Building with uncommitted blueprint changes; pushing this build will require confirmation or --allow-dirty.\n", colorYellow, colorReset) //nolint:errcheck,gosec
-	} else if metadata.CommitSHA != "" && !metadata.WorkingTreeStatusKnown {
-		printIncompleteGitProvenanceWarning(cmd.ErrOrStderr())
-	}
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	platform, _ := resolveBuildPlatform(buildinfo.DefaultServerURL, runtime)
-	buildID := generateBuildID()
-	if err := runBlueprintBuildImages(cmd.Context(), specPath, name, buildID, []string{platform}, false, verbose, jsonOut, metadata); err != nil {
-		return err
-	}
-	if jsonOut {
-		return writeJSON(cmd.OutOrStdout(), blueprintBuildResult{Name: name, BuildID: buildID})
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s→%s Reusable build ID: %s%s%s\n", colorCyan, colorReset, colorBold, buildID, colorReset) //nolint:errcheck,gosec
-	return nil
+	return runBuild(cmd.Context(), specPath, name, generateBuildID(), []string{platform}, false, verbose, false)
 }
 
 func runBlueprintPush(cmd *cobra.Command, args []string) error {
@@ -296,11 +264,6 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	allowDirty, _ := cmd.Flags().GetBool("allow-dirty")
-	buildID := strings.ToLower(flagString(cmd, "build-id"))
-	buildableComponents := spec.CollectComponents(astroSpec, agentName)
-	if err := validateNoBuildOptions(noBuild, buildID, len(buildableComponents)); err != nil {
-		return err
-	}
 
 	personalAccount, err := accountNewStorage().GetPersonalAccount()
 	if err != nil {
@@ -325,7 +288,6 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		AgentName:  agentName,
 		SkipBuild:  noBuild,
 		SkipPush:   skipPush,
-		BuildID:    buildID,
 		AllowDirty: allowDirty,
 		Platform:   platform,
 		Visibility: vis,
@@ -333,21 +295,6 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Verbose:    verbose,
 		JSON:       jsonOut,
 	})
-}
-
-func validateNoBuildOptions(noBuild bool, buildID string, buildableComponents int) error {
-	switch {
-	case buildID != "" && !noBuild:
-		return fmt.Errorf("--build-id requires --no-build")
-	case buildID != "" && !validBuildID(buildID):
-		return fmt.Errorf("--build-id must be an eight-character hexadecimal ID produced by 'ast build'")
-	case noBuild && buildableComponents > 0 && buildID == "":
-		return fmt.Errorf("--build-id is required with --no-build when the blueprint contains build blocks; run 'ast build' first")
-	case noBuild && buildableComponents == 0 && buildID != "":
-		return fmt.Errorf("--build-id cannot be used because this blueprint has no build blocks")
-	default:
-		return nil
-	}
 }
 
 // blueprintLatestVersion returns the version with the most recent PublishedAt, or nil if there are none.

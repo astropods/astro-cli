@@ -1434,6 +1434,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 
 func TestPush_AllowAccountOverride(t *testing.T) {
 	registerCalled := false
+	var registration map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
 			if r.URL.Query().Get("dryrun") == "true" {
@@ -1441,6 +1442,7 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 				return
 			}
 			registerCalled = true
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&registration))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
@@ -1482,6 +1484,9 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, registerCalled, "expected /register endpoint to be called")
+	assert.NotContains(t, registration, "commit_sha")
+	assert.NotContains(t, registration, "commit_message")
+	assert.NotContains(t, registration, "working_tree_dirty")
 	assert.Contains(t, out, "overridden to current account", "expected account override warning in output")
 }
 
@@ -1507,12 +1512,20 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "build-id", "allow-dirty", "yes", "allow-account-override", "file", "json"} {
+	for _, name := range []string{"visibility", "no-build", "allow-dirty", "yes", "allow-account-override", "file", "json"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
 	}
+}
+
+func TestReusableBuildFlagsAreNotRegistered(t *testing.T) {
+	assert.Nil(t, blueprintPushCmd.Flags().Lookup("build-id"))
+	assert.Nil(t, blueprintBuildCmd.Flags().Lookup("json"))
+	command, _, err := rootCmd.Find([]string{"build"})
+	require.NoError(t, err)
+	assert.Nil(t, command.Flags().Lookup("json"))
 }
 
 func TestRunBlueprintPush_AccountMismatchErrorIsActionableNotMisleading(t *testing.T) {

@@ -173,14 +173,6 @@ func TestCollectMetadataMarksMultipleRepositoriesIncomplete(t *testing.T) {
 	assert.False(t, metadata.WorkingTreeStatusKnown)
 }
 
-func TestCommitMessageAtIsBestEffort(t *testing.T) {
-	dir, sha := committedRepository(t)
-
-	assert.Equal(t, "feat: initial blueprint\n\nCommit body", CommitMessageAt(dir, strings.TrimSpace(sha)))
-	assert.Empty(t, CommitMessageAt(dir, strings.Repeat("f", 40)))
-	assert.Empty(t, CommitMessageAt(dir, "not-an-object-id"))
-}
-
 func TestCollectMetadataUsesNoOptionalLocks(t *testing.T) {
 	var statusArgs []string
 	root, err := filepath.Abs("project")
