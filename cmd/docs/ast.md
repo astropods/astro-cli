@@ -109,11 +109,29 @@ has.
 
 ### `push` — Build, package, and register with Astropods
 
-`ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **adds the agent to the Astropods registry**. If images aren’t already built, a build is run automatically unless you pass `--skip-build`.
+`ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **adds the agent to the Astropods registry**. A build is run automatically unless you pass `--no-build`.
 
 The push command requires an Astropods account. Use `ast login` to get the required credentials.
 
 **Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. Visibility is managed via the platform UI or API — `meta.visibility` in the spec is deprecated and no longer used.
+
+**Git provenance and uncommitted changes:** For a normal push from a Git
+repository, the CLI records the current commit SHA and message when available.
+It checks the directory containing the selected spec and every declared
+component `build.context`. Changes outside those paths do not affect the push,
+but changes in a shared build context do.
+
+If those inputs contain staged, unstaged, untracked nonignored, or submodule
+changes, the push stops before building. Commit the changes or pass
+`--allow-dirty` to continue and mark the pushed build as dirty. `--yes` skips
+ordinary confirmation prompts but does not allow a dirty push.
+
+Git discovery is best-effort. If the CLI records a commit but cannot verify
+every relevant path, it warns that some build inputs may not be represented by
+that commit and continues. Missing Git, a non-Git project, or a failed lookup
+does not prevent a push. `--no-build` skips Git inspection and attaches no
+commit information or dirty state because the current checkout cannot establish
+the provenance of an image built earlier.
 
 After pushing, **navigate to the Astropods platform** to see your agent and deploy it. As an agent builder/operator, you’ll see it in your **operator sandbox**. When you deploy an agent there, it receives a **dedicated hostname** that you can use to connect Slack or call as an API.
 
