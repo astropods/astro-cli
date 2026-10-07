@@ -298,6 +298,35 @@ func msgTraceEvaluationUnavailable(err error) string {
 	return fmt.Sprintf("Could not load the trace's evaluation: %v", err)
 }
 
+func errEvalRunTraceWithOutdated() error {
+	return fmt.Errorf("--include-outdated applies to the batch run and can't be combined with --trace-id")
+}
+
+func errEvalRunAlreadyActive(traceID string) error {
+	return fmt.Errorf("an evaluation is already running for trace %q", traceID)
+}
+
+func msgEvalRunQueued(queued, failed, limit int) string {
+	if queued == 0 && failed == 0 {
+		return "No traces to evaluate"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Queued %d trace evaluations", queued)
+	if failed > 0 {
+		fmt.Fprintf(&b, ", %d failed to queue", failed)
+	}
+	b.WriteString(fmt.Sprintf(". Check progress with `%s eval status`.", buildinfo.BinaryName))
+	if queued >= limit {
+		fmt.Fprintf(&b, " Up to %d traces run per call, so more may remain: run it again.", limit)
+	}
+	return b.String()
+}
+
+func msgEvalRunTraceQueued(traceID, runID, status, deploymentID string) string {
+	return fmt.Sprintf("Queued evaluation for trace %s (run %s, %s). Check the result with `%s agent trace --id %s -t %s`.",
+		traceID, runID, status, buildinfo.BinaryName, deploymentID, traceID)
+}
+
 func msgNoEvaluators(name string) string {
 	return fmt.Sprintf("No evaluators in the active evaluation set for %s", name)
 }

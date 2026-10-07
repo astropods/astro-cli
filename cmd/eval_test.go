@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -387,4 +388,121 @@ func TestEvalStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEvalRun(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach-dev",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	ids := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("t%d", i)
+		}
+		return out
+	}
+
+	cases := []struct {
+		name            string
+		traceID         string
+		includeOutdated bool
+		jsonOutput      bool
+		statusCode      int
+		body            any
+		wantPath        string
+		wantBody        map[string]any
+		wantErr         string
+		wantOut         string
+	}{
+		{name: "batch queues recent traces", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(3), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(3, 0, evalRunBatchLimit)},
+		{name: "batch reports failures", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(2), "failed_trace_ids": []string{"bad"}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(2, 1, evalRunBatchLimit)},
+		{name: "batch at the limit says more may remain", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(evalRunBatchLimit), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: "run it again"},
+		{name: "include outdated is sent", includeOutdated: true, statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(1), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": true},
+			wantOut: msgEvalRunQueued(1, 0, evalRunBatchLimit)},
+		{name: "nothing to evaluate", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": []string{}, "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(0, 0, evalRunBatchLimit)},
+		{name: "batch json output", jsonOutput: true, statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(1), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: `"enqueued_trace_ids"`},
+		{name: "single trace", traceID: "trace-abc", statusCode: http.StatusAccepted,
+			body:     map[string]any{"evaluation_run_id": "run-1", "status": "queued"},
+			wantPath: "/agents/testaccount/coach/evaluations/trace-abc", wantBody: map[string]any{"deployment_id": "dep-abc-123"},
+			wantOut: msgEvalRunTraceQueued("trace-abc", "run-1", "queued", "dep-abc-123")},
+		{name: "single trace already running", traceID: "trace-abc", statusCode: http.StatusConflict,
+			body: map[string]any{"error": "evaluation is already running"}, wantErr: errEvalRunAlreadyActive("trace-abc").Error()},
+		{name: "single trace not found", traceID: "trace-abc", statusCode: http.StatusNotFound,
+			body: map[string]any{"error": "trace not found"}, wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
+		{name: "not configured", statusCode: http.StatusServiceUnavailable,
+			body: map[string]any{"error": "evaluation is not configured"}, wantErr: errEvaluationNotConfigured().Error()},
+		{name: "billing suspended surfaces the pay reason", statusCode: http.StatusPaymentRequired,
+			body:    map[string]any{"error": "Billing suspended", "code": "BILLING_SUSPENDED", "reason": "no_card", "action": "add_card"},
+			wantErr: newAPIError(http.StatusPaymentRequired, []byte(`{"error":"Billing suspended","code":"BILLING_SUSPENDED","reason":"no_card","action":"add_card"}`)).Error()},
+		{name: "trace id with include outdated is rejected", traceID: "trace-abc", includeOutdated: true,
+			wantErr: errEvalRunTraceWithOutdated().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			var gotBody map[string]any
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/evaluations") {
+					gotPath = r.URL.Path
+					_ = json.NewDecoder(r.Body).Decode(&gotBody)
+					jsonHandler(tc.statusCode, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, listPayload)(w, r)
+			}))
+			evalServerURLOverride = agentServerURLOverride
+			t.Cleanup(func() { evalServerURLOverride = "" })
+
+			setAgentTargetName(t, evalRunCmd, "coach")
+			setEvalRunFlag(t, "trace-id", tc.traceID, "")
+			if tc.includeOutdated {
+				setEvalRunFlag(t, "include-outdated", "true", "false")
+			}
+			if tc.jsonOutput {
+				setEvalRunFlag(t, "json", "true", "false")
+			}
+			buf := &bytes.Buffer{}
+			evalRunCmd.SetOut(buf)
+			evalRunCmd.SetContext(context.Background())
+
+			err := runEvalRun(evalRunCmd, nil)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(gotPath, tc.wantPath), "path %q", gotPath)
+			assert.Equal(t, tc.wantBody, gotBody)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func setEvalRunFlag(t *testing.T, name, value, reset string) {
+	t.Helper()
+	require.NoError(t, evalRunCmd.Flags().Set(name, value))
+	t.Cleanup(func() { _ = evalRunCmd.Flags().Set(name, reset) })
+}
+
+func TestEvalRunRejectsPositionalArgs(t *testing.T) {
+	require.EqualError(t, agentTargetArgs(evalRunCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
 }

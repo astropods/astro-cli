@@ -79,17 +79,33 @@ var evalStatusCmd = &cobra.Command{
 	RunE:  runEvalStatus,
 }
 
+var evalRunCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Queue evaluations for a deployment's traces",
+	Long: "Queues up to 50 recent traces that have not been evaluated or whose last run failed. " +
+		"With --include-outdated, traces evaluated against an older evaluation set also qualify. " +
+		"With --trace-id, queues that one trace even if it already has a current result. " +
+		"Runs finish in the background: check progress with `eval status`.",
+	Args: agentTargetArgs,
+	RunE: runEvalRun,
+}
+
 func init() {
 	rootCmd.AddCommand(evalCmd)
 	evalCmd.AddCommand(evalPushCmd)
 	evalCmd.AddCommand(evalValidateCmd)
 	evalCmd.AddCommand(evalGetCmd)
 	evalCmd.AddCommand(evalStatusCmd)
+	evalCmd.AddCommand(evalRunCmd)
 	evalPushCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	evalValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	evalGetCmd.Flags().Bool("json", false, "Print raw JSON output")
 	registerAgentTargetFlags(evalStatusCmd)
 	evalStatusCmd.Flags().Bool("json", false, "Print raw JSON output")
+	registerAgentTargetFlags(evalRunCmd)
+	evalRunCmd.Flags().StringP("trace-id", "t", "", "Evaluate this one trace")
+	evalRunCmd.Flags().Bool("include-outdated", false, "Also queue traces evaluated against an older evaluation set")
+	evalRunCmd.Flags().Bool("json", false, "Print raw JSON output")
 }
 
 type evalSetEvaluator struct {
@@ -282,6 +298,91 @@ func runEvalStatus(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintf(w, "  Completed:    %d\n", sum.Completed)        //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Failed:       %d\n", sum.Failed)           //nolint:errcheck,gosec
 	fmt.Fprintf(w, "  Outdated:     %d\n", sum.OutdatedCount)    //nolint:errcheck,gosec
+	return nil
+}
+
+type evalRunBatchResponse struct {
+	EnqueuedTraceIDs []string `json:"enqueued_trace_ids"`
+	FailedTraceIDs   []string `json:"failed_trace_ids"`
+}
+
+type evalRunTraceResponse struct {
+	EvaluationRunID string `json:"evaluation_run_id"`
+	Status          string `json:"status"`
+}
+
+const evalRunBatchLimit = 50
+
+func runEvalRun(cmd *cobra.Command, _ []string) error {
+	traceID, _ := cmd.Flags().GetString("trace-id")
+	includeOutdated, _ := cmd.Flags().GetBool("include-outdated")
+	if traceID != "" && includeOutdated {
+		return errEvalRunTraceWithOutdated()
+	}
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	dep, err := resolveAgentTarget(cmd, at, verbose)
+	if err != nil {
+		return err
+	}
+
+	if traceID != "" {
+		return runEvalRunTrace(cmd, dep, traceID, at, verbose)
+	}
+	return runEvalRunBatch(cmd, dep, includeOutdated, at, verbose)
+}
+
+func runEvalRunBatch(cmd *cobra.Command, dep *agentDeployment, includeOutdated bool, at AccountToken, verbose bool) error {
+	u := apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluations")
+	var resp evalRunBatchResponse
+	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{
+		"deployment_id":         dep.ID,
+		"include_outdated_runs": includeOutdated,
+	}, at.Token, verbose, &resp)
+	switch status {
+	case http.StatusNotFound:
+		return errAgentDeploymentNotFound(deploymentLabel(dep))
+	case http.StatusServiceUnavailable:
+		return errEvaluationNotConfigured()
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	fmt.Fprintln(w, msgEvalRunQueued(len(resp.EnqueuedTraceIDs), len(resp.FailedTraceIDs), evalRunBatchLimit)) //nolint:errcheck,gosec
+	return nil
+}
+
+func runEvalRunTrace(cmd *cobra.Command, dep *agentDeployment, traceID string, at AccountToken, verbose bool) error {
+	u := apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluations", traceID)
+	var resp evalRunTraceResponse
+	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{
+		"deployment_id": dep.ID,
+	}, at.Token, verbose, &resp)
+	switch status {
+	case http.StatusNotFound:
+		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
+	case http.StatusConflict:
+		return errEvalRunAlreadyActive(traceID)
+	case http.StatusServiceUnavailable:
+		return errEvaluationNotConfigured()
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	fmt.Fprintln(w, msgEvalRunTraceQueued(traceID, resp.EvaluationRunID, resp.Status, dep.ID)) //nolint:errcheck,gosec
 	return nil
 }
 
