@@ -533,7 +533,7 @@ func TestAgentTraceDetailEvaluation(t *testing.T) {
 		},
 	}}
 	notEvaluated := map[string]any{"evaluation": map[string]any{
-		"evaluation_ref": "ref-1", "outdated": false, "status": "", "run": nil, "human_review": nil,
+		"evaluation_ref": "ref-1", "outdated": false, "status": "none", "run": nil, "human_review": nil,
 	}}
 
 	cases := []struct {

@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -90,6 +94,16 @@ var evalRunCmd = &cobra.Command{
 	RunE: runEvalRun,
 }
 
+var evalReviewCmd = &cobra.Command{
+	Use:   "review",
+	Short: "Save a human review for one trace",
+	Long: "Saves your values for a trace's evaluators as its human review. The review replaces any earlier one, " +
+		"and evaluators you leave out are not part of it. Run `eval get <blueprint>` to see keys and accepted values.",
+	Example: "  ast eval review --name my-agent -t <trace-id> --set helpful=true --set tone=warm",
+	Args:    agentTargetArgs,
+	RunE:    runEvalReview,
+}
+
 func init() {
 	rootCmd.AddCommand(evalCmd)
 	evalCmd.AddCommand(evalPushCmd)
@@ -97,6 +111,7 @@ func init() {
 	evalCmd.AddCommand(evalGetCmd)
 	evalCmd.AddCommand(evalStatusCmd)
 	evalCmd.AddCommand(evalRunCmd)
+	evalCmd.AddCommand(evalReviewCmd)
 	evalPushCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	evalValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	evalGetCmd.Flags().Bool("json", false, "Print raw JSON output")
@@ -106,6 +121,11 @@ func init() {
 	evalRunCmd.Flags().StringP("trace-id", "t", "", "Evaluate this one trace")
 	evalRunCmd.Flags().Bool("include-outdated", false, "Also queue traces evaluated against an older evaluation set")
 	evalRunCmd.Flags().Bool("json", false, "Print raw JSON output")
+	registerAgentTargetFlags(evalReviewCmd)
+	evalReviewCmd.Flags().StringP("trace-id", "t", "", "Trace to review (required)")
+	evalReviewCmd.Flags().StringArray("set", nil, "Evaluator value as key=value (repeatable)")
+	evalReviewCmd.Flags().Bool("update-dataset", false, "Also update the trace's dataset item")
+	evalReviewCmd.Flags().Bool("json", false, "Print raw JSON output")
 }
 
 type evalSetEvaluator struct {
@@ -384,6 +404,170 @@ func runEvalRunTrace(cmd *cobra.Command, dep *agentDeployment, traceID string, a
 	}
 	fmt.Fprintln(w, msgEvalRunTraceQueued(traceID, resp.EvaluationRunID, resp.Status, dep.ID)) //nolint:errcheck,gosec
 	return nil
+}
+
+type evalOutputValue struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+type evalReviewRequest struct {
+	DeploymentID          string            `json:"deployment_id"`
+	EvaluationRef         string            `json:"evaluation_ref"`
+	EvaluationRunID       *string           `json:"evaluation_run_id,omitempty"`
+	EvaluatorOutputs      []evalOutputValue `json:"evaluator_outputs"`
+	UpdateDatasetSnapshot bool              `json:"update_dataset_snapshot"`
+}
+
+type evalReviewResponse struct {
+	HumanReview struct {
+		EvaluatorOutputs []evalOutputValue `json:"evaluator_outputs"`
+	} `json:"human_review"`
+	DatasetSnapshotUpdated bool `json:"dataset_snapshot_updated"`
+}
+
+// parseEvalSetFlags converts repeated key=value flags to JSON values typed by
+// each evaluator's output. A key outside the set is sent as a string so the
+// server rejects it and names the evaluator.
+func parseEvalSetFlags(raw []string, set []evalSetEvaluator) (map[string]json.RawMessage, error) {
+	outputs := make(map[string]evalspec.Output, len(set))
+	for _, e := range set {
+		outputs[e.Key] = e.Output
+	}
+	values := make(map[string]json.RawMessage, len(raw))
+	for _, pair := range raw {
+		key, value, ok := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			return nil, errEvalSetFlagFormat(pair)
+		}
+		if _, dup := values[key]; dup {
+			return nil, errEvalSetFlagDuplicate(key)
+		}
+		encoded, err := encodeEvalValue(outputs[key], value)
+		if err != nil {
+			return nil, errEvalSetFlagValue(key, err)
+		}
+		values[key] = encoded
+	}
+	return values, nil
+}
+
+func encodeEvalValue(o evalspec.Output, value string) (json.RawMessage, error) {
+	switch o.Type {
+	case evalspec.OutputBoolean:
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not true or false", value)
+		}
+		return json.Marshal(b)
+	case evalspec.OutputNumber:
+		n, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a number", value)
+		}
+		return json.Marshal(n)
+	}
+	return json.Marshal(value)
+}
+
+func runEvalReview(cmd *cobra.Command, _ []string) error {
+	traceID, _ := cmd.Flags().GetString("trace-id")
+	if traceID == "" {
+		return errEvalReviewTraceRequired()
+	}
+	rawSets, _ := cmd.Flags().GetStringArray("set")
+	if len(rawSets) == 0 {
+		return errEvalReviewSetRequired()
+	}
+	updateDataset, _ := cmd.Flags().GetBool("update-dataset")
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	dep, err := resolveAgentTarget(cmd, at, verbose)
+	if err != nil {
+		return err
+	}
+
+	var set evalSetResponse
+	status, err := apiCall(cmd.Context(), http.MethodGet,
+		apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluation-set"), nil, at.Token, verbose, &set)
+	if status == http.StatusNotFound {
+		return errEvalSetNotFound(dep.Name, at.Account)
+	}
+	if err != nil {
+		return err
+	}
+	edits, err := parseEvalSetFlags(rawSets, set.Evaluators)
+	if err != nil {
+		return err
+	}
+
+	current, err := fetchTraceEvaluation(cmd, dep.ID, traceID, at, verbose)
+	if err != nil {
+		return err
+	}
+	req := evalReviewRequest{
+		DeploymentID:          dep.ID,
+		EvaluationRef:         current.EvaluationRef,
+		EvaluatorOutputs:      evalOutputValues(edits),
+		UpdateDatasetSnapshot: updateDataset,
+	}
+	if current.Run != nil {
+		req.EvaluationRunID = &current.Run.ID
+	}
+
+	var resp evalReviewResponse
+	u := apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluations", traceID, "human-review")
+	status, err = apiCall(cmd.Context(), http.MethodPut, u, req, at.Token, verbose, &resp)
+	switch status {
+	case http.StatusNotFound:
+		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
+	case http.StatusConflict:
+		return errEvalReviewConflict(apiErrorMessage(err), traceID)
+	case http.StatusBadRequest:
+		return errEvalReviewInvalid(apiErrorMessage(err))
+	case http.StatusServiceUnavailable:
+		return errEvaluationNotConfigured()
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	fmt.Fprintln(w, msgEvalReviewSaved(traceID, len(resp.HumanReview.EvaluatorOutputs), updateDataset, resp.DatasetSnapshotUpdated)) //nolint:errcheck,gosec
+	return nil
+}
+
+// evalOutputValues orders the edits by key so requests are deterministic.
+func evalOutputValues(edits map[string]json.RawMessage) []evalOutputValue {
+	keys := make([]string, 0, len(edits))
+	for k := range edits {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]evalOutputValue, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, evalOutputValue{Key: k, Value: edits[k]})
+	}
+	return out
+}
+
+// apiErrorMessage returns the server's own message for a non-2xx response.
+func apiErrorMessage(err error) string {
+	var apiErr *apiError
+	if errors.As(err, &apiErr) && apiErr.Message != "" {
+		return apiErr.Message
+	}
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func resolveEvalAgentName(specPath string, args []string) (string, error) {

@@ -327,6 +327,46 @@ func msgEvalRunTraceQueued(traceID, runID, status, deploymentID string) string {
 		traceID, runID, status, buildinfo.BinaryName, deploymentID, traceID)
 }
 
+func errEvalReviewTraceRequired() error {
+	return fmt.Errorf("--trace-id is required")
+}
+
+func errEvalReviewSetRequired() error {
+	return fmt.Errorf("at least one --set key=value is required")
+}
+
+func errEvalSetFlagFormat(pair string) error {
+	return fmt.Errorf("--set %q must be key=value", pair)
+}
+
+func errEvalSetFlagDuplicate(key string) error {
+	return fmt.Errorf("--set %q is given more than once", key)
+}
+
+func errEvalSetFlagValue(key string, err error) error {
+	return fmt.Errorf("--set %s: %w", key, err)
+}
+
+func errEvalReviewInvalid(message string) error {
+	return fmt.Errorf("review rejected: %s", message)
+}
+
+func errEvalReviewConflict(message, traceID string) error {
+	return fmt.Errorf("review rejected: %s. Run `%s eval run -t %s` to evaluate against the current evaluation set, then review again",
+		message, buildinfo.BinaryName, traceID)
+}
+
+func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datasetUpdated bool) string {
+	msg := fmt.Sprintf("Saved review for trace %s (%d evaluators).", traceID, evaluators)
+	switch {
+	case datasetUpdated:
+		msg += " Dataset item updated."
+	case datasetRequested:
+		msg += " Dataset item not updated."
+	}
+	return msg
+}
+
 func msgNoEvaluators(name string) string {
 	return fmt.Sprintf("No evaluators in the active evaluation set for %s", name)
 }

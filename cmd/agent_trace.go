@@ -418,7 +418,7 @@ func printTraceEvaluation(w io.Writer, ev *traceEvaluation) {
 	dim := color.New(color.Faint)
 	dim.Fprintln(w, "\nEvaluation:") //nolint:errcheck,gosec
 
-	if ev.Status == "" && ev.Run == nil && ev.HumanReview == nil {
+	if ev.Run == nil && ev.HumanReview == nil {
 		fmt.Fprintln(w, "  Not evaluated") //nolint:errcheck,gosec
 		return
 	}

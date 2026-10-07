@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,9 @@ import (
 	"strings"
 	"testing"
 
+	evalspec "github.com/astropods/astro-spec/eval"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -505,4 +508,189 @@ func setEvalRunFlag(t *testing.T, name, value, reset string) {
 
 func TestEvalRunRejectsPositionalArgs(t *testing.T) {
 	require.EqualError(t, agentTargetArgs(evalRunCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
+}
+
+func reviewTestSet() []evalSetEvaluator {
+	one, five := 1.0, 5.0
+	return []evalSetEvaluator{
+		{Key: "helpful", Output: evalspec.Output{Type: evalspec.OutputBoolean}},
+		{Key: "tone", Output: evalspec.Output{Type: evalspec.OutputEnum, Options: []string{"warm", "cold"}}},
+		{Key: "score", Output: evalspec.Output{Type: evalspec.OutputNumber, Minimum: &one, Maximum: &five}},
+		{Key: "note", Output: evalspec.Output{Type: evalspec.OutputString}},
+	}
+}
+
+func TestParseEvalSetFlags(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     []string
+		want    map[string]string
+		wantErr string
+	}{
+		{name: "types values by evaluator output",
+			raw:  []string{"helpful=true", "tone=warm", "score=4.5", "note=a=b"},
+			want: map[string]string{"helpful": "true", "tone": `"warm"`, "score": "4.5", "note": `"a=b"`}},
+		{name: "unknown key is sent as a string for the server to reject",
+			raw: []string{"mystery=1"}, want: map[string]string{"mystery": `"1"`}},
+		{name: "missing equals", raw: []string{"helpful"}, wantErr: errEvalSetFlagFormat("helpful").Error()},
+		{name: "empty key", raw: []string{"=true"}, wantErr: errEvalSetFlagFormat("=true").Error()},
+		{name: "duplicate key", raw: []string{"tone=warm", "tone=cold"}, wantErr: errEvalSetFlagDuplicate("tone").Error()},
+		{name: "bad boolean", raw: []string{"helpful=maybe"},
+			wantErr: errEvalSetFlagValue("helpful", errors.New(`"maybe" is not true or false`)).Error()},
+		{name: "bad number", raw: []string{"score=high"},
+			wantErr: errEvalSetFlagValue("score", errors.New(`"high" is not a number`)).Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseEvalSetFlags(tc.raw, reviewTestSet())
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, got, len(tc.want))
+			for k, v := range tc.want {
+				assert.JSONEq(t, v, string(got[k]), k)
+			}
+		})
+	}
+}
+
+func TestEvalOutputValues(t *testing.T) {
+	got := evalOutputValues(map[string]json.RawMessage{
+		"tone":    json.RawMessage(`"warm"`),
+		"helpful": json.RawMessage(`true`),
+	})
+	require.Len(t, got, 2)
+	assert.Equal(t, "helpful", got[0].Key, "outputs are ordered by key")
+	assert.Equal(t, "tone", got[1].Key)
+}
+
+func TestEvalReview(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach-dev",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	setPayload := map[string]any{"evaluation_ref": "ref-2", "evaluators": []any{
+		map[string]any{"key": "helpful", "label": "Helpful", "type": "llm_judge", "output": map[string]any{"type": "boolean"}},
+		map[string]any{"key": "tone", "label": "Tone", "type": "llm_judge", "output": map[string]any{"type": "enum", "options": []string{"warm", "cold"}}},
+	}}
+	withRun := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-1", "outdated": false, "status": "completed",
+		"run": map[string]any{"id": "run-1", "status": "completed", "evaluators": []any{
+			map[string]any{"key": "helpful", "status": "completed", "value": true},
+			map[string]any{"key": "tone", "status": "completed", "value": "cold"},
+		}},
+	}}
+	noRun := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-2", "outdated": false, "status": "none", "run": nil, "human_review": nil,
+	}}
+	saved := map[string]any{
+		"human_review":             map[string]any{"evaluator_outputs": []any{map[string]any{"key": "helpful", "value": false}, map[string]any{"key": "tone", "value": "cold"}}},
+		"dataset_snapshot_updated": true,
+	}
+
+	cases := []struct {
+		name          string
+		sets          []string
+		traceID       string
+		updateDataset bool
+		current       map[string]any
+		putStatus     int
+		putBody       any
+		wantBody      map[string]any
+		wantErr       string
+		wantOut       string
+	}{
+		{name: "sends only the given values with the run id", sets: []string{"helpful=false"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-1", "evaluation_run_id": "run-1",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": false}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "unevaluated trace sends the active ref without a run id", sets: []string{"helpful=true"}, traceID: "trace-abc",
+			current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": true}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "update dataset is sent", sets: []string{"helpful=true"}, traceID: "trace-abc", updateDataset: true,
+			current: noRun, putStatus: http.StatusOK, putBody: map[string]any{"human_review": map[string]any{"evaluator_outputs": []any{}}, "dataset_snapshot_updated": false},
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": true}},
+				"update_dataset_snapshot": true,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 0, true, false)},
+		{name: "invalid value prints the server message", sets: []string{"tone=lukewarm"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusBadRequest, putBody: map[string]any{"error": `evaluator "tone": not an option`},
+			wantErr: errEvalReviewInvalid(`evaluator "tone": not an option`).Error()},
+		{name: "conflict suggests re-running the trace", sets: []string{"tone=warm"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusConflict, putBody: map[string]any{"error": "evaluation set changed"},
+			wantErr: errEvalReviewConflict("evaluation set changed", "trace-abc").Error()},
+		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errEvalReviewTraceRequired().Error()},
+		{name: "at least one set is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody map[string]any
+			var gotPath string
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/human-review"):
+					gotPath = r.URL.Path
+					_ = json.NewDecoder(r.Body).Decode(&gotBody)
+					jsonHandler(tc.putStatus, tc.putBody)(w, r)
+				case strings.HasSuffix(r.URL.Path, "/evaluation-set"):
+					jsonHandler(http.StatusOK, setPayload)(w, r)
+				case strings.Contains(r.URL.Path, "/trace-evaluations/"):
+					jsonHandler(http.StatusOK, tc.current)(w, r)
+				default:
+					jsonHandler(http.StatusOK, listPayload)(w, r)
+				}
+			}))
+			evalServerURLOverride = agentServerURLOverride
+			t.Cleanup(func() { evalServerURLOverride = "" })
+
+			setAgentTargetName(t, evalReviewCmd, "coach")
+			if tc.traceID != "" {
+				require.NoError(t, evalReviewCmd.Flags().Set("trace-id", tc.traceID))
+				t.Cleanup(func() { _ = evalReviewCmd.Flags().Set("trace-id", "") })
+			}
+			for _, s := range tc.sets {
+				require.NoError(t, evalReviewCmd.Flags().Set("set", s))
+			}
+			t.Cleanup(func() { resetStringArrayFlag(t, evalReviewCmd, "set") })
+			if tc.updateDataset {
+				require.NoError(t, evalReviewCmd.Flags().Set("update-dataset", "true"))
+				t.Cleanup(func() { _ = evalReviewCmd.Flags().Set("update-dataset", "false") })
+			}
+			buf := &bytes.Buffer{}
+			evalReviewCmd.SetOut(buf)
+			evalReviewCmd.SetContext(context.Background())
+
+			err := runEvalReview(evalReviewCmd, nil)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(gotPath, "/agents/testaccount/coach/evaluations/trace-abc/human-review"), gotPath)
+			assert.Equal(t, tc.wantBody, gotBody)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func resetStringArrayFlag(t *testing.T, cmd *cobra.Command, name string) {
+	t.Helper()
+	f := cmd.Flags().Lookup(name)
+	require.NotNil(t, f)
+	require.NoError(t, f.Value.(pflag.SliceValue).Replace(nil))
+	f.Changed = false
 }
