@@ -26,7 +26,8 @@ const maxPushRetries = 3
 // causing the manifest PUT to fail once the WorkOS TTL elapses mid-push.
 // See docs/03-architecture/registry-token-auth.md.
 func getDockerRegistryAuth(ctx context.Context, account string) (string, error) {
-	token, err := getAccountToken(ctx, account)
+	// Skips the token cache: push retries reuse this token, so it needs its full lifetime.
+	token, err := forceAccountToken(ctx, account)
 	if err != nil {
 		return "", err
 	}
