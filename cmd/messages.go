@@ -315,7 +315,7 @@ func msgEvalRunQueued(queued, failed, limit int) string {
 	if failed > 0 {
 		fmt.Fprintf(&b, ", %d failed to queue", failed)
 	}
-	b.WriteString(fmt.Sprintf(". Check progress with `%s eval status`.", buildinfo.BinaryName))
+	fmt.Fprintf(&b, ". Check progress with `%s eval status`.", buildinfo.BinaryName)
 	if queued >= limit {
 		fmt.Fprintf(&b, " Up to %d traces run per call, so more may remain: run it again.", limit)
 	}
