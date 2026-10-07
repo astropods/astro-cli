@@ -175,6 +175,10 @@ func TestBlueprintExists(t *testing.T) {
 		{name: "404 means it does not exist", statusCode: http.StatusNotFound, wantExists: false},
 		{name: "403 is inconclusive", statusCode: http.StatusForbidden, wantErr: true},
 		{name: "500 is inconclusive", statusCode: http.StatusInternalServerError, wantErr: true},
+		{
+			name:       "200 with a body that doesn't decode is an error, not a silent exists",
+			statusCode: http.StatusOK, body: `not json`, wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -198,6 +198,9 @@ func blueprintExists(ctx context.Context, serverURL string, at AccountToken, nam
 	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &info)
 	switch status {
 	case http.StatusOK:
+		if err != nil {
+			return false, false, err
+		}
 		return true, info.ArchivedAt != nil, nil
 	case http.StatusNotFound:
 		return false, false, nil
