@@ -446,3 +446,134 @@ func TestAgentTraceListQueryParams(t *testing.T) {
 func TestAgentTraceRejectsPositionalArgs(t *testing.T) {
 	require.EqualError(t, agentTargetArgs(agentTraceCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
 }
+
+func traceEvalHandler(t *testing.T, traces any, detail any, evalStatus int, evalBody any, rawQuery *string) http.Handler {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/trace-evaluations/"):
+			jsonHandler(evalStatus, evalBody)(w, r)
+		case strings.HasSuffix(r.URL.Path, "/observability/traces"):
+			if rawQuery != nil {
+				*rawQuery = r.URL.RawQuery
+			}
+			jsonHandler(http.StatusOK, traces)(w, r)
+		case strings.Contains(r.URL.Path, "/observability/traces/"):
+			jsonHandler(http.StatusOK, detail)(w, r)
+		default:
+			jsonHandler(http.StatusOK, listPayload)(w, r)
+		}
+	})
+}
+
+func setTraceFlag(t *testing.T, name, value, reset string) {
+	t.Helper()
+	require.NoError(t, agentTraceCmd.Flags().Set(name, value))
+	t.Cleanup(func() { _ = agentTraceCmd.Flags().Set(name, reset) })
+}
+
+func TestAgentTraceListEvaluation(t *testing.T) {
+	done := "completed"
+	traces := map[string]any{
+		"traces": []any{
+			map[string]any{"trace_id": "t-evaluated", "name": "coach.chat", "status": "ok", "latency_ms": 10.0, "timestamp": "2026-05-28T11:49:35Z", "evaluation_status": done},
+			map[string]any{"trace_id": "t-pending", "name": "coach.chat", "status": "ok", "latency_ms": 10.0, "timestamp": "2026-05-28T11:49:36Z"},
+		},
+		"total": 2, "limit": 50, "offset": 0,
+	}
+
+	var rawQuery string
+	setupAgentTest(t, traceEvalHandler(t, traces, nil, http.StatusOK, nil, &rawQuery))
+	setAgentTargetName(t, agentTraceCmd, "coach")
+	setTraceFlag(t, "evaluation", "evaluated", "")
+	buf := &bytes.Buffer{}
+	agentTraceCmd.SetOut(buf)
+	agentTraceCmd.SetContext(context.Background())
+
+	require.NoError(t, runAgentTrace(agentTraceCmd, nil))
+	assert.Contains(t, rawQuery, "evaluation=evaluated")
+	out := buf.String()
+	assert.Contains(t, out, "EVAL")
+	assert.Regexp(t, `t-evaluated\s+coach\.chat\s+10ms\s+completed`, out)
+	assert.Regexp(t, `t-pending\s+coach\.chat\s+10ms\s+-`, out)
+}
+
+func TestAgentTraceRejectsInvalidEvaluationFilter(t *testing.T) {
+	setAgentTargetName(t, agentTraceCmd, "coach")
+	setTraceFlag(t, "evaluation", "bogus", "")
+	agentTraceCmd.SetContext(context.Background())
+	require.EqualError(t, runAgentTrace(agentTraceCmd, nil), errTraceEvaluationFilter("bogus").Error())
+}
+
+func TestAgentTraceDetailEvaluation(t *testing.T) {
+	detail := func(inDataset bool) map[string]any {
+		return map[string]any{
+			"trace":        map[string]any{"trace_id": "trace-abc", "name": "coach.chat", "timestamp": "2026-05-28T11:49:35Z", "latency_ms": 10.0},
+			"observations": []any{},
+			"scores":       []any{},
+			"in_dataset":   inDataset,
+		}
+	}
+	evaluated := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-1", "outdated": true, "status": "completed",
+		"run": map[string]any{
+			"id": "run-1", "status": "completed", "updated_at": "2026-05-28T12:00:00Z",
+			"evaluators": []any{map[string]any{
+				"key": "helpful", "label": "Helpful", "status": "completed", "value": true,
+				"confidence": 0.9, "explanation": "Answered the question.",
+			}},
+		},
+		"human_review": map[string]any{
+			"id": "rev-1", "updated_at": "2026-05-28T13:00:00Z",
+			"outputs": []any{map[string]any{"key": "helpful", "value": false}},
+		},
+	}}
+	notEvaluated := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-1", "outdated": false, "status": "", "run": nil, "human_review": nil,
+	}}
+
+	cases := []struct {
+		name       string
+		inDataset  bool
+		evalStatus int
+		evalBody   any
+		jsonOutput bool
+		wantOut    []string
+		wantErrOut string
+	}{
+		{name: "evaluation section", inDataset: true, evalStatus: http.StatusOK, evalBody: evaluated,
+			wantOut: []string{"In dataset: yes", "Evaluation:", "completed (outdated)", "Helpful: true", "confidence 0.90", "Answered the question.", "Human review", "helpful: false"}},
+		{name: "not evaluated", evalStatus: http.StatusOK, evalBody: notEvaluated,
+			wantOut: []string{"In dataset: no", "Not evaluated"}},
+		{name: "json adds evaluation key", evalStatus: http.StatusOK, evalBody: evaluated, jsonOutput: true,
+			wantOut: []string{`"evaluation": {`, `"in_dataset": false`, `"evaluation_ref": "ref-1"`}},
+		{name: "evaluation fetch failure still prints trace", evalStatus: http.StatusInternalServerError, evalBody: map[string]any{"error": "boom"},
+			wantOut: []string{"trace-abc", "In dataset: no"}, wantErrOut: "Could not load the trace's evaluation"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setupAgentTest(t, traceEvalHandler(t, nil, detail(tc.inDataset), tc.evalStatus, tc.evalBody, nil))
+			setAgentTargetName(t, agentTraceCmd, "coach")
+			setAgentTraceID(t, "trace-abc")
+			if tc.jsonOutput {
+				setTraceFlag(t, "json", "true", "false")
+			}
+			buf, errBuf := &bytes.Buffer{}, &bytes.Buffer{}
+			agentTraceCmd.SetOut(buf)
+			agentTraceCmd.SetErr(errBuf)
+			agentTraceCmd.SetContext(context.Background())
+
+			require.NoError(t, runAgentTrace(agentTraceCmd, nil))
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+			if tc.wantErrOut != "" {
+				assert.Contains(t, errBuf.String(), tc.wantErrOut)
+			}
+		})
+	}
+}

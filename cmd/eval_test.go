@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -266,4 +267,124 @@ func TestEvalValidate_MissingFile(t *testing.T) {
 	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
 	require.Error(t, err)
 	assert.Equal(t, errNoEvaluationFile(), err)
+}
+
+func evalReadCmd(t *testing.T, use string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: use}
+	cmd.Flags().Bool("json", false, "")
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func TestEvalGet(t *testing.T) {
+	setPayload := map[string]any{
+		"evaluation_ref": "ref-1",
+		"evaluators": []any{
+			map[string]any{"key": "helpful", "label": "Helpful", "type": "llm_judge", "output": map[string]any{"type": "boolean"}},
+			map[string]any{"key": "tone", "label": "Tone", "type": "llm_judge", "output": map[string]any{"type": "enum", "options": []string{"warm", "cold"}}},
+			map[string]any{"key": "score", "label": "Score", "type": "llm_judge", "output": map[string]any{"type": "number", "minimum": 1, "maximum": 5}},
+		},
+	}
+	cases := []struct {
+		name       string
+		statusCode int
+		body       any
+		jsonOutput bool
+		wantErr    string
+		wantOut    []string
+	}{
+		{name: "table of evaluators", statusCode: http.StatusOK, body: setPayload,
+			wantOut: []string{"ref-1", "helpful", "true, false", "warm, cold", "1 to 5"}},
+		{name: "json output", statusCode: http.StatusOK, body: setPayload, jsonOutput: true,
+			wantOut: []string{`"evaluation_ref": "ref-1"`}},
+		{name: "empty set", statusCode: http.StatusOK, body: map[string]any{"evaluation_ref": "r", "evaluators": []any{}},
+			wantOut: []string{msgNoEvaluators("coach")}},
+		{name: "not found", statusCode: http.StatusNotFound, body: map[string]any{"error": "agent not found"},
+			wantErr: errEvalSetNotFound("coach", "testaccount").Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			setupEvalTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				jsonHandler(tc.statusCode, tc.body)(w, r)
+			}))
+			cmd := evalReadCmd(t, "get")
+			if tc.jsonOutput {
+				require.NoError(t, cmd.Flags().Set("json", "true"))
+			}
+			buf := &bytes.Buffer{}
+			cmd.SetOut(buf)
+
+			err := runEvalGet(cmd, []string{"coach"})
+			assert.True(t, strings.HasSuffix(gotPath, "/agents/testaccount/coach/evaluation-set") ||
+				strings.HasSuffix(gotPath, "/coach/evaluation-set"), "path %q", gotPath)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
+}
+
+func TestEvalStatus(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	summary := map[string]any{"queued": 1, "in_progress": 2, "completed": 30, "failed": 4, "outdated_count": 5}
+
+	cases := []struct {
+		name       string
+		statusCode int
+		body       any
+		jsonOutput bool
+		wantErr    string
+		wantOut    []string
+	}{
+		{name: "prints counts", statusCode: http.StatusOK, body: summary,
+			wantOut: []string{"Queued:       1", "In progress:  2", "Completed:    30", "Failed:       4", "Outdated:     5"}},
+		{name: "json output", statusCode: http.StatusOK, body: summary, jsonOutput: true,
+			wantOut: []string{`"outdated_count": 5`}},
+		{name: "not configured", statusCode: http.StatusServiceUnavailable, body: map[string]any{"error": "x"},
+			wantErr: errEvaluationNotConfigured().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var summaryPath string
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/evaluations/summary") {
+					summaryPath = r.URL.Path
+					jsonHandler(tc.statusCode, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, listPayload)(w, r)
+			}))
+			setAgentTargetName(t, evalStatusCmd, "coach")
+			if tc.jsonOutput {
+				require.NoError(t, evalStatusCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { _ = evalStatusCmd.Flags().Set("json", "false") })
+			}
+			buf := &bytes.Buffer{}
+			evalStatusCmd.SetOut(buf)
+			evalStatusCmd.SetContext(context.Background())
+
+			err := runEvalStatus(evalStatusCmd, nil)
+			assert.Equal(t, "/api/v1/deployments/dep-abc-123/evaluations/summary", summaryPath)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
 }

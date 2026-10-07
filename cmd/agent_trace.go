@@ -3,12 +3,14 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
 
+	evalspec "github.com/astropods/astro-spec/eval"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
@@ -35,19 +37,21 @@ func init() {
 	agentTraceCmd.Flags().Int("offset", 0, "Pagination offset for list")
 	agentTraceCmd.Flags().String("start", "", "List window start (RFC3339)")
 	agentTraceCmd.Flags().String("end", "", "List window end (RFC3339)")
+	agentTraceCmd.Flags().String("evaluation", "", "Filter the list by evaluation: evaluated or not_evaluated")
 }
 
 type traceEntry struct {
-	TraceID     string          `json:"trace_id"`
-	Name        string          `json:"name"`
-	Status      string          `json:"status"`
-	LatencyMS   float64         `json:"latency_ms"`
-	TotalTokens int             `json:"total_tokens,omitempty"`
-	TotalCost   float64         `json:"total_cost,omitempty"`
-	Input       json.RawMessage `json:"input,omitempty"`
-	Output      json.RawMessage `json:"output,omitempty"`
-	Timestamp   string          `json:"timestamp"`
-	UserID      string          `json:"user_id,omitempty"`
+	TraceID          string          `json:"trace_id"`
+	Name             string          `json:"name"`
+	Status           string          `json:"status"`
+	LatencyMS        float64         `json:"latency_ms"`
+	TotalTokens      int             `json:"total_tokens,omitempty"`
+	TotalCost        float64         `json:"total_cost,omitempty"`
+	EvaluationStatus *string         `json:"evaluation_status,omitempty"`
+	Input            json.RawMessage `json:"input,omitempty"`
+	Output           json.RawMessage `json:"output,omitempty"`
+	Timestamp        string          `json:"timestamp"`
+	UserID           string          `json:"user_id,omitempty"`
 }
 
 type tracesListResponse struct {
@@ -97,6 +101,12 @@ type traceDetailResponse struct {
 	Trace        traceDetail        `json:"trace"`
 	Observations []traceObservation `json:"observations"`
 	Scores       []traceScore       `json:"scores"`
+	InDataset    bool               `json:"in_dataset"`
+}
+
+type traceDetailOutput struct {
+	traceDetailResponse
+	Evaluation *traceEvaluation `json:"evaluation,omitempty"`
 }
 
 func runAgentTrace(cmd *cobra.Command, args []string) error {
@@ -111,6 +121,10 @@ func runAgentTrace(cmd *cobra.Command, args []string) error {
 	end, _ := cmd.Flags().GetString("end")
 	if err := validateTraceTimeWindow(start, end); err != nil {
 		return err
+	}
+
+	if v, _ := cmd.Flags().GetString("evaluation"); v != "" && v != "evaluated" && v != "not_evaluated" {
+		return errTraceEvaluationFilter(v)
 	}
 
 	at, verbose, err := cmdAuth(cmd)
@@ -175,6 +189,9 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 	if v, _ := cmd.Flags().GetString("end"); v != "" {
 		q.Set("end_time", v)
 	}
+	if v, _ := cmd.Flags().GetString("evaluation"); v != "" {
+		q.Set("evaluation", v)
+	}
 
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/observability/traces?%s", agentBaseURL(), url.PathEscape(id), q.Encode())
 	var result tracesListResponse
@@ -205,11 +222,13 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 	const traceIDWidth = 32
 	const nameWidth = 24
 	const latWidth = 9
-	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %s\n", //nolint:errcheck,gosec
+	const evalWidth = 11
+	dim.Fprintf(w, "%-*s  %-*s  %-*s  %-*s  %-*s  %s\n", //nolint:errcheck,gosec
 		tableTimeWidth, "Time",
 		traceIDWidth, "Trace ID",
 		nameWidth, "Name",
 		latWidth, "Latency",
+		evalWidth, "EVAL",
 		"Cost")
 
 	for _, t := range result.Traces {
@@ -221,9 +240,13 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 		if t.TotalCost > 0 {
 			cost = fmt.Sprintf("$%.4f", t.TotalCost)
 		}
-		dim.Fprintf(w, "%-*s  ", tableTimeWidth, ts)                           //nolint:errcheck,gosec
-		cyan.Fprintf(w, "%-*s  ", traceIDWidth, tid)                           //nolint:errcheck,gosec
-		fmt.Fprintf(w, "%-*s  %-*s  %s\n", nameWidth, nm, latWidth, lat, cost) //nolint:errcheck,gosec
+		dim.Fprintf(w, "%-*s  ", tableTimeWidth, ts) //nolint:errcheck,gosec
+		cyan.Fprintf(w, "%-*s  ", traceIDWidth, tid) //nolint:errcheck,gosec
+		evalStatus := "-"
+		if t.EvaluationStatus != nil && *t.EvaluationStatus != "" {
+			evalStatus = *t.EvaluationStatus
+		}
+		fmt.Fprintf(w, "%-*s  %-*s  %-*s  %s\n", nameWidth, nm, latWidth, lat, evalWidth, evalStatus, cost) //nolint:errcheck,gosec
 	}
 
 	if result.Total > offset+len(result.Traces) {
@@ -245,9 +268,11 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 		return err
 	}
 
+	evaluation, evalErr := fetchTraceEvaluation(cmd, id, traceID, at, verbose)
+
 	w := cmd.OutOrStdout()
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		return writeJSON(w, result)
+		return writeJSON(w, traceDetailOutput{traceDetailResponse: result, Evaluation: evaluation})
 	}
 
 	dim := color.New(color.Faint)
@@ -261,6 +286,7 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 	if t.TotalCost > 0 {
 		fmt.Fprintf(w, "  Cost:       $%.4f\n", t.TotalCost) //nolint:errcheck,gosec
 	}
+	fmt.Fprintf(w, "  In dataset: %s\n", yesNo(result.InDataset)) //nolint:errcheck,gosec
 	if t.SessionID != "" {
 		fmt.Fprintf(w, "  Session:    %s\n", t.SessionID) //nolint:errcheck,gosec
 	}
@@ -326,5 +352,124 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 			fmt.Fprintln(w, line) //nolint:errcheck,gosec
 		}
 	}
+
+	switch {
+	case evalErr != nil:
+		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", msgTraceEvaluationUnavailable(evalErr)) //nolint:errcheck,gosec
+	case evaluation != nil:
+		printTraceEvaluation(w, evaluation)
+	}
 	return nil
+}
+
+type traceEvaluatorResult struct {
+	Key         string           `json:"key"`
+	Label       string           `json:"label,omitempty"`
+	Status      string           `json:"status"`
+	Value       json.RawMessage  `json:"value"`
+	Confidence  float64          `json:"confidence"`
+	Explanation string           `json:"explanation"`
+	Error       *string          `json:"error"`
+	Output      *evalspec.Output `json:"output,omitempty"`
+}
+
+type traceEvaluationRun struct {
+	ID         string                 `json:"id"`
+	Status     string                 `json:"status"`
+	Error      *string                `json:"error"`
+	UpdatedAt  string                 `json:"updated_at"`
+	Evaluators []traceEvaluatorResult `json:"evaluators"`
+}
+
+type traceHumanReviewOutput struct {
+	Key   string          `json:"key"`
+	Value json.RawMessage `json:"value"`
+}
+
+type traceHumanReview struct {
+	UpdatedAt string                   `json:"updated_at"`
+	Outputs   []traceHumanReviewOutput `json:"outputs"`
+}
+
+type traceEvaluation struct {
+	EvaluationRef string              `json:"evaluation_ref"`
+	Outdated      bool                `json:"outdated"`
+	Status        string              `json:"status"`
+	Run           *traceEvaluationRun `json:"run"`
+	HumanReview   *traceHumanReview   `json:"human_review"`
+}
+
+type traceEvaluationResponse struct {
+	Evaluation traceEvaluation `json:"evaluation"`
+}
+
+// fetchTraceEvaluation reads one trace's evaluation from a deployment.
+func fetchTraceEvaluation(cmd *cobra.Command, depID, traceID string, at AccountToken, verbose bool) (*traceEvaluation, error) {
+	u := fmt.Sprintf("%s/api/v1/deployments/%s/trace-evaluations/%s",
+		agentBaseURL(), url.PathEscape(depID), url.PathEscape(traceID))
+	var resp traceEvaluationResponse
+	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &resp); err != nil {
+		return nil, err
+	}
+	return &resp.Evaluation, nil
+}
+
+func printTraceEvaluation(w io.Writer, ev *traceEvaluation) {
+	dim := color.New(color.Faint)
+	dim.Fprintln(w, "\nEvaluation:") //nolint:errcheck,gosec
+
+	if ev.Status == "" && ev.Run == nil && ev.HumanReview == nil {
+		fmt.Fprintln(w, "  Not evaluated") //nolint:errcheck,gosec
+		return
+	}
+
+	status := ev.Status
+	if ev.Outdated {
+		status += " (outdated)"
+	}
+	fmt.Fprintf(w, "  Status:  %s\n", status) //nolint:errcheck,gosec
+
+	if ev.Run != nil {
+		if ev.Run.Error != nil && *ev.Run.Error != "" {
+			fmt.Fprintf(w, "  Error:   %s\n", *ev.Run.Error) //nolint:errcheck,gosec
+		}
+		for _, r := range ev.Run.Evaluators {
+			label := r.Label
+			if label == "" {
+				label = r.Key
+			}
+			line := fmt.Sprintf("  %s: %s", label, rawValue(r.Value))
+			if r.Status != "" && r.Status != "completed" {
+				line += fmt.Sprintf("  [%s]", r.Status)
+			}
+			if r.Confidence > 0 {
+				line += fmt.Sprintf("  confidence %.2f", r.Confidence)
+			}
+			fmt.Fprintln(w, line) //nolint:errcheck,gosec
+			if r.Explanation != "" {
+				dim.Fprintf(w, "    %s\n", r.Explanation) //nolint:errcheck,gosec
+			}
+			if r.Error != nil && *r.Error != "" {
+				dim.Fprintf(w, "    Error: %s\n", *r.Error) //nolint:errcheck,gosec
+			}
+		}
+	}
+
+	if ev.HumanReview != nil {
+		dim.Fprintf(w, "\n  Human review (%s):\n", ev.HumanReview.UpdatedAt) //nolint:errcheck,gosec
+		for _, o := range ev.HumanReview.Outputs {
+			fmt.Fprintf(w, "    %s: %s\n", o.Key, rawValue(o.Value)) //nolint:errcheck,gosec
+		}
+	}
+}
+
+func rawValue(v json.RawMessage) string {
+	if len(v) == 0 || string(v) == "null" {
+		return "-"
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err == nil {
+		return s
+	}
+	return string(v)
 }

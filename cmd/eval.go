@@ -3,12 +3,15 @@ package cmd
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
 	spec "github.com/astropods/astro-spec"
 	evalspec "github.com/astropods/astro-spec/eval"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -60,12 +63,54 @@ var evalValidateCmd = &cobra.Command{
 	RunE:  runEvalValidate,
 }
 
+var evalGetCmd = &cobra.Command{
+	Use:   "get <blueprint>",
+	Short: "Show a blueprint's active evaluators",
+	Long:  "Prints the evaluators in the blueprint's active evaluation set: key, label, type, and accepted values.",
+	Args:  exactValidAgentName,
+	RunE:  runEvalGet,
+}
+
+var evalStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show evaluation progress for a deployment",
+	Long:  "Prints how many of a deployment's traces are queued, in progress, completed, failed, and outdated.",
+	Args:  agentTargetArgs,
+	RunE:  runEvalStatus,
+}
+
 func init() {
 	rootCmd.AddCommand(evalCmd)
 	evalCmd.AddCommand(evalPushCmd)
 	evalCmd.AddCommand(evalValidateCmd)
+	evalCmd.AddCommand(evalGetCmd)
+	evalCmd.AddCommand(evalStatusCmd)
 	evalPushCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	evalValidateCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
+	evalGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	registerAgentTargetFlags(evalStatusCmd)
+	evalStatusCmd.Flags().Bool("json", false, "Print raw JSON output")
+}
+
+type evalSetEvaluator struct {
+	Key         string          `json:"key"`
+	Label       string          `json:"label"`
+	Description string          `json:"description,omitempty"`
+	Type        string          `json:"type"`
+	Output      evalspec.Output `json:"output"`
+}
+
+type evalSetResponse struct {
+	EvaluationRef string             `json:"evaluation_ref"`
+	Evaluators    []evalSetEvaluator `json:"evaluators"`
+}
+
+type evalSummaryResponse struct {
+	Queued        int `json:"queued"`
+	InProgress    int `json:"in_progress"`
+	Completed     int `json:"completed"`
+	Failed        int `json:"failed"`
+	OutdatedCount int `json:"outdated_count"`
 }
 
 func runEvalPush(cmd *cobra.Command, args []string) error {
@@ -137,6 +182,106 @@ func runEvalValidate(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintf(w, "  %s✓%s valid %s%s%s\n", //nolint:errcheck,gosec
 		colorGreen, colorReset, colorDim, result.EvaluationRef, colorReset)
+	return nil
+}
+
+func runEvalGet(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+
+	u := apiPath(evalBaseURL(), at.Account, "agents", name, "evaluation-set")
+	var set evalSetResponse
+	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &set)
+	if status == http.StatusNotFound {
+		return errEvalSetNotFound(name, at.Account)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, set)
+	}
+
+	if len(set.Evaluators) == 0 {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoEvaluators(name), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+
+	dim := color.New(color.Faint)
+	dim.Fprintf(w, "Evaluation set %s\n\n", set.EvaluationRef) //nolint:errcheck,gosec
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "KEY\tLABEL\tTYPE\tACCEPTS") //nolint:errcheck,gosec
+	for _, e := range set.Evaluators {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Key, e.Label, e.Type, describeEvalOutput(e.Output)) //nolint:errcheck,gosec
+	}
+	return tw.Flush()
+}
+
+func describeEvalOutput(o evalspec.Output) string {
+	switch o.Type {
+	case evalspec.OutputBoolean:
+		return "true, false"
+	case evalspec.OutputEnum:
+		return strings.Join(o.Options, ", ")
+	case evalspec.OutputNumber:
+		switch {
+		case o.Minimum != nil && o.Maximum != nil:
+			return fmt.Sprintf("%g to %g", *o.Minimum, *o.Maximum)
+		case o.Minimum != nil:
+			return fmt.Sprintf("%g or more", *o.Minimum)
+		case o.Maximum != nil:
+			return fmt.Sprintf("%g or less", *o.Maximum)
+		}
+		return "any number"
+	case evalspec.OutputString:
+		if o.MaxLength != nil {
+			return fmt.Sprintf("text, up to %d characters", *o.MaxLength)
+		}
+		return "text"
+	}
+	return string(o.Type)
+}
+
+func runEvalStatus(cmd *cobra.Command, _ []string) error {
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	dep, err := resolveAgentTarget(cmd, at, verbose)
+	if err != nil {
+		return err
+	}
+
+	u := fmt.Sprintf("%s/api/v1/deployments/%s/evaluations/summary", agentBaseURL(), url.PathEscape(dep.ID))
+	var sum evalSummaryResponse
+	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &sum)
+	switch status {
+	case http.StatusNotFound:
+		return errAgentDeploymentNotFound(deploymentLabel(dep))
+	case http.StatusServiceUnavailable:
+		return errEvaluationNotConfigured()
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, sum)
+	}
+
+	dim := color.New(color.Faint)
+	dim.Fprintf(w, "Evaluations for %s\n", deploymentLabel(dep)) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Queued:       %d\n", sum.Queued)           //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  In progress:  %d\n", sum.InProgress)       //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Completed:    %d\n", sum.Completed)        //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Failed:       %d\n", sum.Failed)           //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Outdated:     %d\n", sum.OutdatedCount)    //nolint:errcheck,gosec
 	return nil
 }
 

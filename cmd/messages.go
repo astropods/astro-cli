@@ -282,6 +282,26 @@ func errAgentTraceNotFound(traceID, target string) error {
 	return fmt.Errorf("no trace %q found for %q", traceID, target)
 }
 
+func errTraceEvaluationFilter(value string) error {
+	return fmt.Errorf("--evaluation %q is not valid; use evaluated or not_evaluated", value)
+}
+
+func errEvalSetNotFound(name, account string) error {
+	return fmt.Errorf("blueprint %q not found in account %q", name, account)
+}
+
+func errEvaluationNotConfigured() error {
+	return fmt.Errorf("evaluation is not configured in this environment")
+}
+
+func msgTraceEvaluationUnavailable(err error) string {
+	return fmt.Sprintf("Could not load the trace's evaluation: %v", err)
+}
+
+func msgNoEvaluators(name string) string {
+	return fmt.Sprintf("No evaluators in the active evaluation set for %s", name)
+}
+
 func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }
