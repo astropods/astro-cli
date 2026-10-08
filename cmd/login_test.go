@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,8 +12,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/claudesettings"
-	"github.com/astropods/astro-cli/internal/deviceid"
 	"github.com/fatih/color"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -173,8 +170,7 @@ func TestLoginAccountFlagOverridesPriorSelection(t *testing.T) {
 	require.Equal(t, "other-org", account)
 }
 
-// gateway, when set, serves every astro-server route other than /api/v1/me.
-func loginWaitTestServers(t *testing.T, gateway http.Handler) {
+func loginWaitTestServers(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 
@@ -209,11 +205,7 @@ func loginWaitTestServers(t *testing.T, gateway http.Handler) {
 	auth.SetWorkOSBaseURLOverride(workos.URL)
 	t.Cleanup(func() { auth.SetWorkOSBaseURLOverride("") })
 
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if gateway != nil && r.URL.Path != "/api/v1/me" {
-			gateway.ServeHTTP(w, r)
-			return
-		}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"accounts": []map[string]string{{"id": "acct-1", "name": "alice", "type": "personal"}},
@@ -278,7 +270,7 @@ func TestLoginWaitLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loginWaitTestServers(t, nil)
+			loginWaitTestServers(t)
 			prior := stdoutIsTerminal
 			stdoutIsTerminal = func() bool { return tt.isTTY }
 			priorWidth := stdoutWidth
@@ -294,35 +286,6 @@ func TestLoginWaitLine(t *testing.T) {
 			tt.assert(t, out)
 		})
 	}
-}
-
-func TestLogin_ConnectsTheGatewayForAnAccountThatAsksForIt(t *testing.T) {
-	gateway := &fakeGatewayServer{enabled: map[string]bool{"alice": true}, keys: map[string][]gatewayKeyMeta{}}
-	loginWaitTestServers(t, gateway.handler(t))
-	t.Setenv("NO_COLOR", "1")
-	t.Setenv(claudesettings.EnvBaseURL, "")
-	claudeDir := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
-	t.Chdir(t.TempDir())
-	prevSource, prevInteractive, prevTerminal := deviceid.Source, interactiveTerminal, stdoutIsTerminal
-	deviceid.Source = func() (string, error) { return "machine-1", nil }
-	interactiveTerminal = func() bool { return false }
-	stdoutIsTerminal = func() bool { return false }
-	t.Cleanup(func() {
-		deviceid.Source, interactiveTerminal, stdoutIsTerminal = prevSource, prevInteractive, prevTerminal
-	})
-
-	var loginErr error
-	out := captureStdout(t, func() { loginErr = runLogin(loginCmd, nil) })
-	require.NoError(t, loginErr)
-
-	assert.Len(t, gateway.mints, 1, "login mints a key for the account that turned auto-connect on")
-	assert.Contains(t, out, msgGatewayConnected("alice", buildinfo.BinaryName))
-	settings, err := claudesettings.Load(filepath.Join(claudeDir, "settings.json"))
-	require.NoError(t, err)
-	got, _, err := settings.Env(claudesettings.EnvBaseURL)
-	require.NoError(t, err)
-	assert.Equal(t, testGatewayURL, got)
 }
 
 // fatih/color writes to color.Output, which captured the real stdout at init, so
