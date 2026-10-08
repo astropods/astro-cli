@@ -224,12 +224,24 @@ func createBlueprintShell(ctx context.Context, serverURL string, at AccountToken
 	return errBlueprintCreateFailed(name, at.Account, fmt.Errorf("unexpected status %d", status))
 }
 
-// resolveOrRenameBlueprint checks whether name exists at at.Account. A
-// free name is reserved via createBlueprintShell, so a race there falls
-// into the same flow as an existing name. An existing name returns
-// immediately for personalAccount or yes; otherwise it prompts via
-// confirmUpdateOrRename, looping under the new name on a rename choice.
-func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount string, yes, verbose bool) (string, error) {
+// resolveOrRenameBlueprint checks whether name exists at at.Account. A free
+// name is reserved via createBlueprintShell, so a race there falls into the
+// same flow as an existing name. An existing name returns immediately for
+// personalAccount, yes, or a matching push link (see readPushLink) from a
+// prior resolution for specPath — the link only skips the prompt, not the
+// existence check itself, so a blueprint deleted server-side since the link
+// was written still gets recreated, and one recreated under a different
+// owner still exists for this check (the server's own permission check is
+// what guards that case, same as every other push). Otherwise it prompts
+// via confirmUpdateOrRename, looping under the new name on a rename choice.
+//
+// This does not write the link itself — the caller does that only once
+// checkBlueprintPushPermission has actually authorized the push; see
+// writePushLink's doc comment for why.
+func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL string, at AccountToken, name, personalAccount, specPath string, yes, verbose bool) (string, error) {
+	link := readPushLink(specPath)
+	linked := link != nil && link.Account == at.Account && link.Name == name
+
 	isPersonal := at.Account == personalAccount
 	originalName := name
 	attempt := 0
@@ -247,7 +259,7 @@ func resolveOrRenameBlueprint(ctx context.Context, warnW io.Writer, serverURL st
 			}
 			// Someone else won the race between the read and this attempt.
 		}
-		if isPersonal || yes {
+		if isPersonal || yes || linked {
 			return name, nil
 		}
 
@@ -298,6 +310,7 @@ func runPush(ctx context.Context, w, errW io.Writer, at AccountToken, cfg PushPi
 	if err := checkBlueprintPushPermission(ctx, serverURL, at, cfg.AgentName, cfg.Verbose); err != nil {
 		return err
 	}
+	writePushLink(cfg.SpecPath, at.Account, cfg.AgentName)
 
 	registryHost, err := getRegistryHost(registryURL)
 	if err != nil {
