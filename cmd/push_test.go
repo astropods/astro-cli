@@ -20,6 +20,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -541,9 +542,115 @@ func TestRegisterAgent_PermissionRaceIsActionable(t *testing.T) {
 		false,
 		true,
 		"acme",
+		gitmetadata.Metadata{},
 	)
 
 	require.EqualError(t, err, "Your access does not grant blueprint:edit.")
+}
+
+func TestRegisterAgentWithServerSendsGitMetadataWhenAvailable(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:        "0123456789abcdef0123456789abcdef01234567",
+			CommitMessage:    "feat: preserve git context\n\nCommit body",
+			WorkingTreeDirty: true,
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", received["commit_sha"])
+	assert.Equal(t, "feat: preserve git context\n\nCommit body", received["commit_message"])
+	assert.Equal(t, true, received["working_tree_dirty"])
+}
+
+func TestRegisterAgentWithServerOmitsUnavailableGitMetadata(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.NotContains(t, received, "commit_sha")
+	assert.NotContains(t, received, "commit_message")
+	assert.NotContains(t, received, "working_tree_dirty")
+}
+
+func TestRegisterAgentWithServerOmitsUnknownGitStatusButKeepsCommit(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:     "0123456789abcdef0123456789abcdef01234567",
+			CommitMessage: "feat: incomplete provenance",
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", received["commit_sha"])
+	assert.Equal(t, "feat: incomplete provenance", received["commit_message"])
+	assert.NotContains(t, received, "working_tree_dirty")
+}
+
+func TestRegisterAgentWithServerSendsVerifiedCleanGitStatus(t *testing.T) {
+	var received map[string]any
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decodeErr = json.NewDecoder(r.Body).Decode(&received)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	err := registerAgentWithServer(
+		context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+		"spec: blueprint/v1", "", nil, "private", false, true, "acme",
+		gitmetadata.Metadata{
+			CommitSHA:              "0123456789abcdef0123456789abcdef01234567",
+			CommitMessage:          "feat: clean build",
+			WorkingTreeStatusKnown: true,
+		},
+	)
+
+	require.NoError(t, err)
+	require.NoError(t, decodeErr)
+	assert.Equal(t, false, received["working_tree_dirty"])
 }
 
 const (
@@ -638,7 +745,7 @@ func TestRegisterAgentWithServer_RefusalIsReportedOnce(t *testing.T) {
 			refusingServer(t, tt.status, tt.body)
 
 			err := registerAgentWithServer(context.Background(), pushBaseURL(), "daily-driver", "build-id",
-				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme")
+				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme", gitmetadata.Metadata{})
 
 			assertSingleRegistrationMessage(t, err, tt.wantErr, tt.wantExit)
 		})
@@ -690,7 +797,7 @@ func TestRegisterAgentWithServer_UnauthorizedSuggestsLogin(t *testing.T) {
 			refusingServer(t, http.StatusUnauthorized, tt.body)
 
 			err := registerAgentWithServer(context.Background(), pushBaseURL(), "daily-driver", "build-id",
-				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme")
+				"registry.example.com/acme", "spec: blueprint/v1", "", nil, "private", false, true, "acme", gitmetadata.Metadata{})
 
 			require.EqualError(t, err, tt.wantErr)
 			assert.NotContains(t, err.Error(), "{", "raw JSON must never reach the user")
@@ -1517,6 +1624,7 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 
 func TestPush_AllowAccountOverride(t *testing.T) {
 	registerCalled := false
+	var registration map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/register") {
 			if r.URL.Query().Get("dryrun") == "true" {
@@ -1524,6 +1632,7 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 				return
 			}
 			registerCalled = true
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&registration))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"message": "ok"}) //nolint:errcheck
@@ -1565,6 +1674,9 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, registerCalled, "expected /register endpoint to be called")
+	assert.NotContains(t, registration, "commit_sha")
+	assert.NotContains(t, registration, "commit_message")
+	assert.NotContains(t, registration, "working_tree_dirty")
 	assert.Contains(t, out, "overridden to current account", "expected account override warning in output")
 }
 
@@ -1590,12 +1702,20 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "yes", "allow-account-override", "file", "json"} {
+	for _, name := range []string{"visibility", "no-build", "allow-dirty", "yes", "allow-account-override", "file", "json"} {
 		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
 			_ = f.Value.Set(f.DefValue)
 			f.Changed = false
 		}
 	}
+}
+
+func TestReusableBuildFlagsAreNotRegistered(t *testing.T) {
+	assert.Nil(t, blueprintPushCmd.Flags().Lookup("build-id"))
+	assert.Nil(t, blueprintBuildCmd.Flags().Lookup("json"))
+	command, _, err := rootCmd.Find([]string{"build"})
+	require.NoError(t, err)
+	assert.Nil(t, command.Flags().Lookup("json"))
 }
 
 func TestRunBlueprintPush_AccountMismatchErrorIsActionableNotMisleading(t *testing.T) {

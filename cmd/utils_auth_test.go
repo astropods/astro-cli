@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro-cli/internal/auth"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 )
 
 func authTestJWT(exp time.Time) string {
@@ -315,7 +316,7 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 			t.Cleanup(api.Close)
 
 			err := registerAgentWithServer(context.Background(), api.URL, "my-agent", "build-1", "registry.example.com/alice",
-				"spec", "", nil, "", false, false, "alice")
+				"spec", "", nil, "", false, false, "alice", gitmetadata.Metadata{})
 			require.Error(t, err)
 			assert.Equal(t, tt.wantErr(body).Error(), err.Error(), "the message must come from messages.go")
 			assert.Equal(t, 1, strings.Count(err.Error(), "re-authenticate"), "the login hint must appear exactly once")

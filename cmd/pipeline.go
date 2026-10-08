@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
@@ -24,6 +26,7 @@ type PushPipelineConfig struct {
 	Platform     string
 	SkipBuild    bool
 	SkipPush     bool
+	AllowDirty   bool
 	RegistryHost string
 	Account      string
 	Verbose      bool
@@ -41,6 +44,7 @@ type PushPipelineConfig struct {
 //		ParseSpec().
 //		CollectComponents().
 //		ResolveVisibility().
+//		CollectGitMetadata().
 //		Build().
 //		Push().
 //		TransformSpec().
@@ -59,8 +63,57 @@ type PushPipeline struct {
 	readme       string
 	readmeAssets map[string]string
 	visibility   Visibility
+	gitMetadata  gitmetadata.Metadata
 
 	err error
+}
+
+// CollectGitMetadata snapshots the repository state that produces a build.
+// --no-build pushes have no reliable relationship to the current checkout, so
+// they intentionally omit Git provenance.
+func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
+	return p.step(func() error {
+		if p.cfg.SkipBuild {
+			return nil
+		}
+		p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
+		return p.validateDirtyPush()
+	})
+}
+
+func (p *PushPipeline) relevantGitPaths() []string {
+	return relevantGitPaths(p.cfg.SpecPath, p.components)
+}
+
+func relevantGitPaths(specPath string, components []spec.Component) []string {
+	workingDir := filepath.Dir(specPath)
+	paths := []string{workingDir}
+	for _, component := range components {
+		paths = append(paths, filepath.Clean(filepath.Join(workingDir, component.Build.Context)))
+	}
+	return paths
+}
+
+func (p *PushPipeline) validateDirtyPush() error {
+	if !p.gitMetadata.WorkingTreeDirty {
+		if p.gitMetadata.CommitSHA != "" && !p.gitMetadata.WorkingTreeStatusKnown {
+			printIncompleteGitProvenanceWarning(progressW())
+		}
+		return nil
+	}
+	if p.cfg.AllowDirty {
+		printDirtyPushWarning()
+		return nil
+	}
+	return errDirtyWorkingTree
+}
+
+func printDirtyPushWarning() {
+	fmt.Fprintf(progressW(), "%s!%s %s\n", colorYellow, colorReset, msgDirtyPushWarning()) //nolint:errcheck,gosec
+}
+
+func printIncompleteGitProvenanceWarning(w io.Writer) {
+	fmt.Fprintf(w, "%s!%s %s\n", colorYellow, colorReset, msgIncompleteGitProvenanceWarning()) //nolint:errcheck,gosec
 }
 
 // NewPushPipeline creates a pipeline ready for chaining.
@@ -350,7 +403,7 @@ func (p *PushPipeline) Register() *PushPipeline {
 
 		printStep("Registering agent with server...")
 		if err := registerAgentWithServer(p.ctx, pushBaseURL(), p.cfg.AgentName, p.tag, registryPath,
-			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account); err != nil {
+			string(transformedSpecData), p.readme, p.readmeAssets, string(p.visibility), p.cfg.Verbose, false, p.cfg.Account, p.gitMetadata); err != nil {
 			printStepFail()
 			return err
 		}

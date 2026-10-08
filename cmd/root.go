@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,13 +66,22 @@ func Execute() {
 	}
 
 	if execErr != nil {
-		fmt.Fprintln(os.Stderr, execErr)
+		printExecutionError(os.Stderr, execErr)
 		os.Exit(exitCodeFor(execErr))
 	}
 
 	if invoked == nil || invoked.Name() != "upgrade" {
 		notifyIfUpdateAvailable()
 	}
+}
+
+func printExecutionError(w io.Writer, err error) {
+	if errors.Is(err, errDirtyWorkingTree) {
+		fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, msgDirtyPushBlockedHeadline(), colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "  %s\n", msgDirtyPushBlockedRemediation())                        //nolint:errcheck
+		return
+	}
+	fmt.Fprintln(w, err) //nolint:errcheck
 }
 
 // resolveCommandName returns a command name like "deploy" or "configure.set".

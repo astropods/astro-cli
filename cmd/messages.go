@@ -9,6 +9,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -17,6 +18,28 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
+
+var errDirtyWorkingTree = errors.New(msgDirtyPushBlocked())
+
+func msgDirtyPushBlockedHeadline() string {
+	return "Push blocked: files used by this blueprint have uncommitted changes."
+}
+
+func msgDirtyPushBlockedRemediation() string {
+	return "Commit them, or rerun this command with --allow-dirty to push anyway."
+}
+
+func msgDirtyPushBlocked() string {
+	return msgDirtyPushBlockedHeadline() + " " + msgDirtyPushBlockedRemediation()
+}
+
+func msgDirtyPushWarning() string {
+	return "Pushing with uncommitted blueprint changes; this build may not be reproducible."
+}
+
+func msgIncompleteGitProvenanceWarning() string {
+	return "Git provenance could not be fully verified; some files used by this blueprint may not be represented by the recorded commit."
+}
 
 func errAIGatewayRequiresLogin(err error) error {
 	return fmt.Errorf("AI Gateway requires login: %w", err)

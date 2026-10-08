@@ -89,7 +89,10 @@ Spec types and parsing come from the
 4. **Push** — the CLI checks registration access before starting Docker. Each
    allowed push generates a random 8-character build ID used as the image tag.
    Images are tagged and pushed (single or multi-platform); the spec is pushed
-   as an OCI artifact and optionally registered with an Astro server.
+   as an OCI artifact and optionally registered with an Astro server. Normal
+   pushes also collect best-effort Git provenance and guard against dirty build
+   inputs; see [Push Git provenance](docs/push-git-provenance.md) for the policy
+   and registration contract.
 
 ### Local push (local astro-server)
 
