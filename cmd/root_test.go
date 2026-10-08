@@ -19,8 +19,8 @@ func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
 	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree))
 
 	require.Equal(t,
-		colorRed+"✗ Push blocked: files used by this blueprint have uncommitted changes."+colorReset+"\n"+
-			"  Commit them, or rerun this command with --allow-dirty to push anyway.\n",
+		colorRed+"✗ "+msgDirtyPushBlockedHeadline()+colorReset+"\n"+
+			"  "+msgDirtyPushBlockedRemediation()+"\n",
 		output.String(),
 	)
 	plain := stripANSI(output.String())

@@ -77,8 +77,8 @@ func Execute() {
 
 func printExecutionError(w io.Writer, err error) {
 	if errors.Is(err, errDirtyWorkingTree) {
-		fmt.Fprintf(w, "%s✗ Push blocked: files used by this blueprint have uncommitted changes.%s\n", colorRed, colorReset) //nolint:errcheck,gosec
-		fmt.Fprintln(w, "  Commit them, or rerun this command with --allow-dirty to push anyway.")                           //nolint:errcheck
+		fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, msgDirtyPushBlockedHeadline(), colorReset) //nolint:errcheck,gosec
+		fmt.Fprintf(w, "  %s\n", msgDirtyPushBlockedRemediation())                        //nolint:errcheck
 		return
 	}
 	fmt.Fprintln(w, err) //nolint:errcheck

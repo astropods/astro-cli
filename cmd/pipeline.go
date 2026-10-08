@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,8 +18,6 @@ import (
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
-
-var errDirtyWorkingTree = errors.New("push blocked: files used by this blueprint have uncommitted changes; commit them, or rerun this command with --allow-dirty to push anyway")
 
 // PushPipelineConfig holds all parameters for a push pipeline.
 type PushPipelineConfig struct {
@@ -112,11 +109,11 @@ func (p *PushPipeline) validateDirtyPush() error {
 }
 
 func printDirtyPushWarning() {
-	fmt.Fprintf(progressW(), "%s!%s Pushing with uncommitted blueprint changes; this build may not be reproducible.\n", colorYellow, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(progressW(), "%s!%s %s\n", colorYellow, colorReset, msgDirtyPushWarning()) //nolint:errcheck,gosec
 }
 
 func printIncompleteGitProvenanceWarning(w io.Writer) {
-	fmt.Fprintf(w, "%s!%s Git provenance could not be fully verified; some files used by this blueprint may not be represented by the recorded commit.\n", colorYellow, colorReset) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "%s!%s %s\n", colorYellow, colorReset, msgIncompleteGitProvenanceWarning()) //nolint:errcheck,gosec
 }
 
 // NewPushPipeline creates a pipeline ready for chaining.

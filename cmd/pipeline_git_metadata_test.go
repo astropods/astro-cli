@@ -80,7 +80,7 @@ func TestCollectGitMetadataWarnsWhenProvenanceIsIncomplete(t *testing.T) {
 	require.NoError(t, pipeline.Err())
 	assert.NotEmpty(t, pipeline.gitMetadata.CommitSHA)
 	assert.False(t, pipeline.gitMetadata.WorkingTreeStatusKnown)
-	assert.Contains(t, stripANSI(progress.String()), "some files used by this blueprint may not be represented by the recorded commit")
+	assert.Contains(t, stripANSI(progress.String()), msgIncompleteGitProvenanceWarning())
 }
 
 func TestCollectGitMetadataRejectsADirtyRepositoryBeforeLaterSteps(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCollectGitMetadataRejectsADirtyRepositoryBeforeLaterSteps(t *testing.T)
 			return nil
 		})
 
-	require.EqualError(t, pipeline.Err(), "push blocked: files used by this blueprint have uncommitted changes; commit them, or rerun this command with --allow-dirty to push anyway")
+	require.EqualError(t, pipeline.Err(), msgDirtyPushBlocked())
 	assert.ErrorIs(t, pipeline.Err(), errDirtyWorkingTree)
 	assert.False(t, reachedNextStep, "--yes must not bypass the dirty-input check")
 }
@@ -115,7 +115,7 @@ func TestCollectGitMetadataAllowsDirtyWithExplicitFlag(t *testing.T) {
 
 	require.NoError(t, pipeline.Err())
 	assert.True(t, pipeline.gitMetadata.WorkingTreeDirty)
-	assert.Contains(t, progress.String(), "may not be reproducible")
+	assert.Contains(t, progress.String(), msgDirtyPushWarning())
 }
 
 func TestCollectGitMetadataRejectsDirtyInteractivePush(t *testing.T) {
