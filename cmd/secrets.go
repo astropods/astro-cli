@@ -187,6 +187,16 @@ func resolveVaultScope(cmd *cobra.Command, at AccountToken, verbose bool) (vault
 	return scope, nil
 }
 
+// vaultCreateErr adds the environment alternative to a refused account-vault
+// write, since an environment's variables need a blueprint role instead.
+func vaultCreateErr(scope vaultScope, err error) error {
+	var apiErr *apiError
+	if scope.environment == nil && errors.As(err, &apiErr) && apiErr.deniedAction() == variableManageAction {
+		return errVaultCreateDenied(apiErr)
+	}
+	return err
+}
+
 func secretsAuth(cmd *cobra.Command) (vaultScope, bool, error) {
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
@@ -366,7 +376,7 @@ func runSecretCreateWithValue(cmd *cobra.Command, args []string, value string, p
 		return fmt.Errorf("%q already exists; use '%s secrets update' to change its value", name, buildinfo.BinaryName)
 	}
 	if err != nil {
-		return err
+		return vaultCreateErr(scope, err)
 	}
 	for _, r := range result.Results {
 		if r.Status != "created" {
@@ -671,7 +681,7 @@ func runSecretImport(cmd *cobra.Command, _ []string) error {
 		scope.account,
 		verbose,
 		&result); err != nil {
-		return err
+		return vaultCreateErr(scope, err)
 	}
 
 	for _, r := range result.Results {

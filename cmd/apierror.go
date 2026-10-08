@@ -11,6 +11,10 @@ import (
 // so the code rather than the status is what identifies it.
 const billingSuspendedCode = "BILLING_SUSPENDED"
 
+// authorizationDeniedCode is the server's code for a refused permission. Its
+// details carry the sentence the web app shows for the same refusal.
+const authorizationDeniedCode = "AUTHORIZATION_DENIED"
+
 // Billing actions the server names. Each maps to a different thing the reader
 // has to do, and getting it wrong sends an account with a working card to add
 // one it already has.
@@ -59,6 +63,15 @@ func newAPIError(statusCode int, body []byte) *apiError {
 // isBillingSuspended reports whether the account was refused for billing.
 func (e *apiError) isBillingSuspended() bool {
 	return e != nil && e.Code == billingSuspendedCode
+}
+
+// deniedAction reports the permission the server refused, or "" when the
+// error is not a permission refusal.
+func (e *apiError) deniedAction() string {
+	if e == nil || e.Code != authorizationDeniedCode {
+		return ""
+	}
+	return e.Action
 }
 
 func (e *apiError) isStructured() bool {
