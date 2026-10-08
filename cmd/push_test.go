@@ -160,15 +160,25 @@ func TestSuggestedRename(t *testing.T) {
 
 func TestBlueprintExists(t *testing.T) {
 	tests := []struct {
-		name       string
-		statusCode int
-		wantExists bool
-		wantErr    bool
+		name         string
+		statusCode   int
+		body         string
+		wantExists   bool
+		wantArchived bool
+		wantErr      bool
 	}{
-		{name: "200 means it exists", statusCode: http.StatusOK, wantExists: true},
+		{name: "200 means it exists", statusCode: http.StatusOK, body: `{}`, wantExists: true},
+		{
+			name: "200 with archived_at means it's archived", statusCode: http.StatusOK,
+			body: `{"archived_at":"2026-01-01T00:00:00Z"}`, wantExists: true, wantArchived: true,
+		},
 		{name: "404 means it does not exist", statusCode: http.StatusNotFound, wantExists: false},
 		{name: "403 is inconclusive", statusCode: http.StatusForbidden, wantErr: true},
 		{name: "500 is inconclusive", statusCode: http.StatusInternalServerError, wantErr: true},
+		{
+			name:       "200 with a body that doesn't decode is an error, not a silent exists",
+			statusCode: http.StatusOK, body: `not json`, wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -178,10 +188,13 @@ func TestBlueprintExists(t *testing.T) {
 				gotMethod = r.Method
 				gotPath = r.URL.Path
 				w.WriteHeader(tt.statusCode)
+				if tt.body != "" {
+					_, _ = w.Write([]byte(tt.body))
+				}
 			}))
 			t.Cleanup(srv.Close)
 
-			exists, err := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+			exists, archived, err := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -189,6 +202,7 @@ func TestBlueprintExists(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tt.wantExists, exists)
+			assert.Equal(t, tt.wantArchived, archived)
 			assert.Equal(t, http.MethodGet, gotMethod)
 			assert.Equal(t, "/api/v1/agents/acme/my-agent", gotPath)
 		})
@@ -203,15 +217,18 @@ func TestBlueprintExists(t *testing.T) {
 func TestResolveOrRenameBlueprint(t *testing.T) {
 	tests := []struct {
 		name string
-		// getStatus is the existence-check GET's response. createStatus is
-		// the create-shell POST's response, consulted only when getStatus
-		// is 404 (blueprintExists reported the name free).
-		getStatus       int
-		createStatus    int
-		personalAccount string
-		yes             bool
-		wantWarning     bool
-		wantErr         string
+		// getStatus is the existence-check GET's response. getBody is its
+		// body on a 200. createStatus is the create-shell POST's response,
+		// consulted only when getStatus is 404 (blueprintExists reported
+		// the name free).
+		getStatus          int
+		getBody            string
+		createStatus       int
+		personalAccount    string
+		yes                bool
+		wantWarning        bool
+		wantArchiveWarning bool
+		wantErr            string
 	}{
 		{name: "fresh name (404) is reserved by the create call and needs nothing further", getStatus: http.StatusNotFound, createStatus: http.StatusCreated},
 		{
@@ -226,8 +243,12 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 			name:      "fresh name (404) whose reservation attempt fails outright aborts the push",
 			getStatus: http.StatusNotFound, createStatus: http.StatusInternalServerError, wantErr: `failed to reserve "my-agent" in "acme"`,
 		},
-		{name: "existing name (200) in personal namespace proceeds silently", getStatus: http.StatusOK, personalAccount: "acme"},
-		{name: "existing name (200) at an org target with --yes proceeds silently", getStatus: http.StatusOK, yes: true},
+		{name: "existing name (200) in personal namespace proceeds silently", getStatus: http.StatusOK, getBody: `{}`, personalAccount: "acme"},
+		{name: "existing name (200) at an org target with --yes proceeds silently", getStatus: http.StatusOK, getBody: `{}`, yes: true},
+		{
+			name: "archived existing name (200) in personal namespace warns, then proceeds", getStatus: http.StatusOK,
+			getBody: `{"archived_at":"2026-01-01T00:00:00Z"}`, personalAccount: "acme", wantArchiveWarning: true,
+		},
 		{name: "inconclusive response (403) is treated as existing", getStatus: http.StatusForbidden, personalAccount: "acme", wantWarning: true},
 		{name: "inconclusive response (500) is treated as existing", getStatus: http.StatusInternalServerError, yes: true, wantWarning: true},
 	}
@@ -241,6 +262,9 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 				if r.Method == http.MethodGet {
 					gotMethod, gotPath = r.Method, r.URL.Path
 					w.WriteHeader(tt.getStatus)
+					if tt.getBody != "" {
+						_, _ = w.Write([]byte(tt.getBody))
+					}
 					return
 				}
 				w.WriteHeader(tt.createStatus)
@@ -262,11 +286,14 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 			assert.Equal(t, "my-agent", got)
 			assert.Equal(t, http.MethodGet, gotMethod)
 			assert.Equal(t, "/api/v1/agents/acme/my-agent", gotPath)
-			if tt.wantWarning {
-				_, existsErr := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+			switch {
+			case tt.wantWarning:
+				_, _, existsErr := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
 				require.Error(t, existsErr)
 				assert.Contains(t, warnBuf.String(), msgBlueprintExistenceCheckInconclusive("my-agent", "acme", existsErr))
-			} else {
+			case tt.wantArchiveWarning:
+				assert.Contains(t, warnBuf.String(), msgBlueprintWillUnarchive("my-agent", "acme"))
+			default:
 				assert.Empty(t, warnBuf.String())
 			}
 		})

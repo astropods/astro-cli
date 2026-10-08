@@ -162,6 +162,54 @@ func TestBlueprintList(t *testing.T) {
 	}
 }
 
+func TestBlueprintListArchived(t *testing.T) {
+	payload := map[string]any{
+		"agents": []any{
+			map[string]any{
+				"name":        "retired-agent",
+				"visibility":  "private",
+				"archived_at": "2026-02-01T00:00:00Z",
+				"versions":    []any{},
+				"metrics":     nil,
+			},
+		},
+		"count": 1,
+	}
+
+	var gotQuery string
+	setupBlueprintTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		jsonHandler(http.StatusOK, payload)(w, r)
+	}))
+	require.NoError(t, blueprintListCmd.Flags().Set("archived", "true"))
+	t.Cleanup(func() { blueprintListCmd.Flags().Set("archived", "false") }) //nolint:errcheck
+
+	buf := &bytes.Buffer{}
+	blueprintListCmd.SetOut(buf)
+	blueprintListCmd.SetContext(context.Background())
+
+	err := runBlueprintList(blueprintListCmd, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "archived=true", gotQuery)
+	assert.Contains(t, buf.String(), "Archived")
+	assert.Contains(t, buf.String(), truncate("2026-02-01T00:00:00Z", tableTimeWidth))
+	assert.Contains(t, buf.String(), "retired-agent")
+}
+
+func TestBlueprintListArchived_Empty(t *testing.T) {
+	setupBlueprintTest(t, jsonHandler(http.StatusOK, map[string]any{"agents": []any{}, "count": 0}))
+	require.NoError(t, blueprintListCmd.Flags().Set("archived", "true"))
+	t.Cleanup(func() { blueprintListCmd.Flags().Set("archived", "false") }) //nolint:errcheck
+
+	buf := &bytes.Buffer{}
+	blueprintListCmd.SetOut(buf)
+	blueprintListCmd.SetContext(context.Background())
+
+	err := runBlueprintList(blueprintListCmd, nil)
+	require.NoError(t, err)
+	assert.Contains(t, buf.String(), "No archived blueprints")
+}
+
 func TestBlueprintCreate(t *testing.T) {
 	cases := []struct {
 		name       string
