@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -440,13 +441,14 @@ func TestBlueprintArchive(t *testing.T) {
 
 func TestBlueprintSet(t *testing.T) {
 	cases := []struct {
-		name       string
-		agentName  string
-		visibility string
-		statusCode int
-		body       any
-		wantErr    bool
-		wantCalled bool
+		name        string
+		agentName   string
+		visibility  string
+		statusCode  int
+		body        any
+		wantErr     bool
+		wantCalled  bool
+		wantWarning bool
 	}{
 		{
 			name:      "no flags returns error without calling server",
@@ -468,12 +470,13 @@ func TestBlueprintSet(t *testing.T) {
 			wantCalled: true,
 		},
 		{
-			name:       "sets private",
-			agentName:  "my-agent",
-			visibility: "private",
-			statusCode: http.StatusOK,
-			body:       map[string]any{"visibility": "private"},
-			wantCalled: true,
+			name:        "sets private",
+			agentName:   "my-agent",
+			visibility:  "private",
+			statusCode:  http.StatusOK,
+			body:        map[string]any{"visibility": "private"},
+			wantCalled:  true,
+			wantWarning: true,
 		},
 		{
 			name:       "not found",
@@ -496,6 +499,8 @@ func TestBlueprintSet(t *testing.T) {
 				jsonHandler(tc.statusCode, tc.body)(w, r)
 			}))
 			blueprintSetCmd.SetContext(context.Background())
+			buf := &bytes.Buffer{}
+			blueprintSetCmd.SetOut(buf)
 			if tc.visibility != "" {
 				require.NoError(t, blueprintSetCmd.Flags().Set("visibility", tc.visibility))
 				t.Cleanup(func() { blueprintSetCmd.Flags().Set("visibility", "") }) //nolint:errcheck
@@ -508,6 +513,8 @@ func TestBlueprintSet(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, tc.wantCalled, called)
+			warningLine := "  " + colorYellow + "⚠" + colorReset + "  " + msgPrivateVisibilityExistingDeploymentsWarning()
+			assert.Equal(t, tc.wantWarning, slices.Contains(strings.Split(buf.String(), "\n"), warningLine))
 		})
 	}
 }
