@@ -269,7 +269,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	resolvedName, err := resolveOrRenameBlueprint(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, yes, verbose)
+	resolvedName, err := resolveOrRenameBlueprint(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
 	if err != nil {
 		if errors.Is(err, tui.ErrCanceled) {
 			printCanceled(cmd.OutOrStdout())
