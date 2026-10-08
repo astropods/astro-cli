@@ -505,7 +505,10 @@ func runEvalReview(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	current, err := fetchTraceEvaluation(cmd, dep.ID, traceID, at, verbose)
+	current, status, err := fetchTraceEvaluation(cmd, dep.ID, traceID, at, verbose)
+	if status == http.StatusNotFound {
+		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
+	}
 	if err != nil {
 		return err
 	}

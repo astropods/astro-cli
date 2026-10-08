@@ -268,7 +268,7 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 		return err
 	}
 
-	evaluation, evalErr := fetchTraceEvaluation(cmd, id, traceID, at, verbose)
+	evaluation, _, evalErr := fetchTraceEvaluation(cmd, id, traceID, at, verbose)
 
 	w := cmd.OutOrStdout()
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -403,15 +403,17 @@ type traceEvaluationResponse struct {
 	Evaluation traceEvaluation `json:"evaluation"`
 }
 
-// fetchTraceEvaluation reads one trace's evaluation from a deployment.
-func fetchTraceEvaluation(cmd *cobra.Command, depID, traceID string, at AccountToken, verbose bool) (*traceEvaluation, error) {
+// fetchTraceEvaluation reads one trace's evaluation from a deployment and
+// returns the response status so callers can map a 404.
+func fetchTraceEvaluation(cmd *cobra.Command, depID, traceID string, at AccountToken, verbose bool) (*traceEvaluation, int, error) {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/trace-evaluations/%s",
 		agentBaseURL(), url.PathEscape(depID), url.PathEscape(traceID))
 	var resp traceEvaluationResponse
-	if _, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &resp); err != nil {
-		return nil, err
+	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &resp)
+	if err != nil {
+		return nil, status, err
 	}
-	return &resp.Evaluation, nil
+	return &resp.Evaluation, status, nil
 }
 
 func printTraceEvaluation(w io.Writer, ev *traceEvaluation) {

@@ -597,6 +597,7 @@ func TestEvalReview(t *testing.T) {
 		traceID       string
 		updateDataset bool
 		current       map[string]any
+		currentStatus int
 		putStatus     int
 		putBody       any
 		wantBody      map[string]any
@@ -633,6 +634,9 @@ func TestEvalReview(t *testing.T) {
 		{name: "conflict suggests re-running the trace", sets: []string{"tone=warm"}, traceID: "trace-abc",
 			current: withRun, putStatus: http.StatusConflict, putBody: map[string]any{"error": "evaluation set changed"},
 			wantErr: errEvalReviewConflict("evaluation set changed", "trace-abc").Error()},
+		{name: "unknown trace is reported before any review is sent", sets: []string{"tone=warm"}, traceID: "trace-abc",
+			currentStatus: http.StatusNotFound, current: map[string]any{"error": "trace not found"},
+			wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
 		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errEvalReviewTraceRequired().Error()},
 		{name: "at least one set is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
 	}
@@ -649,7 +653,11 @@ func TestEvalReview(t *testing.T) {
 				case strings.HasSuffix(r.URL.Path, "/evaluation-set"):
 					jsonHandler(http.StatusOK, setPayload)(w, r)
 				case strings.Contains(r.URL.Path, "/trace-evaluations/"):
-					jsonHandler(http.StatusOK, tc.current)(w, r)
+					status := tc.currentStatus
+					if status == 0 {
+						status = http.StatusOK
+					}
+					jsonHandler(status, tc.current)(w, r)
 				default:
 					jsonHandler(http.StatusOK, listPayload)(w, r)
 				}
