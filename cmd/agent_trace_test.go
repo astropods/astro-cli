@@ -537,13 +537,14 @@ func TestAgentTraceDetailEvaluation(t *testing.T) {
 	}}
 
 	cases := []struct {
-		name       string
-		inDataset  bool
-		evalStatus int
-		evalBody   any
-		jsonOutput bool
-		wantOut    []string
-		wantErrOut string
+		name         string
+		inDataset    bool
+		evalStatus   int
+		evalBody     any
+		jsonOutput   bool
+		wantOut      []string
+		wantErrOut   string
+		wantNotInOut string
 	}{
 		{name: "evaluation section", inDataset: true, evalStatus: http.StatusOK, evalBody: evaluated,
 			wantOut: []string{"In dataset: yes", "Evaluation:", "completed (outdated)", "Helpful: true", "confidence 0.90", "Answered the question.", "Human review", "helpful: false"}},
@@ -551,6 +552,8 @@ func TestAgentTraceDetailEvaluation(t *testing.T) {
 			wantOut: []string{"In dataset: no", "Not evaluated"}},
 		{name: "json adds evaluation key", evalStatus: http.StatusOK, evalBody: evaluated, jsonOutput: true,
 			wantOut: []string{`"evaluation": {`, `"in_dataset": false`, `"evaluation_ref": "ref-1"`}},
+		{name: "evaluation fetch failure warns on stderr and keeps json clean", evalStatus: http.StatusInternalServerError, evalBody: map[string]any{"error": "boom"}, jsonOutput: true,
+			wantOut: []string{`"trace_id": "trace-abc"`}, wantErrOut: "Could not load the trace's evaluation", wantNotInOut: "Could not load"},
 		{name: "evaluation fetch failure still prints trace", evalStatus: http.StatusInternalServerError, evalBody: map[string]any{"error": "boom"},
 			wantOut: []string{"trace-abc", "In dataset: no"}, wantErrOut: "Could not load the trace's evaluation"},
 	}
@@ -572,7 +575,10 @@ func TestAgentTraceDetailEvaluation(t *testing.T) {
 				assert.Contains(t, buf.String(), want)
 			}
 			if tc.wantErrOut != "" {
-				assert.Contains(t, errBuf.String(), tc.wantErrOut)
+				assert.Equal(t, 1, strings.Count(errBuf.String(), tc.wantErrOut), "the warning prints once")
+			}
+			if tc.wantNotInOut != "" {
+				assert.NotContains(t, buf.String(), tc.wantNotInOut, "stdout stays clean")
 			}
 		})
 	}

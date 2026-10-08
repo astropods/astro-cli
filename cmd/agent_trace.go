@@ -269,6 +269,9 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 	}
 
 	evaluation, _, evalErr := fetchTraceEvaluation(cmd, id, traceID, at, verbose)
+	if evalErr != nil {
+		fmt.Fprintln(cmd.ErrOrStderr(), msgTraceEvaluationUnavailable(evalErr)) //nolint:errcheck,gosec
+	}
 
 	w := cmd.OutOrStdout()
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
@@ -353,10 +356,7 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 		}
 	}
 
-	switch {
-	case evalErr != nil:
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s\n", msgTraceEvaluationUnavailable(evalErr)) //nolint:errcheck,gosec
-	case evaluation != nil:
+	if evaluation != nil {
 		printTraceEvaluation(w, evaluation)
 	}
 	return nil
