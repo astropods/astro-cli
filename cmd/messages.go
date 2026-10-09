@@ -363,6 +363,10 @@ func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datase
 	return msg
 }
 
+func msgNoDatasets() string {
+	return "No datasets in this account"
+}
+
 func msgNoEvaluators(name string) string {
 	return fmt.Sprintf("No evaluators in the active evaluation set for %s", name)
 }
