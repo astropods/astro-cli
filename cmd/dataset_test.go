@@ -116,6 +116,7 @@ func TestDatasetListRejectsInvalidPaging(t *testing.T) {
 	}{
 		{name: "zero limit", flags: map[string]string{"limit": "0"}, wantErr: errPositiveIntFlag("limit").Error()},
 		{name: "negative offset", flags: map[string]string{"offset": "-1"}, wantErr: errNonNegativeIntFlag("offset").Error()},
+		{name: "limit above the server max", flags: map[string]string{"limit": "101"}, wantErr: errDatasetLimit(100).Error()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -334,7 +335,7 @@ func TestDatasetItemsRejectsInvalidPaging(t *testing.T) {
 	}{
 		{name: "zero limit", flags: map[string]string{"limit": "0"}, wantErr: errPositiveIntFlag("limit").Error()},
 		{name: "negative offset", flags: map[string]string{"offset": "-1"}, wantErr: errNonNegativeIntFlag("offset").Error()},
-		{name: "limit above the server max", flags: map[string]string{"limit": "101"}, wantErr: errDatasetItemsLimit(100).Error()},
+		{name: "limit above the server max", flags: map[string]string{"limit": "101"}, wantErr: errDatasetLimit(100).Error()},
 		{name: "offset not a multiple of limit", flags: map[string]string{"limit": "50", "offset": "25"}, wantErr: errDatasetItemsOffset(50).Error()},
 	}
 	for _, tc := range cases {

@@ -28,6 +28,9 @@ func datasetBaseURL() string {
 	return strings.TrimSuffix(buildinfo.DefaultServerURL, "/")
 }
 
+// datasetMaxLimit is the server's page-size cap; a larger --limit is clamped there.
+const datasetMaxLimit = 100
+
 var datasetCmd = &cobra.Command{
 	Use:   "dataset",
 	Short: "Manage an agent's evaluation datasets",
@@ -139,6 +142,9 @@ func runDatasetList(cmd *cobra.Command, _ []string) error {
 	offset, _ := cmd.Flags().GetInt("offset")
 	if err := validateListPagination(limit, offset); err != nil {
 		return err
+	}
+	if limit > datasetMaxLimit {
+		return errDatasetLimit(datasetMaxLimit)
 	}
 
 	at, verbose, err := cmdAuth(cmd)
@@ -270,8 +276,6 @@ func runDatasetGet(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-const datasetItemsMaxLimit = 100
-
 type datasetItemOutput struct {
 	Key   string          `json:"key"`
 	Label string          `json:"label"`
@@ -304,8 +308,8 @@ func runDatasetItems(cmd *cobra.Command, args []string) error {
 	if err := validateListPagination(limit, offset); err != nil {
 		return err
 	}
-	if limit > datasetItemsMaxLimit {
-		return errDatasetItemsLimit(datasetItemsMaxLimit)
+	if limit > datasetMaxLimit {
+		return errDatasetLimit(datasetMaxLimit)
 	}
 	if offset%limit != 0 {
 		return errDatasetItemsOffset(limit)

@@ -371,7 +371,7 @@ func errDatasetAmbiguous(name string, ids []string) error {
 	return fmt.Errorf("more than one dataset is named %q (IDs: %s)", name, strings.Join(ids, ", "))
 }
 
-func errDatasetItemsLimit(max int) error {
+func errDatasetLimit(max int) error {
 	return fmt.Errorf("--limit must be at most %d", max)
 }
 
