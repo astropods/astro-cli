@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/huh"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/theme"
@@ -24,6 +26,35 @@ const (
 )
 
 // truncate clips s to at most width runes, appending "…" if trimmed.
+// writeTable prints a dim header row and then the rows, padding every column
+// but the last to its widest cell.
+func writeTable(w io.Writer, header []string, rows [][]string) {
+	widths := make([]int, len(header))
+	for i, h := range header {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	line := func(cells []string) string {
+		var b strings.Builder
+		for i, cell := range cells {
+			if i == len(cells)-1 {
+				b.WriteString(cell)
+				break
+			}
+			fmt.Fprintf(&b, "%-*s  ", widths[i], cell)
+		}
+		return b.String()
+	}
+	color.New(color.Faint).Fprintln(w, line(header)) //nolint:errcheck,gosec
+	for _, row := range rows {
+		fmt.Fprintln(w, line(row)) //nolint:errcheck,gosec
+	}
+}
+
 func truncate(s string, width int) string {
 	runes := []rune(s)
 	if len(runes) <= width {
