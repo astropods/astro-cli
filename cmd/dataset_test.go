@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -656,5 +658,142 @@ func TestDatasetRemoveIsRegisteredOnRoot(t *testing.T) {
 	for _, flag := range []string{"confirm", "json"} {
 		assert.NotNil(t, found.Flags().Lookup(flag), flag)
 	}
+	require.Error(t, found.Args(found, nil), "a dataset name is required")
+}
+
+func datasetDownloadCmdForTest(t *testing.T, output string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "download"}
+	cmd.Flags().StringP("output", "o", "", "")
+	if output != "" {
+		require.NoError(t, cmd.Flags().Set("output", output))
+	}
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func datasetDownloadServer(t *testing.T, download http.HandlerFunc) {
+	t.Helper()
+	match := map[string]any{"datasets": []any{datasetRow(1, "support-bot")}, "total": 1}
+	setupDatasetTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/datasets/ds-1/download" {
+			download(w, r)
+			return
+		}
+		jsonHandler(http.StatusOK, match)(w, r)
+	}))
+}
+
+func serveZipBytes(payload string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write([]byte(payload))
+	}
+}
+
+func TestDatasetDownload(t *testing.T) {
+	const name = "eval-dep00000001"
+	const payload = "PK-fake-zip-bytes"
+
+	t.Run("writes <dataset-name>.zip to the current directory by default", func(t *testing.T) {
+		datasetDownloadServer(t, serveZipBytes(payload))
+		dir := t.TempDir()
+		t.Chdir(dir)
+		buf := &bytes.Buffer{}
+		cmd := datasetDownloadCmdForTest(t, "")
+		cmd.SetOut(buf)
+
+		require.NoError(t, runDatasetDownload(cmd, []string{name}))
+
+		got, err := os.ReadFile(filepath.Join(dir, name+".zip"))
+		require.NoError(t, err)
+		assert.Equal(t, payload, string(got))
+		assert.Contains(t, buf.String(), msgDatasetDownloaded(name, name+".zip", int64(len(payload))))
+	})
+
+	t.Run("output names the file", func(t *testing.T) {
+		datasetDownloadServer(t, serveZipBytes(payload))
+		target := filepath.Join(t.TempDir(), "export.zip")
+		cmd := datasetDownloadCmdForTest(t, target)
+		cmd.SetOut(&bytes.Buffer{})
+
+		require.NoError(t, runDatasetDownload(cmd, []string{name}))
+
+		got, err := os.ReadFile(target)
+		require.NoError(t, err)
+		assert.Equal(t, payload, string(got))
+	})
+
+	t.Run("output that is a directory gets <dataset-name>.zip inside it", func(t *testing.T) {
+		datasetDownloadServer(t, serveZipBytes(payload))
+		dir := t.TempDir()
+		cmd := datasetDownloadCmdForTest(t, dir)
+		cmd.SetOut(&bytes.Buffer{})
+
+		require.NoError(t, runDatasetDownload(cmd, []string{name}))
+
+		_, err := os.Stat(filepath.Join(dir, name+".zip"))
+		assert.NoError(t, err)
+	})
+
+	t.Run("output - writes only the zip to stdout", func(t *testing.T) {
+		datasetDownloadServer(t, serveZipBytes(payload))
+		t.Chdir(t.TempDir())
+		buf := &bytes.Buffer{}
+		cmd := datasetDownloadCmdForTest(t, "-")
+		cmd.SetOut(buf)
+
+		require.NoError(t, runDatasetDownload(cmd, []string{name}))
+
+		assert.Equal(t, payload, buf.String(), "no status line is mixed into the zip")
+		entries, err := os.ReadDir(".")
+		require.NoError(t, err)
+		assert.Empty(t, entries, "nothing is written to disk")
+	})
+
+	t.Run("a dropped connection returns an error and keeps the existing file", func(t *testing.T) {
+		datasetDownloadServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Length", "1000")
+			_, _ = w.Write([]byte("PK-partial"))
+		})
+		target := filepath.Join(t.TempDir(), "export.zip")
+		require.NoError(t, os.WriteFile(target, []byte("previous export"), 0o600))
+		cmd := datasetDownloadCmdForTest(t, target)
+		cmd.SetOut(&bytes.Buffer{})
+
+		err := runDatasetDownload(cmd, []string{name})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "download failed")
+		got, readErr := os.ReadFile(target)
+		require.NoError(t, readErr)
+		assert.Equal(t, "previous export", string(got))
+		entries, dirErr := os.ReadDir(filepath.Dir(target))
+		require.NoError(t, dirErr)
+		assert.Len(t, entries, 1, "no temporary file is left behind")
+	})
+
+	t.Run("dataset removed between lookup and download", func(t *testing.T) {
+		datasetDownloadServer(t, jsonHandler(http.StatusNotFound, map[string]any{"error": "dataset not found"}))
+		cmd := datasetDownloadCmdForTest(t, filepath.Join(t.TempDir(), "x.zip"))
+		cmd.SetOut(&bytes.Buffer{})
+
+		require.EqualError(t, runDatasetDownload(cmd, []string{name}), errDatasetNotFound(name).Error())
+	})
+
+	t.Run("unknown dataset name", func(t *testing.T) {
+		setupDatasetTest(t, jsonHandler(http.StatusOK, map[string]any{"datasets": []any{}, "total": 0}))
+		cmd := datasetDownloadCmdForTest(t, "-")
+		cmd.SetOut(&bytes.Buffer{})
+
+		require.EqualError(t, runDatasetDownload(cmd, []string{"ghost"}), errDatasetNotFound("ghost").Error())
+	})
+}
+
+func TestDatasetDownloadIsRegisteredOnRoot(t *testing.T) {
+	found, _, err := rootCmd.Find([]string{"dataset", "download", "some-name"})
+	require.NoError(t, err)
+	assert.Same(t, datasetDownloadCmd, found)
+	assert.NotNil(t, found.Flags().ShorthandLookup("o"), "-o selects the output")
 	require.Error(t, found.Args(found, nil), "a dataset name is required")
 }

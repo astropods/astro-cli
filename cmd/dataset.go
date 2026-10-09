@@ -3,8 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
@@ -74,6 +77,15 @@ var datasetRemoveCmd = &cobra.Command{
 	RunE: runDatasetRemove,
 }
 
+var datasetDownloadCmd = &cobra.Command{
+	Use:   "download <dataset-name>",
+	Short: "Download a dataset as a zip of JSONL",
+	Long: "Saves the dataset as a zip file containing one JSONL file of its items. " +
+		"Writes <dataset-name>.zip to the current directory, or to --output. Use --output - to write the zip to stdout.",
+	Args: cobra.ExactArgs(1),
+	RunE: runDatasetDownload,
+}
+
 var datasetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the account's datasets",
@@ -87,6 +99,8 @@ func init() {
 	datasetCmd.AddCommand(datasetListCmd)
 	datasetCmd.AddCommand(datasetGetCmd)
 	datasetGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	datasetCmd.AddCommand(datasetDownloadCmd)
+	datasetDownloadCmd.Flags().StringP("output", "o", "", "File or directory to write to, or - for stdout (default: <dataset-name>.zip)")
 	datasetCmd.AddCommand(datasetRemoveCmd)
 	datasetRemoveCmd.Flags().StringP("trace-id", "t", "", "Trace to remove (required)")
 	datasetRemoveCmd.Flags().String("confirm", "", "Skip the prompt by passing the trace ID as confirmation")
@@ -516,4 +530,79 @@ func runDatasetRemove(cmd *cobra.Command, args []string) error {
 	color.New(color.FgGreen).Fprint(w, "✓ ")          //nolint:errcheck,gosec
 	fmt.Fprintln(w, msgDatasetRemoved(traceID, name)) //nolint:errcheck,gosec
 	return nil
+}
+
+func runDatasetDownload(cmd *cobra.Command, args []string) error {
+	output := flagString(cmd, "output")
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name := args[0]
+	dataset, err := resolveDataset(cmd, at, verbose, name)
+	if err != nil {
+		return err
+	}
+
+	u := fmt.Sprintf("%s/api/v1/datasets/%s/download", datasetBaseURL(), url.PathEscape(dataset.ID))
+	status, body, err := apiStream(cmd.Context(), u, at.Token, verbose)
+	if status == http.StatusNotFound {
+		return errDatasetNotFound(name)
+	}
+	if err != nil {
+		return err
+	}
+	defer body.Close() //nolint:errcheck
+
+	if output == "-" {
+		if _, err := io.Copy(cmd.OutOrStdout(), body); err != nil {
+			return errDatasetDownloadFailed(err)
+		}
+		return nil
+	}
+
+	path := datasetDownloadPath(output, name)
+	written, err := writeFileAtomically(path, body)
+	if err != nil {
+		return errDatasetDownloadFailed(err)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), msgDatasetDownloaded(name, path, written)) //nolint:errcheck,gosec
+	return nil
+}
+
+// datasetDownloadPath resolves --output: empty means <name>.zip in the current
+// directory, and an existing directory means <name>.zip inside it.
+func datasetDownloadPath(output, name string) string {
+	file := filepath.Base(name) + ".zip"
+	if output == "" {
+		return file
+	}
+	if info, err := os.Stat(output); err == nil && info.IsDir() {
+		return filepath.Join(output, file)
+	}
+	return output
+}
+
+// writeFileAtomically streams r to a temporary file beside path and renames it
+// into place, so a failed download leaves no partial file and keeps any
+// existing one.
+func writeFileAtomically(path string, r io.Reader) (int64, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".download-*.tmp")
+	if err != nil {
+		return 0, err
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck,gosec
+
+	written, err := io.Copy(tmp, r)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return 0, err
+	}
+	return written, nil
 }

@@ -428,6 +428,14 @@ func msgDatasetRemoved(traceID, dataset string) string {
 	return fmt.Sprintf("Removed trace %s from dataset %s", traceID, dataset)
 }
 
+func errDatasetDownloadFailed(err error) error {
+	return fmt.Errorf("download failed: %w", err)
+}
+
+func msgDatasetDownloaded(dataset, path string, bytes int64) string {
+	return fmt.Sprintf("Saved dataset %s to %s (%d bytes)", dataset, path, bytes)
+}
+
 func msgNoDatasets() string {
 	return "No datasets in this account"
 }
