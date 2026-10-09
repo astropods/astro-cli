@@ -363,6 +363,14 @@ func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datase
 	return msg
 }
 
+func errDatasetNotFound(name string) error {
+	return fmt.Errorf("dataset %q not found; run `%s dataset list` to see dataset names", name, buildinfo.BinaryName)
+}
+
+func errDatasetAmbiguous(name string, ids []string) error {
+	return fmt.Errorf("more than one dataset is named %q (IDs: %s)", name, strings.Join(ids, ", "))
+}
+
 func msgNoDatasets() string {
 	return "No datasets in this account"
 }
