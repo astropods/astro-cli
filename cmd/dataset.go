@@ -170,14 +170,11 @@ func runDatasetList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tBLUEPRINT\tDEPLOYMENT") //nolint:errcheck,gosec
-	for _, d := range result.Datasets {
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", d.DatasetName, d.AgentName, d.DeploymentID) //nolint:errcheck,gosec
+	rows := make([][]string, len(result.Datasets))
+	for i, ds := range result.Datasets {
+		rows[i] = []string{ds.DatasetName, ds.AgentName, ds.DeploymentID}
 	}
-	if err := tw.Flush(); err != nil {
-		return err
-	}
+	writeTable(w, []string{"Name", "Blueprint", "Deployment"}, rows)
 
 	if result.Total > offset+len(result.Datasets) {
 		fmt.Fprintf(w, "%s\nShowing %d–%d of %d. Page with --offset %d.%s\n", colorDim, //nolint:errcheck,gosec
@@ -349,18 +346,16 @@ func runDatasetItems(cmd *cobra.Command, args []string) error {
 
 	const traceIDWidth = 32
 	const valueWidth = 40
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "TRACE ID\tINPUT\tEXPECTED OUTPUT\tEVALUATORS") //nolint:errcheck,gosec
-	for _, item := range result.Items {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", //nolint:errcheck,gosec
+	rows := make([][]string, len(result.Items))
+	for i, item := range result.Items {
+		rows[i] = []string{
 			truncate(item.SourceTraceID, traceIDWidth),
 			truncate(oneLine(item.Input), valueWidth),
 			truncate(oneLine(item.ExpectedOutput), valueWidth),
-			evaluatorCell(item))
+			evaluatorCell(item),
+		}
 	}
-	if err := tw.Flush(); err != nil {
-		return err
-	}
+	writeTable(w, []string{"Trace ID", "Input", "Expected output", "Evaluators"}, rows)
 
 	if result.TotalItems > offset+len(result.Items) {
 		fmt.Fprintf(w, "%s\nShowing %d–%d of %d. Page with --offset %d.%s\n", colorDim, //nolint:errcheck,gosec

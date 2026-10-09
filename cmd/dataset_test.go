@@ -59,7 +59,7 @@ func TestDatasetList(t *testing.T) {
 		absent  []string
 	}{
 		{name: "table of datasets", total: 2,
-			wantOut: []string{"NAME", "BLUEPRINT", "DEPLOYMENT", "eval-dep00000001", "sales-bot", "dep00000002"}, absent: []string{"Page with"}},
+			wantOut: []string{"Name", "Blueprint", "Deployment", "eval-dep00000001", "sales-bot", "dep00000002"}, absent: []string{"Page with"}},
 		{name: "json output", flags: map[string]string{"json": "true"}, total: 2,
 			wantOut: []string{`"dataset_name": "eval-dep00000001"`, `"total": 2`}},
 		{name: "paging hint when more remain", flags: map[string]string{"limit": "2", "offset": "4"}, total: 10,
@@ -281,7 +281,7 @@ func TestDatasetItems(t *testing.T) {
 		absent    []string
 	}{
 		{name: "table of items", body: page(3), getStatus: http.StatusOK, wantQuery: "limit=50&page=1",
-			wantOut: []string{"TRACE ID", "trace-aaa", `{"q":"hi\nthere"}`, "hello", "helpful=true tone=warm", "plain text", "helpful=false (outdated)", "trace-ccc"},
+			wantOut: []string{"Trace ID", "Expected output", "trace-aaa", `{"q":"hi\nthere"}`, "hello", "helpful=true tone=warm", "plain text", "helpful=false (outdated)", "trace-ccc"},
 			absent:  []string{"Page with", "unreviewed (outdated)"}},
 		{name: "offset maps to a page", flags: map[string]string{"limit": "50", "offset": "100"}, body: page(3),
 			getStatus: http.StatusOK, wantQuery: "limit=50&page=3"},
