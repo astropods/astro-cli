@@ -297,7 +297,7 @@ func TestEvalGet(t *testing.T) {
 		wantOut    []string
 	}{
 		{name: "table of evaluators", statusCode: http.StatusOK, body: setPayload,
-			wantOut: []string{"ref-1", "helpful", "true, false", "warm, cold", "1 to 5"}},
+			wantOut: []string{"ref-1", "Key", "Label", "Type", "Accepts", "helpful", "true, false", "warm, cold", "1 to 5"}},
 		{name: "json output", statusCode: http.StatusOK, body: setPayload, jsonOutput: true,
 			wantOut: []string{`"evaluation_ref": "ref-1"`}},
 		{name: "empty set", statusCode: http.StatusOK, body: map[string]any{"evaluation_ref": "r", "evaluators": []any{}},

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	spec "github.com/astropods/astro-spec"
 	evalspec "github.com/astropods/astro-spec/eval"
@@ -251,12 +250,12 @@ func runEvalGet(cmd *cobra.Command, args []string) error {
 
 	dim := color.New(color.Faint)
 	dim.Fprintf(w, "Evaluation set %s\n\n", set.EvaluationRef) //nolint:errcheck,gosec
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "KEY\tLABEL\tTYPE\tACCEPTS") //nolint:errcheck,gosec
-	for _, e := range set.Evaluators {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", e.Key, e.Label, e.Type, describeEvalOutput(e.Output)) //nolint:errcheck,gosec
+	rows := make([][]string, len(set.Evaluators))
+	for i, ev := range set.Evaluators {
+		rows[i] = []string{ev.Key, ev.Label, ev.Type, describeEvalOutput(ev.Output)}
 	}
-	return tw.Flush()
+	writeTable(w, []string{"Key", "Label", "Type", "Accepts"}, rows)
+	return nil
 }
 
 func describeEvalOutput(o evalspec.Output) string {

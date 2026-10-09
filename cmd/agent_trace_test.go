@@ -497,7 +497,7 @@ func TestAgentTraceListEvaluation(t *testing.T) {
 	require.NoError(t, runAgentTrace(agentTraceCmd, nil))
 	assert.Contains(t, rawQuery, "evaluation=evaluated")
 	out := buf.String()
-	assert.Contains(t, out, "EVAL")
+	assert.Contains(t, out, "Eval")
 	assert.Regexp(t, `t-evaluated\s+coach\.chat\s+10ms\s+completed`, out)
 	assert.Regexp(t, `t-pending\s+coach\.chat\s+10ms\s+-`, out)
 }

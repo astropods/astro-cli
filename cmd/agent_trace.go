@@ -228,7 +228,7 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 		traceIDWidth, "Trace ID",
 		nameWidth, "Name",
 		latWidth, "Latency",
-		evalWidth, "EVAL",
+		evalWidth, "Eval",
 		"Cost")
 
 	for _, t := range result.Traces {
