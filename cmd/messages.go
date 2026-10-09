@@ -332,19 +332,15 @@ func errEvalReviewTraceRequired() error {
 }
 
 func errEvalReviewSetRequired() error {
-	return fmt.Errorf("at least one --set key=value is required")
+	return fmt.Errorf("at least one --set or --set-string key=value is required")
 }
 
-func errEvalSetFlagFormat(pair string) error {
-	return fmt.Errorf("--set %q must be key=value", pair)
+func errEvalSetFlagFormat(flag, pair string) error {
+	return fmt.Errorf("--%s %q must be key=value", flag, pair)
 }
 
 func errEvalSetFlagDuplicate(key string) error {
 	return fmt.Errorf("--set %q is given more than once", key)
-}
-
-func errEvalSetFlagValue(key string, err error) error {
-	return fmt.Errorf("--set %s: %w", key, err)
 }
 
 func errEvalReviewInvalid(message string) error {

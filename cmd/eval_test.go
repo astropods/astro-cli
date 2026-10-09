@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	evalspec "github.com/astropods/astro-spec/eval"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -510,39 +508,39 @@ func TestEvalRunRejectsPositionalArgs(t *testing.T) {
 	require.EqualError(t, agentTargetArgs(evalRunCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
 }
 
-func reviewTestSet() []evalSetEvaluator {
-	one, five := 1.0, 5.0
-	return []evalSetEvaluator{
-		{Key: "helpful", Output: evalspec.Output{Type: evalspec.OutputBoolean}},
-		{Key: "tone", Output: evalspec.Output{Type: evalspec.OutputEnum, Options: []string{"warm", "cold"}}},
-		{Key: "score", Output: evalspec.Output{Type: evalspec.OutputNumber, Minimum: &one, Maximum: &five}},
-		{Key: "note", Output: evalspec.Output{Type: evalspec.OutputString}},
-	}
-}
-
 func TestParseEvalSetFlags(t *testing.T) {
 	cases := []struct {
-		name    string
-		raw     []string
-		want    map[string]string
-		wantErr string
+		name     string
+		inferred []string
+		strict   []string
+		want     map[string]string
+		wantErr  string
 	}{
-		{name: "types values by evaluator output",
-			raw:  []string{"helpful=true", "tone=warm", "score=4.5", "note=a=b"},
-			want: map[string]string{"helpful": "true", "tone": `"warm"`, "score": "4.5", "note": `"a=b"`}},
-		{name: "unknown key is sent as a string for the server to reject",
-			raw: []string{"mystery=1"}, want: map[string]string{"mystery": `"1"`}},
-		{name: "missing equals", raw: []string{"helpful"}, wantErr: errEvalSetFlagFormat("helpful").Error()},
-		{name: "empty key", raw: []string{"=true"}, wantErr: errEvalSetFlagFormat("=true").Error()},
-		{name: "duplicate key", raw: []string{"tone=warm", "tone=cold"}, wantErr: errEvalSetFlagDuplicate("tone").Error()},
-		{name: "bad boolean", raw: []string{"helpful=maybe"},
-			wantErr: errEvalSetFlagValue("helpful", errors.New(`"maybe" is not true or false`)).Error()},
-		{name: "bad number", raw: []string{"score=high"},
-			wantErr: errEvalSetFlagValue("score", errors.New(`"high" is not a number`)).Error()},
+		{name: "infers booleans, numbers, and strings",
+			inferred: []string{"helpful=true", "off=false", "score=4", "ratio=-1.5e2", "tone=warm", "note=a=b"},
+			want: map[string]string{
+				"helpful": "true", "off": "false", "score": "4", "ratio": "-1.5e2", "tone": `"warm"`, "note": `"a=b"`,
+			}},
+		{name: "values that are not strict JSON numbers or booleans stay strings",
+			inferred: []string{"a=True", "b=NaN", "c=04", "d=+4", "e= 4", "f=null", "g=1e999", "h=", "i={}"},
+			want: map[string]string{
+				"a": `"True"`, "b": `"NaN"`, "c": `"04"`, "d": `"+4"`, "e": `" 4"`, "f": `"null"`, "g": `"1e999"`, "h": `""`, "i": `"{}"`,
+			}},
+		{name: "set-string always sends a string",
+			strict: []string{"note=42", "flag=true"},
+			want:   map[string]string{"note": `"42"`, "flag": `"true"`}},
+		{name: "set and set-string combine", inferred: []string{"score=4"}, strict: []string{"note=42"},
+			want: map[string]string{"score": "4", "note": `"42"`}},
+		{name: "missing equals", inferred: []string{"helpful"}, wantErr: errEvalSetFlagFormat("set", "helpful").Error()},
+		{name: "empty key", inferred: []string{"=true"}, wantErr: errEvalSetFlagFormat("set", "=true").Error()},
+		{name: "set-string missing equals", strict: []string{"note"}, wantErr: errEvalSetFlagFormat("set-string", "note").Error()},
+		{name: "duplicate key", inferred: []string{"tone=warm", "tone=cold"}, wantErr: errEvalSetFlagDuplicate("tone").Error()},
+		{name: "duplicate key across set and set-string", inferred: []string{"note=1"}, strict: []string{"note=2"},
+			wantErr: errEvalSetFlagDuplicate("note").Error()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseEvalSetFlags(tc.raw, reviewTestSet())
+			got, err := parseEvalSetFlags(tc.inferred, tc.strict)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 				return
@@ -572,10 +570,6 @@ func TestEvalReview(t *testing.T) {
 		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
 	}
 	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
-	setPayload := map[string]any{"evaluation_ref": "ref-2", "evaluators": []any{
-		map[string]any{"key": "helpful", "label": "Helpful", "type": "llm_judge", "output": map[string]any{"type": "boolean"}},
-		map[string]any{"key": "tone", "label": "Tone", "type": "llm_judge", "output": map[string]any{"type": "enum", "options": []string{"warm", "cold"}}},
-	}}
 	withRun := map[string]any{"evaluation": map[string]any{
 		"evaluation_ref": "ref-1", "outdated": false, "status": "completed",
 		"run": map[string]any{"id": "run-1", "status": "completed", "evaluators": []any{
@@ -594,6 +588,7 @@ func TestEvalReview(t *testing.T) {
 	cases := []struct {
 		name          string
 		sets          []string
+		setStrings    []string
 		traceID       string
 		updateDataset bool
 		current       map[string]any
@@ -609,6 +604,27 @@ func TestEvalReview(t *testing.T) {
 			wantBody: map[string]any{
 				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-1", "evaluation_run_id": "run-1",
 				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": false}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "set infers types and set-string forces a string", sets: []string{"helpful=true", "score=4", "tone=warm"}, setStrings: []string{"note=42"},
+			traceID: "trace-abc", current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs": []any{
+					map[string]any{"key": "helpful", "value": true},
+					map[string]any{"key": "note", "value": "42"},
+					map[string]any{"key": "score", "value": float64(4)},
+					map[string]any{"key": "tone", "value": "warm"},
+				},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "set-string alone satisfies the value requirement", setStrings: []string{"note=hi"}, traceID: "trace-abc",
+			current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "note", "value": "hi"}},
 				"update_dataset_snapshot": false,
 			},
 			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
@@ -638,7 +654,7 @@ func TestEvalReview(t *testing.T) {
 			currentStatus: http.StatusNotFound, current: map[string]any{"error": "trace not found"},
 			wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
 		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errEvalReviewTraceRequired().Error()},
-		{name: "at least one set is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
+		{name: "at least one set or set-string is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -651,7 +667,7 @@ func TestEvalReview(t *testing.T) {
 					_ = json.NewDecoder(r.Body).Decode(&gotBody)
 					jsonHandler(tc.putStatus, tc.putBody)(w, r)
 				case strings.HasSuffix(r.URL.Path, "/evaluation-set"):
-					jsonHandler(http.StatusOK, setPayload)(w, r)
+					assert.Fail(t, "eval review does not fetch the evaluation set")
 				case strings.Contains(r.URL.Path, "/trace-evaluations/"):
 					status := tc.currentStatus
 					if status == 0 {
@@ -673,7 +689,13 @@ func TestEvalReview(t *testing.T) {
 			for _, s := range tc.sets {
 				require.NoError(t, evalReviewCmd.Flags().Set("set", s))
 			}
-			t.Cleanup(func() { resetStringArrayFlag(t, evalReviewCmd, "set") })
+			for _, s := range tc.setStrings {
+				require.NoError(t, evalReviewCmd.Flags().Set("set-string", s))
+			}
+			t.Cleanup(func() {
+				resetStringArrayFlag(t, evalReviewCmd, "set")
+				resetStringArrayFlag(t, evalReviewCmd, "set-string")
+			})
 			if tc.updateDataset {
 				require.NoError(t, evalReviewCmd.Flags().Set("update-dataset", "true"))
 				t.Cleanup(func() { _ = evalReviewCmd.Flags().Set("update-dataset", "false") })

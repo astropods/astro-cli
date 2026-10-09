@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -98,8 +97,9 @@ var evalReviewCmd = &cobra.Command{
 	Use:   "review",
 	Short: "Save a human review for one trace",
 	Long: "Saves your values for a trace's evaluators as its human review. The review replaces any earlier one, " +
-		"and evaluators you leave out are not part of it. Run `eval get <blueprint>` to see keys and accepted values.",
-	Example: "  ast eval review --name my-agent -t <trace-id> --set helpful=true --set tone=warm",
+		"and evaluators you leave out are not part of it. Run `eval get <blueprint>` to see keys and accepted values. " +
+		"Use --set-string for a string that looks like a number or a boolean.",
+	Example: "  ast eval review --name my-agent -t <trace-id> --set helpful=true --set tone=warm --set-string note=42",
 	Args:    agentTargetArgs,
 	RunE:    runEvalReview,
 }
@@ -123,7 +123,8 @@ func init() {
 	evalRunCmd.Flags().Bool("json", false, "Print raw JSON output")
 	registerAgentTargetFlags(evalReviewCmd)
 	evalReviewCmd.Flags().StringP("trace-id", "t", "", "Trace to review (required)")
-	evalReviewCmd.Flags().StringArray("set", nil, "Evaluator value as key=value (repeatable)")
+	evalReviewCmd.Flags().StringArray("set", nil, "Evaluator value as key=value; true, false, and numbers keep their type, anything else is a string (repeatable)")
+	evalReviewCmd.Flags().StringArray("set-string", nil, "Evaluator value as key=value, always sent as a string (repeatable)")
 	evalReviewCmd.Flags().Bool("update-dataset", false, "Also update the trace's dataset item")
 	evalReviewCmd.Flags().Bool("json", false, "Print raw JSON output")
 }
@@ -426,49 +427,49 @@ type evalReviewResponse struct {
 	DatasetSnapshotUpdated bool `json:"dataset_snapshot_updated"`
 }
 
-// parseEvalSetFlags converts repeated key=value flags to JSON values typed by
-// each evaluator's output. A key outside the set is sent as a string so the
-// server rejects it and names the evaluator.
-func parseEvalSetFlags(raw []string, set []evalSetEvaluator) (map[string]json.RawMessage, error) {
-	outputs := make(map[string]evalspec.Output, len(set))
-	for _, e := range set {
-		outputs[e.Key] = e.Output
+// parseEvalSetFlags converts key=value flags to JSON values. --set sends the
+// JSON literals true, false, and numbers as such and everything else as a
+// string; --set-string always sends a string.
+func parseEvalSetFlags(inferred, strict []string) (map[string]json.RawMessage, error) {
+	values := make(map[string]json.RawMessage, len(inferred)+len(strict))
+	add := func(flag string, pairs []string, encode func(string) json.RawMessage) error {
+		for _, pair := range pairs {
+			key, value, ok := strings.Cut(pair, "=")
+			key = strings.TrimSpace(key)
+			if !ok || key == "" {
+				return errEvalSetFlagFormat(flag, pair)
+			}
+			if _, dup := values[key]; dup {
+				return errEvalSetFlagDuplicate(key)
+			}
+			values[key] = encode(value)
+		}
+		return nil
 	}
-	values := make(map[string]json.RawMessage, len(raw))
-	for _, pair := range raw {
-		key, value, ok := strings.Cut(pair, "=")
-		key = strings.TrimSpace(key)
-		if !ok || key == "" {
-			return nil, errEvalSetFlagFormat(pair)
-		}
-		if _, dup := values[key]; dup {
-			return nil, errEvalSetFlagDuplicate(key)
-		}
-		encoded, err := encodeEvalValue(outputs[key], value)
-		if err != nil {
-			return nil, errEvalSetFlagValue(key, err)
-		}
-		values[key] = encoded
+	if err := add("set", inferred, inferEvalValue); err != nil {
+		return nil, err
+	}
+	if err := add("set-string", strict, encodeEvalString); err != nil {
+		return nil, err
 	}
 	return values, nil
 }
 
-func encodeEvalValue(o evalspec.Output, value string) (json.RawMessage, error) {
-	switch o.Type {
-	case evalspec.OutputBoolean:
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return nil, fmt.Errorf("%q is not true or false", value)
-		}
-		return json.Marshal(b)
-	case evalspec.OutputNumber:
-		n, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return nil, fmt.Errorf("%q is not a number", value)
-		}
-		return json.Marshal(n)
+func encodeEvalString(value string) json.RawMessage {
+	encoded, _ := json.Marshal(value) //nolint:errchkjson
+	return encoded
+}
+
+func inferEvalValue(value string) json.RawMessage {
+	if value == "true" || value == "false" {
+		return json.RawMessage(value)
 	}
-	return json.Marshal(value)
+	var number float64
+	startsLikeNumber := value != "" && (value[0] == '-' || (value[0] >= '0' && value[0] <= '9'))
+	if startsLikeNumber && json.Unmarshal([]byte(value), &number) == nil {
+		return json.RawMessage(value)
+	}
+	return encodeEvalString(value)
 }
 
 func runEvalReview(cmd *cobra.Command, _ []string) error {
@@ -476,8 +477,9 @@ func runEvalReview(cmd *cobra.Command, _ []string) error {
 	if traceID == "" {
 		return errEvalReviewTraceRequired()
 	}
-	rawSets, _ := cmd.Flags().GetStringArray("set")
-	if len(rawSets) == 0 {
+	inferred, _ := cmd.Flags().GetStringArray("set")
+	strict, _ := cmd.Flags().GetStringArray("set-string")
+	if len(inferred)+len(strict) == 0 {
 		return errEvalReviewSetRequired()
 	}
 	updateDataset, _ := cmd.Flags().GetBool("update-dataset")
@@ -491,16 +493,7 @@ func runEvalReview(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	var set evalSetResponse
-	status, err := apiCall(cmd.Context(), http.MethodGet,
-		apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluation-set"), nil, at.Token, verbose, &set)
-	if status == http.StatusNotFound {
-		return errEvalSetNotFound(dep.Name, at.Account)
-	}
-	if err != nil {
-		return err
-	}
-	edits, err := parseEvalSetFlags(rawSets, set.Evaluators)
+	edits, err := parseEvalSetFlags(inferred, strict)
 	if err != nil {
 		return err
 	}
