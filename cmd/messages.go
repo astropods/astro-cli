@@ -424,6 +424,10 @@ func msgDatasetEdited(traceID, dataset string, values int) string {
 	return fmt.Sprintf("Updated trace %s in dataset %s (%d evaluator values)", traceID, dataset, values)
 }
 
+func msgDatasetRemoved(traceID, dataset string) string {
+	return fmt.Sprintf("Removed trace %s from dataset %s", traceID, dataset)
+}
+
 func msgNoDatasets() string {
 	return "No datasets in this account"
 }

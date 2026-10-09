@@ -561,3 +561,100 @@ func TestDatasetEditIsRegisteredOnRoot(t *testing.T) {
 	}
 	require.Error(t, found.Args(found, nil), "a dataset name is required")
 }
+
+func datasetRemoveCmdForTest(t *testing.T, traceID, confirm string, jsonOut bool) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "remove"}
+	cmd.Flags().StringP("trace-id", "t", "", "")
+	cmd.Flags().String("confirm", "", "")
+	cmd.Flags().Bool("json", false, "")
+	if traceID != "" {
+		require.NoError(t, cmd.Flags().Set("trace-id", traceID))
+	}
+	if confirm != "" {
+		require.NoError(t, cmd.Flags().Set("confirm", confirm))
+	}
+	if jsonOut {
+		require.NoError(t, cmd.Flags().Set("json", "true"))
+	}
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func TestDatasetRemove(t *testing.T) {
+	const name = "eval-dep00000001"
+	removed := map[string]any{"eval_dataset_id": "ds-1", "trace_id": "trace-abc", "evaluation_ref": "ref-1"}
+	match := map[string]any{"datasets": []any{datasetRow(1, "support-bot")}, "total": 1}
+
+	cases := []struct {
+		name        string
+		traceID     string
+		confirm     string
+		jsonOutput  bool
+		status      int
+		body        any
+		wantDeleted bool
+		wantErr     string
+		wantOut     string
+	}{
+		{name: "removes the item once confirmed", traceID: "trace-abc", confirm: "trace-abc",
+			status: http.StatusOK, body: removed, wantDeleted: true, wantOut: msgDatasetRemoved("trace-abc", name)},
+		{name: "json output", traceID: "trace-abc", confirm: "trace-abc", jsonOutput: true,
+			status: http.StatusOK, body: removed, wantDeleted: true, wantOut: `"evaluation_ref": "ref-1"`},
+		{name: "a confirmation that does not match cancels without deleting", traceID: "trace-abc", confirm: "other-trace",
+			wantOut: "Confirmation does not match"},
+		{name: "item not in the dataset", traceID: "trace-abc", confirm: "trace-abc", status: http.StatusNotFound,
+			body: map[string]any{"error": "trace is not in the dataset"}, wantDeleted: true,
+			wantErr: errDatasetItemNotFound("trace-abc", name).Error()},
+		{name: "trace id is required", confirm: "trace-abc", wantErr: errTraceIDRequired().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var deleted bool
+			var gotPath string
+			setupDatasetTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodDelete {
+					deleted, gotPath = true, r.URL.Path
+					jsonHandler(tc.status, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, match)(w, r)
+			}))
+			buf := &bytes.Buffer{}
+			cmd := datasetRemoveCmdForTest(t, tc.traceID, tc.confirm, tc.jsonOutput)
+			cmd.SetOut(buf)
+
+			err := runDatasetRemove(cmd, []string{name})
+			assert.Equal(t, tc.wantDeleted, deleted)
+			if tc.wantDeleted {
+				assert.Equal(t, "/api/v1/datasets/ds-1/items/trace-abc", gotPath)
+			}
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func TestDatasetRemoveChecksTheDatasetBeforeAskingToConfirm(t *testing.T) {
+	setupDatasetTest(t, jsonHandler(http.StatusOK, map[string]any{"datasets": []any{}, "total": 0}))
+	cmd := datasetRemoveCmdForTest(t, "trace-abc", "", false)
+	cmd.SetOut(&bytes.Buffer{})
+
+	require.EqualError(t, runDatasetRemove(cmd, []string{"ghost"}), errDatasetNotFound("ghost").Error(),
+		"an unknown dataset fails before any prompt")
+}
+
+func TestDatasetRemoveIsRegisteredOnRoot(t *testing.T) {
+	found, _, err := rootCmd.Find([]string{"dataset", "remove", "some-name"})
+	require.NoError(t, err)
+	assert.Same(t, datasetRemoveCmd, found)
+	assert.NotNil(t, found.Flags().ShorthandLookup("t"), "-t selects the trace")
+	for _, flag := range []string{"confirm", "json"} {
+		assert.NotNil(t, found.Flags().Lookup(flag), flag)
+	}
+	require.Error(t, found.Args(found, nil), "a dataset name is required")
+}

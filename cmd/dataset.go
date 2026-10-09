@@ -65,6 +65,15 @@ var datasetEditCmd = &cobra.Command{
 	RunE:    runDatasetEdit,
 }
 
+var datasetRemoveCmd = &cobra.Command{
+	Use:   "remove <dataset-name>",
+	Short: "Remove a trace from a dataset",
+	Long: "Removes the trace's item and its evaluator values from the dataset. The trace and its evaluations are kept. " +
+		"Asks for confirmation, or pass --confirm <trace-id> to skip the prompt.",
+	Args: cobra.ExactArgs(1),
+	RunE: runDatasetRemove,
+}
+
 var datasetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the account's datasets",
@@ -78,6 +87,10 @@ func init() {
 	datasetCmd.AddCommand(datasetListCmd)
 	datasetCmd.AddCommand(datasetGetCmd)
 	datasetGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	datasetCmd.AddCommand(datasetRemoveCmd)
+	datasetRemoveCmd.Flags().StringP("trace-id", "t", "", "Trace to remove (required)")
+	datasetRemoveCmd.Flags().String("confirm", "", "Skip the prompt by passing the trace ID as confirmation")
+	datasetRemoveCmd.Flags().Bool("json", false, "Print raw JSON output")
 	datasetCmd.AddCommand(datasetEditCmd)
 	datasetEditCmd.Flags().StringP("trace-id", "t", "", "Trace whose dataset item to edit (required)")
 	registerEvalValueFlags(datasetEditCmd)
@@ -460,5 +473,47 @@ func runDatasetEdit(cmd *cobra.Command, args []string) error {
 		return writeJSON(w, resp)
 	}
 	fmt.Fprintln(w, msgDatasetEdited(traceID, name, len(resp.EvaluatorOutputs))) //nolint:errcheck,gosec
+	return nil
+}
+
+func runDatasetRemove(cmd *cobra.Command, args []string) error {
+	traceID, _ := cmd.Flags().GetString("trace-id")
+	if traceID == "" {
+		return errTraceIDRequired()
+	}
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name := args[0]
+	dataset, err := resolveDataset(cmd, at, verbose, name)
+	if err != nil {
+		return err
+	}
+
+	if !confirmDelete(cmd,
+		fmt.Sprintf("Remove trace %s from dataset %s?", traceID, name),
+		fmt.Sprintf("This removes the item and its evaluator values from dataset %s. The trace and its evaluations are kept.", name),
+		traceID) {
+		return nil
+	}
+
+	u := fmt.Sprintf("%s/api/v1/datasets/%s/items/%s", datasetBaseURL(), url.PathEscape(dataset.ID), url.PathEscape(traceID))
+	var resp datasetAddResponse
+	status, err := apiCall(cmd.Context(), http.MethodDelete, u, nil, at.Token, verbose, &resp)
+	if status == http.StatusNotFound {
+		return errDatasetItemNotFound(traceID, name)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	color.New(color.FgGreen).Fprint(w, "✓ ")          //nolint:errcheck,gosec
+	fmt.Fprintln(w, msgDatasetRemoved(traceID, name)) //nolint:errcheck,gosec
 	return nil
 }
