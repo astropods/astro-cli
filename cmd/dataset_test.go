@@ -226,3 +226,130 @@ func TestDatasetGetIsRegisteredOnRoot(t *testing.T) {
 	assert.NotNil(t, found.Flags().Lookup("json"))
 	require.Error(t, found.Args(found, nil), "a dataset name is required")
 }
+
+func datasetItemsCmdForTest(t *testing.T, flags map[string]string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "items"}
+	cmd.Flags().Int("limit", 50, "")
+	cmd.Flags().Int("offset", 0, "")
+	cmd.Flags().Bool("json", false, "")
+	for name, value := range flags {
+		require.NoError(t, cmd.Flags().Set(name, value))
+	}
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func TestDatasetItems(t *testing.T) {
+	items := []any{
+		map[string]any{
+			"id": "item-1", "input": map[string]any{"q": "hi\nthere"}, "expected_output": "hello",
+			"source_trace_id": "trace-aaa", "created_at": "2026-09-01T12:00:00Z", "outdated": false,
+			"evaluator_outputs": []any{
+				map[string]any{"key": "helpful", "label": "Helpful", "value": true},
+				map[string]any{"key": "tone", "label": "Tone", "value": "warm"},
+			},
+		},
+		map[string]any{
+			"id": "item-2", "input": "plain text", "expected_output": nil,
+			"source_trace_id": "trace-bbb", "created_at": "2026-09-01T12:01:00Z", "outdated": true,
+			"evaluator_outputs": []any{map[string]any{"key": "helpful", "label": "Helpful", "value": false}},
+		},
+		map[string]any{
+			"id": "item-3", "input": "unreviewed", "expected_output": nil,
+			"source_trace_id": "trace-ccc", "created_at": "2026-09-01T12:02:00Z", "outdated": true,
+			"evaluator_outputs": []any{},
+		},
+	}
+	page := func(total int) map[string]any {
+		return map[string]any{"items": items, "page": 1, "limit": 50, "total_items": total, "total_pages": 1}
+	}
+	match := map[string]any{"datasets": []any{datasetRow(1, "support-bot")}, "total": 1}
+
+	cases := []struct {
+		name      string
+		flags     map[string]string
+		body      any
+		getStatus int
+		wantQuery string
+		wantErr   string
+		wantOut   []string
+		absent    []string
+	}{
+		{name: "table of items", body: page(3), getStatus: http.StatusOK, wantQuery: "limit=50&page=1",
+			wantOut: []string{"TRACE ID", "trace-aaa", `{"q":"hi\nthere"}`, "hello", "helpful=true tone=warm", "plain text", "helpful=false (outdated)", "trace-ccc"},
+			absent:  []string{"Page with", "unreviewed (outdated)"}},
+		{name: "offset maps to a page", flags: map[string]string{"limit": "50", "offset": "100"}, body: page(3),
+			getStatus: http.StatusOK, wantQuery: "limit=50&page=3"},
+		{name: "hint when more items remain", flags: map[string]string{"limit": "3"}, body: page(10),
+			getStatus: http.StatusOK, wantQuery: "limit=3&page=1", wantOut: []string{"Showing 1–3 of 10. Page with --offset 3."}},
+		{name: "json output", flags: map[string]string{"json": "true"}, body: page(3), getStatus: http.StatusOK,
+			wantQuery: "limit=50&page=1", wantOut: []string{`"total_items": 3`}},
+		{name: "empty dataset", body: map[string]any{"items": []any{}, "page": 1, "limit": 50, "total_items": 0, "total_pages": 0},
+			getStatus: http.StatusOK, wantQuery: "limit=50&page=1", wantOut: []string{msgNoDatasetItems("eval-dep00000001")}},
+		{name: "dataset removed between lookup and items", body: page(3), getStatus: http.StatusNotFound,
+			wantQuery: "limit=50&page=1", wantErr: errDatasetNotFound("eval-dep00000001").Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotQuery string
+			setupDatasetTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") {
+					gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+					jsonHandler(tc.getStatus, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, match)(w, r)
+			}))
+			buf := &bytes.Buffer{}
+			cmd := datasetItemsCmdForTest(t, tc.flags)
+			cmd.SetOut(buf)
+
+			err := runDatasetItems(cmd, []string{"eval-dep00000001"})
+			assert.Equal(t, "/api/v1/datasets/ds-1/items", gotPath)
+			assert.Equal(t, tc.wantQuery, gotQuery)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+			for _, absent := range tc.absent {
+				assert.NotContains(t, buf.String(), absent)
+			}
+		})
+	}
+}
+
+func TestDatasetItemsRejectsInvalidPaging(t *testing.T) {
+	cases := []struct {
+		name    string
+		flags   map[string]string
+		wantErr string
+	}{
+		{name: "zero limit", flags: map[string]string{"limit": "0"}, wantErr: errPositiveIntFlag("limit").Error()},
+		{name: "negative offset", flags: map[string]string{"offset": "-1"}, wantErr: errNonNegativeIntFlag("offset").Error()},
+		{name: "limit above the server max", flags: map[string]string{"limit": "101"}, wantErr: errDatasetItemsLimit(100).Error()},
+		{name: "offset not a multiple of limit", flags: map[string]string{"limit": "50", "offset": "25"}, wantErr: errDatasetItemsOffset(50).Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := datasetItemsCmdForTest(t, tc.flags)
+			cmd.SetOut(&bytes.Buffer{})
+
+			require.EqualError(t, runDatasetItems(cmd, []string{"eval-dep00000001"}), tc.wantErr)
+		})
+	}
+}
+
+func TestDatasetItemsIsRegisteredOnRoot(t *testing.T) {
+	found, _, err := rootCmd.Find([]string{"dataset", "items", "some-name"})
+	require.NoError(t, err)
+	assert.Same(t, datasetItemsCmd, found)
+	for _, flag := range []string{"limit", "offset", "json"} {
+		assert.NotNil(t, found.Flags().Lookup(flag), flag)
+	}
+	require.Error(t, found.Args(found, nil), "a dataset name is required")
+}

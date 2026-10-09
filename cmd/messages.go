@@ -371,6 +371,18 @@ func errDatasetAmbiguous(name string, ids []string) error {
 	return fmt.Errorf("more than one dataset is named %q (IDs: %s)", name, strings.Join(ids, ", "))
 }
 
+func errDatasetItemsLimit(max int) error {
+	return fmt.Errorf("--limit must be at most %d", max)
+}
+
+func errDatasetItemsOffset(limit int) error {
+	return fmt.Errorf("--offset must be a multiple of --limit (%d)", limit)
+}
+
+func msgNoDatasetItems(name string) string {
+	return fmt.Sprintf("No items in dataset %s", name)
+}
+
 func msgNoDatasets() string {
 	return "No datasets in this account"
 }

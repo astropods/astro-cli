@@ -38,6 +38,15 @@ var datasetGetCmd = &cobra.Command{
 	RunE:  runDatasetGet,
 }
 
+var datasetItemsCmd = &cobra.Command{
+	Use:   "items <dataset-name>",
+	Short: "List a dataset's items",
+	Long: "Lists a page of the dataset's items with their input, expected output, and evaluator values. " +
+		"--offset must be a multiple of --limit. Use --json for the full values.",
+	Args: cobra.ExactArgs(1),
+	RunE: runDatasetItems,
+}
+
 var datasetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the account's datasets",
@@ -51,6 +60,10 @@ func init() {
 	datasetCmd.AddCommand(datasetListCmd)
 	datasetCmd.AddCommand(datasetGetCmd)
 	datasetGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	datasetCmd.AddCommand(datasetItemsCmd)
+	datasetItemsCmd.Flags().Int("limit", 50, "Number of items to list (max 100)")
+	datasetItemsCmd.Flags().Int("offset", 0, "Pagination offset, a multiple of --limit")
+	datasetItemsCmd.Flags().Bool("json", false, "Print raw JSON output")
 	datasetListCmd.Flags().Int("limit", 50, "Number of datasets to list (max 100)")
 	datasetListCmd.Flags().Int("offset", 0, "Pagination offset for list")
 	datasetListCmd.Flags().Bool("json", false, "Print raw JSON output")
@@ -203,4 +216,118 @@ func runDatasetGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+const datasetItemsMaxLimit = 100
+
+type datasetItemOutput struct {
+	Key   string          `json:"key"`
+	Label string          `json:"label"`
+	Value json.RawMessage `json:"value"`
+}
+
+type datasetItem struct {
+	ID               string              `json:"id"`
+	Input            json.RawMessage     `json:"input"`
+	ExpectedOutput   json.RawMessage     `json:"expected_output"`
+	SourceTraceID    string              `json:"source_trace_id"`
+	CreatedAt        string              `json:"created_at"`
+	EvaluationRef    string              `json:"evaluation_ref,omitempty"`
+	Outdated         bool                `json:"outdated"`
+	VerifiedByUserID string              `json:"verified_by_user_id,omitempty"`
+	EvaluatorOutputs []datasetItemOutput `json:"evaluator_outputs"`
+}
+
+type datasetItemsResponse struct {
+	Items      []datasetItem `json:"items"`
+	Page       int           `json:"page"`
+	Limit      int           `json:"limit"`
+	TotalItems int           `json:"total_items"`
+	TotalPages int           `json:"total_pages"`
+}
+
+func runDatasetItems(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+	offset, _ := cmd.Flags().GetInt("offset")
+	if err := validateListPagination(limit, offset); err != nil {
+		return err
+	}
+	if limit > datasetItemsMaxLimit {
+		return errDatasetItemsLimit(datasetItemsMaxLimit)
+	}
+	if offset%limit != 0 {
+		return errDatasetItemsOffset(limit)
+	}
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name := args[0]
+	dataset, err := resolveDataset(cmd, at, verbose, name)
+	if err != nil {
+		return err
+	}
+
+	q := url.Values{}
+	q.Set("page", fmt.Sprintf("%d", offset/limit+1))
+	q.Set("limit", fmt.Sprintf("%d", limit))
+	u := fmt.Sprintf("%s/api/v1/datasets/%s/items?%s", datasetBaseURL(), url.PathEscape(dataset.ID), q.Encode())
+	var result datasetItemsResponse
+	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result)
+	if status == http.StatusNotFound {
+		return errDatasetNotFound(name)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, result)
+	}
+	if len(result.Items) == 0 {
+		fmt.Fprintf(w, "%s%s%s\n", colorDim, msgNoDatasetItems(name), colorReset) //nolint:errcheck,gosec
+		return nil
+	}
+
+	const traceIDWidth = 32
+	const valueWidth = 40
+	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "TRACE ID\tINPUT\tEXPECTED OUTPUT\tEVALUATORS") //nolint:errcheck,gosec
+	for _, item := range result.Items {
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", //nolint:errcheck,gosec
+			truncate(item.SourceTraceID, traceIDWidth),
+			truncate(oneLine(item.Input), valueWidth),
+			truncate(oneLine(item.ExpectedOutput), valueWidth),
+			evaluatorCell(item))
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+
+	if result.TotalItems > offset+len(result.Items) {
+		fmt.Fprintf(w, "%s\nShowing %d–%d of %d. Page with --offset %d.%s\n", colorDim, //nolint:errcheck,gosec
+			offset+1, offset+len(result.Items), result.TotalItems, offset+limit, colorReset)
+	}
+	return nil
+}
+
+func oneLine(v json.RawMessage) string {
+	return strings.Join(strings.Fields(rawValue(v)), " ")
+}
+
+func evaluatorCell(item datasetItem) string {
+	if len(item.EvaluatorOutputs) == 0 {
+		return "-"
+	}
+	parts := make([]string, len(item.EvaluatorOutputs))
+	for i, o := range item.EvaluatorOutputs {
+		parts[i] = o.Key + "=" + rawValue(o.Value)
+	}
+	cell := strings.Join(parts, " ")
+	if item.Outdated {
+		cell += " (outdated)"
+	}
+	return cell
 }
