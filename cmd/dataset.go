@@ -55,6 +55,16 @@ var datasetAddCmd = &cobra.Command{
 	RunE:  runDatasetAdd,
 }
 
+var datasetEditCmd = &cobra.Command{
+	Use:   "edit <dataset-name>",
+	Short: "Replace a dataset item's evaluator values",
+	Long: "Replaces the evaluator values on the dataset item for a trace. Evaluators you leave out are cleared. " +
+		"Run `eval get <blueprint>` to see keys and accepted values. Use --set-string for a string that looks like a number or a boolean.",
+	Example: "  ast dataset edit eval-dep12345678 -t <trace-id> --set helpful=true --set tone=warm",
+	Args:    cobra.ExactArgs(1),
+	RunE:    runDatasetEdit,
+}
+
 var datasetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the account's datasets",
@@ -68,6 +78,10 @@ func init() {
 	datasetCmd.AddCommand(datasetListCmd)
 	datasetCmd.AddCommand(datasetGetCmd)
 	datasetGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	datasetCmd.AddCommand(datasetEditCmd)
+	datasetEditCmd.Flags().StringP("trace-id", "t", "", "Trace whose dataset item to edit (required)")
+	registerEvalValueFlags(datasetEditCmd)
+	datasetEditCmd.Flags().Bool("json", false, "Print raw JSON output")
 	datasetCmd.AddCommand(datasetAddCmd)
 	datasetAddCmd.Flags().StringP("trace-id", "t", "", "Trace to add (required)")
 	datasetAddCmd.Flags().Bool("json", false, "Print raw JSON output")
@@ -389,5 +403,62 @@ func runDatasetAdd(cmd *cobra.Command, args []string) error {
 		return writeJSON(w, resp)
 	}
 	fmt.Fprintln(w, msgDatasetAdded(traceID, name)) //nolint:errcheck,gosec
+	return nil
+}
+
+type datasetEditResponse struct {
+	EvalDatasetID    string            `json:"eval_dataset_id"`
+	TraceID          string            `json:"trace_id"`
+	EvaluationRef    string            `json:"evaluation_ref"`
+	VerifiedByUserID string            `json:"verified_by_user_id"`
+	EvaluatorOutputs []evalOutputValue `json:"evaluator_outputs"`
+}
+
+func runDatasetEdit(cmd *cobra.Command, args []string) error {
+	traceID, _ := cmd.Flags().GetString("trace-id")
+	if traceID == "" {
+		return errTraceIDRequired()
+	}
+	inferred, _ := cmd.Flags().GetStringArray("set")
+	strict, _ := cmd.Flags().GetStringArray("set-string")
+	if len(inferred)+len(strict) == 0 {
+		return errSetValueRequired()
+	}
+	edits, err := parseEvalSetFlags(inferred, strict)
+	if err != nil {
+		return err
+	}
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name := args[0]
+	dataset, err := resolveDataset(cmd, at, verbose, name)
+	if err != nil {
+		return err
+	}
+
+	u := fmt.Sprintf("%s/api/v1/datasets/%s/items/%s/evaluator-outputs",
+		datasetBaseURL(), url.PathEscape(dataset.ID), url.PathEscape(traceID))
+	var resp datasetEditResponse
+	status, err := apiCall(cmd.Context(), http.MethodPut, u, map[string]any{"values": evalOutputValues(edits)}, at.Token, verbose, &resp)
+	switch status {
+	case http.StatusBadRequest:
+		return errDatasetEditRejected(apiErrorMessage(err))
+	case http.StatusNotFound:
+		return errDatasetItemNotFound(traceID, name)
+	case http.StatusConflict:
+		return errDatasetEditOutdated(traceID, name)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	fmt.Fprintln(w, msgDatasetEdited(traceID, name, len(resp.EvaluatorOutputs))) //nolint:errcheck,gosec
 	return nil
 }

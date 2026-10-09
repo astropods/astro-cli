@@ -331,7 +331,7 @@ func errTraceIDRequired() error {
 	return fmt.Errorf("--trace-id is required")
 }
 
-func errEvalReviewSetRequired() error {
+func errSetValueRequired() error {
 	return fmt.Errorf("at least one --set or --set-string key=value is required")
 }
 
@@ -405,6 +405,23 @@ func errDatasetAddRejected(message string) error {
 
 func msgDatasetAdded(traceID, dataset string) string {
 	return fmt.Sprintf("Added trace %s to dataset %s", traceID, dataset)
+}
+
+func errDatasetEditRejected(message string) error {
+	return fmt.Errorf("edit rejected: %s", message)
+}
+
+func errDatasetItemNotFound(traceID, dataset string) error {
+	return fmt.Errorf("trace %q is not in dataset %q; run `%s dataset items %s` to see its items", traceID, dataset, buildinfo.BinaryName, dataset)
+}
+
+func errDatasetEditOutdated(traceID, dataset string) error {
+	return fmt.Errorf("the item for trace %q does not use the active evaluation set; remove it from dataset %q and add it again to refresh it",
+		traceID, dataset)
+}
+
+func msgDatasetEdited(traceID, dataset string, values int) string {
+	return fmt.Sprintf("Updated trace %s in dataset %s (%d evaluator values)", traceID, dataset, values)
 }
 
 func msgNoDatasets() string {
