@@ -327,7 +327,7 @@ func msgEvalRunTraceQueued(traceID, runID, status, deploymentID string) string {
 		traceID, runID, status, buildinfo.BinaryName, deploymentID, traceID)
 }
 
-func errEvalReviewTraceRequired() error {
+func errTraceIDRequired() error {
 	return fmt.Errorf("--trace-id is required")
 }
 
@@ -381,6 +381,30 @@ func errDatasetItemsOffset(limit int) error {
 
 func msgNoDatasetItems(name string) string {
 	return fmt.Sprintf("No items in dataset %s", name)
+}
+
+func errDatasetTraceNotFound(traceID, dataset string) error {
+	return fmt.Errorf("no trace %q found for dataset %q", traceID, dataset)
+}
+
+func errDatasetAddWrongDeployment(traceID, dataset string) error {
+	return fmt.Errorf("trace %q belongs to a different deployment than dataset %q", traceID, dataset)
+}
+
+func errDatasetAddAlreadyAdded(traceID, dataset string) error {
+	return fmt.Errorf("trace %q is already in dataset %q", traceID, dataset)
+}
+
+func errDatasetAddNoInput(traceID string) error {
+	return fmt.Errorf("trace %q has no input, so it can't be added to a dataset", traceID)
+}
+
+func errDatasetAddRejected(message string) error {
+	return fmt.Errorf("add rejected: %s", message)
+}
+
+func msgDatasetAdded(traceID, dataset string) string {
+	return fmt.Sprintf("Added trace %s to dataset %s", traceID, dataset)
 }
 
 func msgNoDatasets() string {

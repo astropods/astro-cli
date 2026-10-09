@@ -474,7 +474,7 @@ func inferEvalValue(value string) json.RawMessage {
 func runEvalReview(cmd *cobra.Command, _ []string) error {
 	traceID, _ := cmd.Flags().GetString("trace-id")
 	if traceID == "" {
-		return errEvalReviewTraceRequired()
+		return errTraceIDRequired()
 	}
 	inferred, _ := cmd.Flags().GetStringArray("set")
 	strict, _ := cmd.Flags().GetStringArray("set-string")

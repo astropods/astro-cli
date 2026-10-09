@@ -47,6 +47,14 @@ var datasetItemsCmd = &cobra.Command{
 	RunE: runDatasetItems,
 }
 
+var datasetAddCmd = &cobra.Command{
+	Use:   "add <dataset-name>",
+	Short: "Add a trace to a dataset",
+	Long:  "Adds the trace to the dataset as an item, with its current evaluator values. The trace must belong to the dataset's deployment and have an input.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runDatasetAdd,
+}
+
 var datasetListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the account's datasets",
@@ -60,6 +68,9 @@ func init() {
 	datasetCmd.AddCommand(datasetListCmd)
 	datasetCmd.AddCommand(datasetGetCmd)
 	datasetGetCmd.Flags().Bool("json", false, "Print raw JSON output")
+	datasetCmd.AddCommand(datasetAddCmd)
+	datasetAddCmd.Flags().StringP("trace-id", "t", "", "Trace to add (required)")
+	datasetAddCmd.Flags().Bool("json", false, "Print raw JSON output")
 	datasetCmd.AddCommand(datasetItemsCmd)
 	datasetItemsCmd.Flags().Int("limit", 50, "Number of items to list (max 100)")
 	datasetItemsCmd.Flags().Int("offset", 0, "Pagination offset, a multiple of --limit")
@@ -330,4 +341,53 @@ func evaluatorCell(item datasetItem) string {
 		cell += " (outdated)"
 	}
 	return cell
+}
+
+type datasetAddResponse struct {
+	EvalDatasetID string `json:"eval_dataset_id"`
+	TraceID       string `json:"trace_id"`
+	EvaluationRef string `json:"evaluation_ref"`
+}
+
+func runDatasetAdd(cmd *cobra.Command, args []string) error {
+	traceID, _ := cmd.Flags().GetString("trace-id")
+	if traceID == "" {
+		return errTraceIDRequired()
+	}
+
+	at, verbose, err := cmdAuth(cmd)
+	if err != nil {
+		return err
+	}
+	name := args[0]
+	dataset, err := resolveDataset(cmd, at, verbose, name)
+	if err != nil {
+		return err
+	}
+
+	u := fmt.Sprintf("%s/api/v1/datasets/%s/items", datasetBaseURL(), url.PathEscape(dataset.ID))
+	var resp datasetAddResponse
+	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{"trace_id": traceID}, at.Token, verbose, &resp)
+	switch status {
+	case http.StatusBadRequest:
+		return errDatasetAddRejected(apiErrorMessage(err))
+	case http.StatusNotFound:
+		return errDatasetTraceNotFound(traceID, name)
+	case http.StatusForbidden:
+		return errDatasetAddWrongDeployment(traceID, name)
+	case http.StatusConflict:
+		return errDatasetAddAlreadyAdded(traceID, name)
+	case http.StatusUnprocessableEntity:
+		return errDatasetAddNoInput(traceID)
+	}
+	if err != nil {
+		return err
+	}
+
+	w := cmd.OutOrStdout()
+	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
+		return writeJSON(w, resp)
+	}
+	fmt.Fprintln(w, msgDatasetAdded(traceID, name)) //nolint:errcheck,gosec
+	return nil
 }

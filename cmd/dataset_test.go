@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -351,5 +352,99 @@ func TestDatasetItemsIsRegisteredOnRoot(t *testing.T) {
 	for _, flag := range []string{"limit", "offset", "json"} {
 		assert.NotNil(t, found.Flags().Lookup(flag), flag)
 	}
+	require.Error(t, found.Args(found, nil), "a dataset name is required")
+}
+
+func datasetAddCmdForTest(t *testing.T, traceID string, jsonOut bool) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: "add"}
+	cmd.Flags().StringP("trace-id", "t", "", "")
+	cmd.Flags().Bool("json", false, "")
+	if traceID != "" {
+		require.NoError(t, cmd.Flags().Set("trace-id", traceID))
+	}
+	if jsonOut {
+		require.NoError(t, cmd.Flags().Set("json", "true"))
+	}
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func TestDatasetAdd(t *testing.T) {
+	const name = "eval-dep00000001"
+	created := map[string]any{"eval_dataset_id": "ds-1", "trace_id": "trace-abc", "evaluation_ref": "ref-1"}
+	match := map[string]any{"datasets": []any{datasetRow(1, "support-bot")}, "total": 1}
+
+	cases := []struct {
+		name       string
+		traceID    string
+		jsonOutput bool
+		status     int
+		body       any
+		wantErr    string
+		wantOut    string
+		wantPosted bool
+	}{
+		{name: "adds the trace", traceID: "trace-abc", status: http.StatusCreated, body: created,
+			wantOut: msgDatasetAdded("trace-abc", name), wantPosted: true},
+		{name: "json output", traceID: "trace-abc", jsonOutput: true, status: http.StatusCreated, body: created,
+			wantOut: `"evaluation_ref": "ref-1"`, wantPosted: true},
+		{name: "trace from another deployment", traceID: "trace-abc", status: http.StatusForbidden,
+			body: map[string]any{"error": "trace does not belong to this deployment"}, wantPosted: true,
+			wantErr: errDatasetAddWrongDeployment("trace-abc", name).Error()},
+		{name: "trace without input", traceID: "trace-abc", status: http.StatusUnprocessableEntity,
+			body: map[string]any{"error": "trace has no input"}, wantPosted: true,
+			wantErr: errDatasetAddNoInput("trace-abc").Error()},
+		{name: "trace already in the dataset", traceID: "trace-abc", status: http.StatusConflict,
+			body: map[string]any{"error": "trace already in the dataset"}, wantPosted: true,
+			wantErr: errDatasetAddAlreadyAdded("trace-abc", name).Error()},
+		{name: "unknown trace", traceID: "trace-abc", status: http.StatusNotFound,
+			body: map[string]any{"error": "trace not found"}, wantPosted: true,
+			wantErr: errDatasetTraceNotFound("trace-abc", name).Error()},
+		{name: "rejected request prints the server message", traceID: "trace-abc", status: http.StatusBadRequest,
+			body: map[string]any{"error": "trace_id is required"}, wantPosted: true,
+			wantErr: errDatasetAddRejected("trace_id is required").Error()},
+		{name: "trace id is required", wantErr: errTraceIDRequired().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var posted bool
+			var gotPath string
+			var gotBody map[string]any
+			setupDatasetTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posted, gotPath = true, r.URL.Path
+					_ = json.NewDecoder(r.Body).Decode(&gotBody)
+					jsonHandler(tc.status, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, match)(w, r)
+			}))
+			buf := &bytes.Buffer{}
+			cmd := datasetAddCmdForTest(t, tc.traceID, tc.jsonOutput)
+			cmd.SetOut(buf)
+
+			err := runDatasetAdd(cmd, []string{name})
+			assert.Equal(t, tc.wantPosted, posted)
+			if tc.wantPosted {
+				assert.Equal(t, "/api/v1/datasets/ds-1/items", gotPath)
+				assert.Equal(t, map[string]any{"trace_id": "trace-abc"}, gotBody)
+			}
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func TestDatasetAddIsRegisteredOnRoot(t *testing.T) {
+	found, _, err := rootCmd.Find([]string{"dataset", "add", "some-name"})
+	require.NoError(t, err)
+	assert.Same(t, datasetAddCmd, found)
+	assert.NotNil(t, found.Flags().ShorthandLookup("t"), "-t selects the trace")
+	assert.NotNil(t, found.Flags().Lookup("json"))
 	require.Error(t, found.Args(found, nil), "a dataset name is required")
 }

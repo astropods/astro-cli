@@ -653,7 +653,7 @@ func TestEvalReview(t *testing.T) {
 		{name: "unknown trace is reported before any review is sent", sets: []string{"tone=warm"}, traceID: "trace-abc",
 			currentStatus: http.StatusNotFound, current: map[string]any{"error": "trace not found"},
 			wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
-		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errEvalReviewTraceRequired().Error()},
+		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errTraceIDRequired().Error()},
 		{name: "at least one set or set-string is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
 	}
 	for _, tc := range cases {
