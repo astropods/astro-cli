@@ -248,7 +248,7 @@ func TestResolvePushName(t *testing.T) {
 		{name: "inconclusive response (403) is treated as existing", getStatus: http.StatusForbidden, personalAccount: "acme", wantWarning: true},
 		{name: "inconclusive response (500) is treated as existing", getStatus: http.StatusInternalServerError, yes: true, wantWarning: true},
 		{
-			name: "existing name (200) at an org target with no --yes and no link is a plain conflict, not a prompt",
+			name:      "existing name (200) at an org target with no --yes and no link is a plain conflict, not a prompt",
 			getStatus: http.StatusOK, getBody: `{}`,
 			wantErr: `"my-agent" already exists in "acme"`,
 		},
