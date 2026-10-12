@@ -341,6 +341,91 @@ func errAgentTraceNotFound(traceID, target string) error {
 	return fmt.Errorf("no trace %q found for %q", traceID, target)
 }
 
+func errTraceEvaluationFilter(value string) error {
+	return fmt.Errorf("--evaluation %q is not valid; use evaluated or not_evaluated", value)
+}
+
+func errEvalSetNotFound(name, account string) error {
+	return fmt.Errorf("blueprint %q not found in account %q", name, account)
+}
+
+func errEvaluationNotConfigured() error {
+	return fmt.Errorf("evaluation is not configured in this environment")
+}
+
+func msgTraceEvaluationUnavailable(err error) string {
+	return fmt.Sprintf("Could not load the trace's evaluation: %v", err)
+}
+
+func errEvalRunTraceWithOutdated() error {
+	return fmt.Errorf("--include-outdated applies to the batch run and can't be combined with --trace-id")
+}
+
+func errEvalRunAlreadyActive(traceID string) error {
+	return fmt.Errorf("an evaluation is already running for trace %q", traceID)
+}
+
+func msgEvalRunQueued(queued, failed, limit int) string {
+	if queued == 0 && failed == 0 {
+		return "No traces to evaluate"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Queued %d trace evaluations", queued)
+	if failed > 0 {
+		fmt.Fprintf(&b, ", %d failed to queue", failed)
+	}
+	fmt.Fprintf(&b, ". Check progress with `%s eval status`.", buildinfo.BinaryName)
+	if queued >= limit {
+		fmt.Fprintf(&b, " Up to %d traces run per call, so more may remain: run it again.", limit)
+	}
+	return b.String()
+}
+
+func msgEvalRunTraceQueued(traceID, runID, status, deploymentID string) string {
+	return fmt.Sprintf("Queued evaluation for trace %s (run %s, %s). Check the result with `%s agent trace --id %s -t %s`.",
+		traceID, runID, status, buildinfo.BinaryName, deploymentID, traceID)
+}
+
+func errEvalReviewTraceRequired() error {
+	return fmt.Errorf("--trace-id is required")
+}
+
+func errEvalReviewSetRequired() error {
+	return fmt.Errorf("at least one --set or --set-string key=value is required")
+}
+
+func errEvalSetFlagFormat(flag, pair string) error {
+	return fmt.Errorf("--%s %q must be key=value", flag, pair)
+}
+
+func errEvalSetFlagDuplicate(key string) error {
+	return fmt.Errorf("--set %q is given more than once", key)
+}
+
+func errEvalReviewInvalid(message string) error {
+	return fmt.Errorf("review rejected: %s", message)
+}
+
+func errEvalReviewConflict(message, traceID string) error {
+	return fmt.Errorf("review rejected: %s. Run `%s eval run -t %s` to evaluate against the current evaluation set, then review again",
+		message, buildinfo.BinaryName, traceID)
+}
+
+func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datasetUpdated bool) string {
+	msg := fmt.Sprintf("Saved review for trace %s (%d evaluators).", traceID, evaluators)
+	switch {
+	case datasetUpdated:
+		msg += " Dataset item updated."
+	case datasetRequested:
+		msg += " Dataset item not updated."
+	}
+	return msg
+}
+
+func msgNoEvaluators(name string) string {
+	return fmt.Sprintf("No evaluators in the active evaluation set for %s", name)
+}
+
 func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }

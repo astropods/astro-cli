@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -266,4 +269,458 @@ func TestEvalValidate_MissingFile(t *testing.T) {
 	err := runEvalValidate(evalValidateCmdWithSpecFile(t, dir), nil)
 	require.Error(t, err)
 	assert.Equal(t, errNoEvaluationFile(), err)
+}
+
+func evalReadCmd(t *testing.T, use string) *cobra.Command {
+	t.Helper()
+	cmd := &cobra.Command{Use: use}
+	cmd.Flags().Bool("json", false, "")
+	cmd.SetContext(context.Background())
+	return cmd
+}
+
+func TestEvalGet(t *testing.T) {
+	setPayload := map[string]any{
+		"evaluation_ref": "ref-1",
+		"evaluators": []any{
+			map[string]any{"key": "helpful", "label": "Helpful", "type": "llm_judge", "output": map[string]any{"type": "boolean"}},
+			map[string]any{"key": "tone", "label": "Tone", "type": "llm_judge", "output": map[string]any{"type": "enum", "options": []string{"warm", "cold"}}},
+			map[string]any{"key": "score", "label": "Score", "type": "llm_judge", "output": map[string]any{"type": "number", "minimum": 1, "maximum": 5}},
+		},
+	}
+	cases := []struct {
+		name       string
+		statusCode int
+		body       any
+		jsonOutput bool
+		wantErr    string
+		wantOut    []string
+	}{
+		{name: "table of evaluators", statusCode: http.StatusOK, body: setPayload,
+			wantOut: []string{"ref-1", "Key", "Label", "Type", "Accepts", "helpful", "true, false", "warm, cold", "1 to 5"}},
+		{name: "json output", statusCode: http.StatusOK, body: setPayload, jsonOutput: true,
+			wantOut: []string{`"evaluation_ref": "ref-1"`}},
+		{name: "empty set", statusCode: http.StatusOK, body: map[string]any{"evaluation_ref": "r", "evaluators": []any{}},
+			wantOut: []string{msgNoEvaluators("coach")}},
+		{name: "not found", statusCode: http.StatusNotFound, body: map[string]any{"error": "agent not found"},
+			wantErr: errEvalSetNotFound("coach", "testaccount").Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			setupEvalTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				jsonHandler(tc.statusCode, tc.body)(w, r)
+			}))
+			cmd := evalReadCmd(t, "get")
+			if tc.jsonOutput {
+				require.NoError(t, cmd.Flags().Set("json", "true"))
+			}
+			buf := &bytes.Buffer{}
+			cmd.SetOut(buf)
+
+			err := runEvalGet(cmd, []string{"coach"})
+			assert.True(t, strings.HasSuffix(gotPath, "/agents/testaccount/coach/evaluation-set") ||
+				strings.HasSuffix(gotPath, "/coach/evaluation-set"), "path %q", gotPath)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
+}
+
+func TestEvalStatus(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	summary := map[string]any{"queued": 1, "in_progress": 2, "completed": 30, "failed": 4, "outdated_count": 5}
+
+	cases := []struct {
+		name       string
+		statusCode int
+		body       any
+		jsonOutput bool
+		wantErr    string
+		wantOut    []string
+	}{
+		{name: "prints counts", statusCode: http.StatusOK, body: summary,
+			wantOut: []string{"Queued:       1", "In progress:  2", "Completed:    30", "Failed:       4", "Outdated:     5"}},
+		{name: "json output", statusCode: http.StatusOK, body: summary, jsonOutput: true,
+			wantOut: []string{`"outdated_count": 5`}},
+		{name: "not configured", statusCode: http.StatusServiceUnavailable, body: map[string]any{"error": "x"},
+			wantErr: errEvaluationNotConfigured().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var summaryPath string
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/evaluations/summary") {
+					summaryPath = r.URL.Path
+					jsonHandler(tc.statusCode, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, listPayload)(w, r)
+			}))
+			setAgentTargetName(t, evalStatusCmd, "coach")
+			if tc.jsonOutput {
+				require.NoError(t, evalStatusCmd.Flags().Set("json", "true"))
+				t.Cleanup(func() { _ = evalStatusCmd.Flags().Set("json", "false") })
+			}
+			buf := &bytes.Buffer{}
+			evalStatusCmd.SetOut(buf)
+			evalStatusCmd.SetContext(context.Background())
+
+			err := runEvalStatus(evalStatusCmd, nil)
+			assert.Equal(t, "/api/v1/deployments/dep-abc-123/evaluations/summary", summaryPath)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			for _, want := range tc.wantOut {
+				assert.Contains(t, buf.String(), want)
+			}
+		})
+	}
+}
+
+func TestEvalRun(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach-dev",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	ids := func(n int) []string {
+		out := make([]string, n)
+		for i := range out {
+			out[i] = fmt.Sprintf("t%d", i)
+		}
+		return out
+	}
+
+	cases := []struct {
+		name            string
+		traceID         string
+		includeOutdated bool
+		jsonOutput      bool
+		statusCode      int
+		body            any
+		wantPath        string
+		wantBody        map[string]any
+		wantErr         string
+		wantOut         string
+	}{
+		{name: "batch queues recent traces", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(3), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(3, 0, evalRunBatchLimit)},
+		{name: "batch reports failures", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(2), "failed_trace_ids": []string{"bad"}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(2, 1, evalRunBatchLimit)},
+		{name: "batch at the limit says more may remain", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(evalRunBatchLimit), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: "run it again"},
+		{name: "include outdated is sent", includeOutdated: true, statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(1), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": true},
+			wantOut: msgEvalRunQueued(1, 0, evalRunBatchLimit)},
+		{name: "nothing to evaluate", statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": []string{}, "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: msgEvalRunQueued(0, 0, evalRunBatchLimit)},
+		{name: "batch json output", jsonOutput: true, statusCode: http.StatusAccepted,
+			body:     map[string]any{"enqueued_trace_ids": ids(1), "failed_trace_ids": []string{}},
+			wantPath: "/agents/testaccount/coach/evaluations", wantBody: map[string]any{"deployment_id": "dep-abc-123", "include_outdated_runs": false},
+			wantOut: `"enqueued_trace_ids"`},
+		{name: "single trace", traceID: "trace-abc", statusCode: http.StatusAccepted,
+			body:     map[string]any{"evaluation_run_id": "run-1", "status": "queued"},
+			wantPath: "/agents/testaccount/coach/evaluations/trace-abc", wantBody: map[string]any{"deployment_id": "dep-abc-123"},
+			wantOut: msgEvalRunTraceQueued("trace-abc", "run-1", "queued", "dep-abc-123")},
+		{name: "single trace already running", traceID: "trace-abc", statusCode: http.StatusConflict,
+			body: map[string]any{"error": "evaluation is already running"}, wantErr: errEvalRunAlreadyActive("trace-abc").Error()},
+		{name: "single trace not found", traceID: "trace-abc", statusCode: http.StatusNotFound,
+			body: map[string]any{"error": "trace not found"}, wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
+		{name: "not configured", statusCode: http.StatusServiceUnavailable,
+			body: map[string]any{"error": "evaluation is not configured"}, wantErr: errEvaluationNotConfigured().Error()},
+		{name: "billing suspended surfaces the pay reason", statusCode: http.StatusPaymentRequired,
+			body:    map[string]any{"error": "Billing suspended", "code": "BILLING_SUSPENDED", "reason": "no_card", "action": "add_card"},
+			wantErr: newAPIError(http.StatusPaymentRequired, []byte(`{"error":"Billing suspended","code":"BILLING_SUSPENDED","reason":"no_card","action":"add_card"}`)).Error()},
+		{name: "trace id with include outdated is rejected", traceID: "trace-abc", includeOutdated: true,
+			wantErr: errEvalRunTraceWithOutdated().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath string
+			var gotBody map[string]any
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.Contains(r.URL.Path, "/evaluations") {
+					gotPath = r.URL.Path
+					_ = json.NewDecoder(r.Body).Decode(&gotBody)
+					jsonHandler(tc.statusCode, tc.body)(w, r)
+					return
+				}
+				jsonHandler(http.StatusOK, listPayload)(w, r)
+			}))
+			evalServerURLOverride = agentServerURLOverride
+			t.Cleanup(func() { evalServerURLOverride = "" })
+
+			setAgentTargetName(t, evalRunCmd, "coach")
+			setEvalRunFlag(t, "trace-id", tc.traceID, "")
+			if tc.includeOutdated {
+				setEvalRunFlag(t, "include-outdated", "true", "false")
+			}
+			if tc.jsonOutput {
+				setEvalRunFlag(t, "json", "true", "false")
+			}
+			buf := &bytes.Buffer{}
+			evalRunCmd.SetOut(buf)
+			evalRunCmd.SetContext(context.Background())
+
+			err := runEvalRun(evalRunCmd, nil)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(gotPath, tc.wantPath), "path %q", gotPath)
+			assert.Equal(t, tc.wantBody, gotBody)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func setEvalRunFlag(t *testing.T, name, value, reset string) {
+	t.Helper()
+	require.NoError(t, evalRunCmd.Flags().Set(name, value))
+	t.Cleanup(func() { _ = evalRunCmd.Flags().Set(name, reset) })
+}
+
+func TestEvalRunRejectsPositionalArgs(t *testing.T) {
+	require.EqualError(t, agentTargetArgs(evalRunCmd, []string{"coach"}), errAgentUnexpectedArgument("coach").Error())
+}
+
+func TestParseEvalSetFlags(t *testing.T) {
+	cases := []struct {
+		name     string
+		inferred []string
+		strict   []string
+		want     map[string]string
+		wantErr  string
+	}{
+		{name: "infers booleans, numbers, and strings",
+			inferred: []string{"helpful=true", "off=false", "score=4", "ratio=-1.5e2", "tone=warm", "note=a=b"},
+			want: map[string]string{
+				"helpful": "true", "off": "false", "score": "4", "ratio": "-1.5e2", "tone": `"warm"`, "note": `"a=b"`,
+			}},
+		{name: "values that are not strict JSON numbers or booleans stay strings",
+			inferred: []string{"a=True", "b=NaN", "c=04", "d=+4", "e= 4", "f=null", "g=1e999", "h=", "i={}"},
+			want: map[string]string{
+				"a": `"True"`, "b": `"NaN"`, "c": `"04"`, "d": `"+4"`, "e": `" 4"`, "f": `"null"`, "g": `"1e999"`, "h": `""`, "i": `"{}"`,
+			}},
+		{name: "set-string always sends a string",
+			strict: []string{"note=42", "flag=true"},
+			want:   map[string]string{"note": `"42"`, "flag": `"true"`}},
+		{name: "set and set-string combine", inferred: []string{"score=4"}, strict: []string{"note=42"},
+			want: map[string]string{"score": "4", "note": `"42"`}},
+		{name: "missing equals", inferred: []string{"helpful"}, wantErr: errEvalSetFlagFormat("set", "helpful").Error()},
+		{name: "empty key", inferred: []string{"=true"}, wantErr: errEvalSetFlagFormat("set", "=true").Error()},
+		{name: "set-string missing equals", strict: []string{"note"}, wantErr: errEvalSetFlagFormat("set-string", "note").Error()},
+		{name: "duplicate key", inferred: []string{"tone=warm", "tone=cold"}, wantErr: errEvalSetFlagDuplicate("tone").Error()},
+		{name: "duplicate key across set and set-string", inferred: []string{"note=1"}, strict: []string{"note=2"},
+			wantErr: errEvalSetFlagDuplicate("note").Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseEvalSetFlags(tc.inferred, tc.strict)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, got, len(tc.want))
+			for k, v := range tc.want {
+				assert.JSONEq(t, v, string(got[k]), k)
+			}
+		})
+	}
+}
+
+func TestEvalOutputValues(t *testing.T) {
+	got := evalOutputValues(map[string]json.RawMessage{
+		"tone":    json.RawMessage(`"warm"`),
+		"helpful": json.RawMessage(`true`),
+	})
+	require.Len(t, got, 2)
+	assert.Equal(t, "helpful", got[0].Key, "outputs are ordered by key")
+	assert.Equal(t, "tone", got[1].Key)
+}
+
+func TestEvalReview(t *testing.T) {
+	dep := map[string]any{
+		"id": "dep-abc-123", "name": "coach", "display_name": "coach-dev",
+		"build_id": "abc12345", "namespace": "astro-testaccount", "status": "active", "created_at": "2026-05-28T10:00:00Z",
+	}
+	listPayload := map[string]any{"deployments": []any{dep}, "count": 1}
+	withRun := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-1", "outdated": false, "status": "completed",
+		"run": map[string]any{"id": "run-1", "status": "completed", "evaluators": []any{
+			map[string]any{"key": "helpful", "status": "completed", "value": true},
+			map[string]any{"key": "tone", "status": "completed", "value": "cold"},
+		}},
+	}}
+	noRun := map[string]any{"evaluation": map[string]any{
+		"evaluation_ref": "ref-2", "outdated": false, "status": "none", "run": nil, "human_review": nil,
+	}}
+	saved := map[string]any{
+		"human_review":             map[string]any{"evaluator_outputs": []any{map[string]any{"key": "helpful", "value": false}, map[string]any{"key": "tone", "value": "cold"}}},
+		"dataset_snapshot_updated": true,
+	}
+
+	cases := []struct {
+		name          string
+		sets          []string
+		setStrings    []string
+		traceID       string
+		updateDataset bool
+		current       map[string]any
+		currentStatus int
+		putStatus     int
+		putBody       any
+		wantBody      map[string]any
+		wantErr       string
+		wantOut       string
+	}{
+		{name: "sends only the given values with the run id", sets: []string{"helpful=false"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-1", "evaluation_run_id": "run-1",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": false}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "set infers types and set-string forces a string", sets: []string{"helpful=true", "score=4", "tone=warm"}, setStrings: []string{"note=42"},
+			traceID: "trace-abc", current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs": []any{
+					map[string]any{"key": "helpful", "value": true},
+					map[string]any{"key": "note", "value": "42"},
+					map[string]any{"key": "score", "value": float64(4)},
+					map[string]any{"key": "tone", "value": "warm"},
+				},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "set-string alone satisfies the value requirement", setStrings: []string{"note=hi"}, traceID: "trace-abc",
+			current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "note", "value": "hi"}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "unevaluated trace sends the active ref without a run id", sets: []string{"helpful=true"}, traceID: "trace-abc",
+			current: noRun, putStatus: http.StatusOK, putBody: saved,
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": true}},
+				"update_dataset_snapshot": false,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 2, false, true)},
+		{name: "update dataset is sent", sets: []string{"helpful=true"}, traceID: "trace-abc", updateDataset: true,
+			current: noRun, putStatus: http.StatusOK, putBody: map[string]any{"human_review": map[string]any{"evaluator_outputs": []any{}}, "dataset_snapshot_updated": false},
+			wantBody: map[string]any{
+				"deployment_id": "dep-abc-123", "evaluation_ref": "ref-2",
+				"evaluator_outputs":       []any{map[string]any{"key": "helpful", "value": true}},
+				"update_dataset_snapshot": true,
+			},
+			wantOut: msgEvalReviewSaved("trace-abc", 0, true, false)},
+		{name: "invalid value prints the server message", sets: []string{"tone=lukewarm"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusBadRequest, putBody: map[string]any{"error": `evaluator "tone": not an option`},
+			wantErr: errEvalReviewInvalid(`evaluator "tone": not an option`).Error()},
+		{name: "conflict suggests re-running the trace", sets: []string{"tone=warm"}, traceID: "trace-abc",
+			current: withRun, putStatus: http.StatusConflict, putBody: map[string]any{"error": "evaluation set changed"},
+			wantErr: errEvalReviewConflict("evaluation set changed", "trace-abc").Error()},
+		{name: "unknown trace is reported before any review is sent", sets: []string{"tone=warm"}, traceID: "trace-abc",
+			currentStatus: http.StatusNotFound, current: map[string]any{"error": "trace not found"},
+			wantErr: errAgentTraceNotFound("trace-abc", "coach-dev").Error()},
+		{name: "trace id is required", sets: []string{"tone=warm"}, wantErr: errEvalReviewTraceRequired().Error()},
+		{name: "at least one set or set-string is required", traceID: "trace-abc", wantErr: errEvalReviewSetRequired().Error()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody map[string]any
+			var gotPath string
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/human-review"):
+					gotPath = r.URL.Path
+					_ = json.NewDecoder(r.Body).Decode(&gotBody)
+					jsonHandler(tc.putStatus, tc.putBody)(w, r)
+				case strings.HasSuffix(r.URL.Path, "/evaluation-set"):
+					assert.Fail(t, "eval review does not fetch the evaluation set")
+				case strings.Contains(r.URL.Path, "/trace-evaluations/"):
+					status := tc.currentStatus
+					if status == 0 {
+						status = http.StatusOK
+					}
+					jsonHandler(status, tc.current)(w, r)
+				default:
+					jsonHandler(http.StatusOK, listPayload)(w, r)
+				}
+			}))
+			evalServerURLOverride = agentServerURLOverride
+			t.Cleanup(func() { evalServerURLOverride = "" })
+
+			setAgentTargetName(t, evalReviewCmd, "coach")
+			if tc.traceID != "" {
+				require.NoError(t, evalReviewCmd.Flags().Set("trace-id", tc.traceID))
+				t.Cleanup(func() { _ = evalReviewCmd.Flags().Set("trace-id", "") })
+			}
+			for _, s := range tc.sets {
+				require.NoError(t, evalReviewCmd.Flags().Set("set", s))
+			}
+			for _, s := range tc.setStrings {
+				require.NoError(t, evalReviewCmd.Flags().Set("set-string", s))
+			}
+			t.Cleanup(func() {
+				resetStringArrayFlag(t, evalReviewCmd, "set")
+				resetStringArrayFlag(t, evalReviewCmd, "set-string")
+			})
+			if tc.updateDataset {
+				require.NoError(t, evalReviewCmd.Flags().Set("update-dataset", "true"))
+				t.Cleanup(func() { _ = evalReviewCmd.Flags().Set("update-dataset", "false") })
+			}
+			buf := &bytes.Buffer{}
+			evalReviewCmd.SetOut(buf)
+			evalReviewCmd.SetContext(context.Background())
+
+			err := runEvalReview(evalReviewCmd, nil)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(gotPath, "/agents/testaccount/coach/evaluations/trace-abc/human-review"), gotPath)
+			assert.Equal(t, tc.wantBody, gotBody)
+			assert.Contains(t, buf.String(), tc.wantOut)
+		})
+	}
+}
+
+func resetStringArrayFlag(t *testing.T, cmd *cobra.Command, name string) {
+	t.Helper()
+	f := cmd.Flags().Lookup(name)
+	require.NotNil(t, f)
+	require.NoError(t, f.Value.(pflag.SliceValue).Replace(nil))
+	f.Changed = false
 }
