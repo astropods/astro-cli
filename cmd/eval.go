@@ -122,8 +122,7 @@ func init() {
 	evalRunCmd.Flags().Bool("json", false, "Print raw JSON output")
 	registerAgentTargetFlags(evalReviewCmd)
 	evalReviewCmd.Flags().StringP("trace-id", "t", "", "Trace to review (required)")
-	evalReviewCmd.Flags().StringArray("set", nil, "Evaluator value as key=value; true, false, and numbers keep their type, anything else is a string (repeatable)")
-	evalReviewCmd.Flags().StringArray("set-string", nil, "Evaluator value as key=value, always sent as a string (repeatable)")
+	registerEvalValueFlags(evalReviewCmd)
 	evalReviewCmd.Flags().Bool("update-dataset", false, "Also update the trace's dataset item")
 	evalReviewCmd.Flags().Bool("json", false, "Print raw JSON output")
 }
@@ -426,6 +425,12 @@ type evalReviewResponse struct {
 	DatasetSnapshotUpdated bool `json:"dataset_snapshot_updated"`
 }
 
+// registerEvalValueFlags adds the --set and --set-string flags parseEvalSetFlags reads.
+func registerEvalValueFlags(cmd *cobra.Command) {
+	cmd.Flags().StringArray("set", nil, "Evaluator value as key=value; true, false, and numbers keep their type, anything else is a string (repeatable)")
+	cmd.Flags().StringArray("set-string", nil, "Evaluator value as key=value, always sent as a string (repeatable)")
+}
+
 // parseEvalSetFlags converts key=value flags to JSON values. --set sends the
 // JSON literals true, false, and numbers as such and everything else as a
 // string; --set-string always sends a string.
@@ -474,12 +479,12 @@ func inferEvalValue(value string) json.RawMessage {
 func runEvalReview(cmd *cobra.Command, _ []string) error {
 	traceID, _ := cmd.Flags().GetString("trace-id")
 	if traceID == "" {
-		return errEvalReviewTraceRequired()
+		return errTraceIDRequired()
 	}
 	inferred, _ := cmd.Flags().GetStringArray("set")
 	strict, _ := cmd.Flags().GetStringArray("set-string")
 	if len(inferred)+len(strict) == 0 {
-		return errEvalReviewSetRequired()
+		return errSetValueRequired()
 	}
 	updateDataset, _ := cmd.Flags().GetBool("update-dataset")
 

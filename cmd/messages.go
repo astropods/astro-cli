@@ -386,11 +386,11 @@ func msgEvalRunTraceQueued(traceID, runID, status, deploymentID string) string {
 		traceID, runID, status, buildinfo.BinaryName, deploymentID, traceID)
 }
 
-func errEvalReviewTraceRequired() error {
+func errTraceIDRequired() error {
 	return fmt.Errorf("--trace-id is required")
 }
 
-func errEvalReviewSetRequired() error {
+func errSetValueRequired() error {
 	return fmt.Errorf("at least one --set or --set-string key=value is required")
 }
 
@@ -420,6 +420,83 @@ func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datase
 		msg += " Dataset item not updated."
 	}
 	return msg
+}
+
+func errDatasetNotFound(name string) error {
+	return fmt.Errorf("dataset %q not found; run `%s dataset list` to see dataset names", name, buildinfo.BinaryName)
+}
+
+func errDatasetAmbiguous(name string, ids []string) error {
+	return fmt.Errorf("more than one dataset is named %q (IDs: %s)", name, strings.Join(ids, ", "))
+}
+
+func errDatasetLimit(max int) error {
+	return fmt.Errorf("--limit must be at most %d", max)
+}
+
+func errDatasetItemsOffset(limit int) error {
+	return fmt.Errorf("--offset must be a multiple of --limit (%d)", limit)
+}
+
+func msgNoDatasetItems(name string) string {
+	return fmt.Sprintf("No items in dataset %s", name)
+}
+
+func errDatasetTraceNotFound(traceID, dataset string) error {
+	return fmt.Errorf("no trace %q found for dataset %q", traceID, dataset)
+}
+
+func errDatasetAddWrongDeployment(traceID, dataset string) error {
+	return fmt.Errorf("trace %q belongs to a different deployment than dataset %q", traceID, dataset)
+}
+
+func errDatasetAddAlreadyAdded(traceID, dataset string) error {
+	return fmt.Errorf("trace %q is already in dataset %q", traceID, dataset)
+}
+
+func errDatasetAddNoInput(traceID string) error {
+	return fmt.Errorf("trace %q has no input, so it can't be added to a dataset", traceID)
+}
+
+func errDatasetAddRejected(message string) error {
+	return fmt.Errorf("add rejected: %s", message)
+}
+
+func msgDatasetAdded(traceID, dataset string) string {
+	return fmt.Sprintf("Added trace %s to dataset %s", traceID, dataset)
+}
+
+func errDatasetEditRejected(message string) error {
+	return fmt.Errorf("edit rejected: %s", message)
+}
+
+func errDatasetItemNotFound(traceID, dataset string) error {
+	return fmt.Errorf("trace %q is not in dataset %q; run `%s dataset items %s` to see its items", traceID, dataset, buildinfo.BinaryName, dataset)
+}
+
+func errDatasetEditOutdated(traceID, dataset string) error {
+	return fmt.Errorf("the item for trace %q does not use the active evaluation set; remove it from dataset %q and add it again to refresh it",
+		traceID, dataset)
+}
+
+func msgDatasetEdited(traceID, dataset string, values int) string {
+	return fmt.Sprintf("Updated trace %s in dataset %s (%d evaluator values)", traceID, dataset, values)
+}
+
+func msgDatasetRemoved(traceID, dataset string) string {
+	return fmt.Sprintf("Removed trace %s from dataset %s", traceID, dataset)
+}
+
+func errDatasetDownloadFailed(err error) error {
+	return fmt.Errorf("download failed: %w", err)
+}
+
+func msgDatasetDownloaded(dataset, path string, bytes int64) string {
+	return fmt.Sprintf("Saved dataset %s to %s (%d bytes)", dataset, path, bytes)
+}
+
+func msgNoDatasets() string {
+	return "No datasets in this account"
 }
 
 func msgNoEvaluators(name string) string {

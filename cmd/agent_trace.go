@@ -114,7 +114,7 @@ func runAgentTrace(cmd *cobra.Command, args []string) error {
 
 	limit, _ := cmd.Flags().GetInt("limit")
 	offset, _ := cmd.Flags().GetInt("offset")
-	if err := validateTracePagination(limit, offset); err != nil {
+	if err := validateListPagination(limit, offset); err != nil {
 		return err
 	}
 	start, _ := cmd.Flags().GetString("start")
@@ -144,7 +144,7 @@ func runAgentTrace(cmd *cobra.Command, args []string) error {
 	return runAgentTraceList(cmd, label, dep.ID, at, verbose)
 }
 
-func validateTracePagination(limit, offset int) error {
+func validateListPagination(limit, offset int) error {
 	if limit <= 0 {
 		return errPositiveIntFlag("limit")
 	}
