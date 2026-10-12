@@ -155,10 +155,6 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 	}
 }
 
-func TestSuggestedRename(t *testing.T) {
-	assert.Equal(t, "my-agent-alice", suggestedRename("my-agent", "alice"))
-}
-
 func TestBlueprintExists(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -210,12 +206,11 @@ func TestBlueprintExists(t *testing.T) {
 	}
 }
 
-// TestResolveOrRenameBlueprint covers every branch that returns without
-// reaching the interactive confirm prompt. The exists/org-target/no-flag
-// branch, which prompts, is not exercised here. personalAccount or yes is
-// set on every case so the inconclusive-response cases can be observed
-// through the warning they print, without also reaching the prompt.
-func TestResolveOrRenameBlueprint(t *testing.T) {
+// TestResolvePushName covers every branch of resolvePushName: a free name
+// gets reserved outright, an existing one goes through untouched for the
+// caller's own personal account or with --yes, and any other existing name
+// is a plain error naming the conflict.
+func TestResolvePushName(t *testing.T) {
 	tests := []struct {
 		name string
 		// getStatus is the existence-check GET's response. getBody is its
@@ -252,6 +247,11 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 		},
 		{name: "inconclusive response (403) is treated as existing", getStatus: http.StatusForbidden, personalAccount: "acme", wantWarning: true},
 		{name: "inconclusive response (500) is treated as existing", getStatus: http.StatusInternalServerError, yes: true, wantWarning: true},
+		{
+			name: "existing name (200) at an org target with no --yes and no link is a plain conflict, not a prompt",
+			getStatus: http.StatusOK, getBody: `{}`,
+			wantErr: `"my-agent" already exists in "acme"`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -273,7 +273,7 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			var warnBuf bytes.Buffer
-			got, err := resolveOrRenameBlueprint(
+			got, err := resolvePushName(
 				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
 				"my-agent", tt.personalAccount, testSpecPath, tt.yes, false,
 			)
@@ -301,35 +301,34 @@ func TestResolveOrRenameBlueprint(t *testing.T) {
 	}
 }
 
-// TestResolveOrRenameBlueprintPushLink covers the push-link short circuit: a
-// repeat push for the same account and name a prior resolution already
-// settled skips straight past the interactive prompt without needing yes or
-// a personal account. The existence check itself still runs every time
-// (asserted via getCalls), so a blueprint deleted and recreated server-side
-// since the link was written is still re-validated rather than blindly
-// trusted. resolveOrRenameBlueprint never writes the link itself (that's
-// runPush's job, after permission is actually granted — see
-// TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails), so this only
-// covers the read side.
-func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
+// TestResolvePushNamePushLink covers the push-link short circuit: a repeat
+// push for the same account and name a prior resolution already settled
+// goes through without needing yes or a personal account. The existence
+// check itself still runs every time (asserted via getCalls), so a
+// blueprint deleted and recreated server-side since the link was written is
+// still re-validated rather than blindly trusted. resolvePushName never
+// writes the link itself (that's runPush's job, after permission is
+// actually granted — see TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails),
+// so this only covers the read side.
+func TestResolvePushNamePushLink(t *testing.T) {
 	tests := []struct {
 		name         string
 		existingLink *pushLink
 		yes          bool
 	}{
-		{name: "no link needs yes to avoid the prompt", yes: true},
+		{name: "no link needs yes to avoid a conflict error", yes: true},
 		{
-			name:         "a link for a different name needs yes to avoid the prompt",
+			name:         "a link for a different name needs yes to avoid a conflict error",
 			existingLink: &pushLink{Account: "acme", Name: "other-agent"},
 			yes:          true,
 		},
 		{
-			name:         "a link for a different account needs yes to avoid the prompt",
+			name:         "a link for a different account needs yes to avoid a conflict error",
 			existingLink: &pushLink{Account: "other-org", Name: "my-agent"},
 			yes:          true,
 		},
 		{
-			name:         "a matching link skips the prompt on its own, without yes",
+			name:         "a matching link resolves on its own, without yes",
 			existingLink: &pushLink{Account: "acme", Name: "my-agent"},
 		},
 	}
@@ -351,7 +350,7 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			var warnBuf bytes.Buffer
-			got, err := resolveOrRenameBlueprint(
+			got, err := resolvePushName(
 				context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
 				"my-agent", "", testSpecPath, tt.yes, false,
 			)
@@ -363,12 +362,12 @@ func TestResolveOrRenameBlueprintPushLink(t *testing.T) {
 	}
 }
 
-// TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion
-// covers the case the all-or-nothing short circuit would have missed: the
-// linked name no longer exists (deleted server-side since the link was
-// written), so resolution must still fall into the create path and
-// reserve it, rather than trusting the stale link and skipping that.
-func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *testing.T) {
+// TestResolvePushNamePushLinkSelfHealsAfterServerSideDeletion covers the
+// case the all-or-nothing short circuit would have missed: the linked name
+// no longer exists (deleted server-side since the link was written), so
+// resolution must still fall into the create path and reserve it, rather
+// than trusting the stale link and skipping that.
+func TestResolvePushNamePushLinkSelfHealsAfterServerSideDeletion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	writePushLink(testSpecPath, "acme", "my-agent")
 
@@ -384,7 +383,7 @@ func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *tes
 	t.Cleanup(srv.Close)
 
 	var warnBuf bytes.Buffer
-	got, err := resolveOrRenameBlueprint(
+	got, err := resolvePushName(
 		context.Background(), &warnBuf, srv.URL, AccountToken{Account: "acme", Token: "token"},
 		"my-agent", "", testSpecPath, false, false,
 	)
@@ -397,12 +396,12 @@ func TestResolveOrRenameBlueprintPushLinkSelfHealsAfterServerSideDeletion(t *tes
 // TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails covers the
 // regression a premature write would cause: a rejected permission check
 // must leave no link behind, or a retry would see a match and skip straight
-// past the confirm prompt for the same rejected target, with no rename path
-// offered, every time, until the user deletes the state file by hand.
-// Combined with TestResolveOrRenameBlueprintPushLink's "no link" case
-// (proving a missing link falls through to the normal prompt), this closes
-// the loop: after a denial, the next attempt behaves exactly as if no push
-// had happened here before.
+// past the name-conflict check for the same rejected target, every time,
+// until the user deletes the state file by hand. Combined with
+// TestResolvePushNamePushLink's "no link" case (proving a missing link
+// falls through to the normal check), this closes the loop: after a
+// denial, the next attempt behaves exactly as if no push had happened here
+// before.
 func TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	specPath := filepath.Join(t.TempDir(), "astropods.yml")

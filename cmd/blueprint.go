@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
-	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -270,18 +268,10 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	resolvedName, err := resolveOrRenameBlueprint(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
+	agentName, err = resolvePushName(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
 	if err != nil {
-		if errors.Is(err, tui.ErrCanceled) {
-			printCanceled(cmd.OutOrStdout())
-			return nil
-		}
 		return err
 	}
-	if resolvedName != agentName {
-		fmt.Fprintf(warnW, "%s\n", msgBlueprintRenamedUpdateSpec(agentName, resolvedName)) //nolint:errcheck
-	}
-	agentName = resolvedName
 
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
 	return runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{

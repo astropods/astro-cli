@@ -12,16 +12,13 @@ import (
 )
 
 // pushLink is the user-local record of the account and name `ast push` last
-// resolved to for one spec file, so a repeat push recognizes its own prior
-// push and skips the confirmation prompt instead of asking again every
-// time. It never skips the existence check itself — see
-// resolveOrRenameBlueprint.
+// resolved to for one spec file. resolvePushName treats a matching link as
+// its own prior push, skipping the name-conflict error; it still runs the
+// existence check itself every time.
 //
 // Stored under the user's own config directory, keyed by the spec file's
-// canonical path, never inside the project checkout: a file the repository
-// tracks must not stand in for a user's own confirmation, or a cloned repo
-// could ship a link that suppresses the prompt for someone who never
-// confirmed anything.
+// canonical path — never inside the project checkout, which is shared by
+// everyone who clones it.
 type pushLink struct {
 	Account string `json:"account"`
 	Name    string `json:"name"`
@@ -65,10 +62,8 @@ func readPushLink(specPath string) *pushLink {
 }
 
 // writePushLink records account/name as specPath's push target. Call only
-// once the push is actually authorized (after checkBlueprintPushPermission
-// succeeds) — writing any earlier would let a later retry, after a
-// permission failure, skip straight back to this same rejected target
-// without offering the rename path.
+// once the push is actually authorized, after checkBlueprintPushPermission
+// succeeds.
 //
 // Best-effort: a write failure only means the next push re-checks instead
 // of trusting the link, not a reason to fail a push that already succeeded.
