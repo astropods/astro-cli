@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -163,4 +164,44 @@ func TestCollectGitMetadataSkipsNoBuildPushes(t *testing.T) {
 	assert.Empty(t, pipeline.gitMetadata.CommitMessage)
 	assert.False(t, pipeline.gitMetadata.WorkingTreeDirty)
 	assert.False(t, pipeline.gitMetadata.WorkingTreeStatusKnown)
+}
+
+func TestCollectGitMetadataMessage(t *testing.T) {
+	tests := []struct {
+		name        string
+		skipBuild   bool
+		message     string
+		wantMessage string
+		wantSHA     bool
+	}{
+		{name: "--message replaces the commit message", message: "Tune the retriever", wantMessage: "Tune the retriever", wantSHA: true},
+		{name: "without --message the commit message is kept", wantMessage: "feat: add example blueprint", wantSHA: true},
+		{name: "--no-build keeps --message but records no commit", skipBuild: true, message: "Retag", wantMessage: "Retag"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			specPath, _ := pipelineGitRepository(t)
+			pipeline := NewPushPipeline(context.Background(), PushPipelineConfig{
+				SpecPath:  specPath,
+				SkipBuild: tt.skipBuild,
+				Message:   tt.message,
+			}).CollectGitMetadata()
+
+			require.NoError(t, pipeline.Err())
+			assert.Equal(t, tt.wantMessage, pipeline.gitMetadata.CommitMessage)
+			assert.Equal(t, tt.wantSHA, pipeline.gitMetadata.CommitSHA != "", "commit SHA presence")
+		})
+	}
+}
+
+func TestPushCommandsHaveMessageFlag(t *testing.T) {
+	topLevelPush, _, err := rootCmd.Find([]string{"push"})
+	require.NoError(t, err)
+	for _, c := range []*cobra.Command{blueprintPushCmd, topLevelPush} {
+		t.Run(c.CommandPath(), func(t *testing.T) {
+			f := c.Flags().Lookup("message")
+			require.NotNil(t, f, "%s is missing --message", c.CommandPath())
+			assert.Equal(t, "m", f.Shorthand)
+		})
+	}
 }

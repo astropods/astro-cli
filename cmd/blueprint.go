@@ -144,6 +144,7 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
+	cmd.Flags().StringP("message", "m", "", "Describe this push; replaces the Git commit message shown on the build")
 }
 
 func init() {
@@ -265,6 +266,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	allowDirty, _ := cmd.Flags().GetBool("allow-dirty")
+	message, _ := cmd.Flags().GetString("message")
 
 	personalAccount, err := accountNewStorage().GetPersonalAccount()
 	if err != nil {
@@ -295,6 +297,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Yes:        yes,
 		Verbose:    verbose,
 		JSON:       jsonOut,
+		Message:    strings.TrimSpace(message),
 	})
 }
 

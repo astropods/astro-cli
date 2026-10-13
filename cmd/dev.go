@@ -81,14 +81,20 @@ func init() {
 	devStartCmd.Long = `Start the local development environment with Docker containers.
 
 By default, tails the agent service's logs in the foreground and stops
-containers on Ctrl+C. Sidecar logs (models, knowledge stores, integrations,
-messaging) are suppressed — use 'project logs <service>' to view them on
-demand, or --all-logs to tail every service.
+containers on Ctrl+C. A job (ingestion container) that runs while the agent is
+up, such as one started by 'project trigger', is tailed too. Sidecar logs
+(models, knowledge stores, integrations, messaging) are suppressed. Use
+'project logs <service>' to view them on demand, or --all-logs to tail every
+service.
+
+Jobs with a startup trigger run once after the services start. Use
+--skip-startup to start without running them.
 
 Use -b/--background to start in the background and exit immediately.`
 
 	addEnvFileFlags(devTriggerCmd)
 	devTriggerCmd.Flags().StringP("file", "f", "", "Path to the agent spec (default: astropods.yml in the current directory)")
+	devTriggerCmd.Flags().Bool("rebuild", false, "Rebuild the job's container without cache before running it")
 
 	// Flags on both devCmd and devStartCmd
 	for _, cmd := range []*cobra.Command{devCmd, devStartCmd} {
@@ -96,7 +102,8 @@ Use -b/--background to start in the background and exit immediately.`
 		cmd.Flags().Bool("rebuild", false, "Force rebuild all containers without cache")
 		cmd.Flags().Bool("no-pull", false, "Skip pulling images (use only locally built images)")
 		cmd.Flags().BoolP("background", "b", false, "Start containers in the background and exit (use 'project logs' / 'project stop' to manage)")
-		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent")
+		cmd.Flags().Bool("all-logs", false, "Tail logs from every service instead of just the agent and jobs")
+		cmd.Flags().Bool("skip-startup", false, "Start without running jobs that have a startup trigger")
 	}
 
 	devLogsCmd.Flags().Bool("all", false, "Tail logs from all services (not just agent)")
@@ -307,6 +314,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	noPull := flagBool(cmd, "no-pull")
 	background := flagBool(cmd, "background")
 	allLogs := flagBool(cmd, "all-logs")
+	skipStartup := flagBool(cmd, "skip-startup")
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -385,14 +393,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Build all services upfront — including profiled ingestion containers — so
 	// startup ingestions don't get built lazily after everything else is running.
 	// Activate the "ingestion" profile so the SDK resolves profiled services by name.
-	buildProject := *project
-	buildProject.Profiles = []string{"ingestion"}
 	buildTitle := "Building services..."
 	if rebuild {
 		buildTitle = "Building services (no cache)..."
 	}
 	if err := withSpinner(buildTitle, "Build complete", verbose, func() error {
-		return svc.Build(context.Background(), &buildProject, api.BuildOptions{
+		return buildWithIngestionProfile(svc, project, api.BuildOptions{
 			NoCache:  rebuild,
 			Quiet:    !verbose,
 			Services: allServiceNames(project),
@@ -458,14 +464,24 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	startChatUI(astDir, astroSpec.Name, hasWebInterface, !background)
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
-	runStartupIngestions(astroSpec, project, verbose)
+	if skipStartup {
+		if names := startupIngestionNames(astroSpec); len(names) > 0 {
+			fmt.Fprintf(w, "%s→%s %s%s%s\n", colorCyan, colorReset, colorDim, msgStartupJobsSkipped(names), colorReset) //nolint:errcheck,gosec
+		}
+	} else {
+		runStartupIngestions(astroSpec, project, verbose)
+	}
 
 	printReadyBlock(astroSpec, hasWebInterface, background)
 
 	if background {
 		return nil
 	}
-	err = runForeground(projectName, astDir, allLogs)
+	var logServices []string
+	if !allLogs {
+		logServices = foregroundLogServices(astroSpec)
+	}
+	err = runForeground(projectName, astDir, logServices)
 	// A sandbox outliving `ast dev` bills for compute nobody is using, so the
 	// session goes when the containers do. Background mode leaves it, because
 	// the containers keep running and `project stop` is what ends the session.
@@ -475,10 +491,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	return err
 }
 
-// runForeground tails the agent's container logs and blocks until Ctrl+C,
-// then stops. Sidecar services run silently — fetch their logs on demand via
-// `project logs <service>`. Pass allLogs=true to tail every service.
-func runForeground(projectName, astDir string, allLogs bool) error {
+// runForeground tails the logs of services and blocks until Ctrl+C, then
+// stops. An empty services tails every service.
+func runForeground(projectName, astDir string, services []string) error {
 	logsSvc, err := newComposeService(false)
 	if err != nil {
 		return fmt.Errorf("failed to init compose service: %w", err)
@@ -492,10 +507,7 @@ func runForeground(projectName, astDir string, allLogs bool) error {
 		logsCancel()
 	}()
 
-	logOpts := api.LogOptions{Follow: true}
-	if !allLogs {
-		logOpts.Services = []string{"agent"}
-	}
+	logOpts := api.LogOptions{Follow: true, Services: services}
 	_ = logsSvc.Logs(logsCtx, projectName, &stdoutLogConsumer{out: os.Stdout, err: os.Stderr}, logOpts)
 	logsCancel()
 	signal.Stop(sigChan)
@@ -684,6 +696,17 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to init compose service: %w", err)
 	}
 	triggerService := fmt.Sprintf("ingestion-%s", name)
+	if flagBool(cmd, "rebuild") {
+		if err := withSpinner(fmt.Sprintf("Building %s (no cache)...", triggerService), "Build complete", triggerVerbose, func() error {
+			return buildWithIngestionProfile(triggerSvc, ingProject, api.BuildOptions{
+				NoCache:  true,
+				Quiet:    !triggerVerbose,
+				Services: []string{triggerService},
+			})
+		}); err != nil {
+			return fmt.Errorf("failed to build %s: %w", triggerService, err)
+		}
+	}
 	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
 		Service:    triggerService,
 		AutoRemove: true,
@@ -701,10 +724,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 
 // runStartupIngestions runs each startup-type ingestion synchronously before the CLI exits.
 func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verbose bool) {
-	for name, ingestion := range s.Ingestion {
-		if ingestion.Trigger.Type != "startup" {
-			continue
-		}
+	for _, name := range startupIngestionNames(s) {
 		startupSvc, err := newComposeService(verbose)
 		if err != nil {
 			fmt.Printf("❌ Failed to init compose service for ingestion '%s': %v\n", name, err)

@@ -489,3 +489,21 @@ func TestPrintDevEnvStage(t *testing.T) {
 	printDevEnvStage(&out, devEnvStageStore, devEnvCounts{FromStore: 1})
 	assert.Equal(t, msgDevEnvFileLoaded(2, "/tmp/run.env")+msgDevEnvStoreLoaded(1), out.String())
 }
+
+func TestDevJobFlags(t *testing.T) {
+	tests := []struct {
+		cmd  *cobra.Command
+		flag string
+	}{
+		{devCmd, "skip-startup"},
+		{devStartCmd, "skip-startup"},
+		{devTriggerCmd, "rebuild"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.cmd.CommandPath()+" --"+tt.flag, func(t *testing.T) {
+			f := tt.cmd.Flags().Lookup(tt.flag)
+			require.NotNil(t, f, "%s is missing --%s", tt.cmd.CommandPath(), tt.flag)
+			assert.Equal(t, "false", f.DefValue, "--%s must be opt-in", tt.flag)
+		})
+	}
+}

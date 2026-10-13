@@ -237,7 +237,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			profile.User.AccountName = personalAcct.Name
 			profile.User.AccountID = personalAcct.ID
 		} else {
-			return fmt.Errorf("no personal account found. You must have a personal account to log in. Only organization accounts were found")
+			return errLoginNoPersonalAccount(onboardingURL(serverURL))
 		}
 	} else if fetchErr != nil {
 		if verbose {
@@ -245,6 +245,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s accounts: %s\n", red.Sprint("✗"), dim.Sprintf("fetch failed: %v", fetchErr)) //nolint:errcheck,gosec
 		}
 		mergePriorAccountsOnFetchFailure(profile, priorAccounts, priorUserAccountName, priorUserAccountID)
+		if len(profile.Accounts) == 0 {
+			fmt.Println()
+			yellow.Println(msgLoginFinishOnboarding(onboardingURL(serverURL))) //nolint:errcheck,gosec
+		}
 	}
 
 	priorHasContext := priorCurrent != "" || len(priorAccounts) > 0
@@ -643,4 +647,8 @@ func findPersonalAccount(accounts []auth.StoredAccount) *auth.StoredAccount {
 		}
 	}
 	return nil
+}
+
+func onboardingURL(serverURL string) string {
+	return strings.TrimSuffix(serverURL, "/") + "/onboarding"
 }

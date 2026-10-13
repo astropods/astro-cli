@@ -369,3 +369,19 @@ func TestVerificationBoxWidthMatchesItsBorders(t *testing.T) {
 	assert.Len(t, widths, 1,
 		"every row must be the same width or the box is already crooked: %q", out)
 }
+
+func TestOnboardingURL(t *testing.T) {
+	tests := []struct {
+		serverURL string
+		want      string
+	}{
+		{"https://astropods.ai", "https://astropods.ai/onboarding"},
+		{"https://astropods.ai/", "https://astropods.ai/onboarding"},
+		{"http://localhost:8080", "http://localhost:8080/onboarding"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.serverURL, func(t *testing.T) {
+			assert.Equal(t, tt.want, onboardingURL(tt.serverURL))
+		})
+	}
+}
