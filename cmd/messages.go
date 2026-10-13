@@ -278,6 +278,17 @@ func errBlueprintCreateFailed(name, account string, cause error) error {
 	return fmt.Errorf("failed to reserve %q in %q: %w", name, account, cause)
 }
 
+// variableManageAction is the account permission that writes the account vault.
+const variableManageAction = "variable:manage"
+
+func msgVaultEnvironmentAlternative() string {
+	return fmt.Sprintf("To keep the secret on one environment instead, run '%s secrets create --env <environment>'.", buildinfo.BinaryName)
+}
+
+func errVaultCreateDenied(cause *apiError) error {
+	return fmt.Errorf("%w\n\n  %s", cause, msgVaultEnvironmentAlternative())
+}
+
 func errRegistrationFailed(cause error) error {
 	return fmt.Errorf("registration failed: %w", cause)
 }
@@ -782,10 +793,6 @@ func errBlueprintNoPublishedBuild(name string) error {
 	return fmt.Errorf("blueprint %q has no published build", name)
 }
 
-func errBlueprintBuildsNotFound(name, account string) error {
-	return fmt.Errorf("blueprint %q not found in account %q, or you lack the edit access its build history needs", name, account)
-}
-
 func msgNoBlueprintBuilds(name string) string {
 	return fmt.Sprintf("No builds found for blueprint %s", name)
 }
@@ -807,7 +814,7 @@ func errBlueprintNoServerBuilds(name string) error {
 }
 
 func errBuildLogsNotFound(name, buildID string) error {
-	return fmt.Errorf("no server-side logs for build %s of blueprint %q: builds pushed with the CLI run on your machine, so their logs stay there (reading build logs also needs edit access)", buildID, name)
+	return fmt.Errorf("no server-side logs for build %s of blueprint %q: builds pushed with the CLI run on your machine, so their logs stay there", buildID, name)
 }
 
 func msgNoBuildLogsYet(buildID, phase string) string {
@@ -831,7 +838,7 @@ func errRebuildCancelsRunningBuild(buildID, status string) error {
 }
 
 func errRebuildUnavailable(name, account string) error {
-	return fmt.Errorf("blueprint %q in account %q has no connected GitHub repository or hosted source to rebuild, or you lack the operate access a rebuild needs", name, account)
+	return fmt.Errorf("blueprint %q in account %q has no connected GitHub repository or hosted source to rebuild", name, account)
 }
 
 func errRebuildGitHubNotConnected() error {

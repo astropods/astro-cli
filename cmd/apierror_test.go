@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,8 +98,8 @@ func TestAPIError_StructuredFailureUsesTheServerExplanation(t *testing.T) {
 	require.Equal(t, "The server selected this explanation.", e.Error())
 }
 
-// Every other error keeps the shape the CLI has always printed. Scripts match on
-// it, and a billing change is no reason to move them.
+// A server failure keeps the shape the CLI has always printed. Scripts match on
+// it to retry.
 func TestAPIError_OtherFailuresKeepTheOldText(t *testing.T) {
 	cases := []struct {
 		name string
@@ -119,6 +120,25 @@ func TestAPIError_OtherFailuresKeepTheOldText(t *testing.T) {
 			if e.Error() != want {
 				t.Errorf("Error() = %q, want %q", e.Error(), want)
 			}
+		})
+	}
+}
+
+func TestAPIError_AClientErrorPrintsTheServerText(t *testing.T) {
+	cases := []struct {
+		name string
+		code int
+		body string
+		want string
+	}{
+		{"a concealed 404 prints its sentence", http.StatusNotFound, `{"error":"Deployment not found, or you don't have permission to view it."}`, "Deployment not found, or you don't have permission to view it."},
+		{"a 400 prints its reason", http.StatusBadRequest, `{"error":"dry run is not supported for this endpoint"}`, "dry run is not supported for this endpoint"},
+		{"details win over error, as on the web", http.StatusBadRequest, `{"error":"Invalid evaluation configuration","details":"schema must be evaluation/v1"}`, "schema must be evaluation/v1"},
+		{"a 4xx that is not JSON keeps the raw text", http.StatusNotFound, "404 page not found", "server returned status 404: 404 page not found"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, newAPIError(tc.code, []byte(tc.body)).Error(), "the CLI prints what the server wrote, as the web does")
 		})
 	}
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -10,6 +11,8 @@ import (
 // refused. It arrives with 402 from astro-server and with 403 from the registry,
 // so the code rather than the status is what identifies it.
 const billingSuspendedCode = "BILLING_SUSPENDED"
+
+const authorizationDeniedCode = "AUTHORIZATION_DENIED"
 
 // Billing actions the server names. Each maps to a different thing the reader
 // has to do, and getting it wrong sends an account with a working card to add
@@ -61,6 +64,26 @@ func (e *apiError) isBillingSuspended() bool {
 	return e != nil && e.Code == billingSuspendedCode
 }
 
+func (e *apiError) isAuthorizationDenied() bool {
+	return e != nil && e.Code == authorizationDeniedCode
+}
+
+// deniedAction reports the permission the server refused, or "" when the
+// error is not a permission refusal.
+func (e *apiError) deniedAction() string {
+	if !e.isAuthorizationDenied() {
+		return ""
+	}
+	return e.Action
+}
+
+// isAuthorizationDenial reports whether err is the server refusing a
+// permission, so a status branch does not read it as another 403.
+func isAuthorizationDenial(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.isAuthorizationDenied()
+}
+
 func (e *apiError) isStructured() bool {
 	return e != nil && e.Code != ""
 }
@@ -74,7 +97,12 @@ func (e *apiError) Error() string {
 			return detail
 		}
 	}
-	// Uncoded responses keep the shape older commands and scripts expect.
+	if e.StatusCode >= 400 && e.StatusCode < 500 {
+		if detail := e.detailSentence(); detail != "" {
+			return detail
+		}
+	}
+	// A server failure or a body that is not JSON keeps the shape scripts match.
 	return fmt.Sprintf("server returned status %d: %s", e.StatusCode, e.Body)
 }
 

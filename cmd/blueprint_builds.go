@@ -151,7 +151,7 @@ func fetchBlueprintBuilds(cmd *cobra.Command, at AccountToken, name string, limi
 	builds, status, err := listBlueprintBuilds(cmd.Context(), at, name, limit, verbose)
 	// The server answers 404 for a blueprint the caller can read but not edit.
 	if status == http.StatusNotFound {
-		return nil, errBlueprintBuildsNotFound(name, at.Account)
+		return nil, errBlueprintNotFound(name, at.Account)
 	}
 	return builds, err
 }

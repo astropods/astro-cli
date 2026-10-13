@@ -104,7 +104,7 @@ func TestBlueprintBuildsList(t *testing.T) {
 			name:       "hidden or missing blueprint",
 			statusCode: http.StatusNotFound,
 			body:       map[string]any{"error": "not found"},
-			wantErr:    errBlueprintBuildsNotFound("my-agent", "testaccount"),
+			wantErr:    errBlueprintNotFound("my-agent", "testaccount"),
 		},
 	}
 

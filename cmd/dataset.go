@@ -414,6 +414,9 @@ func runDatasetAdd(cmd *cobra.Command, args []string) error {
 	case http.StatusNotFound:
 		return errDatasetTraceNotFound(traceID, name)
 	case http.StatusForbidden:
+		if isAuthorizationDenial(err) {
+			return err
+		}
 		return errDatasetAddWrongDeployment(traceID, name)
 	case http.StatusConflict:
 		return errDatasetAddAlreadyAdded(traceID, name)
