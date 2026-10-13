@@ -245,8 +245,21 @@ func msgBlueprintWillUnarchive(name, account string) string {
 	return fmt.Sprintf("%q is archived in %q; this push will restore it", name, account)
 }
 
-func errBlueprintNameConflict(name, account string) error {
-	return fmt.Errorf("%q already exists in %q; pass --yes to push to it anyway, or choose a different name", name, account)
+func errBlueprintExistenceCheckFailed(name, account string, cause error) error {
+	return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w\nRetry the push", name, account, cause)
+}
+
+func errBlueprintNameConflict(name, account, suggested string) error {
+	return fmt.Errorf(
+		"%q already exists in %q\n\n"+
+			"To push under a different name, change name in astropods.yml, or run:\n  %s push %s\n\n"+
+			"If %q in %q is yours, push to it anyway with --yes",
+		name, account, buildinfo.BinaryName, suggested, name, account,
+	)
+}
+
+func suggestedRename(name, personalAccount string) string {
+	return name + "-" + personalAccount
 }
 
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {

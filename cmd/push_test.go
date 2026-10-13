@@ -217,14 +217,15 @@ func TestResolvePushName(t *testing.T) {
 		// body on a 200. createStatus is the create-shell POST's response,
 		// consulted only when getStatus is 404 (blueprintExists reported
 		// the name free).
-		getStatus          int
-		getBody            string
-		createStatus       int
-		personalAccount    string
-		yes                bool
-		wantWarning        bool
-		wantArchiveWarning bool
-		wantErr            string
+		getStatus                int
+		getBody                  string
+		createStatus             int
+		personalAccount          string
+		yes                      bool
+		wantWarning              bool
+		wantArchiveWarning       bool
+		wantErr                  string
+		wantExistenceCheckFailed bool
 	}{
 		{name: "fresh name (404) is reserved by the create call and needs nothing further", getStatus: http.StatusNotFound, createStatus: http.StatusCreated},
 		{
@@ -249,8 +250,13 @@ func TestResolvePushName(t *testing.T) {
 		{name: "inconclusive response (500) is treated as existing", getStatus: http.StatusInternalServerError, yes: true, wantWarning: true},
 		{
 			name:      "existing name (200) at an org target with no --yes and no link is a plain conflict, not a prompt",
-			getStatus: http.StatusOK, getBody: `{}`,
-			wantErr: `"my-agent" already exists in "acme"`,
+			getStatus: http.StatusOK, getBody: `{}`, personalAccount: "alice",
+			wantErr: errBlueprintNameConflict("my-agent", "acme", "my-agent-alice").Error(),
+		},
+		{
+			name:                     "a failed check with nothing else authorizing the push stops instead of falling through to the conflict error",
+			getStatus:                http.StatusInternalServerError,
+			wantExistenceCheckFailed: true,
 		},
 	}
 
@@ -278,6 +284,14 @@ func TestResolvePushName(t *testing.T) {
 				"my-agent", tt.personalAccount, testSpecPath, tt.yes, false,
 			)
 
+			if tt.wantExistenceCheckFailed {
+				_, _, existsErr := blueprintExists(context.Background(), srv.URL, AccountToken{Account: "acme", Token: "token"}, "my-agent", false)
+				require.Error(t, existsErr)
+				require.Error(t, err)
+				assert.EqualError(t, err, errBlueprintExistenceCheckFailed("my-agent", "acme", existsErr).Error())
+				assert.Empty(t, warnBuf.String(), "a failed check that stops the push has nothing to warn about")
+				return
+			}
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -303,29 +317,32 @@ func TestResolvePushName(t *testing.T) {
 
 // TestResolvePushNamePushLink covers the push-link short circuit: a repeat
 // push for the same account and name a prior resolution already settled
-// goes through without needing yes or a personal account. The existence
-// check itself still runs every time (asserted via getCalls), so a
-// blueprint deleted and recreated server-side since the link was written is
-// still re-validated rather than blindly trusted. resolvePushName never
-// writes the link itself (that's runPush's job, after permission is
-// actually granted — see TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails),
+// goes through without needing yes or a personal account, while a link for
+// any other account or name is still a plain conflict — proving the match
+// requires both fields, not just a link's presence. The existence check
+// itself still runs every time (asserted via getCalls), so a blueprint
+// deleted and recreated server-side since the link was written is still
+// re-validated rather than blindly trusted. resolvePushName never writes
+// the link itself (that's runPush's job, after permission is actually
+// granted — see TestRunPushDoesNotPersistTheLinkWhenPermissionCheckFails),
 // so this only covers the read side.
 func TestResolvePushNamePushLink(t *testing.T) {
 	tests := []struct {
 		name         string
 		existingLink *pushLink
 		yes          bool
+		wantConflict bool
 	}{
 		{name: "no link needs yes to avoid a conflict error", yes: true},
 		{
-			name:         "a link for a different name needs yes to avoid a conflict error",
+			name:         "a link for a different name is still a conflict without yes",
 			existingLink: &pushLink{Account: "acme", Name: "other-agent"},
-			yes:          true,
+			wantConflict: true,
 		},
 		{
-			name:         "a link for a different account needs yes to avoid a conflict error",
+			name:         "a link for a different account is still a conflict without yes",
 			existingLink: &pushLink{Account: "other-org", Name: "my-agent"},
-			yes:          true,
+			wantConflict: true,
 		},
 		{
 			name:         "a matching link resolves on its own, without yes",
@@ -344,6 +361,9 @@ func TestResolvePushNamePushLink(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					getCalls++
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{}`))
+					return
 				}
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -355,9 +375,14 @@ func TestResolvePushNamePushLink(t *testing.T) {
 				"my-agent", "", testSpecPath, tt.yes, false,
 			)
 
+			assert.Equal(t, 1, getCalls, "the existence check always runs, link or not")
+			if tt.wantConflict {
+				assert.EqualError(t, err, errBlueprintNameConflict("my-agent", "acme", suggestedRename("my-agent", "")).Error(),
+					"only a link for this exact account and name skips the conflict check")
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, "my-agent", got)
-			assert.Equal(t, 1, getCalls, "the existence check always runs, link or not")
 		})
 	}
 }

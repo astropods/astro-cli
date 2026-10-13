@@ -185,11 +185,11 @@ func resolvePushName(ctx context.Context, warnW io.Writer, serverURL string, at 
 
 	exists, archived, err := blueprintExists(ctx, serverURL, at, name, verbose)
 	if err != nil {
+		if !isPersonal && !yes && !linked {
+			return "", errBlueprintExistenceCheckFailed(name, at.Account, err)
+		}
 		fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintExistenceCheckInconclusive(name, at.Account, err)) //nolint:errcheck
 		exists, archived = true, false
-	}
-	if exists && archived {
-		fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintWillUnarchive(name, at.Account)) //nolint:errcheck
 	}
 	if !exists {
 		if createErr := createBlueprintShell(ctx, serverURL, at, name, verbose); createErr == nil {
@@ -199,10 +199,13 @@ func resolvePushName(ctx context.Context, warnW io.Writer, serverURL string, at 
 		}
 		// Someone else won the race between the read above and this call.
 	}
-	if isPersonal || yes || linked {
-		return name, nil
+	if !(isPersonal || yes || linked) {
+		return "", errBlueprintNameConflict(name, at.Account, suggestedRename(name, personalAccount))
 	}
-	return "", errBlueprintNameConflict(name, at.Account)
+	if archived {
+		fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintWillUnarchive(name, at.Account)) //nolint:errcheck
+	}
+	return name, nil
 }
 
 // runPush assumes the spec in cfg.SpecPath is valid; callers must validate before invoking.
