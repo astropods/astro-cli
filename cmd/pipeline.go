@@ -33,6 +33,7 @@ type PushPipelineConfig struct {
 	Yes          bool
 	Visibility   Visibility
 	JSON         bool
+	Message      string
 }
 
 // PushPipeline orchestrates the build-push-register flow as a chainable sequence.
@@ -70,14 +71,20 @@ type PushPipeline struct {
 
 // CollectGitMetadata snapshots the repository state that produces a build.
 // --no-build pushes have no reliable relationship to the current checkout, so
-// they intentionally omit Git provenance.
+// they intentionally omit Git provenance. A --message replaces the commit
+// message either way.
 func (p *PushPipeline) CollectGitMetadata() *PushPipeline {
 	return p.step(func() error {
-		if p.cfg.SkipBuild {
-			return nil
+		if !p.cfg.SkipBuild {
+			p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
+			if err := p.validateDirtyPush(); err != nil {
+				return err
+			}
 		}
-		p.gitMetadata = gitmetadata.CollectMetadata(filepath.Dir(p.cfg.SpecPath), p.relevantGitPaths()...)
-		return p.validateDirtyPush()
+		if p.cfg.Message != "" {
+			p.gitMetadata.CommitMessage = p.cfg.Message
+		}
+		return nil
 	})
 }
 

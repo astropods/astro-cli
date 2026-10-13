@@ -36,7 +36,7 @@ provenance.
 | No dirtiness was found, but a path or status command could not be checked | Continue; warn when a commit SHA is available because that commit may not represent every input | Send independently available commit fields and omit `working_tree_dirty` |
 | The commit lookup fails, including an unavailable or unborn `HEAD` | Apply the status result normally; the commit failure alone is nonfatal | Omit unavailable commit fields; serialize dirty state according to the status result |
 | Git is missing or a relevant path is not in a repository | Continue unless another successfully checked relevant path is dirty | Send independently collected metadata; send `true` for dirtiness found elsewhere, otherwise omit the unknown dirty state |
-| `--no-build` is used | Do not inspect Git or apply the dirty-input gate | Omit all Git provenance fields |
+| `--no-build` is used | Do not inspect Git or apply the dirty-input gate | Omit all Git provenance fields; send `commit_message` only when `--message` is set |
 
 Detected dirtiness takes precedence over incomplete provenance. If one relevant
 path is dirty while another cannot be checked, the push is still blocked unless
@@ -54,7 +54,7 @@ The registration request may contain:
 | Field | Serialization rule |
 |---|---|
 | `commit_sha` | Send only when nonempty. It is the full `HEAD` object ID from the selected spec's repository. |
-| `commit_message` | Send only when nonempty. It is the full `HEAD` message, including its body, with trailing line endings removed. |
+| `commit_message` | Send only when nonempty. It is the `--message` value when set, otherwise the full `HEAD` message, including its body, with trailing line endings removed. |
 | `working_tree_dirty` | Send `true` for detected dirtiness, `false` only for a fully verified clean path set, and omit when status is unknown or provenance is incomplete. |
 
 Commit and status lookups are independent. A failed commit lookup does not

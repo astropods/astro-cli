@@ -507,8 +507,24 @@ func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }
 
+func errNoLocalProjectVars() error {
+	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
+}
+
+func msgStartupJobsSkipped(names []string) string {
+	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
+}
+
 func msgLoginPriorAccountUnavailable(account string) string {
 	return fmt.Sprintf("  Note: previous account %q is no longer available; using personal account.\n", account)
+}
+
+func errLoginNoPersonalAccount(onboardingURL string) error {
+	return fmt.Errorf("no personal account found. Finish onboarding at %s to choose your username, then run '%s login' again", onboardingURL, buildinfo.BinaryName)
+}
+
+func msgLoginFinishOnboarding(onboardingURL string) string {
+	return fmt.Sprintf("  Could not load your accounts. If you just signed up, finish onboarding at %s before pushing.", onboardingURL)
 }
 
 func errLoginAccountsLoadEmpty() error {

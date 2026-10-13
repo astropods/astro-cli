@@ -14,6 +14,8 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/tui"
 )
 
@@ -100,6 +102,7 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
+	cmd.Flags().Bool("from-local", false, "Load variables saved by 'project configure' in the current directory; --var and --vars-file take precedence")
 	cmd.Flags().StringArray("schedule", nil, "Job schedule: <job>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
@@ -262,8 +265,8 @@ func parseGrants(values []string) (web, slack []deployAuthGrant, err error) {
 	return web, slack, nil
 }
 
-// parseDeployVarsFromCmd reads --var and --vars-file flags and merges them.
-// Inline --var entries take precedence over file entries for the same key.
+// parseDeployVarsFromCmd reads --var, --vars-file, and --from-local and merges
+// them. For the same key, --var wins over --vars-file, which wins over --from-local.
 func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, error) {
 	varFlags, _ := cmd.Flags().GetStringArray("var")
 	vars, err := parseDeployVars(varFlags)
@@ -283,6 +286,22 @@ func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, erro
 			return nil, fmt.Errorf("parsing vars file: %w", err)
 		}
 		for k, v := range fileVars {
+			if _, exists := vars[k]; !exists {
+				vars[k] = deployVarInput{Value: v}
+			}
+		}
+	}
+
+	if fromLocal, _ := cmd.Flags().GetBool("from-local"); fromLocal {
+		workingDir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get working directory: %w", err)
+		}
+		localVars := config.GetProjectVars(buildinfo.BinaryName, workingDir)
+		if len(localVars) == 0 {
+			return nil, errNoLocalProjectVars()
+		}
+		for k, v := range localVars {
 			if _, exists := vars[k]; !exists {
 				vars[k] = deployVarInput{Value: v}
 			}

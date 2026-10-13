@@ -86,17 +86,23 @@ Run your agent locally:
 
 ```bash
 ast project start                  # start all containers
+ast project start --skip-startup   # start without running startup jobs
 ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
+ast project trigger                # list the jobs in the spec
 ast project trigger <name>         # manually trigger a job
+ast project trigger <name> --rebuild  # rebuild the job's container, then run it
 ```
+
+In the foreground, `ast project start` tails the agent and every job that
+runs while it is up, such as one started by `ast project trigger`.
 
 **Ingestion behavior:**
 
 | Trigger type | What `ast project start` does |
 |---|---|
-| `startup` | Runs the ingestion container once at startup |
+| `startup` | Runs the ingestion container once at startup, unless `--skip-startup` is set |
 | `schedule` | Prints `ast project trigger <name>` — run it manually on demand |
 | `webhook` | Started alongside the agent; port exposed (default 3001) |
 | `manual` | Prints `ast project trigger <name>` |
@@ -125,6 +131,9 @@ If those inputs contain staged, unstaged, untracked nonignored, or submodule
 changes, the push stops before building. Commit the changes or pass
 `--allow-dirty` to continue and mark the pushed build as dirty. `--yes` skips
 ordinary confirmation prompts but does not allow a dirty push.
+
+Pass `-m`/`--message` to describe the push. The message replaces the commit
+message on the build, including on a `--no-build` push.
 
 Git discovery is best-effort. If the CLI records a commit but cannot verify
 every relevant path, it warns that some build inputs may not be represented by
