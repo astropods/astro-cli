@@ -113,6 +113,12 @@ repeatable, takes a five-field cron expression, and is required for every
 `schedule` entry on a first deploy. A redeploy keeps the cadence it already
 has.
 
+`ast deploy <name> --from-local` sends the values `ast project configure`
+saved for the current directory. It sends each one as a plaintext value, not
+a secret reference, so a saved API key reaches the deployment as its value.
+To use an account secret for a key, also pass `--var KEY=@SECRET_NAME`. For
+the same key, `--var` wins over `--vars-file`, which wins over `--from-local`.
+
 ### `push` — Build, package, and register with Astropods
 
 `ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **adds the agent to the Astropods registry**. A build is run automatically unless you pass `--no-build`.
