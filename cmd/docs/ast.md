@@ -115,6 +115,8 @@ The push command requires an Astropods account. Use `ast login` to get the requi
 
 **Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. Visibility is managed via the platform UI or API — `meta.visibility` in the spec is deprecated and no longer used.
 
+**Existing blueprint names:** If the blueprint name already exists in the target account and you haven't pushed to it from this project on this machine before, the push stops with an error naming the account and blueprint. Push under a different name (change `name` in `astropods.yml`, or pass one on the command line), or pass `--yes` to push to it anyway.
+
 **Git provenance and uncommitted changes:** For a normal push from a Git
 repository, the CLI records the current commit SHA and message when available.
 It checks the directory containing the selected spec and every declared
