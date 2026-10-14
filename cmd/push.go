@@ -199,8 +199,8 @@ func resolvePushName(ctx context.Context, warnW io.Writer, serverURL string, at 
 		}
 		// Someone else won the race between the read above and this call.
 	}
-	if !(isPersonal || yes || linked) {
-		return "", errBlueprintNameConflict(name, at.Account, suggestedRename(name, personalAccount))
+	if !isPersonal && !yes && !linked {
+		return "", errBlueprintNameConflict(name, at.Account, archived)
 	}
 	if archived {
 		fmt.Fprintf(warnW, "%s⚠%s  %s\n", colorYellow, colorReset, msgBlueprintWillUnarchive(name, at.Account)) //nolint:errcheck

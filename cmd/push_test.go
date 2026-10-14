@@ -251,7 +251,12 @@ func TestResolvePushName(t *testing.T) {
 		{
 			name:      "existing name (200) at an org target with no --yes and no link is a plain conflict, not a prompt",
 			getStatus: http.StatusOK, getBody: `{}`, personalAccount: "alice",
-			wantErr: errBlueprintNameConflict("my-agent", "acme", "my-agent-alice").Error(),
+			wantErr: errBlueprintNameConflict("my-agent", "acme", false).Error(),
+		},
+		{
+			name:      "archived existing name (200) at an org target with no --yes and no link is a conflict naming the archive, not a restore warning",
+			getStatus: http.StatusOK, getBody: `{"archived_at":"2026-01-01T00:00:00Z"}`, personalAccount: "alice",
+			wantErr: errBlueprintNameConflict("my-agent", "acme", true).Error(),
 		},
 		{
 			name:                     "a failed check with nothing else authorizing the push stops instead of falling through to the conflict error",
@@ -295,6 +300,7 @@ func TestResolvePushName(t *testing.T) {
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Empty(t, warnBuf.String(), "a conflict that stops the push has nothing to warn about")
 				return
 			}
 			require.NoError(t, err)
@@ -377,7 +383,7 @@ func TestResolvePushNamePushLink(t *testing.T) {
 
 			assert.Equal(t, 1, getCalls, "the existence check always runs, link or not")
 			if tt.wantConflict {
-				assert.EqualError(t, err, errBlueprintNameConflict("my-agent", "acme", suggestedRename("my-agent", "")).Error(),
+				assert.EqualError(t, err, errBlueprintNameConflict("my-agent", "acme", false).Error(),
 					"only a link for this exact account and name skips the conflict check")
 				return
 			}

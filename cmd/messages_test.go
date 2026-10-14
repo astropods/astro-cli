@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
+	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,6 +23,28 @@ func TestErrAgentTargetMessages(t *testing.T) {
 	require.EqualError(t, errLoginAccountsLoadEmpty(), "could not load your accounts from the server (empty response). Try again in a moment")
 	require.Equal(t, msgAdapterSkipped("slack", "SLACK_BOT_TOKEN"),
 		"⚠ slack adapter listed but SLACK_BOT_TOKEN not set, skipping (run 'ast-dev project configure' to add it)")
+}
+
+func TestErrBlueprintNameConflictNamesTheArchiveOnlyWhenArchived(t *testing.T) {
+	require.EqualError(t, errBlueprintNameConflict("my-agent", "acme", false),
+		"\"my-agent\" already exists in \"acme\"\n\n"+
+			"To push under a different name, change name in astropods.yml, or run:\n  "+buildinfo.BinaryName+" push <new blueprint name>\n\n"+
+			"If \"my-agent\" in \"acme\" is yours, push to it anyway with --yes")
+	require.EqualError(t, errBlueprintNameConflict("my-agent", "acme", true),
+		"\"my-agent\" already exists (archived) in \"acme\"\n\n"+
+			"To push under a different name, change name in astropods.yml, or run:\n  "+buildinfo.BinaryName+" push <new blueprint name>\n\n"+
+			"If \"my-agent\" in \"acme\" is yours, push to it anyway with --yes — this will restore it")
+}
+
+func TestErrBlueprintExistenceCheckFailedSuggestsRetryOnlyWhenRetrying(t *testing.T) {
+	require.EqualError(t, errBlueprintExistenceCheckFailed("my-agent", "acme", &apiError{StatusCode: 403, Body: "forbidden"}),
+		`could not check whether "my-agent" already exists in "acme", so the push stopped: server returned status 403: forbidden`,
+		"a 403 fails the same way every time, so retrying is not useful advice")
+	require.EqualError(t, errBlueprintExistenceCheckFailed("my-agent", "acme", &apiError{StatusCode: 500, Body: "boom"}),
+		"could not check whether \"my-agent\" already exists in \"acme\", so the push stopped: server returned status 500: boom\nRetry the push")
+	require.EqualError(t, errBlueprintExistenceCheckFailed("my-agent", "acme", errors.New("dial tcp: connection refused")),
+		"could not check whether \"my-agent\" already exists in \"acme\", so the push stopped: dial tcp: connection refused\nRetry the push",
+		"an unstructured error is a network failure, which can succeed on retry")
 }
 
 func TestPrintCanceledWritesDimCanceledLine(t *testing.T) {

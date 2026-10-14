@@ -139,7 +139,7 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
 	cmd.Flags().Bool("allow-dirty", false, "Push even when blueprint is built from uncommitted changes")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
-	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts, including pushing over an existing blueprint")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
 }

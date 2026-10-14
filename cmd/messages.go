@@ -245,21 +245,33 @@ func msgBlueprintWillUnarchive(name, account string) string {
 	return fmt.Sprintf("%q is archived in %q; this push will restore it", name, account)
 }
 
+// retryableCheckFailure reports whether retrying the existence check could
+// plausibly succeed: a network error or a 5xx, not a 4xx that will fail the
+// same way every time.
+func retryableCheckFailure(cause error) bool {
+	var apiErr *apiError
+	return !errors.As(cause, &apiErr) || apiErr.StatusCode >= http.StatusInternalServerError
+}
+
 func errBlueprintExistenceCheckFailed(name, account string, cause error) error {
-	return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w\nRetry the push", name, account, cause)
+	if retryableCheckFailure(cause) {
+		return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w\nRetry the push", name, account, cause)
+	}
+	return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w", name, account, cause)
 }
 
-func errBlueprintNameConflict(name, account, suggested string) error {
+func errBlueprintNameConflict(name, account string, archived bool) error {
+	existsVerb := "already exists"
+	yes := fmt.Sprintf("If %q in %q is yours, push to it anyway with --yes", name, account)
+	if archived {
+		existsVerb = "already exists (archived)"
+		yes += " — this will restore it"
+	}
+	exists := fmt.Sprintf("%q %s in %q", name, existsVerb, account)
 	return fmt.Errorf(
-		"%q already exists in %q\n\n"+
-			"To push under a different name, change name in astropods.yml, or run:\n  %s push %s\n\n"+
-			"If %q in %q is yours, push to it anyway with --yes",
-		name, account, buildinfo.BinaryName, suggested, name, account,
+		"%s\n\nTo push under a different name, change name in astropods.yml, or run:\n  %s push <new blueprint name>\n\n%s",
+		exists, buildinfo.BinaryName, yes,
 	)
-}
-
-func suggestedRename(name, personalAccount string) string {
-	return name + "-" + personalAccount
 }
 
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {
