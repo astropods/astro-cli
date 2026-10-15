@@ -71,6 +71,9 @@ const (
 	// FrontendHostPort is the host port an agent's own frontend is published on.
 	FrontendHostPort = "3200"
 
+	// DevAgentLabel carries the spec name on every dev container; `project list` filters on it.
+	DevAgentLabel = "com.astropods.dev.agent"
+
 	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
 	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
 	// persistent volume); locally it's a named volume so history survives
@@ -733,6 +736,7 @@ func BuildProject(
 			api.VersionLabel:    api.ComposeVersion,
 			api.WorkingDirLabel: project.WorkingDir,
 			api.OneoffLabel:     "False",
+			DevAgentLabel:       s.Name,
 		}
 		project.Services[name] = svc
 	}

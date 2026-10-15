@@ -46,8 +46,9 @@ const (
 // healthResponse is the body served at HealthPath. PID lets the CLI distinguish
 // "our worker is up" from "someone else is answering on this port".
 type healthResponse struct {
-	OK  bool `json:"ok"`
-	PID int  `json:"pid"`
+	OK    bool   `json:"ok"`
+	PID   int    `json:"pid"`
+	Agent string `json:"agent"` // the spec name, so `project list` can match a worker to its project
 }
 
 // Config configures the local chat UI server.
@@ -188,7 +189,7 @@ func (s *Server) proxyFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, healthResponse{OK: true, PID: os.Getpid()})
+	writeJSON(w, http.StatusOK, healthResponse{OK: true, PID: os.Getpid(), Agent: s.cfg.AgentName})
 }
 
 // handleSummary reports the same deployment handleListDeployments does. The

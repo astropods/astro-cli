@@ -536,6 +536,10 @@ func msgDevChatUINotStarted(reason string) string {
 	return fmt.Sprintf("%s!%s %sChat UI not started: %s%s\n", colorYellow, colorReset, colorDim, reason, colorReset)
 }
 
+func msgDevListEmpty() string {
+	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
+}
+
 func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
 }
