@@ -14,6 +14,8 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 func devPortsProject() *types.Project {
@@ -158,6 +160,23 @@ func TestReadyURLsFor(t *testing.T) {
 		Chat:     "http://localhost:55003",
 		Webhooks: map[string]string{},
 	}, urls, "the webhook publishes no port, so it gets no URL")
+}
+
+func TestLabelDevChatURL(t *testing.T) {
+	p := devPortsProject()
+	shared := types.Labels{api.ProjectLabel: "ag"}
+	for name, svc := range p.Services {
+		svc.CustomLabels = shared
+		p.Services[name] = svc
+	}
+
+	labelDevChatURL(p, "http://localhost:55003")
+
+	for name, svc := range p.Services {
+		assert.Equal(t, "http://localhost:55003", svc.CustomLabels[composeBuilder.DevChatURLLabel], name)
+		assert.Equal(t, "ag", svc.CustomLabels[api.ProjectLabel], name)
+	}
+	assert.NotContains(t, shared, composeBuilder.DevChatURLLabel, "the original label map must not be modified")
 }
 
 func TestMsgDevPortsMovedIsSilentWhenNothingMoved(t *testing.T) {

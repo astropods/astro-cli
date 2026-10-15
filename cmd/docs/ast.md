@@ -90,6 +90,7 @@ ast project start --skip-startup   # start without running startup jobs
 ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
+ast project list                   # list local agents running on this machine
 ast project trigger                # list the jobs in the spec
 ast project trigger <name>         # manually trigger a job
 ast project trigger <name> --rebuild  # rebuild the job's container, then run it
@@ -100,7 +101,8 @@ runs while it is up, such as one started by `ast project trigger`.
 
 Several projects can run at once. The first one gets the usual ports (chat UI
 on http://localhost:3100). A project started while another holds a port gets a
-free port instead, and the ready block prints its real addresses.
+free port instead; the ready block prints its real addresses, and
+`ast project list` shows them for every running agent.
 
 **Ingestion behavior:**
 

@@ -426,6 +426,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		labelDevChatURL(project, chatURLForAddr(chatAddr))
 	}
 	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
 		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
@@ -906,5 +907,18 @@ func waitForAgentCorePing(ctx context.Context, port string, wait time.Duration) 
 			return ctx.Err()
 		case <-time.After(500 * time.Millisecond):
 		}
+	}
+}
+
+// Every service carries it, so `project list` finds it while any container runs.
+func labelDevChatURL(p *composeTypes.Project, url string) {
+	for name, svc := range p.Services {
+		labels := composeTypes.Labels{}
+		for k, v := range svc.CustomLabels {
+			labels[k] = v
+		}
+		labels[composeBuilder.DevChatURLLabel] = url
+		svc.CustomLabels = labels
+		p.Services[name] = svc
 	}
 }
