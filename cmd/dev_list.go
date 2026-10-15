@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,22 +47,13 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// Projects started before the dev label existed still have a messaging sidecar.
-	var items []container.Summary
-	seen := map[string]bool{}
-	for _, f := range []string{composeBuilder.DevAgentLabel, api.ServiceLabel + "=astro-messaging"} {
-		res, err := cli.ContainerList(cmd.Context(), client.ContainerListOptions{Filters: make(client.Filters).Add("label", f)})
-		if err != nil {
-			return fmt.Errorf("list containers: %w", err)
-		}
-		for _, c := range res.Items {
-			if !seen[c.ID] {
-				seen[c.ID] = true
-				items = append(items, c)
-			}
-		}
+	res, err := cli.ContainerList(cmd.Context(), client.ContainerListOptions{
+		Filters: make(client.Filters).Add("label", api.ProjectLabel),
+	})
+	if err != nil {
+		return fmt.Errorf("list containers: %w", err)
 	}
-	projects := localAgentsFromContainers(items)
+	projects := localAgentsFromContainers(res.Items)
 
 	w := cmd.OutOrStdout()
 	if len(projects) == 0 {
@@ -76,7 +68,9 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		chat := "-"
 		if a.ChatURL != "" {
 			chat = a.ChatURL
-			if !chatUIServing(httpClient, a.ChatURL) {
+			if !isLocalHTTPURL(a.ChatURL) {
+				chat += " (not local, unchecked)"
+			} else if !chatUIServing(httpClient, a.ChatURL) {
 				chat += " (not serving)"
 			}
 		}
@@ -85,12 +79,17 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 	return tw.Flush()
 }
 
+// Projects started before the dev label existed are recognized by their messaging sidecar.
 func localAgentsFromContainers(items []container.Summary) []localAgent {
 	byProject := map[string]*localAgent{}
+	isDev := map[string]bool{}
 	for _, c := range items {
 		project := c.Labels[api.ProjectLabel]
 		if project == "" {
 			continue
+		}
+		if c.Labels[composeBuilder.DevAgentLabel] != "" || c.Labels[api.ServiceLabel] == "astro-messaging" {
+			isDev[project] = true
 		}
 		a := byProject[project]
 		if a == nil {
@@ -109,15 +108,27 @@ func localAgentsFromContainers(items []container.Summary) []localAgent {
 		}
 	}
 	agents := make([]localAgent, 0, len(byProject))
-	for _, a := range byProject {
-		agents = append(agents, *a)
+	for project, a := range byProject {
+		if isDev[project] {
+			agents = append(agents, *a)
+		}
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
 	return agents
 }
 
+// Any container can set the label, so only a loopback http URL is fetched.
+func isLocalHTTPURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1"
+}
+
 func chatUIServing(c *http.Client, baseURL string) bool {
-	resp, err := c.Get(strings.TrimRight(baseURL, "/") + chatui.HealthPath) //nolint:gosec,noctx // localhost URL from our own label, short timeout
+	resp, err := c.Get(strings.TrimRight(baseURL, "/") + chatui.HealthPath) //nolint:gosec,noctx // loopback URL (isLocalHTTPURL), short timeout
 	if err != nil {
 		return false
 	}

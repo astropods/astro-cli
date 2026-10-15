@@ -97,13 +97,22 @@ func lookupHostPorts(ctx context.Context, projectName string) (devHostPorts, err
 	if err != nil {
 		return nil, err
 	}
-	res, err := cli.ContainerList(ctx, client.ContainerListOptions{
-		Filters: make(client.Filters).Add("label", api.ProjectLabel+"="+projectName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list containers: %w", err)
+	opts := client.ContainerListOptions{Filters: make(client.Filters).Add("label", api.ProjectLabel+"="+projectName)}
+	// The containers are already up, so a transient Docker error should not fail the start.
+	for attempt := 1; ; attempt++ {
+		res, err := cli.ContainerList(ctx, opts)
+		if err == nil {
+			return hostPortsFromContainers(res.Items), nil
+		}
+		if attempt == 3 {
+			return nil, fmt.Errorf("list containers: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+		}
 	}
-	return hostPortsFromContainers(res.Items), nil
 }
 
 func chooseChatUIAddr(astDir string) (string, error) {

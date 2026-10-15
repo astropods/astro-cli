@@ -33,12 +33,14 @@ func TestLocalAgentsFromContainers(t *testing.T) {
 			api.ServiceLabel:    "astro-messaging",
 			api.WorkingDirLabel: "/home/me/capcom",
 		}},
-		{Labels: map[string]string{api.ServiceLabel: "astro-messaging"}}, // not a compose project
+		{Labels: map[string]string{api.ProjectLabel: "capcom", api.ServiceLabel: "agent"}},
+		{Labels: map[string]string{api.ProjectLabel: "postgres-tools", api.ServiceLabel: "db"}}, // not a dev project
+		{Labels: map[string]string{api.ServiceLabel: "astro-messaging"}},                        // not a compose project
 	}
 
 	assert.Equal(t, []localAgent{
 		{Name: "@acme/poweruser", Dir: "/home/me/poweruser", ChatURL: "http://localhost:3100", Containers: 2},
-		{Name: "capcom", Dir: "/home/me/capcom", Containers: 1},
+		{Name: "capcom", Dir: "/home/me/capcom", Containers: 2},
 	}, localAgentsFromContainers(items))
 }
 
@@ -51,6 +53,23 @@ func TestChatUIServing(t *testing.T) {
 	assert.True(t, chatUIServing(c, srv.URL))
 	srv.Close()
 	assert.False(t, chatUIServing(c, srv.URL))
+}
+
+func TestIsLocalHTTPURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"http://localhost:3100", true},
+		{"http://127.0.0.1:55001", true},
+		{"http://169.254.169.254/latest", false},
+		{"https://localhost:3100", false},
+		{"http://localhost.example.com:3100", false},
+		{"::not a url", false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isLocalHTTPURL(tt.url), tt.url)
+	}
 }
 
 func TestShortenHome(t *testing.T) {
