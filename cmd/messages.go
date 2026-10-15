@@ -516,6 +516,18 @@ func errNoLocalProjectVars() error {
 	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
 }
 
+func msgDevPortsMoved(moved []string) string {
+	if len(moved) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s→%s %sPorts in use, Docker assigns free ones instead: %s%s\n",
+		colorCyan, colorReset, colorDim, strings.Join(moved, ", "), colorReset)
+}
+
+func msgDevListEmpty() string {
+	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
+}
+
 func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
 }

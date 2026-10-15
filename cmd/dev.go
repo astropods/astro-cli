@@ -9,6 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -415,15 +418,29 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	projectName := composeBuilder.ProjectName(astroSpec)
 	_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 
-	// Start non-profiled services (already built above)
-	upProject := projectForUp(project)
-	if noPull {
-		for name, svc := range upProject.Services {
-			svc.PullPolicy = composeTypes.PullPolicyNever
-			upProject.Services[name] = svc
+	hasWebInterface := slices.Contains(astroSpec.Dev.MessagingAdapters(), "web")
+
+	// After Down, so this project's previous containers do not count as busy.
+	chatAddr := ""
+	if hasWebInterface {
+		chatAddr, err = chooseChatUIAddr(astDir)
+		if err != nil {
+			return err
 		}
+		labelDevChatURL(project, chatURLForAddr(chatAddr))
 	}
-	if err := withSpinner("Starting services...", "Services started", verbose, func() error {
+	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
+		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
+	}
+
+	up := func() error {
+		upProject := projectForUp(project)
+		if noPull {
+			for name, svc := range upProject.Services {
+				svc.PullPolicy = composeTypes.PullPolicyNever
+				upProject.Services[name] = svc
+			}
+		}
 		return svc.Up(context.Background(), upProject, api.UpOptions{
 			Create: api.CreateOptions{
 				Build:         nil,  // --no-build (already built above)
@@ -431,7 +448,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			},
 			Start: api.StartOptions{Project: upProject}, // pass project to skip container label lookup
 		})
-	}); err != nil {
+	}
+	err = withSpinner("Starting services...", "Services started", verbose, up)
+	if isPortAllocatedErr(err) {
+		// Another process took a port between the check and the bind.
+		_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
+		fmt.Fprint(w, msgDevPortsMoved(releaseBusyHostPorts(project, hostPortBusy))) //nolint:errcheck,gosec
+		err = withSpinner("Starting services...", "Services started", verbose, up)
+	}
+	if err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
@@ -442,26 +467,28 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
+	// On a failed lookup, host() falls back to the requested ports.
+	hostPorts, err := lookupHostPorts(cmd.Context(), projectName)
+	if err != nil {
+		hostPorts = devHostPorts{}
+	}
+
 	if astroSpec.Agent.Runtime() == spec.AgentCoreRuntime {
-		if err := waitForAgentCorePing(cmd.Context(), agentCoreReadyWait); err != nil {
+		agentCorePort := hostPorts.host("agent", composeBuilder.AgentCorePort, composeBuilder.AgentCoreHostPort)
+		if err := waitForAgentCorePing(cmd.Context(), agentCorePort, agentCoreReadyWait); err != nil {
 			return err
 		}
 	}
 
 	fmt.Println()
-	// Check if messaging interface is configured (from dev section)
-	hasWebInterface := false
-	for _, name := range astroSpec.Dev.MessagingAdapters() {
-		if name == "web" {
-			hasWebInterface = true
-			break
-		}
-	}
 
 	// Serve the chat UI from the CLI, proxying to the local messaging
 	// sidecar. Runs as a detached worker so it survives background mode;
 	// in foreground it stops on teardown, in background it outlives the CLI.
-	startChatUI(astDir, astroSpec.Name, hasWebInterface, !background)
+	if hasWebInterface {
+		messagingURL := "http://127.0.0.1:" + hostPorts.host("astro-messaging", composeBuilder.MessagingWebPort, composeBuilder.MessagingWebHostPort)
+		startChatUI(astDir, chatAddr, messagingURL, astroSpec.Name, !background)
+	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
 	if skipStartup {
@@ -472,7 +499,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		runStartupIngestions(astroSpec, project, verbose)
 	}
 
-	printReadyBlock(astroSpec, hasWebInterface, background)
+	printReadyBlock(astroSpec, readyURLsFor(astroSpec, hostPorts, chatAddr), background)
 
 	if background {
 		return nil
@@ -748,8 +775,37 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 	}
 }
 
+type readyURLs struct {
+	Frontend string
+	Chat     string
+	Webhooks map[string]string // ingestion name to URL
+}
+
+func readyURLsFor(s *spec.AstroSpec, ports devHostPorts, chatAddr string) readyURLs {
+	urls := readyURLs{Webhooks: map[string]string{}}
+	if s.Agent.HasFrontend() {
+		port := ports.host("agent", composeBuilder.FrontendTargetPort(s), composeBuilder.FrontendHostPort)
+		urls.Frontend = "http://localhost:" + port
+	}
+	if chatAddr != "" {
+		urls.Chat = chatURLForAddr(chatAddr)
+	}
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "webhook" {
+			continue
+		}
+		target := uint32(3001)
+		if p := ingestion.Container.Port; p > 0 && p <= 65535 {
+			target = uint32(p)
+		}
+		port := ports.host("ingestion-"+name, target, strconv.FormatUint(uint64(target), 10))
+		urls.Webhooks[name] = "http://localhost:" + port
+	}
+	return urls
+}
+
 // printReadyBlock renders the post-start summary using lipgloss.
-func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
+func printReadyBlock(s *spec.AstroSpec, urls readyURLs, background bool) {
 	primary := lipgloss.NewStyle().Foreground(theme.Primary)
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
@@ -759,25 +815,22 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
 	lines = append(lines, "✨ "+bold.Render(s.Name)+" is ready")
 	lines = append(lines, "")
 
-	if s.Agent.HasFrontend() {
-		port := 3200
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(fmt.Sprintf("http://localhost:%d", port))+"  "+dim.Render("(frontend)"))
+	if urls.Frontend != "" {
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Frontend)+"  "+dim.Render("(frontend)"))
 	}
 
-	if hasWebInterface {
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(chatUIURL)+"  "+dim.Render("(chat)"))
+	if urls.Chat != "" {
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Chat)+"  "+dim.Render("(chat)"))
 	}
 
 	// Webhook endpoints
-	for name, ingestion := range s.Ingestion {
-		if ingestion.Trigger.Type != "webhook" {
-			continue
-		}
-		port := ingestion.Container.Port
-		if port == 0 {
-			port = 3001
-		}
-		lines = append(lines, dim.Render(fmt.Sprintf("   http://localhost:%d  (%s webhook)", port, name)))
+	names := make([]string, 0, len(urls.Webhooks))
+	for name := range urls.Webhooks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		lines = append(lines, dim.Render(fmt.Sprintf("   %s  (%s webhook)", urls.Webhooks[name], name)))
 	}
 
 	lines = append(lines, "")
@@ -822,8 +875,8 @@ func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 const agentCoreReadyWait = 30 * time.Second
 
 // waitForAgentCorePing polls the published contract port until GET /ping answers.
-func waitForAgentCorePing(ctx context.Context, wait time.Duration) error {
-	url := fmt.Sprintf("http://localhost:%s/ping", composeBuilder.AgentCoreHostPort)
+func waitForAgentCorePing(ctx context.Context, port string, wait time.Duration) error {
+	url := fmt.Sprintf("http://localhost:%s/ping", port)
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(wait)
 
@@ -840,12 +893,25 @@ func waitForAgentCorePing(ctx context.Context, wait time.Duration) error {
 			}
 		}
 		if time.Now().After(deadline) {
-			return errAgentCoreNotServing(composeBuilder.AgentCoreHostPort, wait)
+			return errAgentCoreNotServing(port, wait)
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(500 * time.Millisecond):
 		}
+	}
+}
+
+// Every service carries it, so `project list` finds it while any container runs.
+func labelDevChatURL(p *composeTypes.Project, url string) {
+	for name, svc := range p.Services {
+		labels := composeTypes.Labels{}
+		for k, v := range svc.CustomLabels {
+			labels[k] = v
+		}
+		labels[composeBuilder.DevChatURLLabel] = url
+		svc.CustomLabels = labels
+		p.Services[name] = svc
 	}
 }

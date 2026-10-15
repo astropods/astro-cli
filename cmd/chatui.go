@@ -18,14 +18,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/chatui"
-	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 const (
-	// chatUIAddr is where the CLI serves astro-client's chat UI during dev.
+	// chatUIAddr is the chat UI's address when free; otherwise a project gets a free port.
 	chatUIAddr = "127.0.0.1:3100"
-	// chatUIURL is the user-facing address (browser/printed link).
-	chatUIURL = "http://localhost:3100"
 
 	chatUIPidFile = ".chatui.pid"
 	chatUILogFile = ".chatui.log"
@@ -96,19 +93,8 @@ func cancelOnParentExit(parent context.Context) context.Context {
 	return ctx
 }
 
-// startChatUI spawns the detached chat-UI worker and records its PID under
-// astDir. No-op without a web interface; failures warn rather than abort.
-func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool) {
-	if !hasWebInterface {
-		return
-	}
-
-	// Reclaim the fixed, shared chat-UI port before spawning: stop this project's
-	// recorded worker, then reclaim the port from any other chatui-serve holding
-	// it (a force-quit leak or another agent's worker the pid file can't track).
-	stopChatUI(astDir)
-	reclaimChatUIPort(chatUIAddr)
-
+// The caller picks addr with chooseChatUIAddr, which also stops this project's previous worker.
+func startChatUI(astDir, addr, messagingURL, agentName string, exitWithParent bool) {
 	self, err := os.Executable()
 	if err != nil {
 		fmt.Printf("%s!%s %sCould not locate CLI binary to start chat UI: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
@@ -123,10 +109,9 @@ func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool)
 	}
 	defer func() { _ = logFile.Close() }()
 
-	messagingURL := "http://127.0.0.1:" + composeBuilder.MessagingWebHostPort
 	args := []string{
 		"chatui-serve",
-		"--addr", chatUIAddr,
+		"--addr", addr,
 		"--messaging-url", messagingURL,
 		"--agent-name", agentName,
 		"--agent-display", agentName,
@@ -153,17 +138,18 @@ func startChatUI(astDir, agentName string, hasWebInterface, exitWithParent bool)
 	// Detach: we manage lifecycle via the pid file, not via Wait.
 	_ = proc.Process.Release()
 
-	// Confirm our worker (by pid) is serving :3100 before advertising the chat
+	// Confirm our worker (by pid) is serving addr before advertising the chat
 	// URL, so we don't point users at a dead or stale worker.
-	switch waitForChatUIWorker(chatUIAddr, workerPID, 3*time.Second) {
+	chatURL := chatURLForAddr(addr)
+	switch waitForChatUIWorker(addr, workerPID, 3*time.Second) {
 	case chatUIReady:
 		// up and healthy, nothing to say
 	case chatUIPortBusy:
 		fmt.Printf("%s!%s %sChat UI port %s is held by another process; %s may show a stale agent%s\n",
-			colorYellow, colorReset, colorDim, chatUIAddr, chatUIURL, colorReset)
+			colorYellow, colorReset, colorDim, addr, chatURL, colorReset)
 	default: // chatUIUnreachable
 		fmt.Printf("%s!%s %sChat UI failed to start on %s, see %s%s\n",
-			colorYellow, colorReset, colorDim, chatUIURL, logPath, colorReset)
+			colorYellow, colorReset, colorDim, chatURL, logPath, colorReset)
 		if tail := tailFile(logPath, 5); tail != "" {
 			fmt.Printf("%s%s%s\n", colorDim, tail, colorReset)
 		}
@@ -203,23 +189,6 @@ func isChatUIProcess(pid int) bool {
 		return false
 	}
 	return strings.Contains(cmdline, "chatui-serve")
-}
-
-// reclaimChatUIPort frees addr from any chatui-serve worker bound to it,
-// whichever session started it (the port is shared and the per-project pid file
-// can't track leaks). Only a chatui-serve listener is terminated (escalating to
-// SIGKILL); a non-chatui listener is left alone.
-func reclaimChatUIPort(addr string) {
-	pid, ok := chatUIListenerPID(addr)
-	if !ok || !isChatUIProcess(pid) {
-		return
-	}
-	signalProcessGroup(pid, false)
-	if portFreeWithin(addr, 2*time.Second) {
-		return
-	}
-	signalProcessGroup(pid, true)
-	portFreeWithin(addr, 2*time.Second)
 }
 
 // chatUIListenerPID returns the pid listening on addr, or no listener when the
