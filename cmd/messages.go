@@ -237,10 +237,6 @@ func errBlueprintPushPermissionVerdict(account, name string, status int) error {
 	)
 }
 
-func msgBlueprintRenamedUpdateSpec(from, to string) string {
-	return fmt.Sprintf("%s→%s pushed as %q instead of %q; update astropods.yml's name field to keep it that way next time", colorCyan, colorReset, to, from)
-}
-
 func msgBlueprintExistenceCheckInconclusive(name, account string, cause error) string {
 	return fmt.Sprintf("could not confirm whether %q already exists in %q, treating it as if it does: %v", name, account, cause)
 }
@@ -249,25 +245,33 @@ func msgBlueprintWillUnarchive(name, account string) string {
 	return fmt.Sprintf("%q is archived in %q; this push will restore it", name, account)
 }
 
-func msgBlueprintExistsTitle(name, account string, archived bool) string {
-	if archived {
-		return fmt.Sprintf("%q is archived in %q", name, account)
-	}
-	return fmt.Sprintf("%q already exists in %q", name, account)
+// retryableCheckFailure reports whether retrying the existence check could
+// plausibly succeed: a network error or a 5xx, not a 4xx that will fail the
+// same way every time.
+func retryableCheckFailure(cause error) bool {
+	var apiErr *apiError
+	return !errors.As(cause, &apiErr) || apiErr.StatusCode >= http.StatusInternalServerError
 }
 
-func msgBlueprintExistsDescription(archived bool) string {
-	if archived {
-		return "This push will restore the archived blueprint and update it, instead of creating a new one. Make sure this is the blueprint you intend to restore."
+func errBlueprintExistenceCheckFailed(name, account string, cause error) error {
+	if retryableCheckFailure(cause) {
+		return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w\nRetry the push", name, account, cause)
 	}
-	return "This push will update the existing blueprint instead of creating a new one. Make sure this is the blueprint you intend to update."
+	return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w", name, account, cause)
 }
 
-func msgBlueprintExistsUpdateOption(archived bool) string {
+func errBlueprintNameConflict(name, account string, archived bool) error {
+	existsVerb := "already exists"
+	yes := fmt.Sprintf("If %q in %q is yours, push to it anyway with --yes", name, account)
 	if archived {
-		return "Yes, restore and push to it"
+		existsVerb = "already exists (archived)"
+		yes += " — this will restore it"
 	}
-	return "Yes, push to the existing blueprint"
+	exists := fmt.Sprintf("%q %s in %q", name, existsVerb, account)
+	return fmt.Errorf(
+		"%s\n\nTo push under a different name, change name in astropods.yml, or run:\n  %s push <new blueprint name>\n\n%s",
+		exists, buildinfo.BinaryName, yes,
+	)
 }
 
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {
