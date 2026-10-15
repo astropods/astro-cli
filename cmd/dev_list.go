@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -38,7 +40,6 @@ func init() {
 type localAgent struct {
 	Name       string
 	Dir        string
-	ChatURL    string
 	Containers int
 }
 
@@ -60,19 +61,14 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		fmt.Fprint(w, msgDevListEmpty()) //nolint:errcheck,gosec
 		return nil
 	}
+	chats := findChatUIs(chatUIPorts())
 	home, _ := os.UserHomeDir()
-	httpClient := &http.Client{Timeout: 500 * time.Millisecond}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "AGENT\tCHAT\tCONTAINERS\tDIRECTORY") //nolint:errcheck,gosec
 	for _, a := range projects {
-		chat := "-"
-		if a.ChatURL != "" {
-			chat = a.ChatURL
-			if !isLocalHTTPURL(a.ChatURL) {
-				chat += " (not local, unchecked)"
-			} else if !chatUIServing(httpClient, a.ChatURL) {
-				chat += " (not serving)"
-			}
+		chat := chats[a.Name]
+		if chat == "" {
+			chat = "-"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", a.Name, chat, a.Containers, shortenHome(a.Dir, home)) //nolint:errcheck,gosec
 	}
@@ -103,9 +99,6 @@ func localAgentsFromContainers(items []container.Summary) []localAgent {
 		if dir := c.Labels[api.WorkingDirLabel]; dir != "" {
 			a.Dir = dir
 		}
-		if url := c.Labels[composeBuilder.DevChatURLLabel]; url != "" {
-			a.ChatURL = url
-		}
 	}
 	agents := make([]localAgent, 0, len(byProject))
 	for project, a := range byProject {
@@ -117,23 +110,46 @@ func localAgentsFromContainers(items []container.Summary) []localAgent {
 	return agents
 }
 
-// Any container can set the label, so only a loopback http URL is fetched.
-func isLocalHTTPURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "http" {
-		return false
+func chatUIPorts() []int {
+	ports := make([]int, 0, chatUILastPort-chatUIFirstPort+1)
+	for p := chatUIFirstPort; p <= chatUILastPort; p++ {
+		ports = append(ports, p)
 	}
-	host := u.Hostname()
-	return host == "localhost" || host == "127.0.0.1"
+	return ports
 }
 
-func chatUIServing(c *http.Client, baseURL string) bool {
-	resp, err := c.Get(strings.TrimRight(baseURL, "/") + chatui.HealthPath) //nolint:gosec,noctx // loopback URL (isLocalHTTPURL), short timeout
-	if err != nil {
-		return false
+// findChatUIs maps agent name to chat URL by asking each chat UI worker which agent
+// it serves, so the address is never stale. A worker from an older CLI reports none.
+func findChatUIs(ports []int) map[string]string {
+	c := &http.Client{Timeout: 300 * time.Millisecond}
+	found := map[string]string{}
+	for _, p := range ports {
+		addr := "127.0.0.1:" + strconv.Itoa(p)
+		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		if agent := chatUIAgent(c, "http://"+addr+chatui.HealthPath); agent != "" {
+			found[agent] = chatURLForAddr(addr)
+		}
 	}
-	_ = resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return found
+}
+
+func chatUIAgent(c *http.Client, healthURL string) string {
+	resp, err := c.Get(healthURL) //nolint:gosec,noctx // loopback URL built here, short timeout
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body struct {
+		Agent string `json:"agent"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return ""
+	}
+	return body.Agent
 }
 
 func shortenHome(path, home string) string {

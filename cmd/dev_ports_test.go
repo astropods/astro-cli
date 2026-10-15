@@ -14,8 +14,6 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
 func devPortsProject() *types.Project {
@@ -73,6 +71,29 @@ func TestReleaseBusyHostPorts(t *testing.T) {
 			assert.Equal(t, "3110", original[1].Published, "the input slice must not be modified in place")
 		})
 	}
+}
+
+func TestMatchRunningHostPorts(t *testing.T) {
+	p := devPortsProject()
+	original := p.Services["astro-messaging"].Ports
+	running := devHostPorts{
+		"astro-messaging": {9090: 19090, 8080: 55001}, // web moved at start
+		"agent":           {8080: 3120},
+	}
+
+	matchRunningHostPorts(p, running)
+
+	assert.Equal(t, []types.ServicePortConfig{{Target: 9090, Published: "19090"}, {Target: 8080, Published: ""}}, p.Services["astro-messaging"].Ports)
+	assert.Equal(t, []types.ServicePortConfig{{Target: 8080, Published: "3120"}}, p.Services["agent"].Ports)
+	assert.Equal(t, "3110", original[1].Published, "the input slice must not be modified in place")
+}
+
+func TestMatchRunningHostPortsLeavesAStoppedServiceAlone(t *testing.T) {
+	p := devPortsProject()
+
+	matchRunningHostPorts(p, devHostPorts{})
+
+	assert.Equal(t, devPortsProject().Services, p.Services)
 }
 
 func TestHostPortBusy(t *testing.T) {
@@ -194,23 +215,6 @@ func TestReadyURLsFor(t *testing.T) {
 		Chat:     "http://localhost:55003",
 		Webhooks: map[string]string{},
 	}, urls, "the webhook publishes no port, so it gets no URL")
-}
-
-func TestLabelDevChatURL(t *testing.T) {
-	p := devPortsProject()
-	shared := types.Labels{api.ProjectLabel: "ag"}
-	for name, svc := range p.Services {
-		svc.CustomLabels = shared
-		p.Services[name] = svc
-	}
-
-	labelDevChatURL(p, "http://localhost:55003")
-
-	for name, svc := range p.Services {
-		assert.Equal(t, "http://localhost:55003", svc.CustomLabels[composeBuilder.DevChatURLLabel], name)
-		assert.Equal(t, "ag", svc.CustomLabels[api.ProjectLabel], name)
-	}
-	assert.NotContains(t, shared, composeBuilder.DevChatURLLabel, "the original label map must not be modified")
 }
 
 func TestMsgDevPortsMovedIsSilentWhenNothingMoved(t *testing.T) {

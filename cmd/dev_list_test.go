@@ -1,14 +1,15 @@
 package cmd
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro-cli/internal/chatui"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
@@ -17,11 +18,10 @@ import (
 func TestLocalAgentsFromContainers(t *testing.T) {
 	labeled := func(service string) map[string]string {
 		return map[string]string{
-			api.ProjectLabel:               "poweruser",
-			api.ServiceLabel:               service,
-			api.WorkingDirLabel:            "/home/me/poweruser",
-			composeBuilder.DevAgentLabel:   "@acme/poweruser",
-			composeBuilder.DevChatURLLabel: "http://localhost:3100",
+			api.ProjectLabel:             "poweruser",
+			api.ServiceLabel:             service,
+			api.WorkingDirLabel:          "/home/me/poweruser",
+			composeBuilder.DevAgentLabel: "@acme/poweruser",
 		}
 	}
 	items := []container.Summary{
@@ -39,37 +39,33 @@ func TestLocalAgentsFromContainers(t *testing.T) {
 	}
 
 	assert.Equal(t, []localAgent{
-		{Name: "@acme/poweruser", Dir: "/home/me/poweruser", ChatURL: "http://localhost:3100", Containers: 2},
+		{Name: "@acme/poweruser", Dir: "/home/me/poweruser", Containers: 2},
 		{Name: "capcom", Dir: "/home/me/capcom", Containers: 2},
 	}, localAgentsFromContainers(items))
 }
 
-func TestChatUIServing(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc(chatui.HealthPath, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	srv := httptest.NewServer(mux)
-	c := &http.Client{Timeout: time.Second}
-
-	assert.True(t, chatUIServing(c, srv.URL))
-	srv.Close()
-	assert.False(t, chatUIServing(c, srv.URL))
-}
-
-func TestIsLocalHTTPURL(t *testing.T) {
-	tests := []struct {
-		url  string
-		want bool
-	}{
-		{"http://localhost:3100", true},
-		{"http://127.0.0.1:55001", true},
-		{"http://169.254.169.254/latest", false},
-		{"https://localhost:3100", false},
-		{"http://localhost.example.com:3100", false},
-		{"::not a url", false},
+func TestFindChatUIs(t *testing.T) {
+	health := func(body string) *httptest.Server {
+		mux := http.NewServeMux()
+		mux.HandleFunc(chatui.HealthPath, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(body))
+		})
+		return httptest.NewServer(mux)
 	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.want, isLocalHTTPURL(tt.url), tt.url)
-	}
+	port := func(s *httptest.Server) int { return s.Listener.Addr().(*net.TCPAddr).Port }
+
+	current := health(`{"ok":true,"pid":1,"agent":"@acme/poweruser"}`)
+	defer current.Close()
+	older := health(`{"ok":true,"pid":2}`) // a worker from a CLI that predates the agent field
+	defer older.Close()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	closedPort := closed.Addr().(*net.TCPAddr).Port
+	require.NoError(t, closed.Close())
+
+	found := findChatUIs([]int{port(current), port(older), closedPort})
+
+	assert.Equal(t, map[string]string{"@acme/poweruser": chatURLForAddr(current.Listener.Addr().String())}, found)
 }
 
 func TestShortenHome(t *testing.T) {

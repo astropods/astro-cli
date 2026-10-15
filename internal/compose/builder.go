@@ -73,8 +73,6 @@ const (
 
 	// DevAgentLabel carries the spec name on every dev container; `project list` filters on it.
 	DevAgentLabel = "com.astropods.dev.agent"
-	// DevChatURLLabel records where the CLI serves the project's chat UI.
-	DevChatURLLabel = "com.astropods.dev.chat-url"
 
 	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
 	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
