@@ -135,6 +135,40 @@ func TestSidecarAnswers(t *testing.T) {
 	assert.False(t, sidecarAnswers(""))
 }
 
+func TestPickChatUIPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		reserved map[string]bool
+		busy     map[string]bool
+		want     string
+	}{
+		{"default port when free", nil, nil, "3100"},
+		{"next free port", nil, map[string]bool{"3100": true, "3101": true}, "3102"},
+		{"skips a port the project publishes", map[string]bool{"3101": true}, map[string]bool{"3100": true}, "3102"},
+		{"range full", nil, allChatUIPorts(), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, pickChatUIPort(tt.reserved, func(p string) bool { return tt.busy[p] }))
+		})
+	}
+}
+
+func allChatUIPorts() map[string]bool {
+	ports := map[string]bool{}
+	for p := chatUIFirstPort; p <= chatUILastPort; p++ {
+		ports[strconv.Itoa(p)] = true
+	}
+	return ports
+}
+
+func TestPublishedHostPorts(t *testing.T) {
+	p := devPortsProject()
+	releaseBusyHostPorts(p, func(port string) bool { return port == "3110" })
+
+	assert.Equal(t, map[string]bool{"19090": true, "3120": true}, publishedHostPorts(p))
+}
+
 func TestChatURLForAddr(t *testing.T) {
 	assert.Equal(t, "http://localhost:3100", chatURLForAddr("127.0.0.1:3100"))
 	assert.Equal(t, "http://localhost:55123", chatURLForAddr("127.0.0.1:55123"))
