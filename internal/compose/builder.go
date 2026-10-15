@@ -604,6 +604,10 @@ func BuildProject(
 
 		// Environment variables - inherit from agent
 		service.Environment = BuildEnvironment(s, envVars)
+		for k, v := range ingestion.Container.Environment {
+			val := v
+			service.Environment[k] = &val
+		}
 
 		// Inject ingestion-specific inputs (from ast configure / .env, with default fallback)
 		for _, inp := range ingestion.Inputs {
