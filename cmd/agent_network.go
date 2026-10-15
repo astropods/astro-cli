@@ -84,7 +84,7 @@ func runAgentNetwork(cmd *cobra.Command, _ []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/network/summary", agentBaseURL(), url.PathEscape(dep.ID))
 	var summary networkSummary
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &summary)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(deploymentLabel(dep))
 	}
 	if err != nil {

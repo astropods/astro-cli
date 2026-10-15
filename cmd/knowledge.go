@@ -267,7 +267,7 @@ func runKnowledgeStatus(cmd *cobra.Command, args []string) error {
 		knowledgePath(at.Account, args[0]),
 		nil, at.Token, verbose, &s)
 	if err != nil {
-		if status == http.StatusNotFound {
+		if isNotFound(status, err) {
 			return fmt.Errorf("knowledge store %q not found", args[0])
 		}
 		return err
@@ -311,7 +311,7 @@ func runKnowledgeCredentials(cmd *cobra.Command, args []string) error {
 		knowledgePath(at.Account, args[0], "credentials"),
 		nil, at.Token, verbose, &creds)
 	if err != nil {
-		if status == http.StatusNotFound {
+		if isNotFound(status, err) {
 			return fmt.Errorf("credentials not available for %q (store not found, or KMS was not configured at creation)", args[0])
 		}
 		return err
@@ -347,7 +347,7 @@ func runKnowledgeDelete(cmd *cobra.Command, args []string) error {
 		knowledgePath(at.Account, name),
 		nil, at.Token, verbose, nil)
 	if err != nil {
-		if status == http.StatusNotFound {
+		if isNotFound(status, err) {
 			return fmt.Errorf("knowledge store %q not found", name)
 		}
 		if status == http.StatusConflict {

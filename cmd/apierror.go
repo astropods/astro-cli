@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -10,6 +12,12 @@ import (
 // refused. It arrives with 402 from astro-server and with 403 from the registry,
 // so the code rather than the status is what identifies it.
 const billingSuspendedCode = "BILLING_SUSPENDED"
+
+const authorizationDeniedCode = "AUTHORIZATION_DENIED"
+
+// resourceUnavailableCode marks a 404 whose error is the server's concealment
+// sentence: the resource is missing, or the caller can't see it.
+const resourceUnavailableCode = "RESOURCE_UNAVAILABLE"
 
 // Billing actions the server names. Each maps to a different thing the reader
 // has to do, and getting it wrong sends an account with a working card to add
@@ -61,6 +69,38 @@ func (e *apiError) isBillingSuspended() bool {
 	return e != nil && e.Code == billingSuspendedCode
 }
 
+func (e *apiError) isAuthorizationDenied() bool {
+	return e != nil && e.Code == authorizationDeniedCode
+}
+
+// deniedAction reports the permission the server refused, or "" when the
+// error is not a permission refusal.
+func (e *apiError) deniedAction() string {
+	if !e.isAuthorizationDenied() {
+		return ""
+	}
+	return e.Action
+}
+
+// isAuthorizationDenial reports whether err is the server refusing a
+// permission, so a status branch does not read it as another 403.
+func isAuthorizationDenial(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.isAuthorizationDenied()
+}
+
+// isNotFound reports a 404 the command may explain itself. A concealed 404
+// already carries the server's sentence, which names what may be hidden.
+func isNotFound(status int, err error) bool {
+	return status == http.StatusNotFound && !isConcealed(err)
+}
+
+// isConcealed reports whether err is the server's concealed 404.
+func isConcealed(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.Code == resourceUnavailableCode
+}
+
 func (e *apiError) isStructured() bool {
 	return e != nil && e.Code != ""
 }
@@ -74,7 +114,8 @@ func (e *apiError) Error() string {
 			return detail
 		}
 	}
-	// Uncoded responses keep the shape older commands and scripts expect.
+	// An uncoded body keeps the shape scripts match: its details are often a
+	// raw Go error and its error a bare token, neither a sentence on its own.
 	return fmt.Sprintf("server returned status %d: %s", e.StatusCode, e.Body)
 }
 

@@ -196,7 +196,7 @@ func runAgentTraceList(cmd *cobra.Command, label, id string, at AccountToken, ve
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/observability/traces?%s", agentBaseURL(), url.PathEscape(id), q.Encode())
 	var result tracesListResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		if flagString(cmd, "id") != "" {
 			return errAgentDeploymentNotFoundForID(id)
 		}
@@ -261,7 +261,7 @@ func runAgentTraceDetail(cmd *cobra.Command, label, id, traceID string, at Accou
 		agentBaseURL(), url.PathEscape(id), url.PathEscape(traceID))
 	var result traceDetailResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentTraceNotFound(traceID, label)
 	}
 	if err != nil {

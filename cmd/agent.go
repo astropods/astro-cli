@@ -496,7 +496,7 @@ func runAgentPause(cmd *cobra.Command, args []string) error {
 
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/stop", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
@@ -524,7 +524,7 @@ func runAgentResume(cmd *cobra.Command, args []string) error {
 
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/wakeup", agentBaseURL(), url.PathEscape(dep.ID))
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
@@ -559,7 +559,7 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 
 	u := agentBaseURL() + "/api/v1/undeploy"
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{"deployment_id": dep.ID}, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
@@ -653,7 +653,7 @@ func runAgentRestart(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/pods/%s/restart", agentBaseURL(), url.PathEscape(dep.ID), url.PathEscape(podName))
 
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {
@@ -702,7 +702,7 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 
 		for {
 			httpStatus, body, err := apiStream(cmd.Context(), streamURL, at.Token, verbose)
-			if httpStatus == http.StatusNotFound {
+			if isNotFound(httpStatus, err) {
 				return errAgentDeploymentNotFound(label)
 			}
 			if err != nil {
@@ -763,7 +763,7 @@ func runAgentLogs(cmd *cobra.Command, args []string) error {
 
 	var raw json.RawMessage
 	httpStatus, err := apiCall(cmd.Context(), http.MethodGet, batchURL, nil, at.Token, verbose, &raw)
-	if httpStatus == http.StatusNotFound {
+	if isNotFound(httpStatus, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {

@@ -106,7 +106,7 @@ func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, name string, verb
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name)
 	var bp blueprintItem
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return "", errBlueprintNotFound(name, at.Account)
 	}
 	if err != nil {

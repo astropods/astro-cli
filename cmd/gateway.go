@@ -206,7 +206,7 @@ func fetchMyDeviceKeys(ctx context.Context, account string, all, verbose bool) (
 func revokeDeviceKey(ctx context.Context, account, keyID string, all, verbose bool) error {
 	url := apiPath(gatewayBaseURL(), account, "accounts", "devtool-gateway", gatewayKeysRoute(all), keyID)
 	status, err := apiCallForAccount(ctx, http.MethodDelete, url, nil, account, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errGatewayKeyNotFound(keyID)
 	}
 	if err != nil {

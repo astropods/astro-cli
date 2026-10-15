@@ -182,7 +182,7 @@ func runEvalPush(cmd *cobra.Command, args []string) error {
 		"evaluation_yaml": evaluationYAML,
 		"prompt_files":    promptFiles,
 	}, at.Token, verbose, &resp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("agent %q not found in account %q", name, at.Account)
 	}
 	if err != nil {
@@ -230,7 +230,7 @@ func runEvalGet(cmd *cobra.Command, args []string) error {
 	u := apiPath(evalBaseURL(), at.Account, "agents", name, "evaluation-set")
 	var set evalSetResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &set)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errEvalSetNotFound(name, at.Account)
 	}
 	if err != nil {
@@ -295,6 +295,9 @@ func runEvalStatus(cmd *cobra.Command, _ []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/evaluations/summary", agentBaseURL(), url.PathEscape(dep.ID))
 	var sum evalSummaryResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &sum)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errAgentDeploymentNotFound(deploymentLabel(dep))
@@ -361,6 +364,9 @@ func runEvalRunBatch(cmd *cobra.Command, dep *agentDeployment, includeOutdated b
 		"deployment_id":         dep.ID,
 		"include_outdated_runs": includeOutdated,
 	}, at.Token, verbose, &resp)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errAgentDeploymentNotFound(deploymentLabel(dep))
@@ -385,6 +391,9 @@ func runEvalRunTrace(cmd *cobra.Command, dep *agentDeployment, traceID string, a
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{
 		"deployment_id": dep.ID,
 	}, at.Token, verbose, &resp)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
@@ -503,7 +512,7 @@ func runEvalReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	current, status, err := fetchTraceEvaluation(cmd, dep.ID, traceID, at, verbose)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
 	}
 	if err != nil {
@@ -522,6 +531,9 @@ func runEvalReview(cmd *cobra.Command, _ []string) error {
 	var resp evalReviewResponse
 	u := apiPath(evalBaseURL(), at.Account, "agents", dep.Name, "evaluations", traceID, "human-review")
 	status, err = apiCall(cmd.Context(), http.MethodPut, u, req, at.Token, verbose, &resp)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errAgentTraceNotFound(traceID, deploymentLabel(dep))
