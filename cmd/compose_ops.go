@@ -133,6 +133,39 @@ func groupStartupServices(p *types.Project, s *spec.AstroSpec) (services, ingest
 	return services, ingestion
 }
 
+// buildWithIngestionProfile builds p with the "ingestion" profile active, so
+// the SDK resolves the profiled ingestion services by name.
+func buildWithIngestionProfile(svc api.Compose, p *types.Project, opts api.BuildOptions) error {
+	build := *p
+	build.Profiles = []string{"ingestion"}
+	return svc.Build(context.Background(), &build, opts)
+}
+
+// startupIngestionNames returns the sorted names of ingestions with a startup trigger.
+func startupIngestionNames(s *spec.AstroSpec) []string {
+	var names []string
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type == "startup" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// foregroundLogServices returns the services `project start` tails by default:
+// the agent and every ingestion, so a job run while the agent is up shows in
+// the same output.
+func foregroundLogServices(s *spec.AstroSpec) []string {
+	services := []string{"agent"}
+	ingestions := make([]string, 0, len(s.Ingestion))
+	for name := range s.Ingestion {
+		ingestions = append(ingestions, "ingestion-"+name)
+	}
+	sort.Strings(ingestions)
+	return append(services, ingestions...)
+}
+
 // allServiceNames returns the names of all services in the project.
 func allServiceNames(p *types.Project) []string {
 	names := make([]string, 0, len(p.Services))

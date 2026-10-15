@@ -185,3 +185,60 @@ func TestGroupStartupServices(t *testing.T) {
 		})
 	}
 }
+
+func TestStartupIngestionNames(t *testing.T) {
+	tests := []struct {
+		name      string
+		ingestion map[string]spec.Ingestion
+		want      []string
+	}{
+		{
+			name: "only startup triggers, sorted",
+			ingestion: map[string]spec.Ingestion{
+				"zeta":   {Trigger: spec.IngestionTrigger{Type: "startup"}},
+				"alpha":  {Trigger: spec.IngestionTrigger{Type: "startup"}},
+				"weekly": {Trigger: spec.IngestionTrigger{Type: "schedule"}},
+				"hook":   {Trigger: spec.IngestionTrigger{Type: "webhook"}},
+			},
+			want: []string{"alpha", "zeta"},
+		},
+		{
+			name:      "no ingestion",
+			ingestion: nil,
+			want:      nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, startupIngestionNames(&spec.AstroSpec{Ingestion: tt.ingestion}))
+		})
+	}
+}
+
+func TestForegroundLogServices(t *testing.T) {
+	tests := []struct {
+		name      string
+		ingestion map[string]spec.Ingestion
+		want      []string
+	}{
+		{
+			name: "the agent and every ingestion, whatever its trigger",
+			ingestion: map[string]spec.Ingestion{
+				"weekly":  {Trigger: spec.IngestionTrigger{Type: "schedule"}},
+				"startup": {Trigger: spec.IngestionTrigger{Type: "startup"}},
+				"manual":  {Trigger: spec.IngestionTrigger{Type: "manual"}},
+			},
+			want: []string{"agent", "ingestion-manual", "ingestion-startup", "ingestion-weekly"},
+		},
+		{
+			name:      "the agent alone when the spec has no ingestion",
+			ingestion: nil,
+			want:      []string{"agent"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, foregroundLogServices(&spec.AstroSpec{Ingestion: tt.ingestion}))
+		})
+	}
+}

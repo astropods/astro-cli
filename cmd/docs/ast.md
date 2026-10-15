@@ -86,17 +86,23 @@ Run your agent locally:
 
 ```bash
 ast project start                  # start all containers
+ast project start --skip-startup   # start without running startup jobs
 ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
+ast project trigger                # list the jobs in the spec
 ast project trigger <name>         # manually trigger a job
+ast project trigger <name> --rebuild  # rebuild the job's container, then run it
 ```
+
+In the foreground, `ast project start` tails the agent and every job that
+runs while it is up, such as one started by `ast project trigger`.
 
 **Ingestion behavior:**
 
 | Trigger type | What `ast project start` does |
 |---|---|
-| `startup` | Runs the ingestion container once at startup |
+| `startup` | Runs the ingestion container once at startup, unless `--skip-startup` is set |
 | `schedule` | Prints `ast project trigger <name>` — run it manually on demand |
 | `webhook` | Started alongside the agent; port exposed (default 3001) |
 | `manual` | Prints `ast project trigger <name>` |
@@ -107,6 +113,12 @@ repeatable, takes a five-field cron expression, and is required for every
 `schedule` entry on a first deploy. A redeploy keeps the cadence it already
 has.
 
+`ast deploy <name> --from-local` sends the values `ast project configure`
+saved for the current directory. It sends each one as a plaintext value, not
+a secret reference, so a saved API key reaches the deployment as its value.
+To use an account secret for a key, also pass `--var KEY=@SECRET_NAME`. For
+the same key, `--var` wins over `--vars-file`, which wins over `--from-local`.
+
 ### `push` — Build, package, and register with Astropods
 
 `ast push` builds your project (if needed), packages the agent and spec, pushes images to a registry, and **adds the agent to the Astropods registry**. A build is run automatically unless you pass `--no-build`.
@@ -114,6 +126,8 @@ has.
 The push command requires an Astropods account. Use `ast login` to get the required credentials.
 
 **Visibility:** On first push, the CLI prompts you to set the agent as **public** or **private**. Private agents are only visible to account members; public agents appear in the catalog and are accessible to anyone. Visibility is managed via the platform UI or API — `meta.visibility` in the spec is deprecated and no longer used.
+
+**Existing blueprint names:** If the blueprint name already exists in the target account and you haven't pushed to it from this project on this machine before, the push stops with an error naming the account and blueprint. Push under a different name (change `name` in `astropods.yml`, or pass one on the command line), or pass `--yes` to push to it anyway.
 
 **Git provenance and uncommitted changes:** For a normal push from a Git
 repository, the CLI records the current commit SHA and message when available.
@@ -125,6 +139,9 @@ If those inputs contain staged, unstaged, untracked nonignored, or submodule
 changes, the push stops before building. Commit the changes or pass
 `--allow-dirty` to continue and mark the pushed build as dirty. `--yes` skips
 ordinary confirmation prompts but does not allow a dirty push.
+
+Pass `-m`/`--message` to describe the push. The message replaces the commit
+message on the build, including on a `--no-build` push.
 
 Git discovery is best-effort. If the CLI records a commit but cannot verify
 every relevant path, it warns that some build inputs may not be represented by

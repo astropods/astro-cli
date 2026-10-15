@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 )
 
@@ -237,10 +238,6 @@ func errBlueprintPushPermissionVerdict(account, name string, status int) error {
 	)
 }
 
-func msgBlueprintRenamedUpdateSpec(from, to string) string {
-	return fmt.Sprintf("%s→%s pushed as %q instead of %q; update astropods.yml's name field to keep it that way next time", colorCyan, colorReset, to, from)
-}
-
 func msgBlueprintExistenceCheckInconclusive(name, account string, cause error) string {
 	return fmt.Sprintf("could not confirm whether %q already exists in %q, treating it as if it does: %v", name, account, cause)
 }
@@ -249,25 +246,33 @@ func msgBlueprintWillUnarchive(name, account string) string {
 	return fmt.Sprintf("%q is archived in %q; this push will restore it", name, account)
 }
 
-func msgBlueprintExistsTitle(name, account string, archived bool) string {
-	if archived {
-		return fmt.Sprintf("%q is archived in %q", name, account)
-	}
-	return fmt.Sprintf("%q already exists in %q", name, account)
+// retryableCheckFailure reports whether retrying the existence check could
+// plausibly succeed: a network error or a 5xx, not a 4xx that will fail the
+// same way every time.
+func retryableCheckFailure(cause error) bool {
+	var apiErr *apiError
+	return !errors.As(cause, &apiErr) || apiErr.StatusCode >= http.StatusInternalServerError
 }
 
-func msgBlueprintExistsDescription(archived bool) string {
-	if archived {
-		return "This push will restore the archived blueprint and update it, instead of creating a new one. Make sure this is the blueprint you intend to restore."
+func errBlueprintExistenceCheckFailed(name, account string, cause error) error {
+	if retryableCheckFailure(cause) {
+		return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w\nRetry the push", name, account, cause)
 	}
-	return "This push will update the existing blueprint instead of creating a new one. Make sure this is the blueprint you intend to update."
+	return fmt.Errorf("could not check whether %q already exists in %q, so the push stopped: %w", name, account, cause)
 }
 
-func msgBlueprintExistsUpdateOption(archived bool) string {
+func errBlueprintNameConflict(name, account string, archived bool) error {
+	existsVerb := "already exists"
+	yes := fmt.Sprintf("If %q in %q is yours, push to it anyway with --yes", name, account)
 	if archived {
-		return "Yes, restore and push to it"
+		existsVerb = "already exists (archived)"
+		yes += " — this will restore it"
 	}
-	return "Yes, push to the existing blueprint"
+	exists := fmt.Sprintf("%q %s in %q", name, existsVerb, account)
+	return fmt.Errorf(
+		"%s\n\nTo push under a different name, change name in astropods.yml, or run:\n  %s push <new blueprint name>\n\n%s",
+		exists, buildinfo.BinaryName, yes,
+	)
 }
 
 func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int) error {
@@ -518,8 +523,24 @@ func msgNoTracesForAgent(target string) string {
 	return fmt.Sprintf("No traces found for %s", target)
 }
 
+func errNoLocalProjectVars() error {
+	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
+}
+
+func msgStartupJobsSkipped(names []string) string {
+	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
+}
+
 func msgLoginPriorAccountUnavailable(account string) string {
 	return fmt.Sprintf("  Note: previous account %q is no longer available; using personal account.\n", account)
+}
+
+func errLoginNoPersonalAccount(onboardingURL string) error {
+	return fmt.Errorf("no personal account found. Finish onboarding at %s to choose your username, then run '%s login' again", onboardingURL, buildinfo.BinaryName)
+}
+
+func msgLoginFinishOnboarding(onboardingURL string) string {
+	return fmt.Sprintf("  Could not load your accounts. If you just signed up, finish onboarding at %s before pushing.", onboardingURL)
 }
 
 func errLoginAccountsLoadEmpty() error {
@@ -927,4 +948,188 @@ func msgDeployed(environment string) string {
 
 func errPrivateLinkNeedsCluster() error {
 	return fmt.Errorf("--private-link needs at least one --cluster to create an endpoint on")
+}
+
+// AI Gateway (ast gateway).
+
+func errGatewayNotEnabled(account string) error {
+	return fmt.Errorf("the AI Gateway isn't turned on for %s; an admin can turn it on in Settings → AI Gateway", account)
+}
+
+func errGatewayUnavailable() error {
+	return fmt.Errorf("the AI Gateway isn't available in this environment")
+}
+
+func errGatewaySetupInProgress() error {
+	return fmt.Errorf("another setup for this device is already running; wait a moment and retry")
+}
+
+func errGatewayConnectIncomplete(binary string, err error) error {
+	return fmt.Errorf("couldn't finish connecting this device (%w); run `%s gateway connect` again", err, binary)
+}
+
+func errGatewayRequestFailed(action string, err error) error {
+	return fmt.Errorf("could not %s: %w", action, err)
+}
+
+func errGatewayForeignBaseURL(path, current string) error {
+	return fmt.Errorf(
+		"%s already routes Claude Code to another gateway (%s); rerun with --replace-existing to replace it",
+		path, current,
+	)
+}
+
+func errGatewayOtherAccount(current, wanted string) error {
+	return fmt.Errorf(
+		"this machine reports to %s; a machine reports to one account, so rerun with --replace-existing to switch it to %s",
+		current, wanted,
+	)
+}
+
+func errGatewayKeyNotFound(key string) error {
+	return fmt.Errorf("no device key matches %q; run '%s gateway devices' to list them", key, buildinfo.BinaryName)
+}
+
+func errGatewayKeyAmbiguous(key string, n int) error {
+	return fmt.Errorf("%q matches %d device keys; use more of the key prefix or the full key id", key, n)
+}
+
+func msgGatewayConnecting(account string) string {
+	return fmt.Sprintf("Connecting this machine to the AI Gateway for %s…", account)
+}
+
+func msgGatewayConfirmForeignBaseURL(path, current string) (title, description string) {
+	return fmt.Sprintf("%s already routes Claude Code to another gateway. Replace it?", path),
+		fmt.Sprintf("It points at %s. That gateway will stop receiving Claude Code traffic from this machine.", current)
+}
+
+func msgGatewayConfirmOtherAccount(current, wanted string) (title, description string) {
+	return fmt.Sprintf("Switch this machine from %s to %s?", current, wanted),
+		fmt.Sprintf("A machine reports to one account. Its usage will appear in %s from now on.", wanted)
+}
+
+func msgGatewayConnected(account, binary string) string {
+	return fmt.Sprintf(
+		"Claude Code keeps your current login and billing. Your usage now appears in %s's Insights.\n"+
+			"Send any prompt in Claude Code, then run `%s gateway status` to confirm.",
+		account, binary,
+	)
+}
+
+func msgGatewayNotConnected(binary string) string {
+	return fmt.Sprintf("This machine isn't connected to an AI Gateway. Run `%s gateway connect` to connect it.", binary)
+}
+
+func msgGatewaySwitchRevokeFailed(account, prefix, binary string, err error) string {
+	return fmt.Sprintf(
+		"! This device's old key on %s could not be revoked (%v).\n  Revoke it with `%s gateway revoke %s` while signed in to %s.",
+		account, err, binary, prefix, account,
+	)
+}
+
+func msgGatewayDisconnectRevokeFailed(prefix, binary string, err error) string {
+	return fmt.Sprintf(
+		"! Settings restored, but the key could not be revoked (%v).\n  Retry with `%s gateway revoke %s`.",
+		err, binary, prefix,
+	)
+}
+
+func msgGatewayRevokedThisDevice(binary string) string {
+	return fmt.Sprintf("That was this machine's key. Run `%s gateway disconnect` to also remove it from your Claude Code settings.", binary)
+}
+
+func msgGatewayStatusConnected(account, device, prefix, lastUsed string) string {
+	return fmt.Sprintf("AI Gateway: connected (%s)\n\n  This device   %s · %s… · last used %s", account, device, prefix, lastUsed)
+}
+
+func msgGatewayStatusUnreachable(account string, err error) string {
+	return fmt.Sprintf("AI Gateway: connected to %s (could not reach the server: %v)\n", account, err)
+}
+
+func msgGatewayStatusKeyGone(account, binary string) string {
+	return fmt.Sprintf("AI Gateway: this device's key no longer exists in %s. Run `%s gateway connect` to set it up again.\n", account, binary)
+}
+
+func msgGatewayStatusCollectionOff(account, binary string) string {
+	return fmt.Sprintf("  ! %s turned off the AI Gateway, so it no longer collects this device's usage. Claude Code still routes through it until you run `%s gateway disconnect`.", account, binary)
+}
+
+func msgGatewayStatusRevoked(when, binary string) string {
+	return fmt.Sprintf("AI Gateway: disconnected. This device's key was revoked %s. Run `%s gateway connect` to set it up again.\n", when, binary)
+}
+
+func msgGatewayStatusNoRouting(binary string) string {
+	return fmt.Sprintf("  Routing       not set, so Claude Code talks to Anthropic directly. Run `%s gateway connect`.", binary)
+}
+
+func msgGatewayStatusOverridden(layer string) string {
+	return fmt.Sprintf("  ! %s points somewhere else, so Claude Code here bypasses the gateway.", layer)
+}
+
+func msgGatewayStatusShellExport(key, value string) string {
+	return fmt.Sprintf("  ! Your shell exports %s=%s, which may override the settings above.", key, value)
+}
+
+func msgGatewayStatusSettingsMissing(binary string) string {
+	return fmt.Sprintf("  ! Your Claude Code settings no longer hold what connect wrote for this device. Run `%s gateway connect` to repair them.", binary)
+}
+
+func msgGatewayConnectTarget(device, goos, goarch, settingsPath string) string {
+	return fmt.Sprintf("  Device     %s (%s %s)\n  Settings   %s\n", device, goos, goarch, settingsPath)
+}
+
+func msgGatewayKeyIssued(prefix string) string {
+	return fmt.Sprintf("✓ Issued a key for this device (%s…)", prefix)
+}
+
+func msgGatewaySettingsUpdated(path string) string {
+	return fmt.Sprintf("✓ Updated %s", path)
+}
+
+func msgGatewaySettingWritten(key, label string) string {
+	return fmt.Sprintf("    %-26s %s", key, label)
+}
+
+func msgGatewaySettingHidden() string {
+	return "(set)"
+}
+
+func msgGatewaySettingsRestored(path string) string {
+	return fmt.Sprintf("✓ Restored %s to how it was before connect", path)
+}
+
+func msgGatewaySettingKept(key string) string {
+	return fmt.Sprintf("  %s changed after connect, so it was left as it is", key)
+}
+
+func msgGatewayThisDeviceKeyRevoked(prefix string) string {
+	return fmt.Sprintf("✓ Revoked this device's key (%s…)", prefix)
+}
+
+func msgGatewayNoDevices(account string) string {
+	return fmt.Sprintf("No devices are connected to %s's AI Gateway.", account)
+}
+
+func msgGatewayDeviceKeyRevoked(device, prefix string) string {
+	return fmt.Sprintf("✓ Revoked %s's key (%s…)", device, prefix)
+}
+
+func msgGatewayStatusRouting(url, setBy string, alsoIn []string) string {
+	line := fmt.Sprintf("  Routing       %s\n  Set by        %s", url, setBy)
+	if len(alsoIn) > 0 {
+		line += ", also in " + strings.Join(alsoIn, ", ")
+	}
+	return line
+}
+
+func msgGatewaySettingsScope(scope claudesettings.Scope) string {
+	switch scope {
+	case claudesettings.ScopeManaged:
+		return "managed settings (your organization)"
+	case claudesettings.ScopeProjectLocal:
+		return "this project's local settings"
+	case claudesettings.ScopeProject:
+		return "this project's shared settings"
+	}
+	return "your user settings"
 }

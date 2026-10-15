@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
-	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
 )
 
@@ -141,9 +139,10 @@ func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("no-build", false, "Skip building the image before pushing")
 	cmd.Flags().Bool("allow-dirty", false, "Push even when blueprint is built from uncommitted changes")
 	cmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
-	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts")
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompts, including pushing over an existing blueprint")
 	cmd.Flags().Bool("allow-account-override", false, "Allow push when the account prefix in the spec differs from the current account")
 	cmd.Flags().Bool("json", false, "Print the build ID and blueprint as JSON on success; progress moves to stderr")
+	cmd.Flags().StringP("message", "m", "", "Describe this push; replaces the Git commit message shown on the build")
 }
 
 func init() {
@@ -265,23 +264,16 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	noBuild, _ := cmd.Flags().GetBool("no-build")
 	yes, _ := cmd.Flags().GetBool("yes")
 	allowDirty, _ := cmd.Flags().GetBool("allow-dirty")
+	message, _ := cmd.Flags().GetString("message")
 
 	personalAccount, err := accountNewStorage().GetPersonalAccount()
 	if err != nil {
 		return err
 	}
-	resolvedName, err := resolveOrRenameBlueprint(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
+	agentName, err = resolvePushName(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
 	if err != nil {
-		if errors.Is(err, tui.ErrCanceled) {
-			printCanceled(cmd.OutOrStdout())
-			return nil
-		}
 		return err
 	}
-	if resolvedName != agentName {
-		fmt.Fprintf(warnW, "%s\n", msgBlueprintRenamedUpdateSpec(agentName, resolvedName)) //nolint:errcheck
-	}
-	agentName = resolvedName
 
 	platform, skipPush := resolveBuildPlatform(pushBaseURL(), astroSpec.Agent.Runtime())
 	return runPush(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), at, PushPipelineConfig{
@@ -295,6 +287,7 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 		Yes:        yes,
 		Verbose:    verbose,
 		JSON:       jsonOut,
+		Message:    strings.TrimSpace(message),
 	})
 }
 
