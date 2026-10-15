@@ -12,6 +12,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/docker/compose/v5/pkg/api"
 	"github.com/moby/moby/api/types/container"
@@ -70,7 +71,7 @@ func runDevList(cmd *cobra.Command, _ []string) error {
 		if chat == "" {
 			chat = "-"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", a.Name, chat, a.Containers, shortenHome(a.Dir, home)) //nolint:errcheck,gosec
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", printable(a.Name), chat, a.Containers, shortenHome(printable(a.Dir), home)) //nolint:errcheck,gosec
 	}
 	return tw.Flush()
 }
@@ -121,7 +122,11 @@ func chatUIPorts() []int {
 // findChatUIs maps agent name to chat URL by asking each chat UI worker which agent
 // it serves, so the address is never stale. A worker from an older CLI reports none.
 func findChatUIs(ports []int) map[string]string {
-	c := &http.Client{Timeout: 300 * time.Millisecond}
+	// Any local process can listen in the range, so a redirect is not followed off loopback.
+	c := &http.Client{
+		Timeout:       300 * time.Millisecond,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	found := map[string]string{}
 	for _, p := range ports {
 		addr := "127.0.0.1:" + strconv.Itoa(p)
@@ -150,6 +155,17 @@ func chatUIAgent(c *http.Client, healthURL string) string {
 		return ""
 	}
 	return body.Agent
+}
+
+// Any container can set the labels these values come from; dropping control characters
+// keeps an escape sequence from rewriting the terminal.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, s)
 }
 
 func shortenHome(path, home string) string {

@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/docker/compose/v5/pkg/api"
@@ -63,9 +64,36 @@ func TestFindChatUIs(t *testing.T) {
 	closedPort := closed.Addr().(*net.TCPAddr).Port
 	require.NoError(t, closed.Close())
 
-	found := findChatUIs([]int{port(current), port(older), closedPort})
+	var targetHit atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetHit.Store(true)
+		_, _ = w.Write([]byte(`{"ok":true,"agent":"redirected"}`))
+	}))
+	defer target.Close()
+	mux := http.NewServeMux()
+	mux.HandleFunc(chatui.HealthPath, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	})
+	redirecting := httptest.NewServer(mux)
+	defer redirecting.Close()
+
+	found := findChatUIs([]int{port(current), port(older), closedPort, port(redirecting)})
 
 	assert.Equal(t, map[string]string{"@acme/poweruser": chatURLForAddr(current.Listener.Addr().String())}, found)
+	assert.False(t, targetHit.Load(), "a redirect from a listener in the range must not be followed")
+}
+
+func TestPrintable(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"@acme/poweruser", "@acme/poweruser"},
+		{"agënt-ü", "agënt-ü"},
+		{"evil\x1b[2K\x1b[1Aagent", "evil[2K[1Aagent"},
+		{"\x1b]8;;https://example.com\x1b\\click\x1b]8;;\x1b\\", `]8;;https://example.com\click]8;;\`}, // no ESC left, so no hyperlink
+		{"two\nlines\tand\rmore\x7f", "twolinesandmore"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, printable(tt.in), "%q", tt.in)
+	}
 }
 
 func TestShortenHome(t *testing.T) {
