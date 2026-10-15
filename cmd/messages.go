@@ -528,8 +528,12 @@ func errDevPortLookup(err error) error {
 	return fmt.Errorf("containers started, but their published ports could not be read from Docker: %w. Run '%s project stop', then start again", err, buildinfo.BinaryName)
 }
 
-func msgDevChatUIWithoutSidecar() string {
-	return fmt.Sprintf("%s!%s %sChat UI not started: the messaging sidecar publishes no web port%s\n", colorYellow, colorReset, colorDim, colorReset)
+func errDevTriggerPortLookup(err error) error {
+	return fmt.Errorf("could not read the running containers' ports from Docker: %w", err)
+}
+
+func msgDevChatUINotStarted(reason string) string {
+	return fmt.Sprintf("%s!%s %sChat UI not started: %s%s\n", colorYellow, colorReset, colorDim, reason, colorReset)
 }
 
 func msgStartupJobsSkipped(names []string) string {

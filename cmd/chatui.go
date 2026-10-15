@@ -94,18 +94,18 @@ func cancelOnParentExit(parent context.Context) context.Context {
 }
 
 // The caller picks addr with chooseChatUIAddr, which also stops this project's previous worker.
-func startChatUI(astDir, addr, messagingURL, agentName string, exitWithParent bool) {
+func startChatUI(astDir, addr, messagingURL, agentName string, exitWithParent bool) chatUIStartStatus {
 	self, err := os.Executable()
 	if err != nil {
 		fmt.Printf("%s!%s %sCould not locate CLI binary to start chat UI: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
-		return
+		return chatUIUnreachable
 	}
 
 	logPath := filepath.Join(astDir, chatUILogFile)
 	logFile, err := os.Create(logPath) //nolint:gosec // path is under the project's .ast dir
 	if err != nil {
 		fmt.Printf("%s!%s %sCould not open chat UI log: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
-		return
+		return chatUIUnreachable
 	}
 	defer func() { _ = logFile.Close() }()
 
@@ -125,7 +125,7 @@ func startChatUI(astDir, addr, messagingURL, agentName string, exitWithParent bo
 	proc.SysProcAttr = detachProcAttr()
 	if err := proc.Start(); err != nil {
 		fmt.Printf("%s!%s %sFailed to start chat UI: %v%s\n", colorYellow, colorReset, colorDim, err, colorReset)
-		return
+		return chatUIUnreachable
 	}
 
 	// Capture the pid before Release(), which invalidates proc.Process.Pid (-1);
@@ -140,20 +140,15 @@ func startChatUI(astDir, addr, messagingURL, agentName string, exitWithParent bo
 
 	// Confirm our worker (by pid) is serving addr before advertising the chat
 	// URL, so we don't point users at a dead or stale worker.
-	chatURL := chatURLForAddr(addr)
-	switch waitForChatUIWorker(addr, workerPID, 3*time.Second) {
-	case chatUIReady:
-		// up and healthy, nothing to say
-	case chatUIPortBusy:
-		fmt.Printf("%s!%s %sChat UI port %s is held by another process; %s may show a stale agent%s\n",
-			colorYellow, colorReset, colorDim, addr, chatURL, colorReset)
-	default: // chatUIUnreachable
+	status := waitForChatUIWorker(addr, workerPID, 3*time.Second)
+	if status == chatUIUnreachable {
 		fmt.Printf("%s!%s %sChat UI failed to start on %s, see %s%s\n",
-			colorYellow, colorReset, colorDim, chatURL, logPath, colorReset)
+			colorYellow, colorReset, colorDim, chatURLForAddr(addr), logPath, colorReset)
 		if tail := tailFile(logPath, 5); tail != "" {
 			fmt.Printf("%s%s%s\n", colorDim, tail, colorReset)
 		}
 	}
+	return status
 }
 
 // stopChatUI terminates the chat-UI worker recorded under astDir and reports

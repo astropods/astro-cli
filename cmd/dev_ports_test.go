@@ -73,6 +73,29 @@ func TestReleaseBusyHostPorts(t *testing.T) {
 	}
 }
 
+func TestMatchRunningHostPorts(t *testing.T) {
+	p := devPortsProject()
+	original := p.Services["astro-messaging"].Ports
+	running := devHostPorts{
+		"astro-messaging": {9090: 19090, 8080: 55001}, // web moved at start
+		"agent":           {8080: 3120},
+	}
+
+	matchRunningHostPorts(p, running)
+
+	assert.Equal(t, []types.ServicePortConfig{{Target: 9090, Published: "19090"}, {Target: 8080, Published: ""}}, p.Services["astro-messaging"].Ports)
+	assert.Equal(t, []types.ServicePortConfig{{Target: 8080, Published: "3120"}}, p.Services["agent"].Ports)
+	assert.Equal(t, "3110", original[1].Published, "the input slice must not be modified in place")
+}
+
+func TestMatchRunningHostPortsLeavesAStoppedServiceAlone(t *testing.T) {
+	p := devPortsProject()
+
+	matchRunningHostPorts(p, devHostPorts{})
+
+	assert.Equal(t, devPortsProject().Services, p.Services)
+}
+
 func TestHostPortBusy(t *testing.T) {
 	l, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)

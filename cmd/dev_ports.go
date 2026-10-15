@@ -52,6 +52,26 @@ func releaseBusyHostPorts(p *types.Project, busy func(string) bool) []string {
 }
 
 // Docker reports a lost bind race in one of these two wordings; the compose SDK has no typed error.
+// A port running on another number than requested was assigned by Docker at start.
+// Requesting it as "" again keeps the service hash, so Compose leaves the container alone.
+func matchRunningHostPorts(p *types.Project, running devHostPorts) {
+	for name, svc := range p.Services {
+		ports := make([]types.ServicePortConfig, len(svc.Ports))
+		copy(ports, svc.Ports)
+		changed := false
+		for i, port := range ports {
+			if got := running.host(name, port.Target); port.Published != "" && got != "" && got != port.Published {
+				ports[i].Published = ""
+				changed = true
+			}
+		}
+		if changed {
+			svc.Ports = ports
+			p.Services[name] = svc
+		}
+	}
+}
+
 func isPortAllocatedErr(err error) bool {
 	if err == nil {
 		return false
@@ -156,6 +176,29 @@ func publishedHostPorts(p *types.Project) map[string]bool {
 		}
 	}
 	return ports
+}
+
+// startChatUIOnFreePort returns the address the chat UI serves on, or "" when it does
+// not serve. Another project can take the picked port before this worker binds it,
+// so a taken port gets one retry on the next free one.
+func startChatUIOnFreePort(astDir string, reserved map[string]bool, messagingURL, agentName string, exitWithParent bool) string {
+	for attempt := 1; attempt <= 2; attempt++ {
+		addr, err := chooseChatUIAddr(astDir, reserved)
+		if err != nil {
+			fmt.Print(msgDevChatUINotStarted(err.Error()))
+			return ""
+		}
+		switch startChatUI(astDir, addr, messagingURL, agentName, exitWithParent) {
+		case chatUIReady:
+			return addr
+		case chatUIPortBusy:
+			continue
+		default:
+			return ""
+		}
+	}
+	fmt.Print(msgDevChatUINotStarted("each port it picked was taken by another process"))
+	return ""
 }
 
 func chatURLForAddr(addr string) string {

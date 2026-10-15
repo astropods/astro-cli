@@ -423,13 +423,6 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
 		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
 	}
-	chatAddr := ""
-	if hasWebInterface {
-		chatAddr, err = chooseChatUIAddr(astDir, publishedHostPorts(project))
-		if err != nil {
-			return err
-		}
-	}
 
 	up := func() error {
 		upProject := projectForUp(project)
@@ -485,12 +478,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// Serve the chat UI from the CLI, proxying to the local messaging
 	// sidecar. Runs as a detached worker so it survives background mode;
 	// in foreground it stops on teardown, in background it outlives the CLI.
+	chatAddr := ""
 	if hasWebInterface {
 		if port := hostPorts.host("astro-messaging", composeBuilder.MessagingWebPort); port != "" {
-			startChatUI(astDir, chatAddr, "http://127.0.0.1:"+port, astroSpec.Name, !background)
+			chatAddr = startChatUIOnFreePort(astDir, publishedHostPorts(project), "http://127.0.0.1:"+port, astroSpec.Name, !background)
 		} else {
-			fmt.Fprint(w, msgDevChatUIWithoutSidecar()) //nolint:errcheck,gosec
-			chatAddr = ""
+			fmt.Fprint(w, msgDevChatUINotStarted("the messaging sidecar publishes no web port")) //nolint:errcheck,gosec
 		}
 	}
 
@@ -721,6 +714,16 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
+	// The run creates the running services again; a port moved at start must stay moved.
+	projectName, err := readDevProjectName(statePath, cmd)
+	if err != nil {
+		return err
+	}
+	running, err := lookupHostPorts(cmd.Context(), projectName)
+	if err != nil {
+		return errDevTriggerPortLookup(err)
+	}
+	matchRunningHostPorts(ingProject, running)
 
 	triggerSvc, err := newComposeService(false)
 	if err != nil {
