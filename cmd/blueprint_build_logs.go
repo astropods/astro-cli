@@ -146,6 +146,9 @@ func runBlueprintBuildsRebuild(cmd *cobra.Command, args []string) error {
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "github", "rebuild")
 	var started rebuildResponse
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, &started)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errRebuildUnavailable(name, at.Account)
@@ -186,7 +189,7 @@ func fetchBuildLogs(ctx context.Context, at AccountToken, name, buildID string, 
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "github", "builds", url.PathEscape(buildID), "logs")
 	var resp buildLogsResponse
 	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &resp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return resp, errBuildLogsNotFound(name, buildID)
 	}
 	return resp, err

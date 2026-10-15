@@ -115,7 +115,7 @@ func runAgentTrigger(cmd *cobra.Command, args []string) error {
 		agentBaseURL(), url.PathEscape(dep.ID), url.PathEscape(name))
 
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(label)
 	}
 	if err != nil {

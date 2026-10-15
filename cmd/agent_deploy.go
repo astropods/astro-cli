@@ -456,7 +456,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "deployment-template")
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
-		if status == http.StatusNotFound {
+		if isNotFound(status, err) {
 			return notFoundFromTemplateErr(err, at.Account, name, req.Build)
 		}
 		if status == http.StatusForbidden {
@@ -505,7 +505,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	deployHeaders := http.Header{"X-Template-Signature": []string{tmplResp.Signature}}
 	var result agentDeployResult
 	if status, err := apiCallWithHeaders(cmd.Context(), http.MethodPost, deployURL, template, at.Token, deployHeaders, verbose, &result); err != nil {
-		if status == http.StatusNotFound {
+		if isNotFound(status, err) {
 			// A 404 here is not only a deleted deployment: the server conceals a
 			// denied deployment or source blueprint as one too. Lead with the
 			// server's own message so a permission problem is not reported as a

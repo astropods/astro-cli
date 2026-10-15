@@ -150,7 +150,7 @@ func listBlueprintBuilds(ctx context.Context, at AccountToken, name string, limi
 func fetchBlueprintBuilds(cmd *cobra.Command, at AccountToken, name string, limit int, verbose bool) ([]blueprintBuild, error) {
 	builds, status, err := listBlueprintBuilds(cmd.Context(), at, name, limit, verbose)
 	// The server answers 404 for a blueprint the caller can read but not edit.
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return nil, errBlueprintNotFound(name, at.Account)
 	}
 	return builds, err

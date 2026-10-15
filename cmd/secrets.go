@@ -494,7 +494,7 @@ func runSecretUpdateWithValue(cmd *cobra.Command, scope vaultScope, args []strin
 		scope.account,
 		verbose,
 		nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("secret %q not found", name)
 	}
 	if err != nil {
@@ -575,7 +575,7 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 		scope.account,
 		verbose,
 		nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("secret %q not found", name)
 	}
 	if err != nil {

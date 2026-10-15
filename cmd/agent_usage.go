@@ -51,7 +51,7 @@ func runAgentUsage(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/deployments/%s/usage", agentBaseURL(), url.PathEscape(dep.ID))
 	var usage deploymentUsage
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &usage)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errAgentDeploymentNotFound(deploymentLabel(dep))
 	}
 	if err != nil {

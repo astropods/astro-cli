@@ -124,23 +124,33 @@ func TestAPIError_OtherFailuresKeepTheOldText(t *testing.T) {
 	}
 }
 
-func TestAPIError_AClientErrorPrintsTheServerText(t *testing.T) {
+func TestAPIError_OnlyACodedBodyPrintsAsASentence(t *testing.T) {
 	cases := []struct {
 		name string
 		code int
 		body string
 		want string
 	}{
-		{"a concealed 404 prints its sentence", http.StatusNotFound, `{"error":"Deployment not found, or you don't have permission to view it."}`, "Deployment not found, or you don't have permission to view it."},
-		{"a 400 prints its reason", http.StatusBadRequest, `{"error":"dry run is not supported for this endpoint"}`, "dry run is not supported for this endpoint"},
-		{"details win over error, as on the web", http.StatusBadRequest, `{"error":"Invalid evaluation configuration","details":"schema must be evaluation/v1"}`, "schema must be evaluation/v1"},
+		{"a concealed 404 prints its sentence", http.StatusNotFound, `{"error":"Deployment not found, or you don't have permission to view it.","code":"RESOURCE_UNAVAILABLE"}`, "Deployment not found, or you don't have permission to view it."},
+		{"a policy refusal prints its details", http.StatusForbidden, `{"error":"refused by an organization policy","code":"ORG_POLICY_BLOCKED","details":"Use acme instead."}`, "Use acme instead."},
+		{"an uncoded details is a raw error, not a sentence", http.StatusBadRequest, `{"error":"invalid request body","details":"EOF"}`, `server returned status 400: {"error":"invalid request body","details":"EOF"}`},
+		{"an uncoded error is a bare token, not a sentence", http.StatusNotFound, `{"error":"not found"}`, `server returned status 404: {"error":"not found"}`},
 		{"a 4xx that is not JSON keeps the raw text", http.StatusNotFound, "404 page not found", "server returned status 404: 404 page not found"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, newAPIError(tc.code, []byte(tc.body)).Error(), "the CLI prints what the server wrote, as the web does")
+			assert.Equal(t, tc.want, newAPIError(tc.code, []byte(tc.body)).Error(), "the CLI prints a sentence only when the server marks it as one, as the web does")
 		})
 	}
+}
+
+func TestIsNotFoundLeavesAConcealed404ToTheServer(t *testing.T) {
+	concealed := newAPIError(http.StatusNotFound, []byte(`{"error":"Dataset not found, or you don't have permission to access it.","code":"RESOURCE_UNAVAILABLE"}`))
+	missing := newAPIError(http.StatusNotFound, []byte(`{"error":"no GitHub connection for this agent"}`))
+
+	assert.False(t, isNotFound(http.StatusNotFound, concealed), "a concealed 404 says what may be hidden, so the command must not blame something else")
+	assert.True(t, isNotFound(http.StatusNotFound, missing), "an uncoded 404 is the command's to explain")
+	assert.False(t, isNotFound(http.StatusOK, nil))
 }
 
 // A server that predates the billing fields sends a plain 402. It must not be

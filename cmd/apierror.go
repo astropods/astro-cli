@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -13,6 +14,10 @@ import (
 const billingSuspendedCode = "BILLING_SUSPENDED"
 
 const authorizationDeniedCode = "AUTHORIZATION_DENIED"
+
+// resourceUnavailableCode marks a 404 whose error is the server's concealment
+// sentence: the resource is missing, or the caller can't see it.
+const resourceUnavailableCode = "RESOURCE_UNAVAILABLE"
 
 // Billing actions the server names. Each maps to a different thing the reader
 // has to do, and getting it wrong sends an account with a working card to add
@@ -84,6 +89,18 @@ func isAuthorizationDenial(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.isAuthorizationDenied()
 }
 
+// isNotFound reports a 404 the command may explain itself. A concealed 404
+// already carries the server's sentence, which names what may be hidden.
+func isNotFound(status int, err error) bool {
+	return status == http.StatusNotFound && !isConcealed(err)
+}
+
+// isConcealed reports whether err is the server's concealed 404.
+func isConcealed(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.Code == resourceUnavailableCode
+}
+
 func (e *apiError) isStructured() bool {
 	return e != nil && e.Code != ""
 }
@@ -97,12 +114,8 @@ func (e *apiError) Error() string {
 			return detail
 		}
 	}
-	if e.StatusCode >= 400 && e.StatusCode < 500 {
-		if detail := e.detailSentence(); detail != "" {
-			return detail
-		}
-	}
-	// A server failure or a body that is not JSON keeps the shape scripts match.
+	// An uncoded body keeps the shape scripts match: its details are often a
+	// raw Go error and its error a bare token, neither a sentence on its own.
 	return fmt.Sprintf("server returned status %d: %s", e.StatusCode, e.Body)
 }
 
