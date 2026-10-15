@@ -1492,3 +1492,27 @@ func TestBuildProject_KnowledgePortIsTheOneAgentsConnectOn(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildProject_IngestionContainerEnvironmentInjected(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Ingestion: map[string]spec.Ingestion{
+			"docs_sync": {
+				Container: spec.ContainerConfig{
+					Image:       "sync:latest",
+					Environment: map[string]string{"SOURCE_REPO": "company/docs", "BATCH": "10"},
+				},
+				Trigger: spec.IngestionTrigger{Type: "schedule"},
+				Inputs:  []spec.Input{{Name: "BATCH"}},
+			},
+		},
+	}
+
+	project, err := BuildProject(s, "/work", map[string]string{"BATCH": "50"})
+	require.NoError(t, err)
+
+	env := project.Services["ingestion-docs_sync"].Environment
+	assert.Equal(t, "company/docs", envVal(env, "SOURCE_REPO"), "container.environment must reach the job container")
+	assert.Equal(t, "50", envVal(env, "BATCH"), "an input overrides container.environment, as on a deployed job")
+}
