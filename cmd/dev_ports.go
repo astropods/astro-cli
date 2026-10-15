@@ -115,11 +115,11 @@ func lookupHostPorts(ctx context.Context, projectName string) (devHostPorts, err
 	}
 }
 
-func chooseChatUIAddr(astDir string) (string, error) {
+func chooseChatUIAddr(astDir string, reserved map[string]bool) (string, error) {
 	stopChatUI(astDir)
 	reclaimOrphanedChatUIPort(chatUIAddr)
-	if portFreeWithin(chatUIAddr, 0) {
-		return chatUIAddr, nil
+	if port := pickChatUIPort(reserved, hostPortBusy); port != "" {
+		return "127.0.0.1:" + port, nil
 	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -128,6 +128,34 @@ func chooseChatUIAddr(astDir string) (string, error) {
 	addr := l.Addr().String()
 	_ = l.Close()
 	return addr, nil
+}
+
+// The range sits below the OS ephemeral range, so a port Docker assigns during Up cannot take it.
+const (
+	chatUIFirstPort = 3100
+	chatUILastPort  = 3199
+)
+
+func pickChatUIPort(reserved map[string]bool, busy func(string) bool) string {
+	for p := chatUIFirstPort; p <= chatUILastPort; p++ {
+		port := strconv.Itoa(p)
+		if !reserved[port] && !busy(port) {
+			return port
+		}
+	}
+	return ""
+}
+
+func publishedHostPorts(p *types.Project) map[string]bool {
+	ports := map[string]bool{}
+	for _, svc := range p.Services {
+		for _, port := range svc.Ports {
+			if port.Published != "" {
+				ports[port.Published] = true
+			}
+		}
+	}
+	return ports
 }
 
 func chatURLForAddr(addr string) string {

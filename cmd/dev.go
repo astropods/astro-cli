@@ -420,16 +420,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	hasWebInterface := slices.Contains(astroSpec.Dev.MessagingAdapters(), "web")
 
 	// After Down, so this project's previous containers do not count as busy.
+	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
+		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
+	}
 	chatAddr := ""
 	if hasWebInterface {
-		chatAddr, err = chooseChatUIAddr(astDir)
+		chatAddr, err = chooseChatUIAddr(astDir, publishedHostPorts(project))
 		if err != nil {
 			return err
 		}
 		labelDevChatURL(project, chatURLForAddr(chatAddr))
-	}
-	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
-		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
 	}
 
 	up := func() error {
