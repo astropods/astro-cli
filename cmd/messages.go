@@ -532,10 +532,6 @@ func msgDevChatUIWithoutSidecar() string {
 	return fmt.Sprintf("%s!%s %sChat UI not started: the messaging sidecar publishes no web port%s\n", colorYellow, colorReset, colorDim, colorReset)
 }
 
-func msgDevListEmpty() string {
-	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
-}
-
 func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
 }
