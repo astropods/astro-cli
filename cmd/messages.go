@@ -524,6 +524,14 @@ func msgDevPortsMoved(moved []string) string {
 		colorCyan, colorReset, colorDim, strings.Join(moved, ", "), colorReset)
 }
 
+func errDevPortLookup(err error) error {
+	return fmt.Errorf("containers started, but their published ports could not be read from Docker: %w. Run '%s project stop', then start again", err, buildinfo.BinaryName)
+}
+
+func msgDevChatUIWithoutSidecar() string {
+	return fmt.Sprintf("%s!%s %sChat UI not started: the messaging sidecar publishes no web port%s\n", colorYellow, colorReset, colorDim, colorReset)
+}
+
 func msgDevListEmpty() string {
 	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
 }
@@ -592,6 +600,11 @@ func errAgentCoreInvalidSecret(pair string) error {
 
 func errAgentCoreSecretsFileLine(line int) error {
 	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
+
+func errAgentCoreNoPort() error {
+	return fmt.Errorf("the agent container publishes no port for :%d, so it likely exited on boot. Check its log: %s project logs agent",
+		composeBuilder.AgentCorePort, buildinfo.BinaryName)
 }
 
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
@@ -102,9 +104,8 @@ func TestHostPortsFromContainers(t *testing.T) {
 	ports := hostPortsFromContainers(items)
 
 	assert.Equal(t, devHostPorts{"astro-messaging": {8080: 55001, 9090: 19090}}, ports)
-	assert.Equal(t, "55001", ports.host("astro-messaging", 8080, "3110"))
-	assert.Equal(t, "3200", ports.host("agent", 80, "3200"), "falls back when Docker reports no host port")
-	assert.Equal(t, "3120", devHostPorts{}.host("agent", 8080, "3120"))
+	assert.Equal(t, "55001", ports.host("astro-messaging", 8080))
+	assert.Empty(t, ports.host("agent", 80), "an unpublished port must not fall back to a well-known one")
 }
 
 func TestMessagingURLFromCmdline(t *testing.T) {
@@ -157,8 +158,8 @@ func TestReadyURLsFor(t *testing.T) {
 	assert.Equal(t, readyURLs{
 		Frontend: "http://localhost:55002",
 		Chat:     "http://localhost:55003",
-		Webhooks: map[string]string{"hooks": "http://localhost:3001"},
-	}, urls)
+		Webhooks: map[string]string{},
+	}, urls, "the webhook publishes no port, so it gets no URL")
 }
 
 func TestLabelDevChatURL(t *testing.T) {
@@ -180,4 +181,19 @@ func TestLabelDevChatURL(t *testing.T) {
 
 func TestMsgDevPortsMovedIsSilentWhenNothingMoved(t *testing.T) {
 	assert.Empty(t, msgDevPortsMoved(nil))
+}
+
+func TestIsPortAllocatedErr(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{errors.New("Bind for 0.0.0.0:3110 failed: port is already allocated"), true},
+		{errors.New("listen tcp4 0.0.0.0:3110: bind: Address already in use"), true},
+		{errors.New("image not found"), false},
+		{nil, false},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, isPortAllocatedErr(tt.err), fmt.Sprint(tt.err))
+	}
 }

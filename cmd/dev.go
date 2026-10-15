@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -467,14 +466,16 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
-	// On a failed lookup, host() falls back to the requested ports.
 	hostPorts, err := lookupHostPorts(cmd.Context(), projectName)
 	if err != nil {
-		hostPorts = devHostPorts{}
+		return errDevPortLookup(err)
 	}
 
 	if astroSpec.Agent.Runtime() == spec.AgentCoreRuntime {
-		agentCorePort := hostPorts.host("agent", composeBuilder.AgentCorePort, composeBuilder.AgentCoreHostPort)
+		agentCorePort := hostPorts.host("agent", composeBuilder.AgentCorePort)
+		if agentCorePort == "" {
+			return errAgentCoreNoPort()
+		}
 		if err := waitForAgentCorePing(cmd.Context(), agentCorePort, agentCoreReadyWait); err != nil {
 			return err
 		}
@@ -486,8 +487,12 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	// sidecar. Runs as a detached worker so it survives background mode;
 	// in foreground it stops on teardown, in background it outlives the CLI.
 	if hasWebInterface {
-		messagingURL := "http://127.0.0.1:" + hostPorts.host("astro-messaging", composeBuilder.MessagingWebPort, composeBuilder.MessagingWebHostPort)
-		startChatUI(astDir, chatAddr, messagingURL, astroSpec.Name, !background)
+		if port := hostPorts.host("astro-messaging", composeBuilder.MessagingWebPort); port != "" {
+			startChatUI(astDir, chatAddr, "http://127.0.0.1:"+port, astroSpec.Name, !background)
+		} else {
+			fmt.Fprint(w, msgDevChatUIWithoutSidecar()) //nolint:errcheck,gosec
+			chatAddr = ""
+		}
 	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
@@ -784,8 +789,9 @@ type readyURLs struct {
 func readyURLsFor(s *spec.AstroSpec, ports devHostPorts, chatAddr string) readyURLs {
 	urls := readyURLs{Webhooks: map[string]string{}}
 	if s.Agent.HasFrontend() {
-		port := ports.host("agent", composeBuilder.FrontendTargetPort(s), composeBuilder.FrontendHostPort)
-		urls.Frontend = "http://localhost:" + port
+		if port := ports.host("agent", composeBuilder.FrontendTargetPort(s)); port != "" {
+			urls.Frontend = "http://localhost:" + port
+		}
 	}
 	if chatAddr != "" {
 		urls.Chat = chatURLForAddr(chatAddr)
@@ -798,8 +804,9 @@ func readyURLsFor(s *spec.AstroSpec, ports devHostPorts, chatAddr string) readyU
 		if p := ingestion.Container.Port; p > 0 && p <= 65535 {
 			target = uint32(p)
 		}
-		port := ports.host("ingestion-"+name, target, strconv.FormatUint(uint64(target), 10))
-		urls.Webhooks[name] = "http://localhost:" + port
+		if port := ports.host("ingestion-"+name, target); port != "" {
+			urls.Webhooks[name] = "http://localhost:" + port
+		}
 	}
 	return urls
 }

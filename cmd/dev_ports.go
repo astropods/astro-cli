@@ -51,18 +51,24 @@ func releaseBusyHostPorts(p *types.Project, busy func(string) bool) []string {
 	return moved
 }
 
+// Docker reports a lost bind race in one of these two wordings; the compose SDK has no typed error.
 func isPortAllocatedErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "port is already allocated")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "port is already allocated") || strings.Contains(msg, "address already in use")
 }
 
 // devHostPorts maps service name, then container port, to the published host port.
 type devHostPorts map[string]map[uint32]uint16
 
-func (p devHostPorts) host(service string, target uint32, fallback string) string {
+// A missing port returns "", never a well-known default: after a move, that default belongs to another project.
+func (p devHostPorts) host(service string, target uint32) string {
 	if port, ok := p[service][target]; ok {
 		return strconv.Itoa(int(port))
 	}
-	return fallback
+	return ""
 }
 
 func hostPortsFromContainers(items []container.Summary) devHostPorts {
