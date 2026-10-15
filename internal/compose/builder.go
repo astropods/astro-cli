@@ -1023,8 +1023,43 @@ func buildMessagingEnvironment(s *spec.AstroSpec, envVars map[string]string, war
 			// volume. Without CHAT_DB_PATH the sidecar disables persistence.
 			dbPath := chatDBPath
 			env["CHAT_DB_PATH"] = &dbPath
+			if models, ok := chatModelsJSON(s, envVars); ok {
+				env["CHAT_MODELS"] = &models
+			}
 		}
 	}
 
 	return env
+}
+
+// chatModelsJSON mirrors astro-server's LiveChatModels; a gateway entry's
+// MODEL_<ENTRY> comes from .env, else its first option.
+func chatModelsJSON(s *spec.AstroSpec, envVars map[string]string) (string, bool) {
+	options := s.LiveModels()
+	if len(options) == 0 {
+		return "", false
+	}
+	def := options[0]
+	for _, o := range options {
+		m := s.Models[o.Entry]
+		if !m.IsGateway() {
+			continue
+		}
+		chosen := m.ResolvedModels()[0]
+		if v, set := envVars["MODEL_"+spec.SanitizeEnvName(o.Entry)]; set {
+			chosen = v
+		}
+		if chosen == o.Model {
+			def = o
+			break
+		}
+	}
+	data, err := json.Marshal(struct {
+		Default spec.ModelChoice   `json:"default"`
+		Options []spec.ModelChoice `json:"options"`
+	}{def, options})
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
 }
