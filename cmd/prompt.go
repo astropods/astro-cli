@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/tui"
 )
 
@@ -65,10 +66,8 @@ func runForm(form *huh.Form) error {
 	return nil
 }
 
-const envNonInteractive = "ASTRO_NONINTERACTIVE"
-
 func nonInteractive() bool {
-	return os.Getenv(envNonInteractive) == "1"
+	return os.Getenv(envvar.NonInteractive) == "1"
 }
 
 // printCanceled writes a uniform "Canceled." message to w. Use after a

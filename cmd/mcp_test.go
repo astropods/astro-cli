@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 )
 
 func mcpTestWidgetCmd(t *testing.T) *cobra.Command {
@@ -504,7 +504,7 @@ func TestMCPExecRunner(t *testing.T) {
 }
 
 func TestRunFormFailsWhenNonInteractive(t *testing.T) {
-	t.Setenv(envNonInteractive, "1")
+	t.Setenv(envvar.NonInteractive, "1")
 	var ok bool
 	err := runForm(huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("Sure?").Value(&ok))))
 	require.Error(t, err)
@@ -531,7 +531,7 @@ func TestGetCurrentAccountHonorsAccountEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			writeAccountTestCredentials(t, accountTestCreds("alice"))
-			t.Setenv(auth.EnvAccount, tt.env)
+			t.Setenv(envvar.Account, tt.env)
 
 			got, err := accountNewStorage().GetCurrentAccount()
 			if tt.wantErr != "" {
@@ -542,7 +542,7 @@ func TestGetCurrentAccountHonorsAccountEnv(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 
-			t.Setenv(auth.EnvAccount, "")
+			t.Setenv(envvar.Account, "")
 			stored, err := accountNewStorage().GetCurrentAccount()
 			require.NoError(t, err)
 			assert.Equal(t, "alice", stored, "the override never changes the stored account")
@@ -553,14 +553,14 @@ func TestGetCurrentAccountHonorsAccountEnv(t *testing.T) {
 func TestMCPCommandRejectsUnknownAccount(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	writeAccountTestCredentials(t, accountTestCreds("alice"))
-	t.Setenv(auth.EnvAccount, "")
+	t.Setenv(envvar.Account, "")
 	require.NoError(t, mcpCmd.Flags().Set("account", "nope"))
 	t.Cleanup(func() { _ = mcpCmd.Flags().Set("account", "") })
 
 	err := runMCP(mcpCmd, nil)
 	require.Error(t, err)
 	assert.Equal(t, msgTestUnknownAccount("nope"), err.Error())
-	assert.Equal(t, "nope", os.Getenv(auth.EnvAccount), "--account is exported for children before validation")
+	assert.Equal(t, "nope", os.Getenv(envvar.Account), "--account is exported for children before validation")
 }
 
 func TestMCPToolSchemaMarshalsAsJSONSchema(t *testing.T) {

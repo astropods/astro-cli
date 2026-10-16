@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/gofrs/flock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,7 +113,7 @@ func makeScopedTestJWT(exp time.Time, orgID string, n int) string {
 func setupRefreshTest(t *testing.T, profile *Profile) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv(EnvAccessToken, "")
+	t.Setenv(envvar.AccessToken, "")
 	resetEnvToken()
 	t.Cleanup(resetEnvToken)
 	writeTokenTestCredentials(t, &Credentials{

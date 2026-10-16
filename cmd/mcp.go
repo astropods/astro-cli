@@ -22,9 +22,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/astropods/astro-cli/internal/telemetry"
+	"github.com/astropods/astro-cli/internal/envvar"
 )
 
 var mcpCmd = &cobra.Command{
@@ -60,7 +59,7 @@ func runMCP(cmd *cobra.Command, _ []string) error {
 	account, _ := cmd.Flags().GetString("account")
 
 	if account != "" {
-		if err := os.Setenv(auth.EnvAccount, account); err != nil {
+		if err := os.Setenv(envvar.Account, account); err != nil {
 			return err
 		}
 	}
@@ -405,8 +404,8 @@ func (r *mcpExecRunner) run(ctx context.Context, args []string, dir string, time
 	child := exec.CommandContext(ctx, r.executable, args...) //nolint:gosec
 	child.Dir = dir
 	child.Env = append(os.Environ(),
-		envNonInteractive+"=1",
-		telemetry.EnvVia+"=mcp",
+		envvar.NonInteractive+"=1",
+		envvar.Via+"=mcp",
 		"NO_COLOR=1",
 	)
 	child.WaitDelay = 5 * time.Second

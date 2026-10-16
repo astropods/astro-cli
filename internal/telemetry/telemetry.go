@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"context"
-	"os"
 	"runtime"
 	"time"
 
@@ -10,9 +9,6 @@ import (
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 )
-
-// EnvVia names the caller that ran this process, such as "mcp" for a child of ast mcp.
-const EnvVia = "ASTRO_VIA"
 
 // noopLogger suppresses all Amplitude SDK log output.
 type noopLogger struct{}
@@ -51,7 +47,7 @@ func NewClient(userID, deviceID, cliVersion string) *Client {
 }
 
 // TrackCommand sends a cli.command_executed event with timing and status info.
-func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr error) {
+func (c *Client) TrackCommand(command, via string, duration time.Duration, cmdErr error) {
 	if c == nil {
 		return
 	}
@@ -66,7 +62,7 @@ func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr err
 	if cmdErr != nil {
 		props["error_type"] = classifyError(cmdErr)
 	}
-	if via := os.Getenv(EnvVia); via != "" {
+	if via != "" {
 		props["via"] = via
 	}
 

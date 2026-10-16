@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,7 +128,7 @@ func TestGetValidAccessToken_RefreshesWhenJWTExpiredButStoredExpiryValid(t *test
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -178,7 +179,7 @@ func TestGetValidAccessToken_EnvVarOverride(t *testing.T) {
 	defer resetEnvToken()
 
 	// Set env var
-	t.Setenv(EnvAccessToken, "env_access_token_123")
+	t.Setenv(envvar.AccessToken, "env_access_token_123")
 
 	manager := NewTokenManager("ast")
 	token, err := manager.GetValidAccessToken(context.Background())
@@ -196,7 +197,7 @@ func TestGetValidAccessToken_ValidToken(t *testing.T) {
 	defer resetEnvToken()
 
 	// Ensure no env var is set
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -233,7 +234,7 @@ func TestGetValidAccessToken_RefreshesExpiring(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -286,7 +287,7 @@ func TestGetValidAccessToken_NoRefreshToken(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -317,7 +318,7 @@ func TestIsAuthenticated_EnvVar(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	t.Setenv(EnvAccessToken, "env_token")
+	t.Setenv(envvar.AccessToken, "env_token")
 
 	manager := NewTokenManager("ast")
 	if !manager.IsAuthenticated() {
@@ -329,7 +330,7 @@ func TestIsAuthenticated_ValidCredentials(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -360,7 +361,7 @@ func TestIsAuthenticated_NotAuthenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -381,7 +382,7 @@ func TestRequireAuth_NotAuthenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	_ = os.Unsetenv(EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	_, cleanup := setupTokenTestDir(t)
 	defer cleanup()
@@ -406,7 +407,7 @@ func TestRequireAuth_Authenticated(t *testing.T) {
 	resetEnvToken()
 	defer resetEnvToken()
 
-	t.Setenv(EnvAccessToken, "valid_token")
+	t.Setenv(envvar.AccessToken, "valid_token")
 
 	manager := NewTokenManager("ast")
 	err := manager.RequireAuth()
