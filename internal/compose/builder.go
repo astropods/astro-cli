@@ -749,6 +749,9 @@ func BuildProject(
 // #nosec G101 -- the name of an environment variable, not a credential.
 const sandboxTokenEnvVar = "ASTRO_AUTHZ_TOKEN"
 
+// defaultGatewayModel must match astro-server's aigateway.DefaultModel.
+const defaultGatewayModel = "claude-sonnet-4-6"
+
 func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.MappingWithEquals {
 	env := make(types.MappingWithEquals)
 
@@ -782,13 +785,12 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 			if !model.IsGateway() {
 				continue
 			}
-			opts := model.ResolvedModels()
-			if len(opts) == 0 {
-				continue
+			v := defaultGatewayModel
+			if opts := model.ResolvedModels(); len(opts) > 0 {
+				v = opts[0]
 			}
 			envName := "MODEL_" + spec.SanitizeEnvName(name)
 			if _, set := envVars[envName]; !set { // let an explicit .env override win
-				v := opts[0]
 				env[envName] = &v
 			}
 		}
