@@ -25,7 +25,7 @@ type accountClustersResponse struct {
 }
 
 var interactiveTerminal = func() bool {
-	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+	return !nonInteractive() && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 func fetchAllowedClusters(ctx context.Context, at AccountToken, verbose bool) []allowedCluster {

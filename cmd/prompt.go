@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -51,6 +52,9 @@ func (m *promptModel) View() string {
 // promptModel wrapper so every form gets the same "esc cancel" footer hint,
 // and normalizes user cancellation (esc / ctrl+c) to tui.ErrCanceled.
 func runForm(form *huh.Form) error {
+	if nonInteractive() {
+		return errPromptNonInteractive()
+	}
 	form = form.WithTheme(cliHuhTheme()).WithKeyMap(promptKeyMap())
 	if _, err := tea.NewProgram(&promptModel{form: form}).Run(); err != nil {
 		return err
@@ -59,6 +63,12 @@ func runForm(form *huh.Form) error {
 		return tui.ErrCanceled
 	}
 	return nil
+}
+
+const envNonInteractive = "ASTRO_NONINTERACTIVE"
+
+func nonInteractive() bool {
+	return os.Getenv(envNonInteractive) == "1"
 }
 
 // printCanceled writes a uniform "Canceled." message to w. Use after a

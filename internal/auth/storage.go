@@ -555,6 +555,15 @@ func (s *Storage) GetCurrentAccount() (string, error) {
 		return "", err
 	}
 
+	if override := strings.TrimSpace(os.Getenv(EnvAccount)); override != "" {
+		for _, a := range profile.Accounts {
+			if strings.EqualFold(a.Name, override) {
+				return a.Name, nil
+			}
+		}
+		return "", fmt.Errorf("account %q is not one of your accounts; run '%s account list' to see them", override, s.binaryName)
+	}
+
 	if profile.CurrentAccount != "" {
 		return profile.CurrentAccount, nil
 	}
