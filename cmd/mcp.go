@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,13 +116,15 @@ func mcpCommandKey(c *cobra.Command) string {
 	return strings.TrimPrefix(c.CommandPath(), c.Root().Name()+" ")
 }
 
+// mcpLeafCommands returns the visible leaf commands. Of two leaves with the same name and handler, such as the
+// top-level build alias and blueprint build, it keeps the one with the longer path.
 func mcpLeafCommands(root *cobra.Command) []*cobra.Command {
 	var leaves []*cobra.Command
 	seen := map[string]bool{}
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, sub := range c.Commands() {
-			if c == root && (sub.Name() == "help" || sub.Name() == "completion") {
+			if sub.Hidden || c == root && (sub.Name() == "help" || sub.Name() == "completion") {
 				continue
 			}
 			if sub.HasSubCommands() {
@@ -135,7 +138,35 @@ func mcpLeafCommands(root *cobra.Command) []*cobra.Command {
 		}
 	}
 	walk(root)
-	return leaves
+
+	canonical := map[string]*cobra.Command{}
+	for _, c := range leaves {
+		if key, ok := mcpAliasKey(c); ok {
+			if prev, found := canonical[key]; !found || len(strings.Fields(mcpCommandKey(c))) > len(strings.Fields(mcpCommandKey(prev))) {
+				canonical[key] = c
+			}
+		}
+	}
+	out := leaves[:0]
+	for _, c := range leaves {
+		if key, ok := mcpAliasKey(c); !ok || canonical[key] == c {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func mcpAliasKey(c *cobra.Command) (string, bool) {
+	var handler uintptr
+	switch {
+	case c.RunE != nil:
+		handler = reflect.ValueOf(c.RunE).Pointer()
+	case c.Run != nil:
+		handler = reflect.ValueOf(c.Run).Pointer()
+	default:
+		return "", false
+	}
+	return fmt.Sprintf("%s/%x", c.Name(), handler), true
 }
 
 func buildMCPTools(root *cobra.Command, readOnly bool) ([]mcpTool, error) {
