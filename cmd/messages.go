@@ -182,7 +182,7 @@ func msgLaunchURLReady() string {
 }
 
 func errPromptNonInteractive() error {
-	return fmt.Errorf("this command needs an answer to a prompt, and %s=1 turns prompts off; pass the value as a flag instead (see '%s <command> --help')", envvar.NonInteractive, buildinfo.BinaryName)
+	return fmt.Errorf("this command needs an answer to a prompt, but --%s or %s turns prompts off; pass the value as a flag instead (see '%s <command> --help')", nonInteractiveFlag, envvar.NonInteractive, buildinfo.BinaryName)
 }
 
 func errAccountNotLoggedIn() error {
@@ -1189,7 +1189,7 @@ func msgMCPInstructions(account string) string {
 		scope = "account " + account
 	}
 	return fmt.Sprintf("Each tool runs one %[1]s command as the signed-in user, in %[2]s. "+
-		"Tools that read a project's astropods.yml or EVALUATION.yaml use the dir input, or this server's working directory when it is unset. "+
+		"Tools that read a project's astropods.yml or EVALUATION.yaml run in the directory given by their dir argument. Without dir, they run in the directory this server started in. "+
 		"Tools return JSON when the command supports it. "+
 		"A command that would prompt fails instead, so pass every value as an input. "+
 		"If a tool says the user is not logged in, ask them to run '%[1]s login' in a terminal.", buildinfo.BinaryName, scope)

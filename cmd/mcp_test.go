@@ -28,6 +28,7 @@ func mcpTestWidgetCmd(t *testing.T) *cobra.Command {
 	t.Helper()
 	root := &cobra.Command{Use: "ast"}
 	root.PersistentFlags().Bool("verbose", false, "")
+	root.PersistentFlags().Bool(nonInteractiveFlag, false, "")
 	group := &cobra.Command{Use: "widget"}
 	group.PersistentFlags().String("env", "", "Environment")
 	get := &cobra.Command{Use: "get <name> [rev]", Short: "Get a widget", Long: "Get one widget by name.", RunE: func(*cobra.Command, []string) error { return nil }}
@@ -190,7 +191,7 @@ func TestMCPToolSchemaFromFlags(t *testing.T) {
 	}
 	assert.Equal(t, msgMCPPositionalDescription("name"), s.Properties["name"].Description)
 
-	for _, absent := range []string{"tail", "secret-thing", "verbose", "help"} {
+	for _, absent := range []string{"tail", "secret-thing", "verbose", "help", nonInteractiveFlag} {
 		_, ok := s.Properties[absent]
 		assert.False(t, ok, "property %q must not be in the schema", absent)
 	}
@@ -249,12 +250,12 @@ func TestMCPArgv(t *testing.T) {
 		{
 			name:  "positional follows a double dash and json is on by default",
 			input: map[string]any{"name": "-w1"},
-			want:  []string{"widget", "get", "--json", "--", "-w1"},
+			want:  []string{"widget", "get", "--non-interactive", "--json", "--", "-w1"},
 		},
 		{
 			name:  "json false is passed through",
 			input: map[string]any{"name": "w1", "json": false},
-			want:  []string{"widget", "get", "--json=false", "--", "w1"},
+			want:  []string{"widget", "get", "--non-interactive", "--json=false", "--", "w1"},
 		},
 		{
 			name: "every flag type",
@@ -263,7 +264,7 @@ func TestMCPArgv(t *testing.T) {
 				"template": "t", "var": []any{"A=1", "B=2"}, "env": "prod", mcpDirProperty: "/tmp/p",
 			},
 			want: []string{
-				"widget", "get", "--card=true", "--json", "--limit=5", "--ratio=0.5", "--template=t",
+				"widget", "get", "--non-interactive", "--card=true", "--json", "--limit=5", "--ratio=0.5", "--template=t",
 				"--var=A=1", "--var=B=2", "--env=prod", "--", "w1", "r2",
 			},
 			wantDir: "/tmp/p",
@@ -437,7 +438,7 @@ func TestMCPServerRoundTrip(t *testing.T) {
 
 	assert.False(t, res.IsError, mcpText(t, res))
 	assert.Equal(t, map[string]any{"name": "w1", "rev": "r2"}, res.StructuredContent)
-	assert.Equal(t, []string{"widget", "get", "--json", "--", "w1", "r2"}, runner.args)
+	assert.Equal(t, []string{"widget", "get", "--non-interactive", "--json", "--", "w1", "r2"}, runner.args)
 	assert.Equal(t, "/work", runner.dir)
 	assert.Equal(t, mcpDefaultTimeout, runner.timeout)
 
@@ -466,15 +467,16 @@ func TestMCPExecRunner(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("child gets the mcp environment, no stdin, and the dir", func(t *testing.T) {
+		t.Setenv(envvar.NonInteractive, "")
 		dir := t.TempDir()
 		var lines []string
-		res := runner.run(ctx, []string{"-c", `printf '%s %s %s\n' "$ASTRO_NONINTERACTIVE" "$ASTRO_VIA" "$NO_COLOR"; pwd; cat; echo one >&2; echo >&2; echo two >&2`}, dir, time.Minute, func(l string) {
+		res := runner.run(ctx, []string{"-c", `printf '[%s] %s %s\n' "$ASTRO_NONINTERACTIVE" "$ASTRO_VIA" "$NO_COLOR"; pwd; cat; echo one >&2; echo >&2; echo two >&2`}, dir, time.Minute, func(l string) {
 			lines = append(lines, l)
 		})
 		require.NoError(t, res.exitErr)
 		resolved, err := filepath.EvalSymlinks(dir)
 		require.NoError(t, err)
-		assert.Equal(t, "1 mcp 1\n"+resolved+"\n", string(res.stdout))
+		assert.Equal(t, "[] mcp 1\n"+resolved+"\n", string(res.stdout), "prompts are turned off by the --non-interactive argument, not the environment")
 		assert.Equal(t, "one\n\ntwo\n", res.stderr)
 		assert.Equal(t, []string{"one", "two"}, lines, "blank stderr lines are not sent as progress")
 		assert.False(t, res.timedOut)
@@ -503,13 +505,39 @@ func TestMCPExecRunner(t *testing.T) {
 	})
 }
 
+func TestNonInteractive(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		flag bool
+		want bool
+	}{
+		{name: "unset", want: false},
+		{name: "env 1", env: "1", want: true},
+		{name: "env true", env: "true", want: true},
+		{name: "env TRUE", env: "TRUE", want: true},
+		{name: "env 0", env: "0", want: false},
+		{name: "env garbage", env: "yes please", want: false},
+		{name: "flag", flag: true, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envvar.NonInteractive, tt.env)
+			if tt.flag {
+				require.NoError(t, rootCmd.PersistentFlags().Set(nonInteractiveFlag, "true"))
+				t.Cleanup(func() { _ = rootCmd.PersistentFlags().Set(nonInteractiveFlag, "false") })
+			}
+			assert.Equal(t, tt.want, nonInteractive())
+		})
+	}
+}
+
 func TestRunFormFailsWhenNonInteractive(t *testing.T) {
-	t.Setenv(envvar.NonInteractive, "1")
+	t.Setenv(envvar.NonInteractive, "true")
 	var ok bool
 	err := runForm(huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("Sure?").Value(&ok))))
 	require.Error(t, err)
 	assert.Equal(t, errPromptNonInteractive().Error(), err.Error())
-	assert.False(t, interactiveTerminal(), "the cluster picker treats the shell as non-interactive")
 }
 
 func msgTestUnknownAccount(name string) string {

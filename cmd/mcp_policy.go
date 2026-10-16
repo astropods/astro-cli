@@ -55,6 +55,7 @@ var mcpPolicies = map[string]mcpPolicy{
 	"gateway status":        {class: mcpRead},
 	"knowledge list":        {class: mcpRead},
 	"knowledge status":      {class: mcpRead},
+	"project list":          {class: mcpRead},
 	"secrets get":           {class: mcpRead},
 	"secrets list":          {class: mcpRead},
 	"spec validate":         {class: mcpRead},

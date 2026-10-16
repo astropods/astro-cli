@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -66,8 +67,14 @@ func runForm(form *huh.Form) error {
 	return nil
 }
 
+const nonInteractiveFlag = "non-interactive"
+
 func nonInteractive() bool {
-	return os.Getenv(envvar.NonInteractive) == "1"
+	if on, _ := rootCmd.PersistentFlags().GetBool(nonInteractiveFlag); on {
+		return true
+	}
+	on, _ := strconv.ParseBool(os.Getenv(envvar.NonInteractive))
+	return on
 }
 
 // printCanceled writes a uniform "Canceled." message to w. Use after a

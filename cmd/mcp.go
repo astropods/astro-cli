@@ -158,7 +158,7 @@ func buildMCPTools(root *cobra.Command, readOnly bool) ([]mcpTool, error) {
 	return tools, nil
 }
 
-var mcpSkippedFlags = map[string]bool{"help": true, "verbose": true, "quiet": true}
+var mcpSkippedFlags = map[string]bool{"help": true, "verbose": true, "quiet": true, nonInteractiveFlag: true}
 
 func buildMCPTool(c *cobra.Command, policy mcpPolicy) (mcpTool, error) {
 	key := mcpCommandKey(c)
@@ -295,7 +295,7 @@ func (t mcpTool) argv(input map[string]any) ([]string, string, error) {
 		dir = s
 	}
 
-	args := append([]string{}, t.path...)
+	args := append(append([]string{}, t.path...), "--"+nonInteractiveFlag)
 	var positionals []string
 	missing := ""
 	for _, p := range t.params {
@@ -404,7 +404,6 @@ func (r *mcpExecRunner) run(ctx context.Context, args []string, dir string, time
 	child := exec.CommandContext(ctx, r.executable, args...) //nolint:gosec
 	child.Dir = dir
 	child.Env = append(os.Environ(),
-		envvar.NonInteractive+"=1",
 		envvar.Via+"=mcp",
 		"NO_COLOR=1",
 	)
