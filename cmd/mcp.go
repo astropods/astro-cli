@@ -118,6 +118,7 @@ func mcpCommandKey(c *cobra.Command) string {
 
 func mcpLeafCommands(root *cobra.Command) []*cobra.Command {
 	var leaves []*cobra.Command
+	seen := map[string]bool{}
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		for _, sub := range c.Commands() {
@@ -128,7 +129,10 @@ func mcpLeafCommands(root *cobra.Command) []*cobra.Command {
 				walk(sub)
 				continue
 			}
-			leaves = append(leaves, sub)
+			if key := mcpCommandKey(sub); !seen[key] {
+				seen[key] = true
+				leaves = append(leaves, sub)
+			}
 		}
 	}
 	walk(root)
@@ -428,7 +432,9 @@ func (r *mcpExecRunner) run(ctx context.Context, args []string, dir string, time
 			onStderrLine(line)
 		}
 	}
-	_, _ = io.Copy(io.Discard, stderrPipe)
+	if scanner.Err() != nil {
+		_, _ = io.Copy(io.Discard, stderrPipe)
+	}
 	waitErr := child.Wait()
 
 	return mcpRunResult{
