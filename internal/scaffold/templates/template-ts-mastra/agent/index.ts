@@ -76,7 +76,8 @@ const agent = new Agent({
   instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
 {{- if .AIGateway}}
   // Model chosen at deploy time from the gateway options; injected as MODEL_DEFAULT.
-  model: gateway(process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
+  // .chat() uses Chat Completions: the gateway's Responses API rejects Claude tool results.
+  model: gateway.chat(process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
 {{- else if .HasIntegration "anthropic"}}
   model: 'anthropic/claude-sonnet-4-5',
 {{- else if .HasIntegration "openai"}}
