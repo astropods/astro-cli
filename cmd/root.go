@@ -145,7 +145,7 @@ func init() {
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolP("quiet", "q", false, "Minimal output")
-	rootCmd.PersistentFlags().Bool(nonInteractiveFlag, false, "Never prompt; fail instead (or set "+envvar.NonInteractive+"=true)")
+	rootCmd.PersistentFlags().Bool(nonInteractiveFlag, false, "Never prompt; fail instead")
 	cobra.OnInitialize(configureDependencyLogging)
 }
 
