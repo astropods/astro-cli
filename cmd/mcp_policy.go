@@ -24,7 +24,8 @@ const (
 	mcpLongTimeout    = 15 * time.Minute
 )
 
-// mcpPolicies is keyed by command path without the binary name. Every leaf command needs an entry.
+// mcpPolicies is keyed by command path without the binary name. Every visible leaf command needs an entry,
+// except a top-level alias of a longer command.
 var mcpPolicies = map[string]mcpPolicy{
 	"account list":          {class: mcpRead},
 	"agent get":             {class: mcpRead},
@@ -92,13 +93,7 @@ var mcpPolicies = map[string]mcpPolicy{
 
 	"account switch":        {class: mcpExclude},
 	"account token":         {class: mcpExclude},
-	"blueprint create":      {class: mcpExclude},
-	"build":                 {class: mcpExclude},
-	"chatui-serve":          {class: mcpExclude},
-	"configure":             {class: mcpExclude},
-	"create":                {class: mcpExclude},
 	"dataset download":      {class: mcpExclude},
-	"deploy":                {class: mcpExclude},
 	"docs":                  {class: mcpExclude},
 	"gateway connect":       {class: mcpExclude},
 	"gateway disconnect":    {class: mcpExclude},
@@ -112,7 +107,6 @@ var mcpPolicies = map[string]mcpPolicy{
 	"project logs":          {class: mcpExclude},
 	"project start":         {class: mcpExclude},
 	"project stop":          {class: mcpExclude},
-	"push":                  {class: mcpExclude},
 	"secrets create":        {class: mcpExclude},
 	"secrets update":        {class: mcpExclude},
 	"settings bash":         {class: mcpExclude},
@@ -120,7 +114,5 @@ var mcpPolicies = map[string]mcpPolicy{
 	"settings powershell":   {class: mcpExclude},
 	"settings update":       {class: mcpExclude},
 	"settings zsh":          {class: mcpExclude},
-	"spec explain":          {class: mcpExclude},
-	"spec repair":           {class: mcpExclude},
 	"upgrade":               {class: mcpExclude},
 }

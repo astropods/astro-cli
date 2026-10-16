@@ -74,6 +74,27 @@ func TestMCPPoliciesCoverEveryLeafCommand(t *testing.T) {
 	}
 }
 
+func TestMCPLeafCommandsSkipAliasesAndHidden(t *testing.T) {
+	build := func(*cobra.Command, []string) error { return nil }
+	shared := func(*cobra.Command, []string) error { return nil }
+	root := &cobra.Command{Use: "ast"}
+	group := &cobra.Command{Use: "blueprint"}
+	group.AddCommand(
+		&cobra.Command{Use: "build", RunE: build},
+		&cobra.Command{Use: "secret", RunE: shared, Hidden: true},
+		&cobra.Command{Use: "bash", RunE: shared},
+		&cobra.Command{Use: "zsh", RunE: shared},
+	)
+	root.AddCommand(group, &cobra.Command{Use: "build", RunE: build})
+
+	var got []string
+	for _, c := range mcpLeafCommands(root) {
+		got = append(got, mcpCommandKey(c))
+	}
+	assert.ElementsMatch(t, []string{"blueprint build", "blueprint bash", "blueprint zsh"}, got,
+		"the top-level build alias and the hidden command are skipped; commands that share a handler under different names are kept")
+}
+
 func TestMCPEveryServedCommandBuildsATool(t *testing.T) {
 	tools, err := buildMCPTools(rootCmd, false)
 	require.NoError(t, err, "a served command's positional collides with a flag; set args in mcpPolicies")
