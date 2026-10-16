@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/gofrs/flock"
 	"github.com/zalando/go-keyring"
 )
@@ -555,7 +556,7 @@ func (s *Storage) GetCurrentAccount() (string, error) {
 		return "", err
 	}
 
-	if override := strings.TrimSpace(os.Getenv(EnvAccount)); override != "" {
+	if override := strings.TrimSpace(os.Getenv(envvar.Account)); override != "" {
 		for _, a := range profile.Accounts {
 			if strings.EqualFold(a.Name, override) {
 				return a.Name, nil

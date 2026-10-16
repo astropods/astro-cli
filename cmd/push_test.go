@@ -20,6 +20,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 	gitmetadata "github.com/astropods/astro-cli/internal/git"
 	spec "github.com/astropods/astro-spec"
 )
@@ -858,7 +859,7 @@ func TestGenerateBuildID(t *testing.T) {
 func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
@@ -1081,7 +1082,7 @@ func TestStripSecretDefaults(t *testing.T) {
 func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	// No credentials file — if validation weren't first, push would fail with "not authenticated".
 	// Spec is missing required top-level `agent`, so validation must fail first.
@@ -1114,7 +1115,7 @@ func TestPush_InvalidSpecFailsBeforeAuth(t *testing.T) {
 func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
@@ -1264,7 +1265,7 @@ func TestRegisterAgent_UsesFreshAccountToken(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	writeAccountTestCredentials(t, &auth.Credentials{
 		CurrentProfile: "default",
@@ -1599,7 +1600,7 @@ func TestTransformSpecForRegistry_UsesAgentName(t *testing.T) {
 func TestPush_OrgScopedSpecName(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	credsPath := filepath.Join(tmpDir, buildinfo.AppDirName, "credentials.json")
 	if err := os.MkdirAll(filepath.Dir(credsPath), 0700); err != nil {
@@ -1682,7 +1683,7 @@ func TestPush_AllowAccountOverride(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	// Standard creds: current account is "alice" (personal).
 	writeAccountTestCredentials(t, accountTestCreds(""))
@@ -1716,7 +1717,7 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	writeAccountTestCredentials(t, accountTestCreds(currentAccount))
 

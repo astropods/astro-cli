@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/envvar"
 	gitmetadata "github.com/astropods/astro-cli/internal/git"
 )
 
@@ -29,7 +30,7 @@ func authTestJWT(exp time.Time) string {
 }
 
 func TestApiCallForAccount_RetriesOn401(t *testing.T) {
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -122,7 +123,7 @@ func TestApiCallForAccount_RetryOn401BypassesCachedOrgToken(t *testing.T) {
 }
 
 func TestGetDockerRegistryAuth_UsesFreshAccountToken(t *testing.T) {
-	_ = os.Unsetenv(auth.EnvAccessToken)
+	_ = os.Unsetenv(envvar.AccessToken)
 
 	orgCreds := accountTestCreds("acme-corp")
 	orgCreds.Profiles["default"].OrgTokens = map[string]*auth.OrgToken{
@@ -261,7 +262,7 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_ = os.Unsetenv(auth.EnvAccessToken)
+			_ = os.Unsetenv(envvar.AccessToken)
 			t.Setenv("HOME", t.TempDir())
 			writeAccountTestCredentials(t, tt.creds)
 			serveWorkOSInvalidGrant(t)
@@ -303,7 +304,7 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_ = os.Unsetenv(auth.EnvAccessToken)
+			_ = os.Unsetenv(envvar.AccessToken)
 			t.Setenv("HOME", t.TempDir())
 			writeAccountTestCredentials(t, tt.creds)
 			serveWorkOSInvalidGrant(t)

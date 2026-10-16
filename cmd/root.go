@@ -14,6 +14,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/telemetry"
 )
 
@@ -60,7 +61,7 @@ func Execute() {
 	if telemetry.IsEnabled(buildinfo.BinaryName) && !isNoiseCommand(cmdName) {
 		tc := buildTelemetryClient()
 		if tc != nil {
-			tc.TrackCommand(cmdName, time.Since(start), execErr)
+			tc.TrackCommand(cmdName, os.Getenv(envvar.Via), time.Since(start), execErr)
 			tc.Shutdown()
 		}
 	}
