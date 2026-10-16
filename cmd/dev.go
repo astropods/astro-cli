@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -415,15 +417,21 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	projectName := composeBuilder.ProjectName(astroSpec)
 	_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
 
-	// Start non-profiled services (already built above)
-	upProject := projectForUp(project)
-	if noPull {
-		for name, svc := range upProject.Services {
-			svc.PullPolicy = composeTypes.PullPolicyNever
-			upProject.Services[name] = svc
-		}
+	hasWebInterface := slices.Contains(astroSpec.Dev.MessagingAdapters(), "web")
+
+	// After Down, so this project's previous containers do not count as busy.
+	if moved := releaseBusyHostPorts(project, hostPortBusy); len(moved) > 0 {
+		fmt.Fprint(w, msgDevPortsMoved(moved)) //nolint:errcheck,gosec
 	}
-	if err := withSpinner("Starting services...", "Services started", verbose, func() error {
+
+	up := func() error {
+		upProject := projectForUp(project)
+		if noPull {
+			for name, svc := range upProject.Services {
+				svc.PullPolicy = composeTypes.PullPolicyNever
+				upProject.Services[name] = svc
+			}
+		}
 		return svc.Up(context.Background(), upProject, api.UpOptions{
 			Create: api.CreateOptions{
 				Build:         nil,  // --no-build (already built above)
@@ -431,7 +439,15 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 			},
 			Start: api.StartOptions{Project: upProject}, // pass project to skip container label lookup
 		})
-	}); err != nil {
+	}
+	err = withSpinner("Starting services...", "Services started", verbose, up)
+	if isPortAllocatedErr(err) {
+		// Another process took a port between the check and the bind.
+		_ = svc.Down(context.Background(), projectName, api.DownOptions{RemoveOrphans: true})
+		fmt.Fprint(w, msgDevPortsMoved(releaseBusyHostPorts(project, hostPortBusy))) //nolint:errcheck,gosec
+		err = withSpinner("Starting services...", "Services started", verbose, up)
+	}
+	if err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
@@ -442,26 +458,34 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write dev state: %w", err)
 	}
 
+	hostPorts, err := lookupHostPorts(cmd.Context(), projectName)
+	if err != nil {
+		return errDevPortLookup(err)
+	}
+
 	if astroSpec.Agent.Runtime() == spec.AgentCoreRuntime {
-		if err := waitForAgentCorePing(cmd.Context(), agentCoreReadyWait); err != nil {
+		agentCorePort := hostPorts.host("agent", composeBuilder.AgentCorePort)
+		if agentCorePort == "" {
+			return errAgentCoreNoPort()
+		}
+		if err := waitForAgentCorePing(cmd.Context(), agentCorePort, agentCoreReadyWait); err != nil {
 			return err
 		}
 	}
 
 	fmt.Println()
-	// Check if messaging interface is configured (from dev section)
-	hasWebInterface := false
-	for _, name := range astroSpec.Dev.MessagingAdapters() {
-		if name == "web" {
-			hasWebInterface = true
-			break
-		}
-	}
 
 	// Serve the chat UI from the CLI, proxying to the local messaging
 	// sidecar. Runs as a detached worker so it survives background mode;
 	// in foreground it stops on teardown, in background it outlives the CLI.
-	startChatUI(astDir, astroSpec.Name, hasWebInterface, !background)
+	chatAddr := ""
+	if hasWebInterface {
+		if port := hostPorts.host("astro-messaging", composeBuilder.MessagingWebPort); port != "" {
+			chatAddr = startChatUIOnFreePort(astDir, publishedHostPorts(project), "http://127.0.0.1:"+port, astroSpec.Name, !background)
+		} else {
+			fmt.Fprint(w, msgDevChatUINotStarted("the messaging sidecar publishes no web port")) //nolint:errcheck,gosec
+		}
+	}
 
 	// Run startup ingestions before printing the ready block so output isn't interleaved
 	if skipStartup {
@@ -472,7 +496,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		runStartupIngestions(astroSpec, project, verbose)
 	}
 
-	printReadyBlock(astroSpec, hasWebInterface, background)
+	printReadyBlock(astroSpec, readyURLsFor(astroSpec, hostPorts, chatAddr), background)
 
 	if background {
 		return nil
@@ -670,9 +694,9 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
-	fmt.Printf("🔄 Triggering job: %s\n", name)
-	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "🔄 %s\n", msgTriggeringJob(name)) //nolint:errcheck,gosec
+	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	envVars, _, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
 		Spec:        astroSpec,
 		WorkingDir:  workingDir,
@@ -690,13 +714,23 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
-
-	triggerSvc, err := newComposeService(false)
+	// The run creates the running services again; a port moved at start must stay moved.
+	projectName, err := readDevProjectName(statePath, cmd)
 	if err != nil {
-		return fmt.Errorf("failed to init compose service: %w", err)
+		return err
 	}
+	running, err := lookupHostPorts(cmd.Context(), projectName)
+	if err != nil {
+		return errDevTriggerPortLookup(err)
+	}
+	matchRunningHostPorts(ingProject, running)
+
 	triggerService := fmt.Sprintf("ingestion-%s", name)
 	if flagBool(cmd, "rebuild") {
+		triggerSvc, err := newComposeService(false)
+		if err != nil {
+			return fmt.Errorf("failed to init compose service: %w", err)
+		}
 		if err := withSpinner(fmt.Sprintf("Building %s (no cache)...", triggerService), "Build complete", triggerVerbose, func() error {
 			return buildWithIngestionProfile(triggerSvc, ingProject, api.BuildOptions{
 				NoCache:  true,
@@ -707,7 +741,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to build %s: %w", triggerService, err)
 		}
 	}
-	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
+	jobSvc, err := newJobComposeService(w, cmd.ErrOrStderr(), triggerVerbose)
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	exitCode, err := jobSvc.RunOneOffContainer(cmd.Context(), projectForRun(ingProject, triggerService), api.RunOptions{
 		Service:    triggerService,
 		AutoRemove: true,
 		NoDeps:     true,
@@ -718,7 +756,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if exitCode != 0 {
 		return fmt.Errorf("job '%s' exited with code %d", name, exitCode)
 	}
-	fmt.Printf("✅ Job '%s' completed\n", name)
+	fmt.Fprintf(w, "✅ %s\n", msgJobCompleted(name)) //nolint:errcheck,gosec
 	return nil
 }
 
@@ -748,8 +786,39 @@ func runStartupIngestions(s *spec.AstroSpec, project *composeTypes.Project, verb
 	}
 }
 
+type readyURLs struct {
+	Frontend string
+	Chat     string
+	Webhooks map[string]string // ingestion name to URL
+}
+
+func readyURLsFor(s *spec.AstroSpec, ports devHostPorts, chatAddr string) readyURLs {
+	urls := readyURLs{Webhooks: map[string]string{}}
+	if s.Agent.HasFrontend() {
+		if port := ports.host("agent", composeBuilder.FrontendTargetPort(s)); port != "" {
+			urls.Frontend = "http://localhost:" + port
+		}
+	}
+	if chatAddr != "" {
+		urls.Chat = chatURLForAddr(chatAddr)
+	}
+	for name, ingestion := range s.Ingestion {
+		if ingestion.Trigger.Type != "webhook" {
+			continue
+		}
+		target := uint32(3001)
+		if p := ingestion.Container.Port; p > 0 && p <= 65535 {
+			target = uint32(p)
+		}
+		if port := ports.host("ingestion-"+name, target); port != "" {
+			urls.Webhooks[name] = "http://localhost:" + port
+		}
+	}
+	return urls
+}
+
 // printReadyBlock renders the post-start summary using lipgloss.
-func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
+func printReadyBlock(s *spec.AstroSpec, urls readyURLs, background bool) {
 	primary := lipgloss.NewStyle().Foreground(theme.Primary)
 	bold := lipgloss.NewStyle().Bold(true)
 	boldPrimary := lipgloss.NewStyle().Bold(true).Foreground(theme.Primary)
@@ -759,25 +828,22 @@ func printReadyBlock(s *spec.AstroSpec, hasWebInterface bool, background bool) {
 	lines = append(lines, "✨ "+bold.Render(s.Name)+" is ready")
 	lines = append(lines, "")
 
-	if s.Agent.HasFrontend() {
-		port := 3200
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(fmt.Sprintf("http://localhost:%d", port))+"  "+dim.Render("(frontend)"))
+	if urls.Frontend != "" {
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Frontend)+"  "+dim.Render("(frontend)"))
 	}
 
-	if hasWebInterface {
-		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(chatUIURL)+"  "+dim.Render("(chat)"))
+	if urls.Chat != "" {
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Chat)+"  "+dim.Render("(chat)"))
 	}
 
 	// Webhook endpoints
-	for name, ingestion := range s.Ingestion {
-		if ingestion.Trigger.Type != "webhook" {
-			continue
-		}
-		port := ingestion.Container.Port
-		if port == 0 {
-			port = 3001
-		}
-		lines = append(lines, dim.Render(fmt.Sprintf("   http://localhost:%d  (%s webhook)", port, name)))
+	names := make([]string, 0, len(urls.Webhooks))
+	for name := range urls.Webhooks {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		lines = append(lines, dim.Render(fmt.Sprintf("   %s  (%s webhook)", urls.Webhooks[name], name)))
 	}
 
 	lines = append(lines, "")
@@ -822,8 +888,8 @@ func withSpinner(title, doneMsg string, verbose bool, fn func() error) error {
 const agentCoreReadyWait = 30 * time.Second
 
 // waitForAgentCorePing polls the published contract port until GET /ping answers.
-func waitForAgentCorePing(ctx context.Context, wait time.Duration) error {
-	url := fmt.Sprintf("http://localhost:%s/ping", composeBuilder.AgentCoreHostPort)
+func waitForAgentCorePing(ctx context.Context, port string, wait time.Duration) error {
+	url := fmt.Sprintf("http://localhost:%s/ping", port)
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(wait)
 
@@ -840,7 +906,7 @@ func waitForAgentCorePing(ctx context.Context, wait time.Duration) error {
 			}
 		}
 		if time.Now().After(deadline) {
-			return errAgentCoreNotServing(composeBuilder.AgentCoreHostPort, wait)
+			return errAgentCoreNotServing(port, wait)
 		}
 		select {
 		case <-ctx.Done():

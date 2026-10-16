@@ -55,6 +55,22 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 // reads them without a fallback degrades silently rather than failing loudly. If a
 // future change starts injecting one of these locally, the docs go stale with no
 // other signal, so assert their absence here.
+func TestBuildProject_LabelsEveryServiceWithTheAgentName(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "@acme/my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev:   &spec.Dev{Interfaces: &spec.DevInterfaces{Messaging: &spec.DevMessaging{Adapters: []string{"web"}}}},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, project.Services)
+	for name, svc := range project.Services {
+		assert.Equal(t, "@acme/my-agent", svc.CustomLabels[DevAgentLabel], name)
+	}
+}
+
 func TestBuildProject_NoDeployOnlyEnvLocally(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",
@@ -1515,4 +1531,46 @@ func TestBuildProject_IngestionContainerEnvironmentInjected(t *testing.T) {
 	env := project.Services["ingestion-docs_sync"].Environment
 	assert.Equal(t, "company/docs", envVal(env, "SOURCE_REPO"), "container.environment must reach the job container")
 	assert.Equal(t, "50", envVal(env, "BATCH"), "an input overrides container.environment, as on a deployed job")
+}
+
+func TestBuildEnvironment_GatewayModelEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   spec.Model
+		envVars map[string]string
+		want    string
+	}{
+		{
+			name:  "no model list defaults to the gateway default",
+			model: spec.Model{Provider: "gateway"},
+			want:  "claude-sonnet-4-6",
+		},
+		{
+			name:  "model list uses its first option",
+			model: spec.Model{Provider: "gateway", Models: []string{"gpt-5-5", "claude-haiku-4-5"}},
+			want:  "gpt-5-5",
+		},
+		{
+			name:  "single model uses it",
+			model: spec.Model{Provider: "gateway", Model: "nova-pro"},
+			want:  "nova-pro",
+		},
+		{
+			name:    "env file value wins over the default",
+			model:   spec.Model{Provider: "gateway"},
+			envVars: map[string]string{"MODEL_CHAT_MODEL": "qwen3-coder"},
+			want:    "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &spec.AstroSpec{
+				Name:   "my-agent",
+				Agent:  spec.Container{Image: "agent:latest"},
+				Models: map[string]spec.Model{"chat-model": tt.model},
+			}
+			env := BuildEnvironment(s, tt.envVars)
+			assert.Equal(t, tt.want, envVal(env, "MODEL_CHAT_MODEL"), "MODEL_CHAT_MODEL injected by the gateway default")
+		})
+	}
 }
