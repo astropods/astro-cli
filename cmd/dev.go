@@ -670,9 +670,9 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no dev environment running. Run '%s project start' first", buildinfo.BinaryName)
 	}
 
-	fmt.Printf("🔄 Triggering job: %s\n", name)
-	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "🔄 %s\n", msgTriggeringJob(name)) //nolint:errcheck,gosec
+	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	envVars, _, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
 		Spec:        astroSpec,
 		WorkingDir:  workingDir,
@@ -691,12 +691,12 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	triggerSvc, err := newComposeService(false)
-	if err != nil {
-		return fmt.Errorf("failed to init compose service: %w", err)
-	}
 	triggerService := fmt.Sprintf("ingestion-%s", name)
 	if flagBool(cmd, "rebuild") {
+		triggerSvc, err := newComposeService(false)
+		if err != nil {
+			return fmt.Errorf("failed to init compose service: %w", err)
+		}
 		if err := withSpinner(fmt.Sprintf("Building %s (no cache)...", triggerService), "Build complete", triggerVerbose, func() error {
 			return buildWithIngestionProfile(triggerSvc, ingProject, api.BuildOptions{
 				NoCache:  true,
@@ -707,7 +707,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to build %s: %w", triggerService, err)
 		}
 	}
-	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
+	jobSvc, err := newJobComposeService(w, cmd.ErrOrStderr(), triggerVerbose)
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	exitCode, err := jobSvc.RunOneOffContainer(cmd.Context(), projectForRun(ingProject, triggerService), api.RunOptions{
 		Service:    triggerService,
 		AutoRemove: true,
 		NoDeps:     true,
@@ -718,7 +722,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if exitCode != 0 {
 		return fmt.Errorf("job '%s' exited with code %d", name, exitCode)
 	}
-	fmt.Printf("✅ Job '%s' completed\n", name)
+	fmt.Fprintf(w, "✅ %s\n", msgJobCompleted(name)) //nolint:errcheck,gosec
 	return nil
 }
 

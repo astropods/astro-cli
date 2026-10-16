@@ -531,6 +531,14 @@ func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
 }
 
+func msgTriggeringJob(name string) string {
+	return fmt.Sprintf("Triggering job: %s", name)
+}
+
+func msgJobCompleted(name string) string {
+	return fmt.Sprintf("Job '%s' completed", name)
+}
+
 func msgLoginPriorAccountUnavailable(account string) string {
 	return fmt.Sprintf("  Note: previous account %q is no longer available; using personal account.\n", account)
 }

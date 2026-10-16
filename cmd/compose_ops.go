@@ -22,6 +22,19 @@ func newComposeService(verbose bool) (api.Compose, error) {
 	if !verbose {
 		cliOpts = append(cliOpts, command.WithCombinedStreams(io.Discard))
 	}
+	return buildComposeService(cliOpts, verbose)
+}
+
+// newJobComposeService returns a compose service whose one-off containers write
+// their stdout and stderr to out and errOut.
+func newJobComposeService(out, errOut io.Writer, verbose bool) (api.Compose, error) {
+	return buildComposeService([]command.CLIOption{
+		command.WithOutputStream(out),
+		command.WithErrorStream(errOut),
+	}, verbose)
+}
+
+func buildComposeService(cliOpts []command.CLIOption, verbose bool) (api.Compose, error) {
 	dockerCli, err := command.NewDockerCli(cliOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("init docker CLI: %w", err)
