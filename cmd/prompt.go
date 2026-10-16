@@ -3,14 +3,11 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 
-	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/tui"
 )
 
@@ -70,10 +67,7 @@ func runForm(form *huh.Form) error {
 const nonInteractiveFlag = "non-interactive"
 
 func nonInteractive() bool {
-	if on, _ := rootCmd.PersistentFlags().GetBool(nonInteractiveFlag); on {
-		return true
-	}
-	on, _ := strconv.ParseBool(os.Getenv(envvar.NonInteractive))
+	on, _ := rootCmd.PersistentFlags().GetBool(nonInteractiveFlag)
 	return on
 }
 

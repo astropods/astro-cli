@@ -18,7 +18,6 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
-	"github.com/astropods/astro-cli/internal/envvar"
 )
 
 var errDirtyWorkingTree = errors.New(msgDirtyPushBlocked())
@@ -182,7 +181,7 @@ func msgLaunchURLReady() string {
 }
 
 func errPromptNonInteractive() error {
-	return fmt.Errorf("this command needs an answer to a prompt, but --%s or %s turns prompts off; pass the value as a flag instead (see '%s <command> --help')", nonInteractiveFlag, envvar.NonInteractive, buildinfo.BinaryName)
+	return fmt.Errorf("this command needs an answer to a prompt, but --%s turns prompts off; pass the value as a flag instead (see '%s <command> --help')", nonInteractiveFlag, buildinfo.BinaryName)
 }
 
 func errAccountNotLoggedIn() error {

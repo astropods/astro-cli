@@ -488,16 +488,15 @@ func TestMCPExecRunner(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("child gets the mcp environment, no stdin, and the dir", func(t *testing.T) {
-		t.Setenv(envvar.NonInteractive, "")
 		dir := t.TempDir()
 		var lines []string
-		res := runner.run(ctx, []string{"-c", `printf '[%s] %s %s\n' "$ASTRO_NONINTERACTIVE" "$ASTRO_VIA" "$NO_COLOR"; pwd; cat; echo one >&2; echo >&2; echo two >&2`}, dir, time.Minute, func(l string) {
+		res := runner.run(ctx, []string{"-c", `printf '%s %s\n' "$ASTRO_VIA" "$NO_COLOR"; pwd; cat; echo one >&2; echo >&2; echo two >&2`}, dir, time.Minute, func(l string) {
 			lines = append(lines, l)
 		})
 		require.NoError(t, res.exitErr)
 		resolved, err := filepath.EvalSymlinks(dir)
 		require.NoError(t, err)
-		assert.Equal(t, "[] mcp 1\n"+resolved+"\n", string(res.stdout), "prompts are turned off by the --non-interactive argument, not the environment")
+		assert.Equal(t, "mcp 1\n"+resolved+"\n", string(res.stdout))
 		assert.Equal(t, "one\n\ntwo\n", res.stderr)
 		assert.Equal(t, []string{"one", "two"}, lines, "blank stderr lines are not sent as progress")
 		assert.False(t, res.timedOut)
@@ -526,35 +525,21 @@ func TestMCPExecRunner(t *testing.T) {
 	})
 }
 
-func TestNonInteractive(t *testing.T) {
-	tests := []struct {
-		name string
-		env  string
-		flag bool
-		want bool
-	}{
-		{name: "unset", want: false},
-		{name: "env 1", env: "1", want: true},
-		{name: "env true", env: "true", want: true},
-		{name: "env TRUE", env: "TRUE", want: true},
-		{name: "env 0", env: "0", want: false},
-		{name: "env garbage", env: "yes please", want: false},
-		{name: "flag", flag: true, want: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(envvar.NonInteractive, tt.env)
-			if tt.flag {
-				require.NoError(t, rootCmd.PersistentFlags().Set(nonInteractiveFlag, "true"))
-				t.Cleanup(func() { _ = rootCmd.PersistentFlags().Set(nonInteractiveFlag, "false") })
-			}
-			assert.Equal(t, tt.want, nonInteractive())
-		})
-	}
+func setNonInteractiveFlag(t *testing.T) {
+	t.Helper()
+	require.NoError(t, rootCmd.PersistentFlags().Set(nonInteractiveFlag, "true"))
+	t.Cleanup(func() { _ = rootCmd.PersistentFlags().Set(nonInteractiveFlag, "false") })
+}
+
+func TestNonInteractiveFollowsFlag(t *testing.T) {
+	assert.False(t, nonInteractive(), "prompts are on by default")
+	setNonInteractiveFlag(t)
+	assert.True(t, nonInteractive())
+	assert.False(t, interactiveTerminal(), "the cluster picker treats the shell as non-interactive")
 }
 
 func TestRunFormFailsWhenNonInteractive(t *testing.T) {
-	t.Setenv(envvar.NonInteractive, "true")
+	setNonInteractiveFlag(t)
 	var ok bool
 	err := runForm(huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("Sure?").Value(&ok))))
 	require.Error(t, err)
