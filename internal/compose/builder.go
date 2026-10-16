@@ -65,6 +65,15 @@ const (
 	AgentCorePort     = 8080
 	AgentCoreHostPort = "3120"
 
+	// MessagingWebPort is the messaging sidecar's HTTP API port inside its container.
+	MessagingWebPort = 8080
+
+	// FrontendHostPort is the host port an agent's own frontend is published on.
+	FrontendHostPort = "3200"
+
+	// DevAgentLabel carries the spec name on every dev container; `project list` filters on it.
+	DevAgentLabel = "com.astropods.dev.agent"
+
 	// chatDataMountPath is where the messaging sidecar's SQLite chat store lives.
 	// Mirrors astro-server's deployed sidecar (CHAT_DB_PATH=/data/chat.db on a
 	// persistent volume); locally it's a named volume so history survives
@@ -712,13 +721,9 @@ func BuildProject(
 
 	// If the agent serves its own frontend, publish the configured dev port (default 80).
 	if s.Agent.HasFrontend() {
-		targetPort := 80
-		if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil && s.Dev.Interfaces.Frontend.Port != 0 {
-			targetPort = s.Dev.Interfaces.Frontend.Port
-		}
 		agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
-			Target:    uint32(targetPort),
-			Published: "3200",
+			Target:    FrontendTargetPort(s),
+			Published: FrontendHostPort,
 		})
 	}
 
@@ -735,6 +740,7 @@ func BuildProject(
 			api.VersionLabel:    api.ComposeVersion,
 			api.WorkingDirLabel: project.WorkingDir,
 			api.OneoffLabel:     "False",
+			DevAgentLabel:       s.Name,
 		}
 		project.Services[name] = svc
 	}
@@ -920,6 +926,16 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 	return env
 }
 
+// FrontendTargetPort is the container port the agent's frontend listens on.
+func FrontendTargetPort(s *spec.AstroSpec) uint32 {
+	if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil {
+		if p := s.Dev.Interfaces.Frontend.Port; p > 0 && p <= 65535 {
+			return uint32(p)
+		}
+	}
+	return 80
+}
+
 // buildMessagingPorts creates port mappings for the astro-messaging sidecar
 func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 	ports := []types.ServicePortConfig{
@@ -936,7 +952,7 @@ func buildMessagingPorts(s *spec.AstroSpec) []types.ServicePortConfig {
 	// proxies API calls to this sidecar port (see internal/chatui).
 	if slices.Contains(s.Dev.MessagingAdapters(), "web") {
 		ports = append(ports, types.ServicePortConfig{
-			Target:    8080,
+			Target:    MessagingWebPort,
 			Published: MessagingWebHostPort,
 		})
 	}

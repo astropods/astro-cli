@@ -55,6 +55,22 @@ func TestBuildProject_MinimalSpec(t *testing.T) {
 // reads them without a fallback degrades silently rather than failing loudly. If a
 // future change starts injecting one of these locally, the docs go stale with no
 // other signal, so assert their absence here.
+func TestBuildProject_LabelsEveryServiceWithTheAgentName(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name:  "@acme/my-agent",
+		Agent: spec.Container{Image: "agent:latest"},
+		Dev:   &spec.Dev{Interfaces: &spec.DevInterfaces{Messaging: &spec.DevMessaging{Adapters: []string{"web"}}}},
+	}
+
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, project.Services)
+	for name, svc := range project.Services {
+		assert.Equal(t, "@acme/my-agent", svc.CustomLabels[DevAgentLabel], name)
+	}
+}
+
 func TestBuildProject_NoDeployOnlyEnvLocally(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",

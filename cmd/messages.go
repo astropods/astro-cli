@@ -527,6 +527,30 @@ func errNoLocalProjectVars() error {
 	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
 }
 
+func msgDevPortsMoved(moved []string) string {
+	if len(moved) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s→%s %sPorts in use, Docker assigns free ones instead: %s%s\n",
+		colorCyan, colorReset, colorDim, strings.Join(moved, ", "), colorReset)
+}
+
+func errDevPortLookup(err error) error {
+	return fmt.Errorf("containers started, but their published ports could not be read from Docker: %w. Run '%s project stop', then start again", err, buildinfo.BinaryName)
+}
+
+func errDevTriggerPortLookup(err error) error {
+	return fmt.Errorf("could not read the running containers' ports from Docker: %w", err)
+}
+
+func msgDevChatUINotStarted(reason string) string {
+	return fmt.Sprintf("%s!%s %sChat UI not started: %s%s\n", colorYellow, colorReset, colorDim, reason, colorReset)
+}
+
+func msgDevListEmpty() string {
+	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
+}
+
 func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
 }
@@ -599,6 +623,11 @@ func errAgentCoreInvalidSecret(pair string) error {
 
 func errAgentCoreSecretsFileLine(line int) error {
 	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
+
+func errAgentCoreNoPort() error {
+	return fmt.Errorf("the agent container publishes no port for :%d, so it likely exited on boot. Check its log: %s project logs agent",
+		composeBuilder.AgentCorePort, buildinfo.BinaryName)
 }
 
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {

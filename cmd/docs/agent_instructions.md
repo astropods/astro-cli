@@ -444,4 +444,4 @@ ast project start   # Start agent and messaging
 ast project logs    # Tail logs
 ```
 
-Open the chat interface at http://localhost:3100 to chat with your agent.
+Open the chat interface at the address `ast project start` prints (http://localhost:3100 unless another agent already uses it) to chat with your agent. `ast project list` shows every running local agent and its chat address.
