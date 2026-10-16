@@ -20,7 +20,7 @@ import { Memory } from '@mastra/memory';
 import { LibSQLStore } from '@mastra/libsql';
 import { Observability } from '@mastra/observability';
 import { OtelExporter } from '@mastra/otel-exporter';
-import { serve } from '@astropods/adapter-mastra';
+import { serve, type ModelChoice } from '@astropods/adapter-mastra';
 {{- if .AIGateway}}
 import { createOpenAI } from '@ai-sdk/openai';
 
@@ -75,14 +75,18 @@ const agent = new Agent({
   name: '{{.Name | humanName}}',
   instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
 {{- if .AIGateway}}
-  // Model chosen at deploy time from the gateway options; injected as MODEL_DEFAULT.
-  model: gateway(process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
-{{- else if .HasIntegration "anthropic"}}
-  model: 'anthropic/claude-sonnet-4-5',
-{{- else if .HasIntegration "openai"}}
-  model: 'openai/gpt-4o',
+  // The model picked in chat (selection: live), else the one chosen at deploy (MODEL_DEFAULT).
+  model: ({ requestContext }) =>
+    gateway(requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
 {{- else}}
-  model: 'anthropic/claude-sonnet-4-5',
+  // The model picked in chat (selection: live), else the one named here.
+{{- if and (.HasIntegration "openai") (not (.HasIntegration "anthropic"))}}
+  model: ({ requestContext }) =>
+    `openai/${requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? 'gpt-4o'}`,
+{{- else}}
+  model: ({ requestContext }) =>
+    `anthropic/${requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? 'claude-sonnet-4-5'}`,
+{{- end}}
 {{- end}}
   memory,
   // Ensure traces include stable Astro metadata by default.
