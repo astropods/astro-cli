@@ -180,6 +180,10 @@ func msgLaunchURLReady() string {
 	return "URL status:  ready"
 }
 
+func errPromptNonInteractive() error {
+	return fmt.Errorf("this command needs an answer to a prompt, and %s=1 turns prompts off; pass the value as a flag instead (see '%s <command> --help')", envNonInteractive, buildinfo.BinaryName)
+}
+
 func errAccountNotLoggedIn() error {
 	return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 }
@@ -1169,4 +1173,55 @@ func msgGatewaySettingsScope(scope claudesettings.Scope) string {
 		return "this project's shared settings"
 	}
 	return "your user settings"
+}
+
+func msgMCPServing(tools int, account string) string {
+	if account == "" {
+		return fmt.Sprintf("%s mcp: serving %d tools on stdio; not logged in, run '%s login' first", buildinfo.BinaryName, tools, buildinfo.BinaryName)
+	}
+	return fmt.Sprintf("%s mcp: serving %d tools on stdio for account %s", buildinfo.BinaryName, tools, account)
+}
+
+func msgMCPInstructions(account string) string {
+	scope := "the user's current account"
+	if account != "" {
+		scope = "account " + account
+	}
+	return fmt.Sprintf("Each tool runs one %[1]s command as the signed-in user, in %[2]s. "+
+		"Tools that read a project's astropods.yml or EVALUATION.yaml use the dir input, or this server's working directory when it is unset. "+
+		"Tools return JSON when the command supports it. "+
+		"A command that would prompt fails instead, so pass every value as an input. "+
+		"If a tool says the user is not logged in, ask them to run '%[1]s login' in a terminal.", buildinfo.BinaryName, scope)
+}
+
+func msgMCPPositionalDescription(name string) string {
+	return fmt.Sprintf("Positional argument <%s>", name)
+}
+
+func msgMCPDirDescription() string {
+	return "Working directory for the command. Defaults to the MCP server's working directory."
+}
+
+func msgMCPTimeout(tool string, timeout time.Duration) string {
+	return fmt.Sprintf("%s did not finish within %s and was stopped", tool, timeout)
+}
+
+func msgMCPNoOutput() string {
+	return "The command finished with no output."
+}
+
+func errMCPUnknownInput(name string) error {
+	return fmt.Errorf("unknown input %q; see this tool's input schema for the inputs it takes", name)
+}
+
+func errMCPInputType(name, want string) error {
+	return fmt.Errorf("input %q must be %s", name, want)
+}
+
+func errMCPMissingInput(name string) error {
+	return fmt.Errorf("input %q is required", name)
+}
+
+func errMCPInputNotObject() error {
+	return errors.New("tool arguments must be a JSON object")
 }

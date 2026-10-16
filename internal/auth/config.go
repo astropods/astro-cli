@@ -16,6 +16,7 @@ const WorkOSBaseURL = "https://api.workos.com"
 const (
 	EnvAccessToken  = "ASTRO_ACCESS_TOKEN"
 	EnvRefreshToken = "ASTRO_REFRESH_TOKEN"
+	EnvAccount      = "ASTRO_ACCOUNT"
 )
 
 // ConfigDir returns ~/.{binaryName} (e.g. ~/.ast, ~/.ast-dev, ~/.ast-preview).
