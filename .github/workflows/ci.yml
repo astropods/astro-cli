@@ -97,7 +97,7 @@ jobs:
       # converge -- skipping the first twelve simply moved the failure into
       # internal/auth. The product code is correct; the harness is not
       # portable, and fixing it means a helper that sets both variables plus a
-      # change to the convention in CLAUDE.md.
+      # change to the convention in AGENTS.md.
       - name: Test the Windows seam
         run: |
           go test ./cmd/... -run '^(TestProcessAlive|TestProcessCommandLine|TestListenerPID|TestChatUIListenerPID|TestDetachProcAttr|TestArtifactSuffix|TestReplaceRunningBinary|TestSweepReplacedBinaries|TestVersionedInstallSupported|TestCheckDockerRunning|TestDockerUnreachableError)' -v

@@ -211,7 +211,7 @@ func TestAssembleDevEnv_ReportsMissingLoginForGatewaySpec(t *testing.T) {
 	})
 
 	require.Error(t, err)
-	// Exact-string comparison against the message function, per CLAUDE.md:
+	// Exact-string comparison against the message function, per AGENTS.md:
 	// rebuilding it from this error's own cause fails if anyone inlines a
 	// different string at the call site.
 	assert.Equal(t, errAIGatewayRequiresLogin(errors.Unwrap(err)).Error(), err.Error(),
