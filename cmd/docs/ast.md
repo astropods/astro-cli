@@ -91,7 +91,7 @@ ast project logs [service]         # tail agent logs (default)
 ast project logs --all             # tail all service logs
 ast project stop                   # stop and remove containers
 ast project trigger                # list the jobs in the spec
-ast project trigger <name>         # manually trigger a job
+ast project trigger <name>         # run a job now and print its output
 ast project trigger <name> --rebuild  # rebuild the job's container, then run it
 ```
 
