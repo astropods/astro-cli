@@ -707,7 +707,11 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to build %s: %w", triggerService, err)
 		}
 	}
-	exitCode, err := triggerSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
+	jobSvc, err := newJobComposeService(w, cmd.ErrOrStderr(), triggerVerbose)
+	if err != nil {
+		return fmt.Errorf("failed to init compose service: %w", err)
+	}
+	exitCode, err := jobSvc.RunOneOffContainer(context.Background(), projectForRun(ingProject, triggerService), api.RunOptions{
 		Service:    triggerService,
 		AutoRemove: true,
 		NoDeps:     true,
