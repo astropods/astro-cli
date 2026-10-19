@@ -2,6 +2,8 @@ package githubcli
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,7 +61,7 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 
 		_, err := Push(context.Background(), "/repo", "", "origin", "my-branch", false)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"push", "origin", "my-branch"}, capturedArgs)
+		assert.Equal(t, []string{"push", "--", "origin", "my-branch"}, capturedArgs)
 	})
 
 	t.Run("non-empty token adds a single-request auth header via env, not argv, and --set-upstream when asked", func(t *testing.T) {
@@ -71,7 +73,7 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 
 		_, err := Push(context.Background(), "/repo", "gho_abc123", "origin", "my-branch", true)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"push", "--set-upstream", "origin", "my-branch"}, capturedArgs,
+		assert.Equal(t, []string{"push", "--set-upstream", "--", "origin", "my-branch"}, capturedArgs,
 			"the token must never appear in args: runCommand joins args into its error message on failure")
 		assert.Contains(t, capturedEnv, "GIT_CONFIG_COUNT=1")
 		assert.Contains(t, capturedEnv, "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader")
@@ -93,6 +95,34 @@ func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), token)
 	assert.NotContains(t, err.Error(), basicAuthHeader(token))
+}
+
+func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
+	// Regression test, found by manual testing: Push used to append remote
+	// and branch as bare trailing args, so `--remote --force` (a caller-
+	// supplied value, e.g. from an MCP tool call) became a real
+	// `git push --force`, not a push to a remote literally named
+	// "--force". Confirmed live before fixing: with -- in place, git
+	// itself refuses a positional that still looks like a flag ("strange
+	// pathname ... blocked") instead of running it as --force.
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...) //nolint:gosec
+		cmd.Dir = dir
+		require.NoError(t, cmd.Run())
+	}
+	run("init", "-q")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "test")
+	require.NoError(t, os.WriteFile(dir+"/f.txt", []byte("x"), 0o600))
+	run("add", "f.txt")
+	run("commit", "-q", "-m", "init")
+
+	_, err := Push(context.Background(), dir, "", "--force", "main", false)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked",
+		"expected git to refuse the positional --force rather than run it as a real flag; got: %s", err.Error())
 }
 
 func TestCurrentBranchTrimsOutput(t *testing.T) {

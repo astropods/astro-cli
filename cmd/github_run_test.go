@@ -151,9 +151,10 @@ func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
 		want  []string
 	}{
 		{name: "no number, no json", want: []string{"pr", "view"}},
-		{name: "with number", args: []string{"42"}, want: []string{"pr", "view", "42"}},
+		{name: "with number", args: []string{"42"}, want: []string{"pr", "view", "--", "42"}},
 		{name: "with json fields", flags: map[string]string{"json": "number,title"}, want: []string{"pr", "view", "--json", "number,title"}},
-		{name: "with repo", args: []string{"42"}, flags: map[string]string{"repo": "astropods/astro-cli"}, want: []string{"pr", "view", "42", "-R", "astropods/astro-cli"}},
+		{name: "with repo", args: []string{"42"}, flags: map[string]string{"repo": "astropods/astro-cli"}, want: []string{"pr", "view", "-R", "astropods/astro-cli", "--", "42"}},
+		{name: "number starting with a dash is still passed as positional, not a flag", args: []string{"--force"}, want: []string{"pr", "view", "--", "--force"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -208,7 +209,7 @@ func TestRunGitHubPRCommentPassesBodyAndNumber(t *testing.T) {
 	err := runGitHubPRComment(cmd, []string{"7"})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"pr", "comment", "7", "--body", "Looks good.", "-R", "astropods/astro-cli"}, gotArgs)
+	assert.Equal(t, []string{"pr", "comment", "--body", "Looks good.", "-R", "astropods/astro-cli", "--", "7"}, gotArgs)
 }
 
 func TestRunGitHubPRChecksBuildsExpectedArgs(t *testing.T) {
@@ -222,7 +223,7 @@ func TestRunGitHubPRChecksBuildsExpectedArgs(t *testing.T) {
 	err := runGitHubPRChecks(cmd, []string{"12"})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"pr", "checks", "12", "--json", "name,state", "-R", "astropods/astro-cli"}, gotArgs)
+	assert.Equal(t, []string{"pr", "checks", "--json", "name,state", "-R", "astropods/astro-cli", "--", "12"}, gotArgs)
 }
 
 func TestRunGitHubIssueViewBuildsExpectedArgs(t *testing.T) {
@@ -236,7 +237,7 @@ func TestRunGitHubIssueViewBuildsExpectedArgs(t *testing.T) {
 	err := runGitHubIssueView(cmd, []string{"9"})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "view", "9", "--json", "number,title", "-R", "astropods/astro-cli"}, gotArgs)
+	assert.Equal(t, []string{"issue", "view", "--json", "number,title", "-R", "astropods/astro-cli", "--", "9"}, gotArgs)
 }
 
 func TestRunGitHubPushResolvesBranchAndForwardsToken(t *testing.T) {

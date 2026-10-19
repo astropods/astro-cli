@@ -63,6 +63,19 @@ func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 	return ghArgs
 }
 
+// withPositional appends a `--` separator before any positional args, so gh
+// never reinterprets one as a flag if it starts with "-". PR/issue numbers
+// are always plain positive integers from GitHub itself, but nothing
+// enforces that before this point, and --remote on Push showed live that a
+// caller-supplied value reinterpreted as a flag is a real problem, not a
+// theoretical one.
+func withPositional(ghArgs []string, positional []string) []string {
+	if len(positional) == 0 {
+		return ghArgs
+	}
+	return append(append(ghArgs, "--"), positional...)
+}
+
 func writePassthrough(w io.Writer, s string) {
 	if s == "" {
 		return
@@ -75,11 +88,11 @@ func writePassthrough(w io.Writer, s string) {
 
 func runGitHubPRView(cmd *cobra.Command, args []string) error {
 	ghArgs := []string{"pr", "view"}
-	ghArgs = append(ghArgs, args...)
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
+	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	return runGHPassthrough(cmd, ghArgs...)
 }
 
 func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
@@ -104,25 +117,27 @@ func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
 
 func runGitHubPRComment(cmd *cobra.Command, args []string) error {
 	body, _ := cmd.Flags().GetString("body")
-	ghArgs := []string{"pr", "comment", args[0], "--body", body}
-	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
+	ghArgs := []string{"pr", "comment", "--body", body}
+	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	return runGHPassthrough(cmd, ghArgs...)
 }
 
 func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
 	ghArgs := []string{"pr", "checks"}
-	ghArgs = append(ghArgs, args...)
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
+	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	return runGHPassthrough(cmd, ghArgs...)
 }
 
 func runGitHubIssueView(cmd *cobra.Command, args []string) error {
-	ghArgs := []string{"issue", "view", args[0]}
+	ghArgs := []string{"issue", "view"}
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
+	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	return runGHPassthrough(cmd, ghArgs...)
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {

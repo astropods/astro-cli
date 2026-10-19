@@ -92,7 +92,10 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 	if setUpstream {
 		args = append(args, "--set-upstream")
 	}
-	args = append(args, remote, branch)
+	// -- stops git from treating remote (caller-supplied, e.g. via --remote)
+	// as a flag if it starts with "-": confirmed live that --remote=--force
+	// otherwise becomes a real `git push --force`.
+	args = append(args, "--", remote, branch)
 	return run(ctx, dir, env, "git", args...)
 }
 
