@@ -25,6 +25,7 @@ func resolveGitHubToken(ctx context.Context, verbose bool) string {
 	if authzToken == "" {
 		return ""
 	}
+	// Not apiPath: this endpoint takes no :account segment, which apiPath always inserts.
 	reqURL := sandboxBaseURL() + "/api/v1/deployments/connections/token"
 	var resp issueConnectionTokenResponse
 	_, err := apiCall(ctx, http.MethodPost, reqURL, issueConnectionTokenRequest{Provider: githubConnectionProvider}, authzToken, verbose, &resp)

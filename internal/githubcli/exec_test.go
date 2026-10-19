@@ -62,20 +62,37 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 		assert.Equal(t, []string{"push", "origin", "my-branch"}, capturedArgs)
 	})
 
-	t.Run("non-empty token adds a single-request auth header, and --set-upstream when asked", func(t *testing.T) {
-		var capturedArgs []string
-		withFakeRun(t, func(_ context.Context, _ string, _ []string, _ string, args ...string) (Result, error) {
-			capturedArgs = args
+	t.Run("non-empty token adds a single-request auth header via env, not argv, and --set-upstream when asked", func(t *testing.T) {
+		var capturedArgs, capturedEnv []string
+		withFakeRun(t, func(_ context.Context, _ string, env []string, _ string, args ...string) (Result, error) {
+			capturedArgs, capturedEnv = args, env
 			return Result{}, nil
 		})
 
 		_, err := Push(context.Background(), "/repo", "gho_abc123", "origin", "my-branch", true)
 		require.NoError(t, err)
-		require.Len(t, capturedArgs, 6)
-		assert.Equal(t, "-c", capturedArgs[0])
-		assert.Equal(t, "http.https://github.com/.extraheader=AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hvX2FiYzEyMw==", capturedArgs[1])
-		assert.Equal(t, []string{"push", "--set-upstream", "origin", "my-branch"}, capturedArgs[2:])
+		assert.Equal(t, []string{"push", "--set-upstream", "origin", "my-branch"}, capturedArgs,
+			"the token must never appear in args: runCommand joins args into its error message on failure")
+		assert.Contains(t, capturedEnv, "GIT_CONFIG_COUNT=1")
+		assert.Contains(t, capturedEnv, "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader")
+		assert.Contains(t, capturedEnv, "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hvX2FiYzEyMw==")
 	})
+}
+
+func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
+	// Regression test: Push used to pass the credential via a -c argv flag,
+	// and runCommand's error formatting joins args into the error message,
+	// so any failed push leaked the raw token (recoverable by decoding one
+	// base64 string) into text that reaches stderr, logs, and an ast mcp
+	// tool call's result. Exercises the real exec path, no fake runner.
+	dir := t.TempDir() // not a git repository, so `git push` fails immediately
+	const token = "SUPERSECRETTOKENVALUE123"
+
+	_, err := Push(context.Background(), dir, token, "origin", "some-branch", false)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), token)
+	assert.NotContains(t, err.Error(), basicAuthHeader(token))
 }
 
 func TestCurrentBranchTrimsOutput(t *testing.T) {

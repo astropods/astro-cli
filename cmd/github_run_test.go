@@ -125,19 +125,20 @@ func TestGHAuthReportsMissingBinaryDistinctlyFromUnauthenticated(t *testing.T) {
 	_, err := ghAuth(cmd)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not installed")
+	assert.Equal(t, errGHNotInstalled().Error(), err.Error())
 }
 
 func TestGHAuthWrapsAGenericAuthFailure(t *testing.T) {
+	authErr := errors.New("401")
 	withFakeGH(t, nil, func(context.Context, string) error {
-		return errors.New("401")
+		return authErr
 	}, nil, nil)
 
 	cmd := newTestCmd(t, nil, githubPRViewCmd)
 	_, err := ghAuth(cmd)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "gh auth login")
+	assert.Equal(t, errGHNotAuthenticated(authErr).Error(), err.Error())
 }
 
 func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
@@ -183,13 +184,14 @@ func TestRunGitHubPRCreateBuildsExpectedArgs(t *testing.T) {
 		"base":  "main",
 		"head":  "fix/thing",
 		"draft": "true",
+		"repo":  "astropods/astro-cli",
 	}, githubPRCreateCmd)
 	err := runGitHubPRCreate(cmd, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"pr", "create", "--title", "Fix the thing", "--body", "Fixes the thing.",
-		"--base", "main", "--head", "fix/thing", "--draft",
+		"--base", "main", "--head", "fix/thing", "--draft", "-R", "astropods/astro-cli",
 	}, gotArgs)
 }
 
@@ -200,11 +202,25 @@ func TestRunGitHubPRCommentPassesBodyAndNumber(t *testing.T) {
 		return githubcli.Result{}, nil
 	}, func(context.Context, string) error { return nil }, nil, nil)
 
-	cmd := newTestCmd(t, map[string]string{"body": "Looks good."}, githubPRCommentCmd)
+	cmd := newTestCmd(t, map[string]string{"body": "Looks good.", "repo": "astropods/astro-cli"}, githubPRCommentCmd)
 	err := runGitHubPRComment(cmd, []string{"7"})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"pr", "comment", "7", "--body", "Looks good."}, gotArgs)
+	assert.Equal(t, []string{"pr", "comment", "7", "--body", "Looks good.", "-R", "astropods/astro-cli"}, gotArgs)
+}
+
+func TestRunGitHubPRChecksBuildsExpectedArgs(t *testing.T) {
+	var gotArgs []string
+	withFakeGH(t, func(_ context.Context, _, _ string, args ...string) (githubcli.Result, error) {
+		gotArgs = args
+		return githubcli.Result{}, nil
+	}, func(context.Context, string) error { return nil }, nil, nil)
+
+	cmd := newTestCmd(t, map[string]string{"json": "name,state", "repo": "astropods/astro-cli"}, githubPRChecksCmd)
+	err := runGitHubPRChecks(cmd, []string{"12"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"pr", "checks", "12", "--json", "name,state", "-R", "astropods/astro-cli"}, gotArgs)
 }
 
 func TestRunGitHubIssueViewBuildsExpectedArgs(t *testing.T) {
@@ -214,11 +230,11 @@ func TestRunGitHubIssueViewBuildsExpectedArgs(t *testing.T) {
 		return githubcli.Result{}, nil
 	}, func(context.Context, string) error { return nil }, nil, nil)
 
-	cmd := newTestCmd(t, map[string]string{"json": "number,title"}, githubIssueViewCmd)
+	cmd := newTestCmd(t, map[string]string{"json": "number,title", "repo": "astropods/astro-cli"}, githubIssueViewCmd)
 	err := runGitHubIssueView(cmd, []string{"9"})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"issue", "view", "9", "--json", "number,title"}, gotArgs)
+	assert.Equal(t, []string{"issue", "view", "9", "--json", "number,title", "-R", "astropods/astro-cli"}, gotArgs)
 }
 
 func TestRunGitHubPushResolvesBranchAndForwardsToken(t *testing.T) {

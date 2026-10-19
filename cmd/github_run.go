@@ -10,9 +10,7 @@ import (
 	"github.com/astropods/astro-cli/internal/githubcli"
 )
 
-// Package-level seams so tests can fake gh/git without a real gh binary or
-// network access, the same way internal/git/metadata.go's tests inject a
-// fake commandRunner.
+// Package-level seams so tests can fake gh/git without a real gh binary.
 var (
 	ghRun           = githubcli.GH
 	ghAuthenticated = githubcli.GHAuthenticated
@@ -20,9 +18,9 @@ var (
 	ghCurrentBranch = githubcli.CurrentBranch
 )
 
-// ghAuth resolves which credential a github subcommand should use, then
-// checks that gh/git can actually act with it, so a command fails with one
-// clear message instead of gh's own cryptic prompt or exec error.
+// ghAuth returns the token a github subcommand should use, preferring the
+// dev session's GitHub connection and falling back to the operator's own
+// `gh auth login`, which it verifies is actually set up.
 func ghAuth(cmd *cobra.Command) (token string, err error) {
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	ctx := cmd.Context()

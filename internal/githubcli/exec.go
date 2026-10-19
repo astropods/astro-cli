@@ -73,22 +73,27 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 	return err
 }
 
-// Push runs `git push` in dir. A non-empty token authenticates the push for
-// github.com over HTTPS via a single-request Authorization header (the same
-// mechanism GitHub's own tooling uses for short-lived tokens), without
-// writing the token to any git config or credential store. An empty token
-// leaves git to use the operator's own configured credential helper.
+// Push runs `git push` in dir. A non-empty token authenticates the push via a
+// single-request Authorization header, passed through env (GIT_CONFIG_*,
+// git 2.31+) rather than a -c flag: runCommand's error formatting joins args
+// into its message, so a credential placed there would leak into any failed
+// push's error text. An empty token leaves git to use the operator's own
+// configured credential helper.
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
-	args := []string{}
+	var env []string
 	if token != "" {
-		args = append(args, "-c", "http.https://github.com/.extraheader=AUTHORIZATION: basic "+basicAuthHeader(token))
+		env = []string{
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+			"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + basicAuthHeader(token),
+		}
 	}
-	args = append(args, "push")
+	args := []string{"push"}
 	if setUpstream {
 		args = append(args, "--set-upstream")
 	}
 	args = append(args, remote, branch)
-	return run(ctx, dir, nil, "git", args...)
+	return run(ctx, dir, env, "git", args...)
 }
 
 func CurrentBranch(ctx context.Context, dir string) (string, error) {
