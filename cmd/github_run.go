@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -18,17 +20,31 @@ var (
 	ghCurrentBranch = githubcli.CurrentBranch
 )
 
-// ghAuth returns the token a github subcommand should use, preferring the
-// dev session's GitHub connection and falling back to the operator's own
-// `gh auth login`, which it verifies is actually set up.
-func ghAuth(cmd *cobra.Command) (token string, err error) {
-	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
-	ctx := cmd.Context()
+// ghAuthCheckTimeout bounds `gh auth status`, which validates the token
+// against GitHub's API, so a slow or blocked network can't hang a command
+// indefinitely.
+const ghAuthCheckTimeout = 10 * time.Second
 
-	token = resolveGitHubToken(ctx, verbose)
+// resolveToken returns the dev session's GitHub connection token, or "" to
+// use the operator's own local credentials.
+func resolveToken(cmd *cobra.Command) string {
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	return resolveGitHubToken(cmd.Context(), verbose)
+}
+
+// ghAuth returns the token a gh-based subcommand should use, preferring the
+// dev session's GitHub connection; with none open, it verifies the
+// operator's own `gh auth login` actually works, so the command fails with
+// one clear message instead of gh's own cryptic prompt. Push does not call
+// this: it only ever runs git, and git has its own credential resolution
+// (SSH key, credential helper, ...) independent of whether gh is installed.
+func ghAuth(cmd *cobra.Command) (token string, err error) {
+	token = resolveToken(cmd)
 	if token != "" {
 		return token, nil
 	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), ghAuthCheckTimeout)
+	defer cancel()
 	if err := ghAuthenticated(ctx, ""); err != nil {
 		var notInstalled githubcli.ErrNotInstalled
 		if errors.As(err, &notInstalled) {
@@ -68,7 +84,9 @@ func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 // are always plain positive integers from GitHub itself, but nothing
 // enforces that before this point, and --remote on Push showed live that a
 // caller-supplied value reinterpreted as a flag is a real problem, not a
-// theoretical one.
+// theoretical one. githubcli.Push applies the same `--` to remote/branch
+// independently (git, not gh); any new bare positional anywhere needs this
+// same treatment.
 func withPositional(ghArgs []string, positional []string) []string {
 	if len(positional) == 0 {
 		return ghArgs
@@ -141,10 +159,7 @@ func runGitHubIssueView(cmd *cobra.Command, args []string) error {
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {
-	token, err := ghAuth(cmd)
-	if err != nil {
-		return err
-	}
+	token := resolveToken(cmd)
 	remote, _ := cmd.Flags().GetString("remote")
 	setUpstream, _ := cmd.Flags().GetBool("set-upstream")
 
@@ -152,6 +167,9 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	branch, err := ghCurrentBranch(ctx, "")
 	if err != nil {
 		return errGitHubCommandFailed(err)
+	}
+	if branch == "HEAD" {
+		return errGitHubDetachedHead()
 	}
 
 	w := cmd.OutOrStdout()

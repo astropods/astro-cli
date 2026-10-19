@@ -175,4 +175,4 @@ ast github pr view 7 --json number,title,state
 ast github pr checks 7
 ```
 
-Run `gh auth login` first; these commands use whatever account that already authenticated. `--repo OWNER/REPO` targets a repository other than the one in the current directory, the same as a plain `gh` invocation. Inside an `ast dev` session that shared a GitHub connection, these commands use that connection's token instead, so a sandboxed agent with no local `gh` login still works.
+`pr`/`issue` commands run `gh`, so run `gh auth login` first; they use whatever account that already authenticated. `push` runs only `git`, so it uses git's own credentials (an SSH key, a credential helper, ...) and needs no `gh` login. `--repo OWNER/REPO` targets a repository other than the one in the current directory, the same as a plain `gh` invocation. Inside an `ast dev` session that shared a GitHub connection, every one of these commands uses that connection's token instead, so a sandboxed agent with no local git or `gh` credentials still works.

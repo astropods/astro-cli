@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -82,11 +83,7 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
 	var env []string
 	if token != "" {
-		env = []string{
-			"GIT_CONFIG_COUNT=1",
-			"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
-			"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + basicAuthHeader(token),
-		}
+		env = appendGitConfigEnv("http.https://github.com/.extraheader", "AUTHORIZATION: basic "+basicAuthHeader(token))
 	}
 	args := []string{"push"}
 	if setUpstream {
@@ -94,7 +91,9 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 	}
 	// -- stops git from treating remote (caller-supplied, e.g. via --remote)
 	// as a flag if it starts with "-": confirmed live that --remote=--force
-	// otherwise becomes a real `git push --force`.
+	// otherwise becomes a real `git push --force`. cmd.withPositional applies
+	// the same treatment for gh's bare positionals (PR/issue numbers); any
+	// new bare positional anywhere needs this same treatment.
 	args = append(args, "--", remote, branch)
 	return run(ctx, dir, env, "git", args...)
 }
@@ -109,4 +108,20 @@ func CurrentBranch(ctx context.Context, dir string) (string, error) {
 
 func basicAuthHeader(token string) string {
 	return base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+}
+
+// appendGitConfigEnv adds one git config value via the GIT_CONFIG_COUNT/
+// KEY_n/VALUE_n env vars, at the next free index after whatever the caller's
+// own environment already declares (e.g. a sandbox setting safe.directory),
+// so this never clobbers config the caller depends on.
+func appendGitConfigEnv(key, value string) []string {
+	n, _ := strconv.Atoi(os.Getenv("GIT_CONFIG_COUNT"))
+	if n < 0 {
+		n = 0
+	}
+	return []string{
+		fmt.Sprintf("GIT_CONFIG_COUNT=%d", n+1),
+		fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", n, key),
+		fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", n, value),
+	}
 }

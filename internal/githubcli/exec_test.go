@@ -125,6 +125,33 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 		"expected git to refuse the positional --force rather than run it as a real flag; got: %s", err.Error())
 }
 
+func TestAppendGitConfigEnvExtendsRatherThanReplacesExistingConfig(t *testing.T) {
+	// Regression test: Push used to hardcode GIT_CONFIG_COUNT=1/KEY_0/VALUE_0,
+	// which overwrote (not extended) any GIT_CONFIG_* entries the caller's
+	// own environment already set — a real pattern for a sandbox configuring
+	// e.g. safe.directory or an http.proxy. Confirmed live with a real git
+	// subprocess that the old code dropped both pre-existing entries.
+	t.Run("no pre-existing config starts at index 0", func(t *testing.T) {
+		t.Setenv("GIT_CONFIG_COUNT", "")
+		env := appendGitConfigEnv("http.extraheader", "AUTHORIZATION: basic X")
+		assert.Equal(t, []string{
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=http.extraheader",
+			"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic X",
+		}, env)
+	})
+
+	t.Run("pre-existing config is extended, not replaced", func(t *testing.T) {
+		t.Setenv("GIT_CONFIG_COUNT", "2")
+		env := appendGitConfigEnv("http.extraheader", "AUTHORIZATION: basic X")
+		assert.Equal(t, []string{
+			"GIT_CONFIG_COUNT=3",
+			"GIT_CONFIG_KEY_2=http.extraheader",
+			"GIT_CONFIG_VALUE_2=AUTHORIZATION: basic X",
+		}, env, "must raise the count and use the next free index, never touching KEY_0/KEY_1")
+	})
+}
+
 func TestCurrentBranchTrimsOutput(t *testing.T) {
 	withFakeRun(t, func(_ context.Context, _ string, _ []string, name string, args ...string) (Result, error) {
 		assert.Equal(t, "git", name)

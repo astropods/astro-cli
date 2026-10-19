@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -244,7 +245,10 @@ func TestRunGitHubPushResolvesBranchAndForwardsToken(t *testing.T) {
 	var gotRemote, gotBranch, gotToken string
 	var gotSetUpstream bool
 	withFakeGH(t, nil,
-		func(context.Context, string) error { return nil },
+		func(context.Context, string) error {
+			t.Fatal("push must never check gh auth: it only runs git, which has its own credential resolution")
+			return nil
+		},
 		func(_ context.Context, _, token, remote, branch string, setUpstream bool) (githubcli.Result, error) {
 			gotToken, gotRemote, gotBranch, gotSetUpstream = token, remote, branch, setUpstream
 			return githubcli.Result{Stdout: "pushed"}, nil
@@ -270,8 +274,7 @@ func TestRunGitHubPushNeverPrintsStderrTwiceOnFailure(t *testing.T) {
 	// way runCommand actually behaves: the error's own text carries stderr.
 	stderrText := "remote: permission denied"
 	pushErr := fmt.Errorf("git push origin feature/x: exit status 128: %s", stderrText)
-	withFakeGH(t, nil,
-		func(context.Context, string) error { return nil },
+	withFakeGH(t, nil, nil,
 		func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
 			return githubcli.Result{Stderr: stderrText}, pushErr
 		},
@@ -285,4 +288,46 @@ func TestRunGitHubPushNeverPrintsStderrTwiceOnFailure(t *testing.T) {
 	combined := outputOf(cmd) + err.Error()
 	assert.Equal(t, 1, strings.Count(combined, stderrText),
 		"stderr text appeared %d times in %q; it must appear exactly once between stdout and the error", strings.Count(combined, stderrText), combined)
+}
+
+func TestRunGitHubPushRefusesDetachedHead(t *testing.T) {
+	// Regression test: CurrentBranch returns the literal string "HEAD" in a
+	// detached checkout (not an error), and forwarding that straight to
+	// `git push` as the branch name produced a cryptic git-internals error
+	// instead of a clear one.
+	var pushCalled bool
+	withFakeGH(t, nil, nil,
+		func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
+			pushCalled = true
+			return githubcli.Result{}, nil
+		},
+		func(context.Context, string) (string, error) { return "HEAD", nil },
+	)
+
+	cmd := newTestCmd(t, map[string]string{"remote": "origin"}, githubPushCmd)
+	err := runGitHubPush(cmd, nil)
+
+	require.Error(t, err)
+	assert.Equal(t, errGitHubDetachedHead().Error(), err.Error())
+	assert.False(t, pushCalled, "must not attempt a push when not on a real branch")
+}
+
+func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
+	// Regression test: gh auth status validates the token against GitHub's
+	// API, so with no dev session open, a slow or blocked network used to
+	// hang every gh-based command indefinitely, same as the already-fixed
+	// connections-token fetch, one call deeper.
+	withFakeGH(t, nil, func(ctx context.Context, _ string) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}, nil, nil)
+
+	cmd := newTestCmd(t, nil, githubPRViewCmd)
+	start := time.Now()
+	_, err := ghAuth(cmd)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, ghAuthCheckTimeout+2*time.Second,
+		"took %s; ghAuth must give up at roughly ghAuthCheckTimeout, not hang forever", elapsed)
 }

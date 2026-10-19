@@ -95,6 +95,10 @@ func errGitHubCommandFailed(err error) error {
 	return fmt.Errorf("github: %w", err)
 }
 
+func errGitHubDetachedHead() error {
+	return fmt.Errorf("not on a branch (detached HEAD); check out a branch before pushing")
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }
