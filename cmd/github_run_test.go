@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -260,11 +262,17 @@ func TestRunGitHubPushResolvesBranchAndForwardsToken(t *testing.T) {
 	assert.Contains(t, outputOf(cmd), "pushed")
 }
 
-func TestRunGitHubPushSurfacesAFailedPush(t *testing.T) {
+func TestRunGitHubPushNeverPrintsStderrTwiceOnFailure(t *testing.T) {
+	// Regression test: runCommand's real error already embeds stderr (see
+	// internal/githubcli.runCommand), so writing result.Stderr separately on
+	// a failed push showed the same git error text twice. Fakes ghPush the
+	// way runCommand actually behaves: the error's own text carries stderr.
+	stderrText := "remote: permission denied"
+	pushErr := fmt.Errorf("git push origin feature/x: exit status 128: %s", stderrText)
 	withFakeGH(t, nil,
 		func(context.Context, string) error { return nil },
 		func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
-			return githubcli.Result{Stderr: "remote: permission denied"}, errors.New("exit status 128")
+			return githubcli.Result{Stderr: stderrText}, pushErr
 		},
 		func(context.Context, string) (string, error) { return "feature/x", nil },
 	)
@@ -273,5 +281,7 @@ func TestRunGitHubPushSurfacesAFailedPush(t *testing.T) {
 	err := runGitHubPush(cmd, nil)
 
 	require.Error(t, err)
-	assert.Contains(t, outputOf(cmd), "permission denied")
+	combined := outputOf(cmd) + err.Error()
+	assert.Equal(t, 1, strings.Count(combined, stderrText),
+		"stderr text appeared %d times in %q; it must appear exactly once between stdout and the error", strings.Count(combined, stderrText), combined)
 }

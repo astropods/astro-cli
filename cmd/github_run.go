@@ -142,9 +142,13 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	w := cmd.OutOrStdout()
 	result, err := ghPush(ctx, "", token, remote, branch, setUpstream)
 	writePassthrough(w, result.Stdout)
-	writePassthrough(w, result.Stderr)
 	if err != nil {
+		// runCommand's error already carries stderr; printing it here too
+		// would show it twice.
 		return errGitHubCommandFailed(err)
 	}
+	// git push writes its own hints (e.g. "Create a pull request for...")
+	// to stderr even on success.
+	writePassthrough(w, result.Stderr)
 	return nil
 }
