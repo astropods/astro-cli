@@ -161,3 +161,18 @@ After pushing, **navigate to the Astropods platform** to see your agent and depl
 ### `build` — Build containers (optional)
 
 Build agent and custom component containers from the spec. This step is optional: when you run `ast push`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without pushing.
+
+### `github` — Act on GitHub pull requests and issues
+
+`ast github` wraps the locally installed `gh` and `git` so an agent driving the CLI can read an issue, push a branch, open a pull request, and comment on it, without a separate GitHub client. This is unrelated to `ast push`, which registers a blueprint with Astropods rather than touching GitHub.
+
+```bash
+ast github issue view 42
+ast github push --set-upstream
+ast github pr create --title "Fix the thing" --body "Fixes the thing."
+ast github pr comment 7 --body "Addressed the feedback."
+ast github pr view 7 --json number,title,state
+ast github pr checks 7
+```
+
+Run `gh auth login` first; these commands use whatever account that already authenticated. `--repo OWNER/REPO` targets a repository other than the one in the current directory, the same as a plain `gh` invocation. Inside an `ast dev` session that shared a GitHub connection, these commands use that connection's token instead, so a sandboxed agent with no local `gh` login still works.
