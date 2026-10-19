@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,29 @@ func TestResolveGitHubTokenFetchesFromTheConnectionsEndpoint(t *testing.T) {
 	assert.Equal(t, "gho_fromdevsession", token)
 	assert.Equal(t, "Bearer the-dev-session-bearer", gotAuth)
 	assert.Equal(t, "github", gotBody.Provider)
+}
+
+func TestResolveGitHubTokenGivesUpOnAnUnresponsiveServer(t *testing.T) {
+	// Regression test: a stray ASTRO_AUTHZ_TOKEN left over from another
+	// session, pointed at an unreachable server, used to let this call hang
+	// for however long the OS's TCP timeout took before falling back.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(resolveGitHubTokenTimeout + 5*time.Second)
+	}))
+	defer srv.Close()
+
+	prevURL := sandboxServerURLOverride
+	sandboxServerURLOverride = srv.URL
+	t.Cleanup(func() { sandboxServerURLOverride = prevURL })
+	t.Setenv(sandboxTokenEnvVar, "the-dev-session-bearer")
+
+	start := time.Now()
+	token := resolveGitHubToken(context.Background(), false)
+	elapsed := time.Since(start)
+
+	assert.Empty(t, token)
+	assert.Less(t, elapsed, resolveGitHubTokenTimeout+2*time.Second,
+		"took %s; must give up at roughly resolveGitHubTokenTimeout, not hang on the slow server", elapsed)
 }
 
 func TestResolveGitHubTokenFallsBackSilentlyOnServerFailure(t *testing.T) {

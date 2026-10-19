@@ -4,9 +4,17 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 )
 
 const githubConnectionProvider = "github"
+
+// resolveGitHubTokenTimeout bounds the connections-token fetch so an
+// unreachable server (e.g. a stale ASTRO_AUTHZ_TOKEN left over from another
+// session) can't stall every github command; the caller always falls back
+// to gh's own login on any failure here, so a capped wait costs nothing in
+// the common case and avoids an open-ended one in a bad network.
+const resolveGitHubTokenTimeout = 5 * time.Second
 
 type issueConnectionTokenRequest struct {
 	Provider string `json:"provider"`
@@ -25,6 +33,8 @@ func resolveGitHubToken(ctx context.Context, verbose bool) string {
 	if authzToken == "" {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, resolveGitHubTokenTimeout)
+	defer cancel()
 	// Not apiPath: this endpoint takes no :account segment, which apiPath always inserts.
 	reqURL := sandboxBaseURL() + "/api/v1/deployments/connections/token"
 	var resp issueConnectionTokenResponse
