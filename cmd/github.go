@@ -86,21 +86,26 @@ func init() {
 	githubIssueCmd.AddCommand(githubIssueViewCmd)
 
 	githubPRViewCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. number,title,state)")
+	githubPRViewCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
 	githubPRCreateCmd.Flags().String("title", "", "Pull request title (required)")
 	githubPRCreateCmd.Flags().String("body", "", "Pull request body (required)")
 	githubPRCreateCmd.Flags().String("base", "", "Base branch (defaults to the repository's default branch)")
 	githubPRCreateCmd.Flags().String("head", "", "Head branch (defaults to the current branch)")
 	githubPRCreateCmd.Flags().Bool("draft", false, "Open as a draft")
+	githubPRCreateCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 	githubPRCreateCmd.MarkFlagRequired("title") //nolint:errcheck,gosec
 	githubPRCreateCmd.MarkFlagRequired("body")  //nolint:errcheck,gosec
 
 	githubPRCommentCmd.Flags().String("body", "", "Comment body (required)")
+	githubPRCommentCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 	githubPRCommentCmd.MarkFlagRequired("body") //nolint:errcheck,gosec
 
 	githubPRChecksCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. name,state,conclusion)")
+	githubPRChecksCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
 	githubIssueViewCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. number,title,state)")
+	githubIssueViewCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
 	githubPushCmd.Flags().String("remote", "origin", "Remote to push to")
 	githubPushCmd.Flags().Bool("set-upstream", false, "Set the pushed branch as its upstream")

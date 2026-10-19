@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -32,20 +33,12 @@ func ghAuth(cmd *cobra.Command) (token string, err error) {
 	}
 	if err := ghAuthenticated(ctx, ""); err != nil {
 		var notInstalled githubcli.ErrNotInstalled
-		if isErrNotInstalled(err, &notInstalled) {
+		if errors.As(err, &notInstalled) {
 			return "", errGHNotInstalled()
 		}
 		return "", errGHNotAuthenticated(err)
 	}
 	return "", nil
-}
-
-func isErrNotInstalled(err error, target *githubcli.ErrNotInstalled) bool {
-	if e, ok := err.(githubcli.ErrNotInstalled); ok { //nolint:errorlint // ErrNotInstalled is never wrapped by this package
-		*target = e
-		return true
-	}
-	return false
 }
 
 func runGHPassthrough(cmd *cobra.Command, args ...string) error {
@@ -60,6 +53,16 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 		return errGitHubCommandFailed(err)
 	}
 	return nil
+}
+
+// withRepoFlag appends gh's own -R flag when --repo was given, so these
+// commands can target a repository other than the one in the working
+// directory, the same way a plain gh invocation would.
+func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
+	if repo, _ := cmd.Flags().GetString("repo"); repo != "" {
+		return append(ghArgs, "-R", repo)
+	}
+	return ghArgs
 }
 
 func writePassthrough(w io.Writer, s string) {
@@ -78,7 +81,7 @@ func runGitHubPRView(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
 }
 
 func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
@@ -98,12 +101,13 @@ func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
 	if draft {
 		ghArgs = append(ghArgs, "--draft")
 	}
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
 }
 
 func runGitHubPRComment(cmd *cobra.Command, args []string) error {
 	body, _ := cmd.Flags().GetString("body")
-	return runGHPassthrough(cmd, "pr", "comment", args[0], "--body", body)
+	ghArgs := []string{"pr", "comment", args[0], "--body", body}
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
 }
 
 func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
@@ -112,7 +116,7 @@ func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
 }
 
 func runGitHubIssueView(cmd *cobra.Command, args []string) error {
@@ -120,7 +124,7 @@ func runGitHubIssueView(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {

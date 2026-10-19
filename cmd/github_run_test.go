@@ -43,12 +43,22 @@ func withFakeGH(t *testing.T,
 	})
 }
 
+// newTestCmd wraps source's own flag set (not a copy: AddFlagSet shares the
+// underlying *Flag pointers), so every value set here is reset to its
+// default on cleanup, since source's flags outlive this one test.
 func newTestCmd(t *testing.T, flags map[string]string, source *cobra.Command) *cobra.Command {
 	t.Helper()
 	cmd := &cobra.Command{Use: source.Use}
 	cmd.Flags().AddFlagSet(source.Flags())
 	for name, value := range flags {
+		f := cmd.Flags().Lookup(name)
+		require.NotNil(t, f, name)
+		def := f.DefValue
 		require.NoError(t, cmd.Flags().Set(name, value))
+		t.Cleanup(func() {
+			cmd.Flags().Set(name, def) //nolint:errcheck,gosec
+			f.Changed = false
+		})
 	}
 	cmd.SetContext(context.Background())
 	root := &cobra.Command{Use: "ast"}
@@ -140,6 +150,7 @@ func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
 		{name: "no number, no json", want: []string{"pr", "view"}},
 		{name: "with number", args: []string{"42"}, want: []string{"pr", "view", "42"}},
 		{name: "with json fields", flags: map[string]string{"json": "number,title"}, want: []string{"pr", "view", "--json", "number,title"}},
+		{name: "with repo", args: []string{"42"}, flags: map[string]string{"repo": "astropods/astro-cli"}, want: []string{"pr", "view", "42", "-R", "astropods/astro-cli"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

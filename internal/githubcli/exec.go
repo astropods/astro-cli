@@ -67,8 +67,7 @@ func GH(ctx context.Context, dir, token string, args ...string) (Result, error) 
 	return run(ctx, dir, env, "gh", args...)
 }
 
-// GHAuthenticated reports whether gh can authenticate with no token override,
-// i.e. whether the operator has their own `gh auth login` session.
+// GHAuthenticated reports whether the operator has their own `gh auth login` session.
 func GHAuthenticated(ctx context.Context, dir string) error {
 	_, err := run(ctx, dir, nil, "gh", "auth", "status")
 	return err
@@ -92,7 +91,6 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 	return run(ctx, dir, nil, "git", args...)
 }
 
-// CurrentBranch returns the checked-out branch name in dir.
 func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	result, err := run(ctx, dir, nil, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
