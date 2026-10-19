@@ -83,6 +83,18 @@ func msgConnectionsDevSessionOpened(expiresAt string) string {
 	return fmt.Sprintf("Dev session opened for connections (expires %s)", expiresAt)
 }
 
+func errGHNotInstalled() error {
+	return fmt.Errorf("the GitHub CLI (gh) is not installed or not on PATH; install it from https://cli.github.com")
+}
+
+func errGHNotAuthenticated(err error) error {
+	return fmt.Errorf("gh is not authenticated; run `gh auth login`, or share a GitHub connection with this dev session: %w", err)
+}
+
+func errGitHubCommandFailed(err error) error {
+	return fmt.Errorf("github: %w", err)
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }
