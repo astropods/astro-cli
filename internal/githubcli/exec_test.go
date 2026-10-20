@@ -107,7 +107,7 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 		cmd.Dir = dir
 		require.NoError(t, cmd.Run())
 	}
-	run("init", "-q")
+	run("init", "-q", "-b", "main") // explicit branch name: the runner's git default may not be "main"
 	run("config", "user.email", "test@example.com")
 	run("config", "user.name", "test")
 	require.NoError(t, os.WriteFile(dir+"/f.txt", []byte("x"), 0o600))
@@ -117,8 +117,14 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 	_, err := Push(context.Background(), dir, "", "--force", "main", false)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "blocked",
-		"expected git to refuse the positional --force rather than run it as a real flag; got: %s", err.Error())
+	// If -- failed to protect "--force", git would consume it as the real
+	// flag, leaving "main" alone to be misread as the remote name; git's
+	// own error for that specific case names "main" as the remote and
+	// suggests "git push --set-upstream main main".
+	assert.NotContains(t, err.Error(), "has no upstream branch",
+		"--force reached git as a real flag instead of a positional: %s", err.Error())
+	assert.Contains(t, err.Error(), "--force",
+		"--force should appear as the attempted destination, not vanish as a consumed flag: %s", err.Error())
 }
 
 func TestAppendGitConfigEnvExtendsRatherThanReplacesExistingConfig(t *testing.T) {
