@@ -44,9 +44,6 @@ func TestResolveGitHubTokenFetchesFromTheConnectionsEndpoint(t *testing.T) {
 }
 
 func TestResolveGitHubTokenGivesUpOnAnUnresponsiveServer(t *testing.T) {
-	// Regression test: a stray ASTRO_AUTHZ_TOKEN left over from another
-	// session, pointed at an unreachable server, used to let this call hang
-	// for however long the OS's TCP timeout took before falling back.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(resolveGitHubTokenTimeout + 5*time.Second)
 	}))

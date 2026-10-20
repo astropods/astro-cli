@@ -9,9 +9,10 @@ var githubCmd = &cobra.Command{
 	Short: "Work with GitHub pull requests and issues",
 	Long: `Work with GitHub pull requests and issues.
 
-These commands shell out to the locally installed gh and git. Run
-` + "`gh auth login`" + ` first, unless this is an ` + "`ast dev`" + ` session that shared a
-GitHub connection, in which case that connection is used instead.`,
+These commands shell out to the locally installed gh and git. The pr and
+issue commands run gh, so run ` + "`gh auth login`" + ` first; push runs only git,
+using its own credentials. Inside an ` + "`ast dev`" + ` session that shared a
+GitHub connection, every command uses that connection's token instead.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 }

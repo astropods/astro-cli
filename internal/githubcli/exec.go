@@ -76,10 +76,9 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 
 // Push runs `git push` in dir. A non-empty token authenticates the push via a
 // single-request Authorization header, passed through env (GIT_CONFIG_*,
-// git 2.31+) rather than a -c flag: runCommand's error formatting joins args
-// into its message, so a credential placed there would leak into any failed
-// push's error text. An empty token leaves git to use the operator's own
-// configured credential helper.
+// git 2.31+): runCommand's error formatting joins args into its message, so
+// the credential must never be placed there. An empty token leaves git to
+// use the operator's own configured credential helper.
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
 	var env []string
 	if token != "" {
@@ -90,10 +89,8 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 		args = append(args, "--set-upstream")
 	}
 	// -- stops git from treating remote (caller-supplied, e.g. via --remote)
-	// as a flag if it starts with "-": confirmed live that --remote=--force
-	// otherwise becomes a real `git push --force`. cmd.withPositional applies
-	// the same treatment for gh's bare positionals (PR/issue numbers); any
-	// new bare positional anywhere needs this same treatment.
+	// as a flag if it starts with "-". cmd.withPositional applies the same
+	// treatment for gh's bare positionals.
 	args = append(args, "--", remote, branch)
 	return run(ctx, dir, env, "git", args...)
 }
@@ -111,9 +108,8 @@ func basicAuthHeader(token string) string {
 }
 
 // appendGitConfigEnv adds one git config value via the GIT_CONFIG_COUNT/
-// KEY_n/VALUE_n env vars, at the next free index after whatever the caller's
-// own environment already declares (e.g. a sandbox setting safe.directory),
-// so this never clobbers config the caller depends on.
+// KEY_n/VALUE_n env vars, at the next free index after whatever the
+// caller's own environment already declares.
 func appendGitConfigEnv(key, value string) []string {
 	n, _ := strconv.Atoi(os.Getenv("GIT_CONFIG_COUNT"))
 	if n < 0 {

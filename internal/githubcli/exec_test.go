@@ -82,11 +82,9 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 }
 
 func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
-	// Regression test: Push used to pass the credential via a -c argv flag,
-	// and runCommand's error formatting joins args into the error message,
-	// so any failed push leaked the raw token (recoverable by decoding one
-	// base64 string) into text that reaches stderr, logs, and an ast mcp
-	// tool call's result. Exercises the real exec path, no fake runner.
+	// Exercises the real exec path, no fake runner: runCommand's error
+	// formatting joins args into the message, so the token must never be
+	// placed there.
 	dir := t.TempDir() // not a git repository, so `git push` fails immediately
 	const token = "SUPERSECRETTOKENVALUE123"
 
@@ -98,13 +96,6 @@ func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
 }
 
 func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
-	// Regression test, found by manual testing: Push used to append remote
-	// and branch as bare trailing args, so `--remote --force` (a caller-
-	// supplied value, e.g. from an MCP tool call) became a real
-	// `git push --force`, not a push to a remote literally named
-	// "--force". Confirmed live before fixing: with -- in place, git
-	// itself refuses a positional that still looks like a flag ("strange
-	// pathname ... blocked") instead of running it as --force.
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...) //nolint:gosec
@@ -126,11 +117,6 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 }
 
 func TestAppendGitConfigEnvExtendsRatherThanReplacesExistingConfig(t *testing.T) {
-	// Regression test: Push used to hardcode GIT_CONFIG_COUNT=1/KEY_0/VALUE_0,
-	// which overwrote (not extended) any GIT_CONFIG_* entries the caller's
-	// own environment already set — a real pattern for a sandbox configuring
-	// e.g. safe.directory or an http.proxy. Confirmed live with a real git
-	// subprocess that the old code dropped both pre-existing entries.
 	t.Run("no pre-existing config starts at index 0", func(t *testing.T) {
 		t.Setenv("GIT_CONFIG_COUNT", "")
 		env := appendGitConfigEnv("http.extraheader", "AUTHORIZATION: basic X")

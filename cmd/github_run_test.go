@@ -268,10 +268,8 @@ func TestRunGitHubPushResolvesBranchAndForwardsToken(t *testing.T) {
 }
 
 func TestRunGitHubPushNeverPrintsStderrTwiceOnFailure(t *testing.T) {
-	// Regression test: runCommand's real error already embeds stderr (see
-	// internal/githubcli.runCommand), so writing result.Stderr separately on
-	// a failed push showed the same git error text twice. Fakes ghPush the
-	// way runCommand actually behaves: the error's own text carries stderr.
+	// Fakes ghPush the way runCommand actually behaves: the error's own
+	// text already carries stderr (see internal/githubcli.runCommand).
 	stderrText := "remote: permission denied"
 	pushErr := fmt.Errorf("git push origin feature/x: exit status 128: %s", stderrText)
 	withFakeGH(t, nil, nil,
@@ -291,10 +289,8 @@ func TestRunGitHubPushNeverPrintsStderrTwiceOnFailure(t *testing.T) {
 }
 
 func TestRunGitHubPushRefusesDetachedHead(t *testing.T) {
-	// Regression test: CurrentBranch returns the literal string "HEAD" in a
-	// detached checkout (not an error), and forwarding that straight to
-	// `git push` as the branch name produced a cryptic git-internals error
-	// instead of a clear one.
+	// CurrentBranch returns the literal string "HEAD" in a detached
+	// checkout, not an error.
 	var pushCalled bool
 	withFakeGH(t, nil, nil,
 		func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
@@ -313,10 +309,6 @@ func TestRunGitHubPushRefusesDetachedHead(t *testing.T) {
 }
 
 func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
-	// Regression test: gh auth status validates the token against GitHub's
-	// API, so with no dev session open, a slow or blocked network used to
-	// hang every gh-based command indefinitely, same as the already-fixed
-	// connections-token fetch, one call deeper.
 	withFakeGH(t, nil, func(ctx context.Context, _ string) error {
 		<-ctx.Done()
 		return ctx.Err()

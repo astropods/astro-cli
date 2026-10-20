@@ -21,8 +21,7 @@ var (
 )
 
 // ghAuthCheckTimeout bounds `gh auth status`, which validates the token
-// against GitHub's API, so a slow or blocked network can't hang a command
-// indefinitely.
+// against GitHub's API.
 const ghAuthCheckTimeout = 10 * time.Second
 
 // resolveToken returns the dev session's GitHub connection token, or "" to
@@ -32,12 +31,10 @@ func resolveToken(cmd *cobra.Command) string {
 	return resolveGitHubToken(cmd.Context(), verbose)
 }
 
-// ghAuth returns the token a gh-based subcommand should use, preferring the
-// dev session's GitHub connection; with none open, it verifies the
-// operator's own `gh auth login` actually works, so the command fails with
-// one clear message instead of gh's own cryptic prompt. Push does not call
-// this: it only ever runs git, and git has its own credential resolution
-// (SSH key, credential helper, ...) independent of whether gh is installed.
+// ghAuth returns the token a gh-based subcommand should use: the dev
+// session's GitHub connection when one is open, otherwise the operator's
+// own `gh auth login`, verified to actually work. Push does not call this;
+// it only runs git, which resolves its own credentials independently of gh.
 func ghAuth(cmd *cobra.Command) (token string, err error) {
 	token = resolveToken(cmd)
 	if token != "" {
@@ -69,9 +66,7 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 	return nil
 }
 
-// withRepoFlag appends gh's own -R flag when --repo was given, so these
-// commands can target a repository other than the one in the working
-// directory, the same way a plain gh invocation would.
+// withRepoFlag appends gh's own -R flag when --repo was given.
 func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 	if repo, _ := cmd.Flags().GetString("repo"); repo != "" {
 		return append(ghArgs, "-R", repo)
@@ -80,13 +75,9 @@ func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 }
 
 // withPositional appends a `--` separator before any positional args, so gh
-// never reinterprets one as a flag if it starts with "-". PR/issue numbers
-// are always plain positive integers from GitHub itself, but nothing
-// enforces that before this point, and --remote on Push showed live that a
-// caller-supplied value reinterpreted as a flag is a real problem, not a
-// theoretical one. githubcli.Push applies the same `--` to remote/branch
-// independently (git, not gh); any new bare positional anywhere needs this
-// same treatment.
+// never reinterprets one as a flag if it starts with "-". githubcli.Push
+// applies the same `--` independently for git; a new bare positional
+// anywhere needs the same treatment.
 func withPositional(ghArgs []string, positional []string) []string {
 	if len(positional) == 0 {
 		return ghArgs
