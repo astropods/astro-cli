@@ -180,6 +180,10 @@ func msgLaunchURLReady() string {
 	return "URL status:  ready"
 }
 
+func errPromptNonInteractive() error {
+	return fmt.Errorf("this command needs an answer to a prompt, but --%s turns prompts off; pass the value as a flag instead (see '%s <command> --help')", nonInteractiveFlag, buildinfo.BinaryName)
+}
+
 func errAccountNotLoggedIn() error {
 	return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
 }
@@ -281,6 +285,17 @@ func errBlueprintExistenceCheckUnexpectedStatus(name, account string, status int
 
 func errBlueprintCreateFailed(name, account string, cause error) error {
 	return fmt.Errorf("failed to reserve %q in %q: %w", name, account, cause)
+}
+
+// variableManageAction is the account permission that writes the account vault.
+const variableManageAction = "variable:manage"
+
+func msgVaultEnvironmentAlternative() string {
+	return fmt.Sprintf("To keep the secret on one environment instead, run '%s secrets create --env <environment>'.", buildinfo.BinaryName)
+}
+
+func errVaultCreateDenied(cause *apiError) error {
+	return fmt.Errorf("%w\n\n  %s", cause, msgVaultEnvironmentAlternative())
 }
 
 func errRegistrationFailed(cause error) error {
@@ -516,8 +531,40 @@ func errNoLocalProjectVars() error {
 	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
 }
 
+func msgDevPortsMoved(moved []string) string {
+	if len(moved) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s→%s %sPorts in use, Docker assigns free ones instead: %s%s\n",
+		colorCyan, colorReset, colorDim, strings.Join(moved, ", "), colorReset)
+}
+
+func errDevPortLookup(err error) error {
+	return fmt.Errorf("containers started, but their published ports could not be read from Docker: %w. Run '%s project stop', then start again", err, buildinfo.BinaryName)
+}
+
+func errDevTriggerPortLookup(err error) error {
+	return fmt.Errorf("could not read the running containers' ports from Docker: %w", err)
+}
+
+func msgDevChatUINotStarted(reason string) string {
+	return fmt.Sprintf("%s!%s %sChat UI not started: %s%s\n", colorYellow, colorReset, colorDim, reason, colorReset)
+}
+
+func msgDevListEmpty() string {
+	return fmt.Sprintf("No local agents running. Start one with '%s project start'.\n", buildinfo.BinaryName)
+}
+
 func msgStartupJobsSkipped(names []string) string {
 	return fmt.Sprintf("Skipped startup jobs: %s", strings.Join(names, ", "))
+}
+
+func msgTriggeringJob(name string) string {
+	return fmt.Sprintf("Triggering job: %s", name)
+}
+
+func msgJobCompleted(name string) string {
+	return fmt.Sprintf("Job '%s' completed", name)
 }
 
 func msgLoginPriorAccountUnavailable(account string) string {
@@ -580,6 +627,11 @@ func errAgentCoreInvalidSecret(pair string) error {
 
 func errAgentCoreSecretsFileLine(line int) error {
 	return fmt.Errorf("secrets-file line %d: expected KEY=VALUE", line)
+}
+
+func errAgentCoreNoPort() error {
+	return fmt.Errorf("the agent container publishes no port for :%d, so it likely exited on boot. Check its log: %s project logs agent",
+		composeBuilder.AgentCorePort, buildinfo.BinaryName)
 }
 
 func errAgentCoreNotServing(hostPort string, wait time.Duration) error {
@@ -803,10 +855,6 @@ func errBlueprintNoPublishedBuild(name string) error {
 	return fmt.Errorf("blueprint %q has no published build", name)
 }
 
-func errBlueprintBuildsNotFound(name, account string) error {
-	return fmt.Errorf("blueprint %q not found in account %q, or you lack the edit access its build history needs", name, account)
-}
-
 func msgNoBlueprintBuilds(name string) string {
 	return fmt.Sprintf("No builds found for blueprint %s", name)
 }
@@ -828,7 +876,7 @@ func errBlueprintNoServerBuilds(name string) error {
 }
 
 func errBuildLogsNotFound(name, buildID string) error {
-	return fmt.Errorf("no server-side logs for build %s of blueprint %q: builds pushed with the CLI run on your machine, so their logs stay there (reading build logs also needs edit access)", buildID, name)
+	return fmt.Errorf("no server-side logs for build %s of blueprint %q: builds pushed with the CLI run on your machine, so their logs stay there", buildID, name)
 }
 
 func msgNoBuildLogsYet(buildID, phase string) string {
@@ -852,7 +900,7 @@ func errRebuildCancelsRunningBuild(buildID, status string) error {
 }
 
 func errRebuildUnavailable(name, account string) error {
-	return fmt.Errorf("blueprint %q in account %q has no connected GitHub repository or hosted source to rebuild, or you lack the operate access a rebuild needs", name, account)
+	return fmt.Errorf("blueprint %q in account %q has no connected GitHub repository or hosted source to rebuild", name, account)
 }
 
 func errRebuildGitHubNotConnected() error {
@@ -1125,4 +1173,55 @@ func msgGatewaySettingsScope(scope claudesettings.Scope) string {
 		return "this project's shared settings"
 	}
 	return "your user settings"
+}
+
+func msgMCPServing(tools int, account string) string {
+	if account == "" {
+		return fmt.Sprintf("%s mcp: serving %d tools on stdio; not logged in, run '%s login' first", buildinfo.BinaryName, tools, buildinfo.BinaryName)
+	}
+	return fmt.Sprintf("%s mcp: serving %d tools on stdio for account %s", buildinfo.BinaryName, tools, account)
+}
+
+func msgMCPInstructions(account string) string {
+	scope := "the user's current account"
+	if account != "" {
+		scope = "account " + account
+	}
+	return fmt.Sprintf("Each tool runs one %[1]s command as the signed-in user, in %[2]s. "+
+		"Tools that read a project's astropods.yml or EVALUATION.yaml run in the directory given by their dir argument. Without dir, they run in the directory this server started in. "+
+		"Tools return JSON when the command supports it. "+
+		"A command that would prompt fails instead, so pass every value as an input. "+
+		"If a tool says the user is not logged in, ask them to run '%[1]s login' in a terminal.", buildinfo.BinaryName, scope)
+}
+
+func msgMCPPositionalDescription(name string) string {
+	return fmt.Sprintf("Positional argument <%s>", name)
+}
+
+func msgMCPDirDescription() string {
+	return "Working directory for the command. Defaults to the MCP server's working directory."
+}
+
+func msgMCPTimeout(tool string, timeout time.Duration) string {
+	return fmt.Sprintf("%s did not finish within %s and was stopped", tool, timeout)
+}
+
+func msgMCPNoOutput() string {
+	return "The command finished with no output."
+}
+
+func errMCPUnknownInput(name string) error {
+	return fmt.Errorf("unknown input %q; see this tool's input schema for the inputs it takes", name)
+}
+
+func errMCPInputType(name, want string) error {
+	return fmt.Errorf("input %q must be %s", name, want)
+}
+
+func errMCPMissingInput(name string) error {
+	return fmt.Errorf("input %q is required", name)
+}
+
+func errMCPInputNotObject() error {
+	return errors.New("tool arguments must be a JSON object")
 }

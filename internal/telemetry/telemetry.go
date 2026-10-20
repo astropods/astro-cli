@@ -47,7 +47,7 @@ func NewClient(userID, deviceID, cliVersion string) *Client {
 }
 
 // TrackCommand sends a cli.command_executed event with timing and status info.
-func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr error) {
+func (c *Client) TrackCommand(command, via string, duration time.Duration, cmdErr error) {
 	if c == nil {
 		return
 	}
@@ -61,6 +61,9 @@ func (c *Client) TrackCommand(command string, duration time.Duration, cmdErr err
 	}
 	if cmdErr != nil {
 		props["error_type"] = classifyError(cmdErr)
+	}
+	if via != "" {
+		props["via"] = via
 	}
 
 	c.amp.Track(amplitude.Event{

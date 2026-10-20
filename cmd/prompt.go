@@ -51,6 +51,9 @@ func (m *promptModel) View() string {
 // promptModel wrapper so every form gets the same "esc cancel" footer hint,
 // and normalizes user cancellation (esc / ctrl+c) to tui.ErrCanceled.
 func runForm(form *huh.Form) error {
+	if nonInteractive() {
+		return errPromptNonInteractive()
+	}
 	form = form.WithTheme(cliHuhTheme()).WithKeyMap(promptKeyMap())
 	if _, err := tea.NewProgram(&promptModel{form: form}).Run(); err != nil {
 		return err
@@ -59,6 +62,13 @@ func runForm(form *huh.Form) error {
 		return tui.ErrCanceled
 	}
 	return nil
+}
+
+const nonInteractiveFlag = "non-interactive"
+
+func nonInteractive() bool {
+	on, _ := rootCmd.PersistentFlags().GetBool(nonInteractiveFlag)
+	return on
 }
 
 // printCanceled writes a uniform "Canceled." message to w. Use after a

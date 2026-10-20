@@ -170,6 +170,37 @@ func TestSecretCreate_AlreadyExists(t *testing.T) {
 	require.ErrorContains(t, err, "already exists")
 }
 
+func TestSecretWrite_PermissionDenied(t *testing.T) {
+	const details = "You need the Admin role on this account to manage account variables and secrets. Ask an account admin for access."
+	denial := map[string]any{
+		"error":   "authorization denied",
+		"code":    "AUTHORIZATION_DENIED",
+		"action":  "variable:manage",
+		"details": details,
+	}
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(denial) //nolint:errcheck,gosec
+	}
+	_, setup := secretTestServer(t, handler)
+	setup()
+
+	t.Run("create adds the environment alternative to the server sentence", func(t *testing.T) {
+		err := runSecretCreateWithValue(secretCreateCmd, []string{"MY_KEY"}, "s3cret", false, false)
+		require.EqualError(t, err, details+"\n\n  "+msgVaultEnvironmentAlternative())
+	})
+
+	t.Run("delete prints the server sentence alone", func(t *testing.T) {
+		err := runSecretDelete(secretDeleteCmd, []string{"MY_KEY"})
+		require.EqualError(t, err, details)
+	})
+}
+
 func TestSecretCreate_OverwriteFlag(t *testing.T) {
 	var postCalled bool
 	handler := func(w http.ResponseWriter, r *http.Request) {

@@ -238,7 +238,7 @@ func runDatasetGet(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/datasets/%s", datasetBaseURL(), url.PathEscape(dataset.ID))
 	var summary datasetSummaryResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &summary)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errDatasetNotFound(name)
 	}
 	if err != nil {
@@ -328,7 +328,7 @@ func runDatasetItems(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/datasets/%s/items?%s", datasetBaseURL(), url.PathEscape(dataset.ID), q.Encode())
 	var result datasetItemsResponse
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &result)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errDatasetNotFound(name)
 	}
 	if err != nil {
@@ -408,12 +408,18 @@ func runDatasetAdd(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/datasets/%s/items", datasetBaseURL(), url.PathEscape(dataset.ID))
 	var resp datasetAddResponse
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]any{"trace_id": traceID}, at.Token, verbose, &resp)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusBadRequest:
 		return errDatasetAddRejected(apiErrorMessage(err))
 	case http.StatusNotFound:
 		return errDatasetTraceNotFound(traceID, name)
 	case http.StatusForbidden:
+		if isAuthorizationDenial(err) {
+			return err
+		}
 		return errDatasetAddWrongDeployment(traceID, name)
 	case http.StatusConflict:
 		return errDatasetAddAlreadyAdded(traceID, name)
@@ -469,6 +475,9 @@ func runDatasetEdit(cmd *cobra.Command, args []string) error {
 		datasetBaseURL(), url.PathEscape(dataset.ID), url.PathEscape(traceID))
 	var resp datasetEditResponse
 	status, err := apiCall(cmd.Context(), http.MethodPut, u, map[string]any{"values": evalOutputValues(edits)}, at.Token, verbose, &resp)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusBadRequest:
 		return errDatasetEditRejected(apiErrorMessage(err))
@@ -515,7 +524,7 @@ func runDatasetRemove(cmd *cobra.Command, args []string) error {
 	u := fmt.Sprintf("%s/api/v1/datasets/%s/items/%s", datasetBaseURL(), url.PathEscape(dataset.ID), url.PathEscape(traceID))
 	var resp datasetAddResponse
 	status, err := apiCall(cmd.Context(), http.MethodDelete, u, nil, at.Token, verbose, &resp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errDatasetItemNotFound(traceID, name)
 	}
 	if err != nil {
@@ -546,7 +555,7 @@ func runDatasetDownload(cmd *cobra.Command, args []string) error {
 
 	u := fmt.Sprintf("%s/api/v1/datasets/%s/download", datasetBaseURL(), url.PathEscape(dataset.ID))
 	status, body, err := apiStream(cmd.Context(), u, at.Token, verbose)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return errDatasetNotFound(name)
 	}
 	if err != nil {

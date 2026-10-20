@@ -7,16 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/astropods/astro-cli/internal/envvar"
 )
 
 // WorkOSBaseURL is the WorkOS API base URL.
 const WorkOSBaseURL = "https://api.workos.com"
-
-// Environment variable names
-const (
-	EnvAccessToken  = "ASTRO_ACCESS_TOKEN"
-	EnvRefreshToken = "ASTRO_REFRESH_TOKEN"
-)
 
 // ConfigDir returns ~/.{binaryName} (e.g. ~/.ast, ~/.ast-dev, ~/.ast-preview).
 // binaryName must be non-empty; callers should pass buildinfo.BinaryName.
@@ -72,9 +68,9 @@ var (
 // variable to prevent child processes from inheriting it.
 func GetEnvAccessToken() string {
 	envTokenOnce.Do(func() {
-		envToken = strings.TrimSpace(os.Getenv(EnvAccessToken))
+		envToken = strings.TrimSpace(os.Getenv(envvar.AccessToken))
 		if envToken != "" {
-			_ = os.Unsetenv(EnvAccessToken)
+			_ = os.Unsetenv(envvar.AccessToken)
 		}
 	})
 	return envToken

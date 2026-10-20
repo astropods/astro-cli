@@ -9,9 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/astropods/astro-cli/internal/auth"
+	"github.com/astropods/astro-cli/internal/envvar"
 )
-
-const envDisable = "ASTRO_NO_TELEMETRY"
 
 // TelemetryConfig is persisted at ~/.ast/telemetry.json.
 type TelemetryConfig struct {
@@ -64,7 +63,7 @@ func SaveConfig(binaryName string, cfg TelemetryConfig) error {
 
 // IsEnabled checks the env var override and telemetry.json.
 func IsEnabled(binaryName string) bool {
-	if os.Getenv(envDisable) != "" {
+	if os.Getenv(envvar.NoTelemetry) != "" {
 		return false
 	}
 	return LoadConfig(binaryName).Enabled

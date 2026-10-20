@@ -257,7 +257,7 @@ func TestMastraTemplate_AgentIndex_AnthropicModel(t *testing.T) {
 	config.Integrations = []string{"anthropic"}
 	content := renderTemplate(t, paths.AgentIndex, config)
 
-	if !strings.Contains(content, "`anthropic/${") || !strings.Contains(content, "?? 'claude-sonnet-4-5'}`") {
+	if !strings.Contains(content, "anthropic/claude") {
 		t.Errorf("mastra agent with anthropic integration should use anthropic model, got:\n%s", content)
 	}
 }
@@ -268,7 +268,7 @@ func TestMastraTemplate_AgentIndex_OpenAIModel(t *testing.T) {
 	config.Integrations = []string{"openai"}
 	content := renderTemplate(t, paths.AgentIndex, config)
 
-	if !strings.Contains(content, "`openai/${") || !strings.Contains(content, "?? 'gpt-4o'}`") {
+	if !strings.Contains(content, "openai/gpt") {
 		t.Errorf("mastra agent with openai integration should use openai model, got:\n%s", content)
 	}
 }
@@ -379,7 +379,7 @@ func TestMastraTemplate_AgentIndex_DefaultModel(t *testing.T) {
 	config := defaultConfig // no integrations, no custom model
 	content := renderTemplate(t, paths.AgentIndex, config)
 
-	if !strings.Contains(content, "`anthropic/${") || !strings.Contains(content, "?? 'claude-sonnet-4-5'}`") {
+	if !strings.Contains(content, "anthropic/claude-sonnet-4-5") {
 		t.Errorf("mastra agent with no integration should default to anthropic/claude-sonnet-4-5, got:\n%s", content)
 	}
 }
@@ -860,24 +860,4 @@ func TestMastraTemplate_SDKChannelRewrite(t *testing.T) {
 		deps := got["dependencies"].(map[string]any)
 		assert.Equal(t, "canary-7", deps["@astropods/adapter-mastra"])
 	})
-}
-
-func TestMastraGatewayAgentAnswersWithTheModelPickedInChat(t *testing.T) {
-	paths, err := GetTemplatePaths("mastra")
-	require.NoError(t, err)
-	cfg := ScaffoldConfig{Name: "ag", Description: "d", AIGateway: true, IntegrationKeys: map[string]string{}}
-	index, err := RenderTemplate(paths.AgentIndex, cfg)
-	require.NoError(t, err)
-	assert.Contains(t, index, "requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? process.env.MODEL_DEFAULT")
-	assert.Contains(t, index, "import { serve, type ModelChoice } from '@astropods/adapter-mastra';")
-
-	cfg.AIGateway = false
-	index, err = RenderTemplate(paths.AgentIndex, cfg)
-	require.NoError(t, err)
-	assert.Contains(t, index, "`anthropic/${requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? 'claude-sonnet-4-5'}`")
-
-	cfg.Integrations = []string{"openai"}
-	index, err = RenderTemplate(paths.AgentIndex, cfg)
-	require.NoError(t, err)
-	assert.Contains(t, index, "`openai/${requestContext.get<'model', ModelChoice | undefined>('model')?.model ?? 'gpt-4o'}`")
 }

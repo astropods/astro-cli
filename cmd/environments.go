@@ -89,7 +89,7 @@ func init() {
 func listBlueprintEnvironments(ctx context.Context, at AccountToken, blueprint string, verbose bool) ([]blueprintEnvironment, error) {
 	var bp blueprintItem
 	status, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), at.Account, "agents", blueprint), nil, at.Token, verbose, &bp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return nil, errBlueprintNotFound(blueprint, at.Account)
 	}
 	if err != nil {
@@ -273,6 +273,9 @@ func runEnvCreate(cmd *cobra.Command, args []string) error {
 	status, err := apiCall(cmd.Context(), http.MethodPost,
 		apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"),
 		map[string]string{"name": name}, at.Token, verbose, &created)
+	if isConcealed(err) {
+		return err
+	}
 	switch status {
 	case http.StatusNotFound:
 		return errBlueprintNotFound(blueprint, at.Account)

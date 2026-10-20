@@ -118,6 +118,9 @@ func isNewerVersion(latest, current string) bool {
 //
 // This is a no-op for dev builds.
 func notifyIfUpdateAvailable() {
+	if nonInteractive() {
+		return
+	}
 	if buildinfo.BuildType == buildinfo.BuildTypeDev {
 		return
 	}

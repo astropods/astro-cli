@@ -498,7 +498,7 @@ func runBlueprintGet(cmd *cobra.Command, args []string) error {
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name)
 	var bp blueprintItem
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("blueprint %q not found in account %q", name, at.Account)
 	}
 	if err != nil {
@@ -623,7 +623,7 @@ func runBlueprintArchive(cmd *cobra.Command, args []string) error {
 
 	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "archive")
 	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("blueprint %q not found in account %q", name, at.Account)
 	}
 	if err != nil {
@@ -658,7 +658,7 @@ func runBlueprintSet(cmd *cobra.Command, args []string) error {
 	status, err := apiCall(cmd.Context(), http.MethodPut, u, map[string]string{
 		"visibility": visibility,
 	}, at.Token, verbose, nil)
-	if status == http.StatusNotFound {
+	if isNotFound(status, err) {
 		return fmt.Errorf("blueprint %q not found in account %q", name, at.Account)
 	}
 	if err != nil {

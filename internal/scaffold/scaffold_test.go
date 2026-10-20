@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	spec "github.com/astropods/astro-spec"
+	"github.com/stretchr/testify/assert"
 )
 
 // MemFs is an in-memory Fs implementation for tests.
@@ -869,6 +870,21 @@ func TestMastraTemplate_AgentIndex_EnvVarsInComment(t *testing.T) {
 			t.Errorf("rendered index.ts comment should contain %q, got:\n%s", want, content)
 		}
 	}
+}
+
+func TestMastraTemplate_AgentIndex_GatewayUsesChatCompletions(t *testing.T) {
+	paths, _ := GetTemplatePaths("mastra")
+	content := renderTemplate(t, paths.AgentIndex, ScaffoldConfig{
+		Name:            "test-agent",
+		Description:     "A test agent",
+		AIGateway:       true,
+		IntegrationKeys: map[string]string{},
+	})
+
+	assert.Contains(t, content, "model: gateway.chat(process.env.MODEL_DEFAULT",
+		"the gateway model must use Chat Completions: the gateway's Responses API rejects the tool-result turn on Claude models")
+	assert.NotContains(t, content, "model: gateway(",
+		"calling the provider directly selects the Responses API in @ai-sdk/openai v2+")
 }
 
 // generateWithPyMemFs runs generateFiles with lang=py against an in-memory filesystem.

@@ -17,7 +17,7 @@ Prefer table-driven tests with `t.Run` subtests. Only write fine-grained individ
 
 - Use `writeAccountTestCredentials(t, creds)` (defined in `account_test.go`) to write a credentials file. Always call `t.Setenv("HOME", t.TempDir())` first so the file lands in a temp dir.
 - Use `accountTestCreds(currentAccount)` for a standard profile — the argument sets the active `CurrentAccount`; the profile always includes personal ("alice") and two org accounts. Pass a custom `*auth.Credentials` only when you need an account name or structure that doesn't match this standard set.
-- Never call `t.Setenv(auth.EnvAccessToken, ...)` in `cmd` package tests. `auth.GetEnvAccessToken()` uses `sync.Once` — setting the env var in one test permanently caches the value for the entire test binary, bypassing auth checks in later tests.
+- Never call `t.Setenv(envvar.AccessToken, ...)` in `cmd` package tests. `auth.GetEnvAccessToken()` uses `sync.Once` — setting the env var in one test permanently caches the value for the entire test binary, bypassing auth checks in later tests.
 
 ## Command authoring rules
 

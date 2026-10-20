@@ -12,8 +12,11 @@ tasks:
   # chat SPA is produced and copied into webdist by the official release build
   # only; a source build never contains it.
 
+  # build and build-preview bake in the commit, VERSION, ldflags env vars, and
+  # the gitignored webdist, none of which moon hashes, so they run uncached.
+
   build:
-    command: sh -c 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=${ASTRO_SERVER_URL:-http://localhost:8080} -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-dev .'
+    script: 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-dev -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=${ASTRO_SERVER_URL:-http://localhost:8080} -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-dev .'
     inputs:
       - "**/*.go"
       - "cmd/docs/**"
@@ -21,12 +24,13 @@ tasks:
       - "internal/chatui/webdist/**"
       - "go.mod"
       - "go.sum"
-      - "/.git/refs/heads/*"
     outputs:
       - "bin/ast-dev"
+    options:
+      cache: false
 
   build-preview:
-    command: sh -c 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
+    script: 'go build -ldflags="-X github.com/astropods/astro-cli/internal/buildinfo.BinaryName=ast-preview -X github.com/astropods/astro-cli/internal/buildinfo.Version=$(cat VERSION) -X github.com/astropods/astro-cli/internal/buildinfo.Commit=$(git rev-parse --short HEAD) -X github.com/astropods/astro-cli/internal/buildinfo.DefaultServerURL=https://astropod.ai -X github.com/astropods/astro-cli/internal/buildinfo.AmplitudeAPIKey=${AMPLITUDE_API_KEY:-}" -o bin/ast-preview .'
     inputs:
       - "**/*.go"
       - "cmd/docs/**"
@@ -34,22 +38,32 @@ tasks:
       - "internal/chatui/webdist/**"
       - "go.mod"
       - "go.sum"
-      - "/.git/refs/heads/*"
     outputs:
       - "bin/ast-preview"
+    options:
+      cache: false
+
+  # link, link-preview, and unlink change a symlink in ~/go/bin, outside the
+  # project, so moon cannot see another worktree repoint it.
 
   link:
-    command: "ln -sf $(pwd)/bin/ast-dev $HOME/go/bin/ast-dev"
+    script: "ln -sf $(pwd)/bin/ast-dev $HOME/go/bin/ast-dev"
     deps:
       - "build"
+    options:
+      cache: false
 
   link-preview:
-    command: "ln -sf $(pwd)/bin/ast-preview $HOME/go/bin/ast-preview"
+    script: "ln -sf $(pwd)/bin/ast-preview $HOME/go/bin/ast-preview"
     deps:
       - "build-preview"
+    options:
+      cache: false
 
   unlink:
     command: "rm -f $HOME/go/bin/ast-dev"
+    options:
+      cache: false
 
   test:
     command: "go test -v ./cmd/... ./internal/..."
