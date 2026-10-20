@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -89,6 +90,21 @@ func TestCollectMetadataDetectsModifiedSubmodules(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(parent, "dependency", "tracked.txt"), []byte("changed\n"), 0o600))
 
 	assert.True(t, CollectMetadata(parent).WorkingTreeDirty)
+}
+
+func TestRunGitDoesNotHangOnAnOrphanedGrandchild(t *testing.T) {
+	dir := t.TempDir()
+	stubGit := filepath.Join(dir, "git")
+	require.NoError(t, os.WriteFile(stubGit, []byte("#!/bin/sh\nsleep 30 & true\n"), 0o700)) //nolint:gosec
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+
+	start := time.Now()
+	_, err := runGit(dir)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, gitWaitDelay+2*time.Second,
+		"took %s; must give up at roughly gitWaitDelay, not wait for the orphan's full lifetime", elapsed)
 }
 
 func TestCollectMetadataIsBestEffort(t *testing.T) {
