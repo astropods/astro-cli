@@ -861,3 +861,30 @@ func TestMastraTemplate_SDKChannelRewrite(t *testing.T) {
 		assert.Equal(t, "canary-7", deps["@astropods/adapter-mastra"])
 	})
 }
+
+func TestMastraAgentOffersItsModelsAndAnswersWithThePick(t *testing.T) {
+	paths, err := GetTemplatePaths("mastra")
+	require.NoError(t, err)
+	for name, tc := range map[string]struct {
+		cfg  ScaffoldConfig
+		want []string
+	}{
+		"gateway": {
+			ScaffoldConfig{Name: "ag", Description: "d", AIGateway: true, IntegrationKeys: map[string]string{}},
+			[]string{
+				"const MODELS = [process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'];",
+				"gateway.chat(requestContext.get<'model', string | undefined>('model') ?? MODELS[0])",
+			},
+		},
+		"openai key": {
+			ScaffoldConfig{Name: "ag", Description: "d", Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}},
+			[]string{"const MODELS = ['openai/gpt-4o'];", "requestContext.get<'model', string | undefined>('model') ?? MODELS[0]"},
+		},
+	} {
+		index, err := RenderTemplate(paths.AgentIndex, tc.cfg)
+		require.NoError(t, err, name)
+		for _, w := range append(tc.want, "serve(agent, { models: MODELS });") {
+			assert.Contains(t, index, w, name)
+		}
+	}
+}

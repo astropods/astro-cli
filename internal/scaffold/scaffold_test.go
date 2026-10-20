@@ -881,7 +881,7 @@ func TestMastraTemplate_AgentIndex_GatewayUsesChatCompletions(t *testing.T) {
 		IntegrationKeys: map[string]string{},
 	})
 
-	assert.Contains(t, content, "model: gateway.chat(process.env.MODEL_DEFAULT",
+	assert.Contains(t, content, "gateway.chat(requestContext.get<'model', string | undefined>('model') ?? MODELS[0])",
 		"the gateway model must use Chat Completions: the gateway's Responses API rejects the tool-result turn on Claude models")
 	assert.NotContains(t, content, "model: gateway(",
 		"calling the provider directly selects the Responses API in @ai-sdk/openai v2+")
