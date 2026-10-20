@@ -40,7 +40,7 @@ func resolveAgentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*age
 		if err != nil {
 			return nil, err
 		}
-		e, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, env, verbose)
+		e, err := findBlueprintEnvironment(cmd.Context(), at, at.Account, blueprint, env, verbose)
 		if err != nil {
 			return nil, err
 		}

@@ -18,7 +18,7 @@ import (
 )
 
 // envTestServer fakes the blueprint, environment, vault, and deployment
-// routes for account testaccount and blueprint mybot.
+// routes for blueprint mybot in testaccount and other-org.
 type envTestServer struct {
 	visibility   string
 	environments []map[string]any
@@ -64,9 +64,9 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch key {
-	case "GET /api/v1/agents/testaccount/mybot":
+	case "GET /api/v1/agents/testaccount/mybot", "GET /api/v1/agents/other-org/mybot":
 		jsonHandler(http.StatusOK, map[string]any{"name": "mybot", "visibility": s.visibility})(w, r)
-	case "GET /api/v1/agents/testaccount/mybot/environments":
+	case "GET /api/v1/agents/testaccount/mybot/environments", "GET /api/v1/agents/other-org/mybot/environments":
 		jsonHandler(http.StatusOK, map[string]any{"environments": s.environments})(w, r)
 	case "POST /api/v1/agents/testaccount/mybot/environments":
 		jsonHandler(http.StatusCreated, map[string]any{"id": "env-new", "name": s.bodies[key]["name"], "account_name": "testaccount"})(w, r)
@@ -86,7 +86,7 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonHandler(http.StatusOK, map[string]any{"deployments": s.deployments, "count": len(s.deployments)})(w, r)
 	case "GET /api/v1/deployments/dep-1":
 		jsonHandler(http.StatusOK, map[string]any{"deployment": s.deployments[0]})(w, r)
-	case "POST /api/v1/agents/testaccount/mybot/deployment-template":
+	case "POST /api/v1/agents/testaccount/mybot/deployment-template", "POST /api/v1/agents/other-org/mybot/deployment-template":
 		jsonHandler(http.StatusOK, map[string]any{
 			"template":   json.RawMessage(`{"spec":"deployment/v1","target":{}}`),
 			"validation": map[string]any{"valid": true},
@@ -152,7 +152,7 @@ func TestListBlueprintEnvironments(t *testing.T) {
 	t.Run("keeps only the active account's environments", func(t *testing.T) {
 		setupEnvTest(t)
 		at := AccountToken{Account: "testaccount"}
-		envs, err := listBlueprintEnvironments(context.Background(), at, "mybot", false)
+		envs, err := listBlueprintEnvironments(context.Background(), at, at.Account, "mybot", false)
 		require.NoError(t, err)
 		require.Len(t, envs, 2, "the environment in someone-else must be filtered out")
 		assert.Equal(t, "main", envs[0].Name)
@@ -162,20 +162,26 @@ func TestListBlueprintEnvironments(t *testing.T) {
 	t.Run("refuses a public blueprint", func(t *testing.T) {
 		fake := setupEnvTest(t)
 		fake.visibility = "public"
-		_, err := listBlueprintEnvironments(context.Background(), AccountToken{Account: "testaccount"}, "mybot", false)
+		_, err := listBlueprintEnvironments(context.Background(), AccountToken{Account: "testaccount"}, "testaccount", "mybot", false)
 		require.EqualError(t, err, errEnvironmentsUnavailable("mybot").Error())
 	})
 
 	t.Run("reports an unknown blueprint", func(t *testing.T) {
 		setupEnvTest(t)
-		_, err := listBlueprintEnvironments(context.Background(), AccountToken{Account: "testaccount"}, "ghost", false)
+		_, err := listBlueprintEnvironments(context.Background(), AccountToken{Account: "testaccount"}, "testaccount", "ghost", false)
 		require.EqualError(t, err, errBlueprintNotFound("ghost", "testaccount").Error())
 	})
 
 	t.Run("names the available environments for an unknown one", func(t *testing.T) {
 		setupEnvTest(t)
-		_, err := findBlueprintEnvironment(context.Background(), AccountToken{Account: "testaccount"}, "mybot", "prod", false)
+		_, err := findBlueprintEnvironment(context.Background(), AccountToken{Account: "testaccount"}, "testaccount", "mybot", "prod", false)
 		require.EqualError(t, err, errEnvironmentNotFound("prod", "mybot", []string{"main", "staging"}).Error())
+	})
+
+	t.Run("offers no env create for another account's blueprint", func(t *testing.T) {
+		setupEnvTest(t)
+		_, err := findBlueprintEnvironment(context.Background(), AccountToken{Account: "testaccount"}, "other-org", "mybot", "prod", false)
+		require.EqualError(t, err, errPublishedEnvironmentNotFound("prod", "other-org/mybot", []string{"main", "staging"}).Error())
 	})
 }
 
@@ -360,6 +366,24 @@ func TestDeployIntoAnEnvironment(t *testing.T) {
 		setDeployFlag(t, "env", "staging")
 		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy, "mybot")
 		require.EqualError(t, err, errEnvironmentOccupied("staging", "mybot").Error())
+	})
+
+	t.Run("uses the active account's environment of another account's blueprint", func(t *testing.T) {
+		fake := setupEnvTest(t)
+		setDeployFlag(t, "env", "staging")
+		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy, "other-org/mybot")
+		require.NoError(t, err)
+		assert.True(t, fake.called("GET /api/v1/agents/other-org/mybot/environments"))
+		target, _ := fake.bodies["POST /api/v1/deploy"]["target"].(map[string]any)
+		assert.Equal(t, "env-staging", target["environment_id"])
+	})
+
+	t.Run("points an occupied environment of another account's blueprint at --id", func(t *testing.T) {
+		fake := setupEnvTest(t)
+		setDeployFlag(t, "env", "main")
+		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy, "other-org/mybot")
+		require.EqualError(t, err, errPublishedEnvironmentOccupied("main").Error())
+		assert.False(t, fake.called("POST /api/v1/deploy"))
 	})
 }
 

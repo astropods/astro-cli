@@ -73,7 +73,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	if latest {
-		build, err = latestBlueprintBuild(cmd, at, dep.Name, verbose)
+		build, err = latestDeploymentBuild(cmd, at, dep, verbose)
 		if err != nil {
 			return err
 		}
@@ -92,7 +92,20 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
+	// The URL account scopes knowledge bindings; the server finds the publisher from the deployment.
 	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun)
+}
+
+func latestDeploymentBuild(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (string, error) {
+	full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
+	if err != nil {
+		return "", errAgentDeploymentNotFoundForID(dep.ID)
+	}
+	publisher := full.SourceAccount
+	if publisher == "" {
+		publisher = at.Account
+	}
+	return latestBlueprintBuild(cmd, at, publisher, dep.Name, verbose)
 }
 
 // latestBlueprintBuild returns the build ID of the blueprint's most recently
@@ -102,12 +115,12 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 // pins, so shipping a fresh push means passing that push's tag back in. The
 // tag is only printed in the push banner, which leaves scripted deploys
 // scraping it back out of ANSI-formatted output. --latest looks it up instead.
-func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, name string, verbose bool) (string, error) {
-	u := apiPath(blueprintBaseURL(), at.Account, "agents", name)
+func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, publisher, name string, verbose bool) (string, error) {
+	u := apiPath(blueprintBaseURL(), publisher, "agents", name)
 	var bp blueprintItem
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
 	if isNotFound(status, err) {
-		return "", errBlueprintNotFound(name, at.Account)
+		return "", errBlueprintNotFound(name, publisher)
 	}
 	if err != nil {
 		return "", err

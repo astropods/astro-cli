@@ -625,6 +625,7 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 		account string
 		blue    string
 		build   string
+		foreign bool
 		want    []string
 	}{
 		// Typed error_code path (current servers).
@@ -640,6 +641,18 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 			body: `{"error":"no builds found for agent","error_code":"build_not_found"}`,
 			blue: "my-agent",
 			want: []string{`blueprint "my-agent" has no builds yet`, "ast push my-agent"},
+		},
+		{
+			name:    "typed: build_not_found for another account's blueprint",
+			body:    `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			account: "other-org", blue: "my-agent", build: "deadbeef", foreign: true,
+			want: []string{errPublishedBuildNotFound("deadbeef", "other-org/my-agent").Error()},
+		},
+		{
+			name:    "typed: no builds for another account's blueprint",
+			body:    `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			account: "other-org", blue: "my-agent", foreign: true,
+			want: []string{errBlueprintNoPublishedBuild("other-org/my-agent").Error()},
 		},
 		{
 			name:    "typed: account_not_found",
@@ -677,7 +690,7 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := errFromAPI(http.StatusNotFound, tc.body)
-			out := notFoundFromTemplateErr(err, tc.account, tc.blue, tc.build)
+			out := notFoundFromTemplateErr(err, tc.account, tc.blue, tc.build, !tc.foreign)
 			require.Error(t, out)
 			for _, sub := range tc.want {
 				assert.Contains(t, out.Error(), sub)
@@ -878,31 +891,14 @@ func TestRunBlueprintDeployBlueprintRef(t *testing.T) {
 	}
 }
 
-func TestRunBlueprintDeployCrossAccountErrors(t *testing.T) {
-	t.Run("not found names the publisher", func(t *testing.T) {
-		setupBlueprintDeployTest(t, jsonHandler(http.StatusNotFound, map[string]any{
-			"error":      "agent not found",
-			"error_code": errCodeBlueprintNotFound,
-		}))
-		blueprintDeployCmd.SetOut(&bytes.Buffer{})
-		blueprintDeployCmd.SetContext(context.Background())
+func TestRunBlueprintDeployNotFoundNamesThePublisher(t *testing.T) {
+	setupBlueprintDeployTest(t, jsonHandler(http.StatusNotFound, map[string]any{
+		"error":      "agent not found",
+		"error_code": errCodeBlueprintNotFound,
+	}))
+	blueprintDeployCmd.SetOut(&bytes.Buffer{})
+	blueprintDeployCmd.SetContext(context.Background())
 
-		err := runBlueprintDeploy(blueprintDeployCmd, []string{"other-org/shared-agent"})
-		require.EqualError(t, err, errBlueprintNotFound("shared-agent", "other-org").Error())
-	})
-
-	t.Run("env needs a blueprint in the active account", func(t *testing.T) {
-		called := false
-		setupBlueprintDeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			called = true
-			http.NotFound(w, r)
-		}))
-		setDeployFlag(t, "env", "prod")
-		blueprintDeployCmd.SetOut(&bytes.Buffer{})
-		blueprintDeployCmd.SetContext(context.Background())
-
-		err := runBlueprintDeploy(blueprintDeployCmd, []string{"other-org/shared-agent"})
-		require.EqualError(t, err, errEnvNeedsOwnBlueprint("other-org/shared-agent", "testaccount").Error())
-		assert.False(t, called, "no request should reach the server")
-	})
+	err := runBlueprintDeploy(blueprintDeployCmd, []string{"other-org/shared-agent"})
+	require.EqualError(t, err, errBlueprintNotFound("shared-agent", "other-org").Error())
 }

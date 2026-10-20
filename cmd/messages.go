@@ -941,8 +941,20 @@ func errEnvironmentOccupied(name, blueprint string) error {
 		name, buildinfo.BinaryName, blueprint, name)
 }
 
-func errEnvNeedsOwnBlueprint(ref, account string) error {
-	return fmt.Errorf("--env needs a blueprint in the active account %q; %q belongs to another account", account, ref)
+func errPublishedEnvironmentNotFound(name, ref string, available []string) error {
+	if len(available) == 0 {
+		return fmt.Errorf("blueprint %q has no environment %q in the active account; omit --env to deploy into a new one", ref, name)
+	}
+	return fmt.Errorf("blueprint %q has no environment %q in the active account (environments: %s)", ref, name, strings.Join(available, ", "))
+}
+
+func errPublishedEnvironmentOccupied(name string) error {
+	return fmt.Errorf("environment %q already has an agent; redeploy it instead, with its ID from %s agent list:\n  %s agent redeploy --id <id>",
+		name, buildinfo.BinaryName, buildinfo.BinaryName)
+}
+
+func errPublishedBuildNotFound(buildID, ref string) error {
+	return fmt.Errorf("build %q not found for blueprint %q; omit --build to deploy its newest build", buildID, ref)
 }
 
 func errInvalidBlueprintAccount(ref string) error {

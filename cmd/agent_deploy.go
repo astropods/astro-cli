@@ -436,15 +436,12 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 
 	var environment *blueprintEnvironment
 	if env := flagString(cmd, "env"); env != "" {
-		if publisher != at.Account {
-			return errEnvNeedsOwnBlueprint(ref, at.Account)
-		}
-		environment, err = findBlueprintEnvironment(cmd.Context(), at, name, env, verbose)
+		environment, err = findBlueprintEnvironment(cmd.Context(), at, publisher, name, env, verbose)
 		if err != nil {
 			return err
 		}
 		if environment.DeploymentID != "" {
-			return errEnvironmentOccupied(env, name)
+			return environmentOccupiedErr(at, env, publisher, name)
 		}
 	}
 
@@ -496,7 +493,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if isNotFound(status, err) {
-			return notFoundFromTemplateErr(err, publisher, name, req.Build)
+			return notFoundFromTemplateErr(err, publisher, name, req.Build, publisher == at.Account)
 		}
 		if status == http.StatusForbidden {
 			if clusterErr := clusterNotAvailableFromErr(err); clusterErr != nil {
@@ -553,7 +550,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 		}
 		if status == http.StatusConflict {
 			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && environment != nil {
-				return errEnvironmentOccupied(environment.Name, name)
+				return environmentOccupiedErr(at, environment.Name, publisher, name)
 			}
 			return errDeployNameConflict(displayName)
 		}
@@ -597,14 +594,11 @@ const (
 // the response. The legacy text-based fallback runs only if the server is too
 // old to populate error_code so older deploy clients still get a useful
 // message.
-func notFoundFromTemplateErr(err error, account, name, buildID string) error {
+func notFoundFromTemplateErr(err error, account, name, buildID string, own bool) error {
 	code, body := apiErrorCodeAndBody(err)
 	switch code {
 	case errCodeBuildNotFound:
-		if buildID != "" {
-			return fmt.Errorf("build %q not found for blueprint %q (run `ast push %s` or pick an existing build with `ast blueprint builds %s`)", buildID, name, name, name)
-		}
-		return fmt.Errorf("blueprint %q has no builds yet (run `ast push %s` first)", name, name)
+		return missingBuildErr(account, name, buildID, own)
 	case errCodeAccountNotFound:
 		return fmt.Errorf("account %q not found", account)
 	case errCodeBlueprintNotFound:
@@ -612,10 +606,7 @@ func notFoundFromTemplateErr(err error, account, name, buildID string) error {
 	}
 	switch {
 	case strings.Contains(body, "no builds found for agent"):
-		if buildID != "" {
-			return fmt.Errorf("build %q not found for blueprint %q (run `ast push %s` or pick an existing build with `ast blueprint builds %s`)", buildID, name, name, name)
-		}
-		return fmt.Errorf("blueprint %q has no builds yet (run `ast push %s` first)", name, name)
+		return missingBuildErr(account, name, buildID, own)
 	case strings.Contains(body, "account not found"):
 		return fmt.Errorf("account %q not found", account)
 	case strings.Contains(body, "agent not found"):
@@ -623,6 +614,28 @@ func notFoundFromTemplateErr(err error, account, name, buildID string) error {
 	default:
 		return fmt.Errorf("blueprint %q not found", name)
 	}
+}
+
+// Only the publisher can push, so only it is told to run ast push.
+func missingBuildErr(account, name, buildID string, own bool) error {
+	switch {
+	case !own && buildID != "":
+		return errPublishedBuildNotFound(buildID, account+"/"+name)
+	case !own:
+		return errBlueprintNoPublishedBuild(account + "/" + name)
+	case buildID != "":
+		return fmt.Errorf("build %q not found for blueprint %q (run `ast push %s` or pick an existing build with `ast blueprint builds %s`)", buildID, name, name, name)
+	default:
+		return fmt.Errorf("blueprint %q has no builds yet (run `ast push %s` first)", name, name)
+	}
+}
+
+// agent redeploy --blueprint looks only in the active account, so name --id.
+func environmentOccupiedErr(at AccountToken, env, publisher, name string) error {
+	if publisher != at.Account {
+		return errPublishedEnvironmentOccupied(env)
+	}
+	return errEnvironmentOccupied(env, name)
 }
 
 // apiErrorCodeAndBody parses the embedded JSON body in an apiCall error
