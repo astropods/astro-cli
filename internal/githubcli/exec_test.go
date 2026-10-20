@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,4 +161,19 @@ func TestRunCommandReportsStderrOnFailure(t *testing.T) {
 	_, err := runCommand(context.Background(), t.TempDir(), nil, "sh", "-c", "echo boom 1>&2; exit 3")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "boom")
+}
+
+func TestRunCommandDoesNotHangOnAnOrphanedGrandchild(t *testing.T) {
+	// "sleep 30 &" backgrounds a real grandchild that inherits the stdout/
+	// stderr pipes; sh itself (the direct child) exits immediately via
+	// `true`. Without WaitDelay, Wait blocks until the orphan closes those
+	// pipes on its own, up to its full 30s lifetime, regardless of the
+	// direct child having already exited.
+	start := time.Now()
+	_, err := runCommand(context.Background(), t.TempDir(), nil, "sh", "-c", "sleep 30 & true")
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, waitDelay+2*time.Second,
+		"took %s; must give up at roughly waitDelay, not wait for the orphan's full lifetime", elapsed)
 }

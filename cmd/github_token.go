@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -36,7 +37,18 @@ func resolveGitHubToken(ctx context.Context, verbose bool) string {
 	var resp issueConnectionTokenResponse
 	_, err := apiCall(ctx, http.MethodPost, reqURL, issueConnectionTokenRequest{Provider: githubConnectionProvider}, authzToken, verbose, &resp)
 	if err != nil {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "github: could not fetch this dev session's connection token: %v\n", err) //nolint:errcheck,gosec
+		}
 		return ""
 	}
 	return resp.AccessToken
+}
+
+// devSessionActive reports whether ASTRO_AUTHZ_TOKEN is set, i.e. whether
+// resolveGitHubToken had a dev session to try, as opposed to there being
+// none at all. Callers use this to tell "this session's connection token
+// fetch failed" from "no dev session is open" in their own error text.
+func devSessionActive() bool {
+	return os.Getenv(sandboxTokenEnvVar) != ""
 }

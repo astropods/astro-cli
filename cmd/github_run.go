@@ -24,9 +24,9 @@ var (
 // against GitHub's API.
 const ghAuthCheckTimeout = 10 * time.Second
 
-// resolveToken returns the dev session's GitHub connection token, or "" to
-// use the operator's own local credentials.
-func resolveToken(cmd *cobra.Command) string {
+// devSessionToken returns the dev session's GitHub connection token, or ""
+// to use the operator's own local credentials.
+func devSessionToken(cmd *cobra.Command) string {
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
 	return resolveGitHubToken(cmd.Context(), verbose)
 }
@@ -36,7 +36,7 @@ func resolveToken(cmd *cobra.Command) string {
 // own `gh auth login`, verified to actually work. Push does not call this;
 // it only runs git, which resolves its own credentials independently of gh.
 func ghAuth(cmd *cobra.Command) (token string, err error) {
-	token = resolveToken(cmd)
+	token = devSessionToken(cmd)
 	if token != "" {
 		return token, nil
 	}
@@ -46,6 +46,9 @@ func ghAuth(cmd *cobra.Command) (token string, err error) {
 		var notInstalled githubcli.ErrNotInstalled
 		if errors.As(err, &notInstalled) {
 			return "", errGHNotInstalled()
+		}
+		if devSessionActive() {
+			return "", errGHDevSessionTokenUnavailable(err)
 		}
 		return "", errGHNotAuthenticated(err)
 	}
@@ -61,6 +64,9 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 	result, err := ghRun(cmd.Context(), "", token, args...)
 	writePassthrough(w, result.Stdout)
 	if err != nil {
+		if token != "" {
+			return errGitHubCommandFailedWithDevSessionToken(err)
+		}
 		return errGitHubCommandFailed(err)
 	}
 	return nil
@@ -150,7 +156,7 @@ func runGitHubIssueView(cmd *cobra.Command, args []string) error {
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {
-	token := resolveToken(cmd)
+	token := devSessionToken(cmd)
 	remote, _ := cmd.Flags().GetString("remote")
 	setUpstream, _ := cmd.Flags().GetBool("set-upstream")
 
@@ -169,6 +175,9 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		// runCommand's error already carries stderr; printing it here too
 		// would show it twice.
+		if token != "" {
+			return errGitHubCommandFailedWithDevSessionToken(err)
+		}
 		return errGitHubCommandFailed(err)
 	}
 	// git push writes its own hints (e.g. "Create a pull request for...")

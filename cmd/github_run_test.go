@@ -144,6 +144,57 @@ func TestGHAuthWrapsAGenericAuthFailure(t *testing.T) {
 	assert.Equal(t, errGHNotAuthenticated(authErr).Error(), err.Error())
 }
 
+func TestGHAuthDistinguishesADevSessionTokenFailureFromNoDevSessionAtAll(t *testing.T) {
+	// A dev session that tried and failed to get a connection token needs
+	// different advice than "no dev session is open at all": telling an
+	// operator to share a connection they already tried to share is
+	// actively unhelpful.
+	authErr := errors.New("401")
+	withFakeGH(t, nil, func(context.Context, string) error {
+		return authErr
+	}, nil, nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	prevURL := sandboxServerURLOverride
+	sandboxServerURLOverride = srv.URL
+	t.Cleanup(func() { sandboxServerURLOverride = prevURL })
+	t.Setenv(sandboxTokenEnvVar, "the-dev-session-bearer")
+
+	cmd := newTestCmd(t, nil, githubPRViewCmd)
+	_, err := ghAuth(cmd)
+
+	require.Error(t, err)
+	assert.Equal(t, errGHDevSessionTokenUnavailable(authErr).Error(), err.Error())
+}
+
+func TestRunGHPassthroughNamesTheDevSessionTokenOnFailure(t *testing.T) {
+	// gh's own error text on an auth failure may suggest `gh auth login`,
+	// which has no effect when GH_TOKEN (the dev session's token) is set:
+	// it always overrides a local login. The error must say so.
+	withFakeGH(t, func(context.Context, string, string, ...string) (githubcli.Result, error) {
+		return githubcli.Result{}, errors.New("HTTP 401: Bad credentials")
+	}, nil, nil, nil)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(issueConnectionTokenResponse{AccessToken: "gho_bad"})) //nolint:errcheck,gosec
+	}))
+	defer srv.Close()
+	prevURL := sandboxServerURLOverride
+	sandboxServerURLOverride = srv.URL
+	t.Cleanup(func() { sandboxServerURLOverride = prevURL })
+	t.Setenv(sandboxTokenEnvVar, "the-dev-session-bearer")
+
+	cmd := newTestCmd(t, nil, githubPRViewCmd)
+	err := runGHPassthrough(cmd, "pr", "view")
+
+	require.Error(t, err)
+	assert.Equal(t, errGitHubCommandFailedWithDevSessionToken(errors.New("HTTP 401: Bad credentials")).Error(), err.Error())
+}
+
 func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
 	cases := []struct {
 		name  string

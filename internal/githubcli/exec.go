@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Result is the captured output of a `git`/`gh` invocation.
@@ -30,9 +31,17 @@ type runFunc func(ctx context.Context, dir string, env []string, name string, ar
 
 var run runFunc = runCommand
 
+// waitDelay bounds how long Wait keeps stdout/stderr open after a context
+// deadline kills the direct child; without it, a grandchild process (a
+// credential helper, ssh, a pager) that inherited those pipes can keep
+// Wait blocked indefinitely past the deadline. cmd/mcp.go's exec runner
+// sets this same value for the same reason.
+const waitDelay = 5 * time.Second
+
 func runCommand(ctx context.Context, dir string, env []string, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // argv-based, never shell-interpolated
 	cmd.Dir = dir
+	cmd.WaitDelay = waitDelay
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
