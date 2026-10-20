@@ -370,12 +370,22 @@ func TestRunAgentRedeployGrantWithAdapterReachesTheWire(t *testing.T) {
 	assert.True(t, captured.Interfaces.Auth.Web.Grants[0].Anyone)
 }
 
-func makeRedeployBlueprintHandler(t *testing.T, deployments []agentDeployment, versions []blueprintVersionSummary, captured *deployTemplateRequest) http.Handler {
+// Only the publisher's path serves the blueprint, so a wrong-account lookup 404s.
+func makeRedeployBlueprintHandler(t *testing.T, deployments []agentDeployment, versions []blueprintVersionSummary, sourceAccount string, captured *deployTemplateRequest) http.Handler {
 	t.Helper()
+	publisher := sourceAccount
+	if publisher == "" {
+		publisher = "testaccount"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/deployments":
 			jsonHandler(http.StatusOK, listDeploymentsResponse{Deployments: deployments, Count: len(deployments)})(w, r)
+		case r.URL.Path == "/api/v1/deployments/"+deployments[0].ID:
+			d := deployments[0]
+			jsonHandler(http.StatusOK, agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+				ID: d.ID, Name: d.Name, DisplayName: d.DisplayName, BuildID: d.BuildID, SourceAccount: sourceAccount,
+			}})(w, r)
 		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
 			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
 				http.Error(w, "bad body", http.StatusBadRequest)
@@ -387,8 +397,8 @@ func makeRedeployBlueprintHandler(t *testing.T, deployments []agentDeployment, v
 			})(w, r)
 		case r.URL.Path == "/api/v1/deploy":
 			jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": deployments[0].ID})(w, r)
-		case strings.HasPrefix(r.URL.Path, "/api/v1/agents/"):
-			jsonHandler(http.StatusOK, blueprintItem{Account: "testaccount", Name: "my-bp", Versions: versions})(w, r)
+		case r.URL.Path == "/api/v1/agents/"+publisher+"/my-bp":
+			jsonHandler(http.StatusOK, blueprintItem{Account: publisher, Name: "my-bp", Versions: versions})(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -407,7 +417,27 @@ func TestRunAgentRedeployLatestPinsNewestPublishedBuild(t *testing.T) {
 		{BuildID: "build-mid", PublishedAt: "2026-09-05T00:00:00Z"},
 	}
 	var captured deployTemplateRequest
-	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, &captured))
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, "", &captured))
+
+	setRedeployFlag(t, "latest", "true")
+
+	agentRedeployCmd.SetOut(&bytes.Buffer{})
+	agentRedeployCmd.SetContext(context.Background())
+
+	setAgentTargetName(t, agentRedeployCmd, "my-agent")
+	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
+	assert.Equal(t, "build-new", captured.Build)
+}
+
+func TestRunAgentRedeployLatestReadsThePublishersBuilds(t *testing.T) {
+	deployments := []agentDeployment{
+		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", BuildID: "build-old", Status: "active"},
+	}
+	versions := []blueprintVersionSummary{
+		{BuildID: "build-new", PublishedAt: "2026-09-10T00:00:00Z"},
+	}
+	var captured deployTemplateRequest
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, "other-org", &captured))
 
 	setRedeployFlag(t, "latest", "true")
 
@@ -429,7 +459,7 @@ func TestRunAgentRedeployWithoutLatestLeavesBuildUnset(t *testing.T) {
 		{BuildID: "build-new", PublishedAt: "2026-09-10T00:00:00Z"},
 	}
 	var captured deployTemplateRequest
-	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, &captured))
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, versions, "", &captured))
 
 	agentRedeployCmd.SetOut(&bytes.Buffer{})
 	agentRedeployCmd.SetContext(context.Background())
@@ -464,7 +494,7 @@ func TestRunAgentRedeployLatestNeedsAPublishedBuild(t *testing.T) {
 		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
 	}
 	var captured deployTemplateRequest
-	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, nil, &captured))
+	setupAgentRedeployTest(t, makeRedeployBlueprintHandler(t, deployments, nil, "", &captured))
 
 	setRedeployFlag(t, "latest", "true")
 

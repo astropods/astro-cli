@@ -625,6 +625,7 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 		account string
 		blue    string
 		build   string
+		foreign bool
 		want    []string
 	}{
 		// Typed error_code path (current servers).
@@ -640,6 +641,18 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 			body: `{"error":"no builds found for agent","error_code":"build_not_found"}`,
 			blue: "my-agent",
 			want: []string{`blueprint "my-agent" has no builds yet`, "ast push my-agent"},
+		},
+		{
+			name:    "typed: build_not_found for another account's blueprint",
+			body:    `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			account: "other-org", blue: "my-agent", build: "deadbeef", foreign: true,
+			want: []string{errPublishedBuildNotFound("deadbeef", "other-org/my-agent").Error()},
+		},
+		{
+			name:    "typed: no builds for another account's blueprint",
+			body:    `{"error":"no builds found for agent","error_code":"build_not_found"}`,
+			account: "other-org", blue: "my-agent", foreign: true,
+			want: []string{errBlueprintNoPublishedBuild("other-org/my-agent").Error()},
 		},
 		{
 			name:    "typed: account_not_found",
@@ -677,7 +690,7 @@ func TestNotFoundFromTemplateErr(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := errFromAPI(http.StatusNotFound, tc.body)
-			out := notFoundFromTemplateErr(err, tc.account, tc.blue, tc.build)
+			out := notFoundFromTemplateErr(err, tc.account, tc.blue, tc.build, !tc.foreign)
 			require.Error(t, out)
 			for _, sub := range tc.want {
 				assert.Contains(t, out.Error(), sub)
@@ -778,4 +791,114 @@ func TestBuildDeployInterfaces_GrantRequiresItsAdapter(t *testing.T) {
 	_, err := buildDeployInterfaces([]string{"web"}, []string{"slack:anyone"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires --adapter slack")
+}
+
+func TestOptionalBlueprintRef(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr error
+	}{
+		{name: "no argument", args: nil},
+		{name: "bare name", args: []string{"my-agent"}},
+		{name: "account and name", args: []string{"other-org/shared-agent"}},
+		{name: "astropods.yml form", args: []string{"@other-org/shared-agent"}},
+		{name: "empty account", args: []string{"/shared-agent"}, wantErr: errInvalidBlueprintAccount("/shared-agent")},
+		{name: "uppercase account", args: []string{"Other-Org/shared-agent"}, wantErr: errInvalidBlueprintAccount("Other-Org/shared-agent")},
+		{name: "invalid name after account", args: []string{"other-org/Shared"}, wantErr: optionalValidAgentName(nil, []string{"Shared"})},
+		{name: "extra path segment", args: []string{"other-org/shared/agent"}, wantErr: optionalValidAgentName(nil, []string{"shared/agent"})},
+		{name: "two arguments", args: []string{"a1", "b2"}, wantErr: optionalValidAgentName(nil, []string{"a1", "b2"})},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := optionalBlueprintRef(blueprintDeployCmd, tc.args)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr.Error())
+		})
+	}
+}
+
+func TestRunBlueprintDeployBlueprintRef(t *testing.T) {
+	cases := []struct {
+		ref         string
+		wantPath    string
+		wantLabel   string
+		wantDisplay string
+	}{
+		{
+			ref:         "my-agent",
+			wantPath:    "/api/v1/agents/testaccount/my-agent/deployment-template",
+			wantLabel:   "Deploying blueprint my-agent as agent my-agent",
+			wantDisplay: "my-agent",
+		},
+		{
+			ref:         "testaccount/my-agent",
+			wantPath:    "/api/v1/agents/testaccount/my-agent/deployment-template",
+			wantLabel:   "Deploying blueprint my-agent as agent my-agent",
+			wantDisplay: "my-agent",
+		},
+		{
+			ref:         "other-org/shared-agent",
+			wantPath:    "/api/v1/agents/other-org/shared-agent/deployment-template",
+			wantLabel:   "Deploying blueprint other-org/shared-agent as agent shared-agent",
+			wantDisplay: "shared-agent",
+		},
+		{
+			ref:         "@other-org/shared-agent",
+			wantPath:    "/api/v1/agents/other-org/shared-agent/deployment-template",
+			wantLabel:   "Deploying blueprint other-org/shared-agent as agent shared-agent",
+			wantDisplay: "shared-agent",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.ref, func(t *testing.T) {
+			var (
+				tmplPath   string
+				tmplReq    deployTemplateRequest
+				deployBody map[string]any
+			)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/deployment-template") {
+					tmplPath = r.URL.Path
+					json.NewDecoder(r.Body).Decode(&tmplReq) //nolint:errcheck
+					jsonHandler(http.StatusOK, map[string]any{
+						"template":   json.RawMessage(`{"spec":"deployment/v1","target":{"runtime":"kubernetes"}}`),
+						"validation": map[string]any{"valid": true},
+					})(w, r)
+				} else if r.URL.Path == "/api/v1/deploy" {
+					json.NewDecoder(r.Body).Decode(&deployBody) //nolint:errcheck
+					jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": "dep-1"})(w, r)
+				} else {
+					http.NotFound(w, r)
+				}
+			})
+			setupBlueprintDeployTest(t, handler)
+
+			buf := &bytes.Buffer{}
+			blueprintDeployCmd.SetOut(buf)
+			blueprintDeployCmd.SetContext(context.Background())
+			require.NoError(t, runBlueprintDeploy(blueprintDeployCmd, []string{tc.ref}))
+
+			assert.Equal(t, tc.wantPath, tmplPath)
+			assert.Equal(t, "testaccount", tmplReq.TargetAccount)
+			assert.Contains(t, stripANSI(buf.String()), tc.wantLabel)
+			require.NotNil(t, deployBody)
+			assert.Equal(t, tc.wantDisplay, deployBody["target"].(map[string]any)["display_name"])
+		})
+	}
+}
+
+func TestRunBlueprintDeployNotFoundNamesThePublisher(t *testing.T) {
+	setupBlueprintDeployTest(t, jsonHandler(http.StatusNotFound, map[string]any{
+		"error":      "agent not found",
+		"error_code": errCodeBlueprintNotFound,
+	}))
+	blueprintDeployCmd.SetOut(&bytes.Buffer{})
+	blueprintDeployCmd.SetContext(context.Background())
+
+	err := runBlueprintDeploy(blueprintDeployCmd, []string{"other-org/shared-agent"})
+	require.EqualError(t, err, errBlueprintNotFound("shared-agent", "other-org").Error())
 }

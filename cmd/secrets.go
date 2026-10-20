@@ -179,7 +179,7 @@ func resolveVaultScope(cmd *cobra.Command, at AccountToken, verbose bool) (vault
 		return scope, err
 	}
 	scope.blueprint = blueprint
-	e, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, env, verbose)
+	e, err := findBlueprintEnvironment(cmd.Context(), at, at.Account, blueprint, env, verbose)
 	if err != nil {
 		return scope, err
 	}

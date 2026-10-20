@@ -86,11 +86,11 @@ func init() {
 
 // listBlueprintEnvironments returns the blueprint's environments in the
 // active account. The server lists every account the viewer can see.
-func listBlueprintEnvironments(ctx context.Context, at AccountToken, blueprint string, verbose bool) ([]blueprintEnvironment, error) {
+func listBlueprintEnvironments(ctx context.Context, at AccountToken, publisher, blueprint string, verbose bool) ([]blueprintEnvironment, error) {
 	var bp blueprintItem
-	status, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), at.Account, "agents", blueprint), nil, at.Token, verbose, &bp)
+	status, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), publisher, "agents", blueprint), nil, at.Token, verbose, &bp)
 	if isNotFound(status, err) {
-		return nil, errBlueprintNotFound(blueprint, at.Account)
+		return nil, errBlueprintNotFound(blueprint, publisher)
 	}
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func listBlueprintEnvironments(ctx context.Context, at AccountToken, blueprint s
 	var result struct {
 		Environments []blueprintEnvironment `json:"environments"`
 	}
-	if _, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"), nil, at.Token, verbose, &result); err != nil {
+	if _, err := apiCall(ctx, http.MethodGet, apiPath(environmentsBaseURL(), publisher, "agents", blueprint, "environments"), nil, at.Token, verbose, &result); err != nil {
 		return nil, err
 	}
 	envs := make([]blueprintEnvironment, 0, len(result.Environments))
@@ -114,8 +114,8 @@ func listBlueprintEnvironments(ctx context.Context, at AccountToken, blueprint s
 	return envs, nil
 }
 
-func findBlueprintEnvironment(ctx context.Context, at AccountToken, blueprint, name string, verbose bool) (*blueprintEnvironment, error) {
-	envs, err := listBlueprintEnvironments(ctx, at, blueprint, verbose)
+func findBlueprintEnvironment(ctx context.Context, at AccountToken, publisher, blueprint, name string, verbose bool) (*blueprintEnvironment, error) {
+	envs, err := listBlueprintEnvironments(ctx, at, publisher, blueprint, verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +125,9 @@ func findBlueprintEnvironment(ctx context.Context, at AccountToken, blueprint, n
 			return &envs[i], nil
 		}
 		names = append(names, envs[i].Name)
+	}
+	if publisher != at.Account {
+		return nil, errPublishedEnvironmentNotFound(name, publisher+"/"+blueprint, names)
 	}
 	return nil, errEnvironmentNotFound(name, blueprint, names)
 }
@@ -152,7 +155,7 @@ func runEnvList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	envs, err := listBlueprintEnvironments(cmd.Context(), at, blueprint, verbose)
+	envs, err := listBlueprintEnvironments(cmd.Context(), at, at.Account, blueprint, verbose)
 	if err != nil {
 		return err
 	}
@@ -302,7 +305,7 @@ func runEnvRename(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
+	env, err := findBlueprintEnvironment(cmd.Context(), at, at.Account, blueprint, name, verbose)
 	if err != nil {
 		return err
 	}
@@ -333,7 +336,7 @@ func runEnvDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	env, err := findBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
+	env, err := findBlueprintEnvironment(cmd.Context(), at, at.Account, blueprint, name, verbose)
 	if err != nil {
 		return err
 	}
