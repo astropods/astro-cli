@@ -204,8 +204,8 @@ func TestValidateSpecFile_Connections(t *testing.T) {
 	}
 }
 
-func TestValidateSpecFile_AcceptsAgentSkills(t *testing.T) {
-	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nagent:\n  image: x\n  skills:\n    - name: github.issue.investigate\n      description: Investigates a new GitHub issue.\n")
+func TestValidateSpecFile_AcceptsAgentJobs(t *testing.T) {
+	specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nagent:\n  image: x\n  jobs:\n    - name: github.issue.investigate\n      description: Investigates a new GitHub issue.\n")
 
 	var (
 		gotErr error
@@ -215,47 +215,47 @@ func TestValidateSpecFile_AcceptsAgentSkills(t *testing.T) {
 		p, err := validateSpecFile(specPath)
 		gotErr = err
 		if p != nil {
-			parsed = len(p.Agent.Skills)
+			parsed = len(p.Agent.Jobs)
 		}
 	})
 
-	require.NoError(t, gotErr, "agent.skills is part of the spec since astro-spec v0.7.0, so the schema must allow it")
-	assert.Equal(t, 1, parsed, "the declared skill must survive parsing")
+	require.NoError(t, gotErr, "agent.jobs is part of the spec since astro-spec v0.8.0, so the schema must allow it")
+	assert.Equal(t, 1, parsed, "the declared job must survive parsing")
 	assert.Empty(t, out, "a valid spec prints nothing")
 }
 
-func TestValidateSpecFile_RejectsInvalidAgentSkills(t *testing.T) {
+func TestValidateSpecFile_RejectsInvalidAgentJobs(t *testing.T) {
 	tests := []struct {
 		name     string
-		skills   string
+		jobs     string
 		wantRule string
 	}{
 		{
 			name:     "uppercase name",
-			skills:   "    - name: GitHub.Issue\n",
+			jobs:     "    - name: GitHub.Issue\n",
 			wantRule: "does not match pattern",
 		},
 		{
 			name:     "reserved agent prefix",
-			skills:   "    - name: agent.demo\n",
+			jobs:     "    - name: agent.demo\n",
 			wantRule: `uses the reserved prefix "agent."`,
 		},
 		{
 			name:     "duplicate name",
-			skills:   "    - name: triage\n    - name: triage\n",
+			jobs:     "    - name: triage\n    - name: triage\n",
 			wantRule: "is listed twice",
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nagent:\n  image: x\n  skills:\n"+tc.skills)
+			specPath := writeSpecFile(t, "spec: blueprint/v1\nname: demo\nagent:\n  image: x\n  jobs:\n"+tc.jobs)
 
 			var gotErr error
 			out := captureStdout(t, func() {
 				_, gotErr = validateSpecFile(specPath)
 			})
 
-			require.Error(t, gotErr, "an invalid skill must be rejected before any build or push")
+			require.Error(t, gotErr, "an invalid job must be rejected before any build or push")
 			assert.Contains(t, out, tc.wantRule, "the output must name the rule the author broke")
 		})
 	}
