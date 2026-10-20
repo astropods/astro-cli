@@ -83,9 +83,7 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 }
 
 func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
-	// Exercises the real exec path, no fake runner: runCommand's error
-	// formatting joins args into the message, so the token must never be
-	// placed there.
+	// Exercises the real exec path, no fake runner.
 	dir := t.TempDir() // not a git repository, so `git push` fails immediately
 	const token = "SUPERSECRETTOKENVALUE123"
 
@@ -170,11 +168,8 @@ func TestRunCommandReportsStderrOnFailure(t *testing.T) {
 }
 
 func TestRunCommandDoesNotHangOnAnOrphanedGrandchild(t *testing.T) {
-	// "sleep 30 &" backgrounds a real grandchild that inherits the stdout/
-	// stderr pipes; sh itself (the direct child) exits immediately via
-	// `true`. Without WaitDelay, Wait blocks until the orphan closes those
-	// pipes on its own, up to its full 30s lifetime, regardless of the
-	// direct child having already exited.
+	// "sleep 30 &" backgrounds a grandchild that inherits the pipes; sh
+	// itself exits immediately via `true`.
 	start := time.Now()
 	_, err := runCommand(context.Background(), t.TempDir(), nil, "sh", "-c", "sleep 30 & true")
 	elapsed := time.Since(start)

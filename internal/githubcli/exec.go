@@ -19,7 +19,6 @@ import (
 	"time"
 )
 
-// Result is the captured output of a `git`/`gh` invocation.
 type Result struct {
 	Stdout string
 	Stderr string
@@ -31,11 +30,8 @@ type runFunc func(ctx context.Context, dir string, env []string, name string, ar
 
 var run runFunc = runCommand
 
-// waitDelay bounds how long Wait keeps stdout/stderr open after a context
-// deadline kills the direct child; without it, a grandchild process (a
-// credential helper, ssh, a pager) that inherited those pipes can keep
-// Wait blocked indefinitely past the deadline. cmd/mcp.go's exec runner
-// sets this same value for the same reason.
+// waitDelay bounds the pipe drain after a context deadline kills the
+// direct child, in case it spawned its own child that inherited the pipe.
 const waitDelay = 5 * time.Second
 
 func runCommand(ctx context.Context, dir string, env []string, name string, args ...string) (Result, error) {
@@ -62,9 +58,7 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 
 // WithPositional appends a `--` separator before any positional args, so
 // the invoked binary never reinterprets one as a flag if it starts with
-// "-". With no positional args, argv is returned unchanged. Call this at
-// most once per argv: a second `--` is itself a positional to the invoked
-// binary, shifting every arg after it by one slot.
+// "-". Call at most once per argv: a second `--` is itself a positional.
 func WithPositional(argv []string, positional ...string) []string {
 	if len(positional) == 0 {
 		return argv
@@ -78,9 +72,7 @@ type ErrNotInstalled struct{ Name string }
 func (e ErrNotInstalled) Error() string { return e.Name + " is not installed or not on PATH" }
 
 // GH runs `gh` with args in dir. A non-empty token is passed as GH_TOKEN,
-// which gh reads in preference to its own stored login; an empty token
-// leaves gh to authenticate with whatever the operator already ran
-// `gh auth login` with.
+// which gh reads in preference to its own stored login.
 func GH(ctx context.Context, dir, token string, args ...string) (Result, error) {
 	env := []string{"GH_PROMPT_DISABLED=1", "GH_NO_UPDATE_NOTIFIER=1"}
 	if token != "" {
@@ -95,11 +87,9 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 	return err
 }
 
-// Push runs `git push` in dir. A non-empty token authenticates the push via a
-// single-request Authorization header, passed through env (GIT_CONFIG_*,
-// git 2.31+): runCommand's error formatting joins args into its message, so
-// the credential must never be placed there. An empty token leaves git to
-// use the operator's own configured credential helper.
+// Push runs `git push` in dir. A non-empty token authenticates via env
+// (GIT_CONFIG_*, git 2.31+), never argv: runCommand's error formatting
+// joins args into its message, so a credential placed there would leak.
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
 	var env []string
 	if token != "" {

@@ -32,9 +32,8 @@ func devSessionToken(cmd *cobra.Command) string {
 }
 
 // ghAuth returns the token a gh-based subcommand should use: the dev
-// session's GitHub connection when one is open, otherwise the operator's
-// own `gh auth login`, verified to actually work. Push does not call this;
-// it only runs git, which resolves its own credentials independently of gh.
+// session's connection when open, else the operator's own `gh auth login`,
+// verified to work. Push doesn't call this; it only runs git.
 func ghAuth(cmd *cobra.Command) (token string, err error) {
 	token = devSessionToken(cmd)
 	if token != "" {
@@ -70,8 +69,8 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 }
 
 // classifyGitHubError names the dev session's connection as the credential
-// source when one was in play, since gh's own error text may otherwise
-// suggest a fix (gh auth login) that has no effect once GH_TOKEN is set.
+// source when one was in play: gh's own error text may otherwise suggest
+// `gh auth login`, which has no effect once GH_TOKEN is set.
 func classifyGitHubError(err error, token string) error {
 	if token != "" {
 		return errGitHubCommandFailedWithDevSessionToken(err)
@@ -97,13 +96,19 @@ func writePassthrough(w io.Writer, s string) {
 	}
 }
 
-func runGitHubPRView(cmd *cobra.Command, args []string) error {
-	ghArgs := []string{"pr", "view"}
+// runGHWithOptionalNumber builds `base [--json fields] [-R repo] [-- number]`
+// and runs it: the shape shared by pr view, pr checks, and issue view.
+func runGHWithOptionalNumber(cmd *cobra.Command, base []string, args []string) error {
+	ghArgs := base
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
 	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
 	return runGHPassthrough(cmd, ghArgs...)
+}
+
+func runGitHubPRView(cmd *cobra.Command, args []string) error {
+	return runGHWithOptionalNumber(cmd, []string{"pr", "view"}, args)
 }
 
 func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
@@ -134,21 +139,11 @@ func runGitHubPRComment(cmd *cobra.Command, args []string) error {
 }
 
 func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
-	ghArgs := []string{"pr", "checks"}
-	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
-		ghArgs = append(ghArgs, "--json", fields)
-	}
-	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHWithOptionalNumber(cmd, []string{"pr", "checks"}, args)
 }
 
 func runGitHubIssueView(cmd *cobra.Command, args []string) error {
-	ghArgs := []string{"issue", "view"}
-	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
-		ghArgs = append(ghArgs, "--json", fields)
-	}
-	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
-	return runGHPassthrough(cmd, ghArgs...)
+	return runGHWithOptionalNumber(cmd, []string{"issue", "view"}, args)
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {

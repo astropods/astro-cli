@@ -145,10 +145,6 @@ func TestGHAuthWrapsAGenericAuthFailure(t *testing.T) {
 }
 
 func TestGHAuthDistinguishesADevSessionTokenFailureFromNoDevSessionAtAll(t *testing.T) {
-	// A dev session that tried and failed to get a connection token needs
-	// different advice than "no dev session is open at all": telling an
-	// operator to share a connection they already tried to share is
-	// actively unhelpful.
 	authErr := errors.New("401")
 	withFakeGH(t, nil, func(context.Context, string) error {
 		return authErr
@@ -171,9 +167,8 @@ func TestGHAuthDistinguishesADevSessionTokenFailureFromNoDevSessionAtAll(t *test
 }
 
 func TestRunGHPassthroughNamesTheDevSessionTokenOnFailure(t *testing.T) {
-	// gh's own error text on an auth failure may suggest `gh auth login`,
-	// which has no effect when GH_TOKEN (the dev session's token) is set:
-	// it always overrides a local login. The error must say so.
+	// gh's own error text may suggest `gh auth login`, which has no effect
+	// once GH_TOKEN overrides it.
 	withFakeGH(t, func(context.Context, string, string, ...string) (githubcli.Result, error) {
 		return githubcli.Result{}, errors.New("HTTP 401: Bad credentials")
 	}, nil, nil, nil)

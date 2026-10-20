@@ -21,10 +21,8 @@ type issueConnectionTokenResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-// resolveGitHubToken returns a token from the GitHub connection shared with
-// the current `ast dev` session, or "" if no session is open or the
-// connection isn't available; callers treat "" as "fall back to gh's own
-// login", not as an error.
+// resolveGitHubToken returns the dev session's connection token, or "" (not
+// an error) if no session is open or the connection isn't available.
 func resolveGitHubToken(ctx context.Context, verbose bool) string {
 	authzToken := os.Getenv(sandboxTokenEnvVar)
 	if authzToken == "" {
