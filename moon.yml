@@ -43,18 +43,27 @@ tasks:
     options:
       cache: false
 
+  # link, link-preview, and unlink change a symlink in ~/go/bin, outside the
+  # project, so moon cannot see another worktree repoint it.
+
   link:
     script: "ln -sf $(pwd)/bin/ast-dev $HOME/go/bin/ast-dev"
     deps:
       - "build"
+    options:
+      cache: false
 
   link-preview:
     script: "ln -sf $(pwd)/bin/ast-preview $HOME/go/bin/ast-preview"
     deps:
       - "build-preview"
+    options:
+      cache: false
 
   unlink:
     command: "rm -f $HOME/go/bin/ast-dev"
+    options:
+      cache: false
 
   test:
     command: "go test -v ./cmd/... ./internal/..."
