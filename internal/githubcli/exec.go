@@ -60,6 +60,16 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 	return result, nil
 }
 
+// WithPositional appends a `--` separator before any positional args, so
+// the invoked binary never reinterprets one as a flag if it starts with
+// "-". With no positional args, argv is returned unchanged.
+func WithPositional(argv []string, positional ...string) []string {
+	if len(positional) == 0 {
+		return argv
+	}
+	return append(append(argv, "--"), positional...)
+}
+
 // ErrNotInstalled means the binary itself could not be found on PATH.
 type ErrNotInstalled struct{ Name string }
 
@@ -97,10 +107,7 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 	if setUpstream {
 		args = append(args, "--set-upstream")
 	}
-	// -- stops git from treating remote (caller-supplied, e.g. via --remote)
-	// as a flag if it starts with "-". cmd.withPositional applies the same
-	// treatment for gh's bare positionals.
-	args = append(args, "--", remote, branch)
+	args = WithPositional(args, remote, branch) // remote is caller-supplied
 	return run(ctx, dir, env, "git", args...)
 }
 

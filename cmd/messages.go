@@ -99,10 +99,8 @@ func errGitHubCommandFailed(err error) error {
 	return fmt.Errorf("github: %w", err)
 }
 
-// errGitHubCommandFailedWithDevSessionToken wraps a failure from a call that
-// used this dev session's shared GitHub connection token (not the
-// operator's own gh login), since gh's own error text may suggest
-// `gh auth login`, which has no effect here: GH_TOKEN always overrides it.
+// errGitHubCommandFailedWithDevSessionToken: gh's own error text may
+// suggest `gh auth login`, which has no effect once GH_TOKEN is set.
 func errGitHubCommandFailedWithDevSessionToken(err error) error {
 	return fmt.Errorf("github (using this dev session's shared GitHub connection, not your local gh login): %w", err)
 }

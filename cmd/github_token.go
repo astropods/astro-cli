@@ -45,10 +45,8 @@ func resolveGitHubToken(ctx context.Context, verbose bool) string {
 	return resp.AccessToken
 }
 
-// devSessionActive reports whether ASTRO_AUTHZ_TOKEN is set, i.e. whether
-// resolveGitHubToken had a dev session to try, as opposed to there being
-// none at all. Callers use this to tell "this session's connection token
-// fetch failed" from "no dev session is open" in their own error text.
+// devSessionActive reports whether a dev session's token was available to
+// try, as opposed to there being no dev session at all.
 func devSessionActive() bool {
 	return os.Getenv(sandboxTokenEnvVar) != ""
 }

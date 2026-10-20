@@ -80,17 +80,6 @@ func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 	return ghArgs
 }
 
-// withPositional appends a `--` separator before any positional args, so gh
-// never reinterprets one as a flag if it starts with "-". githubcli.Push
-// applies the same `--` independently for git; a new bare positional
-// anywhere needs the same treatment.
-func withPositional(ghArgs []string, positional []string) []string {
-	if len(positional) == 0 {
-		return ghArgs
-	}
-	return append(append(ghArgs, "--"), positional...)
-}
-
 func writePassthrough(w io.Writer, s string) {
 	if s == "" {
 		return
@@ -106,7 +95,7 @@ func runGitHubPRView(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
 	return runGHPassthrough(cmd, ghArgs...)
 }
 
@@ -133,7 +122,7 @@ func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
 func runGitHubPRComment(cmd *cobra.Command, args []string) error {
 	body, _ := cmd.Flags().GetString("body")
 	ghArgs := []string{"pr", "comment", "--body", body}
-	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
 	return runGHPassthrough(cmd, ghArgs...)
 }
 
@@ -142,7 +131,7 @@ func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
 	return runGHPassthrough(cmd, ghArgs...)
 }
 
@@ -151,7 +140,7 @@ func runGitHubIssueView(cmd *cobra.Command, args []string) error {
 	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
-	ghArgs = withPositional(withRepoFlag(cmd, ghArgs), args)
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
 	return runGHPassthrough(cmd, ghArgs...)
 }
 

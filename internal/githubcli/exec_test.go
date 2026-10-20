@@ -96,6 +96,12 @@ func TestPushNeverLeaksTheTokenIntoAFailedPushsErrorText(t *testing.T) {
 	assert.NotContains(t, err.Error(), basicAuthHeader(token))
 }
 
+func TestWithPositional(t *testing.T) {
+	assert.Equal(t, []string{"pr", "view"}, WithPositional([]string{"pr", "view"}))
+	assert.Equal(t, []string{"pr", "view", "--", "42"}, WithPositional([]string{"pr", "view"}, "42"))
+	assert.Equal(t, []string{"push", "--", "origin", "main"}, WithPositional([]string{"push"}, "origin", "main"))
+}
+
 func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) {
