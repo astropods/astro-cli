@@ -21,13 +21,15 @@ import (
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
 type deployTemplateRequest struct {
-	Build        string                    `json:"build,omitempty"`
-	DeploymentID string                    `json:"deployment_id,omitempty"`
-	Interfaces   *deployTemplateInterfaces `json:"interfaces,omitempty"`
-	Variables    map[string]deployVarInput `json:"variables,omitempty"`
-	Schedules    map[string]string         `json:"schedules,omitempty"`
-	Finalize     bool                      `json:"finalize,omitempty"`
-	ClusterID    string                    `json:"cluster_id,omitempty"`
+	Build        string `json:"build,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
+	// The URL account is the blueprint's publisher; this is where the agent runs.
+	TargetAccount string                    `json:"target_account,omitempty"`
+	Interfaces    *deployTemplateInterfaces `json:"interfaces,omitempty"`
+	Variables     map[string]deployVarInput `json:"variables,omitempty"`
+	Schedules     map[string]string         `json:"schedules,omitempty"`
+	Finalize      bool                      `json:"finalize,omitempty"`
+	ClusterID     string                    `json:"cluster_id,omitempty"`
 }
 
 type deployTemplateInterfaces struct {
@@ -90,10 +92,15 @@ type agentDeployResult struct {
 }
 
 var blueprintDeployCmd = &cobra.Command{
-	Use:   "deploy <name>",
+	Use:   "deploy [<account>/]<name>",
 	Short: "Deploy a blueprint",
-	Args:  optionalValidAgentName,
-	RunE:  runBlueprintDeploy,
+	Long: `Deploy a blueprint as an agent in the active account.
+
+Name a blueprint that another account publishes as <account>/<name>. A bare
+<name> is a blueprint in the active account. With no argument, deploy the
+blueprint in the current directory's astropods.yml.`,
+	Args: optionalBlueprintRef,
+	RunE: runBlueprintDeploy,
 }
 
 // registerDeployCommonFlags registers adapter/var/build/dry-run/json flags shared by deploy and redeploy.
@@ -125,7 +132,8 @@ func init() {
 	topLevelDeployCmd := &cobra.Command{
 		Use:   blueprintDeployCmd.Use,
 		Short: blueprintDeployCmd.Short,
-		Args:  optionalValidAgentName,
+		Long:  blueprintDeployCmd.Long,
+		Args:  optionalBlueprintRef,
 		RunE:  runBlueprintDeploy,
 	}
 	registerDeployFlags(topLevelDeployCmd)
@@ -387,7 +395,7 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	if len(args) > 0 {
 		arg = args[0]
 	}
-	name, err := resolveBlueprintName(arg)
+	ref, err := resolveBlueprintName(arg)
 	if err != nil {
 		return err
 	}
@@ -400,6 +408,11 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
+	}
+
+	publisher, name := splitBlueprintRef(ref)
+	if publisher == "" {
+		publisher = at.Account
 	}
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
@@ -423,6 +436,9 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 
 	var environment *blueprintEnvironment
 	if env := flagString(cmd, "env"); env != "" {
+		if publisher != at.Account {
+			return errEnvNeedsOwnBlueprint(ref, at.Account)
+		}
 		environment, err = findBlueprintEnvironment(cmd.Context(), at, name, env, verbose)
 		if err != nil {
 			return err
@@ -441,7 +457,7 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	req := deployTemplateRequest{Build: build, Interfaces: iface, ClusterID: clusterID}
+	req := deployTemplateRequest{Build: build, TargetAccount: at.Account, Interfaces: iface, ClusterID: clusterID}
 	if len(vars) > 0 {
 		req.Variables = vars
 	}
@@ -449,14 +465,14 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, name, displayName, environment, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, publisher, name, displayName, environment, req, dryRun)
 }
 
 // runDeployWithRequest handles the template POST → validation → deploy POST flow.
 // Shared by blueprint deploy and agent redeploy; set req.DeploymentID to retarget an existing deployment.
 // displayName is patched into template.target.display_name before the deploy POST when non-empty,
 // and environment's id into template.target.environment_id when non-nil.
-func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
+func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, publisher, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
 	w := cmd.OutOrStdout()
 	verb := "Deploying"
 	if req.DeploymentID != "" {
@@ -466,17 +482,21 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, nam
 	if environment != nil {
 		into = fmt.Sprintf(" into environment %s%s%s", colorBold, environment.Name, colorReset)
 	}
-	fmt.Fprintf(w, "%s→%s %s blueprint %s%s%s as agent %s%s%s%s\n", colorCyan, colorReset, verb, colorBold, name, colorReset, colorBold, displayName, colorReset, into) //nolint:errcheck,gosec
+	label := name
+	if publisher != at.Account {
+		label = publisher + "/" + name
+	}
+	fmt.Fprintf(w, "%s→%s %s blueprint %s%s%s as agent %s%s%s%s\n", colorCyan, colorReset, verb, colorBold, label, colorReset, colorBold, displayName, colorReset, into) //nolint:errcheck,gosec
 
 	// finalize=true asks the server to sign the template; the signature is
 	// the only deploy-time integrity check, so we always request it here.
 	req.Finalize = true
 
-	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "deployment-template")
+	u := apiPath(blueprintBaseURL(), publisher, "agents", name, "deployment-template")
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(cmd.Context(), http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if isNotFound(status, err) {
-			return notFoundFromTemplateErr(err, at.Account, name, req.Build)
+			return notFoundFromTemplateErr(err, publisher, name, req.Build)
 		}
 		if status == http.StatusForbidden {
 			if clusterErr := clusterNotAvailableFromErr(err); clusterErr != nil {

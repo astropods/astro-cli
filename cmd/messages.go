@@ -941,6 +941,14 @@ func errEnvironmentOccupied(name, blueprint string) error {
 		name, buildinfo.BinaryName, blueprint, name)
 }
 
+func errEnvNeedsOwnBlueprint(ref, account string) error {
+	return fmt.Errorf("--env needs a blueprint in the active account %q; %q belongs to another account", account, ref)
+}
+
+func errInvalidBlueprintAccount(ref string) error {
+	return fmt.Errorf("blueprint %q: name it as <account>/<name>, where the account is lowercase letters, digits, and hyphens", ref)
+}
+
 func errEnvironmentHasNoAgent(name, blueprint string) error {
 	return fmt.Errorf("environment %q has no agent; deploy into it with:\n  %s deploy %s --env %s",
 		name, buildinfo.BinaryName, blueprint, name)

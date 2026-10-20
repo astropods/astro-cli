@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -42,6 +43,27 @@ func optionalValidAgentName(_ *cobra.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+var accountNameRegex = regexp.MustCompile(`^[a-z][a-z0-9-]*[a-z0-9]$`)
+
+// Accepts @<account>/<name> too, the form astropods.yml uses.
+func splitBlueprintRef(ref string) (account, name string) {
+	if account, name, ok := strings.Cut(strings.TrimPrefix(ref, "@"), "/"); ok {
+		return account, name
+	}
+	return "", ref
+}
+
+func optionalBlueprintRef(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return optionalValidAgentName(cmd, args)
+	}
+	account, name := splitBlueprintRef(args[0])
+	if strings.Contains(args[0], "/") && !accountNameRegex.MatchString(account) {
+		return errInvalidBlueprintAccount(args[0])
+	}
+	return optionalValidAgentName(cmd, []string{name})
 }
 
 // Visibility is the access-control level of an agent blueprint.
