@@ -195,6 +195,31 @@ func TestRunGHPassthroughNamesTheDevSessionTokenOnFailure(t *testing.T) {
 	assert.Equal(t, errGitHubCommandFailedWithDevSessionToken(errors.New("HTTP 401: Bad credentials")).Error(), err.Error())
 }
 
+func TestRunGHPassthroughUsesThePlainErrorWithNoDevSession(t *testing.T) {
+	ghErr := errors.New("HTTP 404: Not Found")
+	withFakeGH(t, func(context.Context, string, string, ...string) (githubcli.Result, error) {
+		return githubcli.Result{}, ghErr
+	}, func(context.Context, string) error { return nil }, nil, nil)
+
+	cmd := newTestCmd(t, nil, githubPRViewCmd)
+	err := runGHPassthrough(cmd, "pr", "view")
+
+	require.Error(t, err)
+	assert.Equal(t, errGitHubCommandFailed(ghErr).Error(), err.Error())
+}
+
+func TestRunGitHubPushReportsGitNotInstalledDistinctly(t *testing.T) {
+	withFakeGH(t, nil, nil, nil, func(context.Context, string) (string, error) {
+		return "", githubcli.ErrNotInstalled{Name: "git"}
+	})
+
+	cmd := newTestCmd(t, map[string]string{"remote": "origin"}, githubPushCmd)
+	err := runGitHubPush(cmd, nil)
+
+	require.Error(t, err)
+	assert.Equal(t, errGitNotInstalled().Error(), err.Error())
+}
+
 func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
 	cases := []struct {
 		name  string

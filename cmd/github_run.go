@@ -64,12 +64,19 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 	result, err := ghRun(cmd.Context(), "", token, args...)
 	writePassthrough(w, result.Stdout)
 	if err != nil {
-		if token != "" {
-			return errGitHubCommandFailedWithDevSessionToken(err)
-		}
-		return errGitHubCommandFailed(err)
+		return classifyGitHubError(err, token)
 	}
 	return nil
+}
+
+// classifyGitHubError names the dev session's connection as the credential
+// source when one was in play, since gh's own error text may otherwise
+// suggest a fix (gh auth login) that has no effect once GH_TOKEN is set.
+func classifyGitHubError(err error, token string) error {
+	if token != "" {
+		return errGitHubCommandFailedWithDevSessionToken(err)
+	}
+	return errGitHubCommandFailed(err)
 }
 
 // withRepoFlag appends gh's own -R flag when --repo was given.
@@ -152,6 +159,10 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	branch, err := ghCurrentBranch(ctx, "")
 	if err != nil {
+		var notInstalled githubcli.ErrNotInstalled
+		if errors.As(err, &notInstalled) {
+			return errGitNotInstalled()
+		}
 		return errGitHubCommandFailed(err)
 	}
 	if branch == "HEAD" {
@@ -164,10 +175,7 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		// runCommand's error already carries stderr; printing it here too
 		// would show it twice.
-		if token != "" {
-			return errGitHubCommandFailedWithDevSessionToken(err)
-		}
-		return errGitHubCommandFailed(err)
+		return classifyGitHubError(err, token)
 	}
 	// git push writes its own hints (e.g. "Create a pull request for...")
 	// to stderr even on success.

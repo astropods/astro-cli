@@ -87,6 +87,10 @@ func errGHNotInstalled() error {
 	return fmt.Errorf("the GitHub CLI (gh) is not installed or not on PATH; install it from https://cli.github.com")
 }
 
+func errGitNotInstalled() error {
+	return fmt.Errorf("git is not installed or not on PATH; install it from https://git-scm.com/downloads")
+}
+
 func errGHNotAuthenticated(err error) error {
 	return fmt.Errorf("gh is not authenticated; run `gh auth login`, or share a GitHub connection with this dev session: %w", err)
 }

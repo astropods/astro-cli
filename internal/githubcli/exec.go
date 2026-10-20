@@ -62,7 +62,9 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 
 // WithPositional appends a `--` separator before any positional args, so
 // the invoked binary never reinterprets one as a flag if it starts with
-// "-". With no positional args, argv is returned unchanged.
+// "-". With no positional args, argv is returned unchanged. Call this at
+// most once per argv: a second `--` is itself a positional to the invoked
+// binary, shifting every arg after it by one slot.
 func WithPositional(argv []string, positional ...string) []string {
 	if len(positional) == 0 {
 		return argv
