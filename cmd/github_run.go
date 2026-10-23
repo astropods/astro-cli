@@ -1,0 +1,179 @@
+package cmd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/githubcli"
+)
+
+// Package-level seams so tests can fake gh/git without a real gh binary.
+var (
+	ghRun           = githubcli.GH
+	ghAuthenticated = githubcli.GHAuthenticated
+	ghPush          = githubcli.Push
+	ghCurrentBranch = githubcli.CurrentBranch
+)
+
+// ghAuthCheckTimeout bounds `gh auth status`, which validates the token
+// against GitHub's API.
+const ghAuthCheckTimeout = 10 * time.Second
+
+// devSessionToken returns the dev session's GitHub connection token, or ""
+// to use the operator's own local credentials.
+func devSessionToken(cmd *cobra.Command) string {
+	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	return resolveGitHubToken(cmd.Context(), verbose)
+}
+
+// ghAuth returns the token a gh-based subcommand should use: the dev
+// session's connection when open, else the operator's own `gh auth login`,
+// verified to work. Push doesn't call this; it only runs git.
+func ghAuth(cmd *cobra.Command) (token string, err error) {
+	token = devSessionToken(cmd)
+	if token != "" {
+		return token, nil
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), ghAuthCheckTimeout)
+	defer cancel()
+	if err := ghAuthenticated(ctx, ""); err != nil {
+		var notInstalled githubcli.ErrNotInstalled
+		if errors.As(err, &notInstalled) {
+			return "", errGHNotInstalled()
+		}
+		if devSessionActive() {
+			return "", errGHDevSessionTokenUnavailable(err)
+		}
+		return "", errGHNotAuthenticated(err)
+	}
+	return "", nil
+}
+
+func runGHPassthrough(cmd *cobra.Command, args ...string) error {
+	token, err := ghAuth(cmd)
+	if err != nil {
+		return err
+	}
+	w := cmd.OutOrStdout()
+	result, err := ghRun(cmd.Context(), "", token, args...)
+	writePassthrough(w, result.Stdout)
+	if err != nil {
+		return classifyGitHubError(err, token)
+	}
+	return nil
+}
+
+// classifyGitHubError names the dev session's connection as the credential
+// source when one was in play: gh's own error text may otherwise suggest
+// `gh auth login`, which has no effect once GH_TOKEN is set.
+func classifyGitHubError(err error, token string) error {
+	if token != "" {
+		return errGitHubCommandFailedWithDevSessionToken(err)
+	}
+	return errGitHubCommandFailed(err)
+}
+
+// withRepoFlag appends gh's own -R flag when --repo was given.
+func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
+	if repo, _ := cmd.Flags().GetString("repo"); repo != "" {
+		return append(ghArgs, "-R", repo)
+	}
+	return ghArgs
+}
+
+func writePassthrough(w io.Writer, s string) {
+	if s == "" {
+		return
+	}
+	fmt.Fprint(w, s) //nolint:errcheck,gosec
+	if s[len(s)-1] != '\n' {
+		fmt.Fprintln(w) //nolint:errcheck,gosec
+	}
+}
+
+// runGHWithOptionalNumber builds `base [--json fields] [-R repo] [-- number]`
+// and runs it: the shape shared by pr view, pr checks, and issue view.
+func runGHWithOptionalNumber(cmd *cobra.Command, base []string, args []string) error {
+	ghArgs := base
+	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
+		ghArgs = append(ghArgs, "--json", fields)
+	}
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
+	return runGHPassthrough(cmd, ghArgs...)
+}
+
+func runGitHubPRView(cmd *cobra.Command, args []string) error {
+	return runGHWithOptionalNumber(cmd, []string{"pr", "view"}, args)
+}
+
+func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
+	title, _ := cmd.Flags().GetString("title")
+	body, _ := cmd.Flags().GetString("body")
+	base, _ := cmd.Flags().GetString("base")
+	head, _ := cmd.Flags().GetString("head")
+	draft, _ := cmd.Flags().GetBool("draft")
+
+	ghArgs := []string{"pr", "create", "--title", title, "--body", body}
+	if base != "" {
+		ghArgs = append(ghArgs, "--base", base)
+	}
+	if head != "" {
+		ghArgs = append(ghArgs, "--head", head)
+	}
+	if draft {
+		ghArgs = append(ghArgs, "--draft")
+	}
+	return runGHPassthrough(cmd, withRepoFlag(cmd, ghArgs)...)
+}
+
+func runGitHubPRComment(cmd *cobra.Command, args []string) error {
+	body, _ := cmd.Flags().GetString("body")
+	ghArgs := []string{"pr", "comment", "--body", body}
+	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
+	return runGHPassthrough(cmd, ghArgs...)
+}
+
+func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
+	return runGHWithOptionalNumber(cmd, []string{"pr", "checks"}, args)
+}
+
+func runGitHubIssueView(cmd *cobra.Command, args []string) error {
+	return runGHWithOptionalNumber(cmd, []string{"issue", "view"}, args)
+}
+
+func runGitHubPush(cmd *cobra.Command, _ []string) error {
+	token := devSessionToken(cmd)
+	remote, _ := cmd.Flags().GetString("remote")
+	setUpstream, _ := cmd.Flags().GetBool("set-upstream")
+
+	ctx := cmd.Context()
+	branch, err := ghCurrentBranch(ctx, "")
+	if err != nil {
+		var notInstalled githubcli.ErrNotInstalled
+		if errors.As(err, &notInstalled) {
+			return errGitNotInstalled()
+		}
+		return errGitHubCommandFailed(err)
+	}
+	if branch == "HEAD" {
+		return errGitHubDetachedHead()
+	}
+
+	w := cmd.OutOrStdout()
+	result, err := ghPush(ctx, "", token, remote, branch, setUpstream)
+	writePassthrough(w, result.Stdout)
+	if err != nil {
+		// runCommand's error already carries stderr; printing it here too
+		// would show it twice.
+		return classifyGitHubError(err, token)
+	}
+	// git push writes its own hints (e.g. "Create a pull request for...")
+	// to stderr even on success.
+	writePassthrough(w, result.Stderr)
+	return nil
+}

@@ -83,6 +83,36 @@ func msgConnectionsDevSessionOpened(expiresAt string) string {
 	return fmt.Sprintf("Dev session opened for connections (expires %s)", expiresAt)
 }
 
+func errGHNotInstalled() error {
+	return fmt.Errorf("the GitHub CLI (gh) is not installed or not on PATH; install it from https://cli.github.com")
+}
+
+func errGitNotInstalled() error {
+	return fmt.Errorf("git is not installed or not on PATH; install it from https://git-scm.com/downloads")
+}
+
+func errGHNotAuthenticated(err error) error {
+	return fmt.Errorf("gh is not authenticated; run `gh auth login`, or share a GitHub connection with this dev session: %w", err)
+}
+
+func errGHDevSessionTokenUnavailable(err error) error {
+	return fmt.Errorf("this dev session's shared GitHub connection token is unavailable, and gh is not authenticated locally either: %w", err)
+}
+
+func errGitHubCommandFailed(err error) error {
+	return fmt.Errorf("github: %w", err)
+}
+
+// errGitHubCommandFailedWithDevSessionToken: gh's own error text may
+// suggest `gh auth login`, which has no effect once GH_TOKEN is set.
+func errGitHubCommandFailedWithDevSessionToken(err error) error {
+	return fmt.Errorf("github (using this dev session's shared GitHub connection, not your local gh login): %w", err)
+}
+
+func errGitHubDetachedHead() error {
+	return fmt.Errorf("not on a branch (detached HEAD); check out a branch before pushing")
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }
