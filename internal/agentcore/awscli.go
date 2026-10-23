@@ -6,7 +6,12 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+// awsWaitDelay bounds the pipe drain after aws exits; with no context set,
+// it never cuts off a still-running call.
+const awsWaitDelay = 5 * time.Second
 
 // AWSCLIRuntime drives the bedrock-agentcore-control API via the local, already
 // authenticated `aws` CLI. This keeps the CLI free of the AWS SDK dependency
@@ -211,6 +216,7 @@ func (a *AWSCLIRuntime) run(args []string) ([]byte, error) {
 		return []byte("{}"), nil
 	}
 	cmd := exec.Command("aws", args...) //nolint:gosec
+	cmd.WaitDelay = awsWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
