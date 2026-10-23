@@ -218,6 +218,9 @@ func buildMCPTool(c *cobra.Command, policy mcpPolicy) (mcpTool, error) {
 			prop.Default = json.RawMessage("true")
 		}
 		schema.Properties[f.Name] = prop
+		if _, required := f.Annotations[cobra.BashCompOneRequiredFlag]; required {
+			schema.Required = append(schema.Required, f.Name)
+		}
 		t.params = append(t.params, mcpParam{name: f.Name, flag: f})
 	}
 	c.NonInheritedFlags().VisitAll(addFlag)
