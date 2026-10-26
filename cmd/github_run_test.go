@@ -394,3 +394,68 @@ func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
 	assert.Less(t, elapsed, ghAuthCheckTimeout+2*time.Second,
 		"took %s; ghAuth must give up at roughly ghAuthCheckTimeout, not hang forever", elapsed)
 }
+
+// A missing binary and a cancelled command are true regardless of which
+// credential was in play, so they must be named before the credential source
+// is. ghAuth returns before its own not-installed check whenever a dev session
+// supplies a token, which left this path blaming the connection.
+func TestClassifyGitHubErrorNamesTheRealCauseBeforeTheCredential(t *testing.T) {
+	t.Run("a missing gh is reported as missing, not as a connection problem", func(t *testing.T) {
+		err := classifyGitHubError(githubcli.ErrNotInstalled{Name: "gh"}, "a-dev-session-token")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "https://cli.github.com",
+			"the install hint is the point of the not-installed message")
+		assert.NotContains(t, err.Error(), "dev session",
+			"a missing binary is not the connection's fault: %s", err)
+	})
+
+	t.Run("a missing git is reported as git, not gh", func(t *testing.T) {
+		err := classifyGitHubError(githubcli.ErrNotInstalled{Name: "git"}, "")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "git-scm.com")
+	})
+
+	t.Run("a cancelled command is not reported as a remote failure", func(t *testing.T) {
+		err := classifyGitHubError(fmt.Errorf("gh pr view: %w", context.DeadlineExceeded), "a-dev-session-token")
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.NotContains(t, err.Error(), "dev session")
+	})
+
+	t.Run("a genuine failure still names the credential actually used", func(t *testing.T) {
+		withToken := classifyGitHubError(errors.New("exit status 1"), "a-dev-session-token")
+		withoutToken := classifyGitHubError(errors.New("exit status 1"), "")
+
+		assert.Contains(t, withToken.Error(), "dev session",
+			"gh's own text suggests `gh auth login`, which does nothing once GH_TOKEN is set")
+		assert.NotContains(t, withoutToken.Error(), "dev session")
+	})
+}
+
+func TestRunGHPassthroughReportsAMissingBinaryInsideADevSession(t *testing.T) {
+	// The feature's target case: a sandboxed agent with a shared connection
+	// and no gh binary.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(issueConnectionTokenResponse{AccessToken: "gho_fromconnection"})) //nolint:errcheck,gosec
+	}))
+	defer srv.Close()
+	withFakeGH(t, func(context.Context, string, string, ...string) (githubcli.Result, error) {
+		return githubcli.Result{}, githubcli.ErrNotInstalled{Name: "gh"}
+	}, nil, nil, nil)
+	prevURL := sandboxServerURLOverride
+	sandboxServerURLOverride = srv.URL
+	t.Cleanup(func() { sandboxServerURLOverride = prevURL })
+	t.Setenv(sandboxTokenEnvVar, "a-dev-session-bearer")
+
+	cmd := newTestCmd(t, nil, githubPRViewCmd)
+	err := runGHPassthrough(cmd, "pr", "view")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https://cli.github.com")
+	assert.NotContains(t, err.Error(), "dev session",
+		"gh being absent is not the shared connection's fault: %s", err)
+}

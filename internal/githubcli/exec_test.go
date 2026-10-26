@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,9 +53,9 @@ func TestGHPassesTokenAsEnvOnlyWhenNonEmpty(t *testing.T) {
 
 func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 	t.Run("empty token runs a plain git push with no extraheader override", func(t *testing.T) {
-		var capturedArgs []string
-		withFakeRun(t, func(_ context.Context, dir string, _ []string, name string, args ...string) (Result, error) {
-			capturedArgs = args
+		var capturedArgs, capturedEnv []string
+		withFakeRun(t, func(_ context.Context, dir string, env []string, name string, args ...string) (Result, error) {
+			capturedArgs, capturedEnv = args, env
 			assert.Equal(t, "git", name)
 			assert.Equal(t, "/repo", dir)
 			return Result{}, nil
@@ -63,6 +64,11 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 		_, err := Push(context.Background(), "/repo", "", "origin", "my-branch", false)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"push", "--", "origin", "my-branch"}, capturedArgs)
+		// Prompt suppression is not conditional on a token: an operator
+		// pushing with their own credentials should also fail rather than
+		// block on a /dev/tty prompt.
+		assert.Equal(t, []string{"GIT_TERMINAL_PROMPT=0"}, capturedEnv,
+			"an empty token must leave git's own credential setup alone apart from prompt suppression")
 	})
 
 	t.Run("non-empty token adds a single-request auth header via env, not argv, and --set-upstream when asked", func(t *testing.T) {
@@ -101,11 +107,22 @@ func TestWithPositional(t *testing.T) {
 }
 
 func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
+	// Isolate every git call below, setup and subject alike, from the
+	// runner's own configuration: both inherit this process's environment.
+	// The assertions read git's error text, and its messages depend on
+	// config this test does not own — push.default decides what a bare
+	// `git push <x>` even attempts, and commit.gpgsign or core.hooksPath
+	// would fail the setup commands outright. Without this the test passed
+	// with the regression present under push.default=current.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+
 	dir := t.TempDir()
 	run := func(args ...string) {
 		cmd := exec.Command("git", args...) //nolint:gosec
 		cmd.Dir = dir
-		require.NoError(t, cmd.Run())
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
 	}
 	run("init", "-q", "-b", "main") // explicit branch name: the runner's git default may not be "main"
 	run("config", "user.email", "test@example.com")
@@ -117,14 +134,17 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 	_, err := Push(context.Background(), dir, "", "--force", "main", false)
 
 	require.Error(t, err)
-	// If -- failed to protect "--force", git would consume it as the real
-	// flag, leaving "main" alone to be misread as the remote name; git's
-	// own error for that specific case names "main" as the remote and
-	// suggests "git push --set-upstream main main".
+	// Positive assertion: protected, git reads "--force" as the destination
+	// and rejects it as a pathname. Verified stable across every
+	// push.default value, unlike the message git emits for the unprotected
+	// case. Asserting only the absence of that other message is what let the
+	// regression through.
+	assert.Contains(t, err.Error(), "strange pathname '--force' blocked",
+		"-- did not protect %q as a positional, so git parsed it as a flag: %s", "--force", err.Error())
+	// The regression's own signature: --force consumed as a real flag leaves
+	// "main" to be misread as the remote.
 	assert.NotContains(t, err.Error(), "has no upstream branch",
 		"--force reached git as a real flag instead of a positional: %s", err.Error())
-	assert.Contains(t, err.Error(), "--force",
-		"--force should appear as the attempted destination, not vanish as a consumed flag: %s", err.Error())
 }
 
 func TestAppendGitConfigEnvExtendsRatherThanReplacesExistingConfig(t *testing.T) {
@@ -183,4 +203,41 @@ func TestRunCommandDoesNotHangOnAnOrphanedGrandchild(t *testing.T) {
 	require.Error(t, err)
 	assert.Less(t, elapsed, waitDelay+2*time.Second,
 		"took %s; must give up at roughly waitDelay, not wait for the orphan's full lifetime", elapsed)
+}
+
+// A context kill arrives as an ExitError ("signal: killed") like any other
+// non-zero exit. Without this the caller reads it as a command or credential
+// failure, so a slow network becomes "gh is not authenticated".
+func TestRunCommandReportsACancelledContextAsCancellation(t *testing.T) {
+	t.Run("deadline exceeded", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+
+		_, err := run(ctx, t.TempDir(), nil, "sleep", "10")
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded,
+			"a timed-out command must be distinguishable from one the remote rejected: %s", err)
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+
+		_, err := run(ctx, t.TempDir(), nil, "sleep", "10")
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+func TestRunCommandOmitsATrailingSeparatorWhenStderrIsEmpty(t *testing.T) {
+	// `gh pr checks` exits non-zero with nothing on stderr when checks are
+	// pending, which used to render as "...: exit status 8: ".
+	_, err := run(context.Background(), t.TempDir(), nil, "sh", "-c", "exit 8")
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), ": ,", "stray separator")
+	assert.False(t, strings.HasSuffix(err.Error(), ": "),
+		"error should not end in a dangling separator: %q", err.Error())
 }

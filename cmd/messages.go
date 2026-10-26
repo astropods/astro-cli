@@ -113,6 +113,19 @@ func errGitHubDetachedHead() error {
 	return fmt.Errorf("not on a branch (detached HEAD); check out a branch before pushing")
 }
 
+// errGHAuthCheckTimedOut keeps a slow or blocked network from being reported
+// as a credential problem: `gh auth status` validates against GitHub's API, so
+// a proxy or outage fails the check while the operator's login is fine.
+func errGHAuthCheckTimedOut(err error) error {
+	return fmt.Errorf("could not reach GitHub to check gh's login within %s; this says nothing about whether you are authenticated: %w", ghAuthCheckTimeout, err)
+}
+
+// errGitHubCommandInterrupted distinguishes a cancelled or timed-out command
+// from one the remote rejected.
+func errGitHubCommandInterrupted(err error) error {
+	return fmt.Errorf("github: command did not finish: %w", err)
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }

@@ -51,7 +51,18 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 		if errors.As(err, &execErr) {
 			return result, ErrNotInstalled{Name: name}
 		}
-		return result, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		// A context kill surfaces as "signal: killed", which is an ExitError
+		// like any other non-zero exit. Reported as one it reads as a
+		// credential or command failure, so a slow network becomes "gh is not
+		// authenticated" and Ctrl-C becomes a push failure. Wrapping ctx.Err()
+		// lets callers tell the two apart with errors.Is.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return result, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), ctxErr)
+		}
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return result, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, detail)
+		}
+		return result, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 	}
 	return result, nil
 }
@@ -91,9 +102,15 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 // (GIT_CONFIG_*, git 2.31+), never argv: runCommand's error formatting
 // joins args into its message, so a credential placed there would leak.
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
-	var env []string
+	// git reads a credential prompt from /dev/tty, not stdin, so the child's
+	// nil stdin does not stop it blocking on one. Push is the only call here
+	// that authenticates over the network and the only one given no deadline,
+	// since a real push legitimately takes as long as it takes, which leaves
+	// WaitDelay nothing to fire on. Failing fast is the behaviour we want:
+	// `gh` already gets the same treatment through GH_PROMPT_DISABLED.
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
 	if token != "" {
-		env = appendGitConfigEnv("http.https://github.com/.extraheader", "AUTHORIZATION: basic "+basicAuthHeader(token))
+		env = append(env, appendGitConfigEnv("http.https://github.com/.extraheader", "AUTHORIZATION: basic "+basicAuthHeader(token))...)
 	}
 	args := []string{"push"}
 	if setUpstream {

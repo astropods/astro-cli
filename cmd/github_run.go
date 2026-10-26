@@ -46,6 +46,12 @@ func ghAuth(cmd *cobra.Command) (token string, err error) {
 		if errors.As(err, &notInstalled) {
 			return "", errGHNotInstalled()
 		}
+		// The check reaches GitHub's API, so a proxy, captive portal or
+		// outage trips the deadline. Reporting that as "not authenticated"
+		// tells an operator whose login is fine to go and re-login.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "", errGHAuthCheckTimedOut(err)
+		}
 		if devSessionActive() {
 			return "", errGHDevSessionTokenUnavailable(err)
 		}
@@ -68,10 +74,29 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 	return nil
 }
 
-// classifyGitHubError names the dev session's connection as the credential
-// source when one was in play: gh's own error text may otherwise suggest
-// `gh auth login`, which has no effect once GH_TOKEN is set.
+// classifyGitHubError maps a githubcli failure to the message naming its real
+// cause. Every call site routes failures through here, because the one that
+// did not reported a missing binary as a credential problem: ghAuth returns
+// before its own not-installed check whenever a dev session supplies a token,
+// so a sandbox with a connection but no gh binary was told its connection was
+// at fault.
+//
+// Order matters: a missing binary and a cancelled command are both true
+// regardless of which credential was in play, so they are named before the
+// credential source is.
 func classifyGitHubError(err error, token string) error {
+	var notInstalled githubcli.ErrNotInstalled
+	if errors.As(err, &notInstalled) {
+		if notInstalled.Name == "git" {
+			return errGitNotInstalled()
+		}
+		return errGHNotInstalled()
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return errGitHubCommandInterrupted(err)
+	}
+	// gh's own error text may suggest `gh auth login`, which has no effect
+	// once GH_TOKEN is set, so name the credential actually in use.
 	if token != "" {
 		return errGitHubCommandFailedWithDevSessionToken(err)
 	}
@@ -154,11 +179,8 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	branch, err := ghCurrentBranch(ctx, "")
 	if err != nil {
-		var notInstalled githubcli.ErrNotInstalled
-		if errors.As(err, &notInstalled) {
-			return errGitNotInstalled()
-		}
-		return errGitHubCommandFailed(err)
+		// No token: resolving the branch runs plain git, never the connection.
+		return classifyGitHubError(err, "")
 	}
 	if branch == "HEAD" {
 		return errGitHubDetachedHead()
