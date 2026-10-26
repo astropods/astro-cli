@@ -198,19 +198,26 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // summary read on every mount of the chat page.
 func (s *Server) handleSummary(w http.ResponseWriter, _ *http.Request) {
 	local := s.localDeployment()
+	item := deploymentSummaryItem{
+		ID:                     local.ID,
+		Name:                   local.Name,
+		DisplayName:            local.DisplayName,
+		Status:                 localDeploymentStatus,
+		MessagingWebConfigured: local.MessagingWebConfigured,
+	}
+	// The local developer owns the agent, so they may chat with it and read it.
+	webChat := []webChatDeployment{}
+	if item.MessagingWebConfigured {
+		webChat = append(webChat, webChatDeployment{deploymentSummaryItem: item, CanReadDeployment: true})
+	}
 	writeJSON(w, http.StatusOK, deploymentsSummaryResponse{
 		Accounts: []accountDeploymentsSummary{{
-			ID:          LocalAccount,
-			Name:        LocalAccount,
-			Type:        "personal",
-			DisplayName: "Local",
-			Deployments: []deploymentSummaryItem{{
-				ID:                     local.ID,
-				Name:                   local.Name,
-				DisplayName:            local.DisplayName,
-				Status:                 localDeploymentStatus,
-				MessagingWebConfigured: local.MessagingWebConfigured,
-			}},
+			ID:                 LocalAccount,
+			Name:               LocalAccount,
+			Type:               "personal",
+			DisplayName:        "Local",
+			Deployments:        []deploymentSummaryItem{item},
+			WebChatDeployments: webChat,
 		}},
 	})
 }

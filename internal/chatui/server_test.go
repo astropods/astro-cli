@@ -99,4 +99,9 @@ func TestServer_SummaryAndListReportTheSameDeployment(t *testing.T) {
 		MessagingWebConfigured: list.Deployments[0].MessagingWebConfigured,
 	}}, summary.Accounts[0].Deployments,
 		"the summary must carry the deployment the list reports, or the chat page refetches it on every mount")
+	require.Equal(t, []webChatDeployment{{
+		deploymentSummaryItem: summary.Accounts[0].Deployments[0],
+		CanReadDeployment:     true,
+	}}, summary.Accounts[0].WebChatDeployments,
+		"the local developer may chat with the agent they run, and open it")
 }
