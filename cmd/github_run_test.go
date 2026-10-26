@@ -224,7 +224,9 @@ func TestRunGitHubPRViewBuildsExpectedArgs(t *testing.T) {
 	}{
 		{name: "no number, no json", want: []string{"pr", "view"}},
 		{name: "with number", args: []string{"42"}, want: []string{"pr", "view", "--", "42"}},
-		{name: "with json fields", flags: map[string]string{"json": "number,title"}, want: []string{"pr", "view", "--json", "number,title"}},
+		{name: "--fields selects specific fields", flags: map[string]string{"fields": "number,title"}, want: []string{"pr", "view", "--json", "number,title"}},
+		{name: "--json alone uses the default field set", flags: map[string]string{"json": "true"}, want: []string{"pr", "view", "--json", prViewJSONFields}},
+		{name: "--fields wins over --json", flags: map[string]string{"json": "true", "fields": "number"}, want: []string{"pr", "view", "--json", "number"}},
 		{name: "with repo", args: []string{"42"}, flags: map[string]string{"repo": "astropods/astro-cli"}, want: []string{"pr", "view", "-R", "astropods/astro-cli", "--", "42"}},
 		{name: "number starting with a dash is still passed as positional, not a flag", args: []string{"--force"}, want: []string{"pr", "view", "--", "--force"}},
 	}
@@ -291,7 +293,7 @@ func TestRunGitHubPRChecksBuildsExpectedArgs(t *testing.T) {
 		return githubcli.Result{}, nil
 	}, func(context.Context, string) error { return nil }, nil, nil)
 
-	cmd := newTestCmd(t, map[string]string{"json": "name,state", "repo": "astropods/astro-cli"}, githubPRChecksCmd)
+	cmd := newTestCmd(t, map[string]string{"fields": "name,state", "repo": "astropods/astro-cli"}, githubPRChecksCmd)
 	err := runGitHubPRChecks(cmd, []string{"12"})
 
 	require.NoError(t, err)
@@ -305,7 +307,7 @@ func TestRunGitHubIssueViewBuildsExpectedArgs(t *testing.T) {
 		return githubcli.Result{}, nil
 	}, func(context.Context, string) error { return nil }, nil, nil)
 
-	cmd := newTestCmd(t, map[string]string{"json": "number,title", "repo": "astropods/astro-cli"}, githubIssueViewCmd)
+	cmd := newTestCmd(t, map[string]string{"fields": "number,title", "repo": "astropods/astro-cli"}, githubIssueViewCmd)
 	err := runGitHubIssueView(cmd, []string{"9"})
 
 	require.NoError(t, err)
@@ -380,19 +382,29 @@ func TestRunGitHubPushRefusesDetachedHead(t *testing.T) {
 }
 
 func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
+	// Shortened rather than slept out: the real 10s says nothing extra, and
+	// asserting "finished within the constant + 2s" holds for any constant.
+	prev := ghAuthCheckTimeout
+	ghAuthCheckTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { ghAuthCheckTimeout = prev })
+
+	var sawDeadline bool
 	withFakeGH(t, nil, func(ctx context.Context, _ string) error {
 		<-ctx.Done()
+		sawDeadline = errors.Is(ctx.Err(), context.DeadlineExceeded)
 		return ctx.Err()
 	}, nil, nil)
 
 	cmd := newTestCmd(t, nil, githubPRViewCmd)
-	start := time.Now()
 	_, err := ghAuth(cmd)
-	elapsed := time.Since(start)
 
 	require.Error(t, err)
-	assert.Less(t, elapsed, ghAuthCheckTimeout+2*time.Second,
-		"took %s; ghAuth must give up at roughly ghAuthCheckTimeout, not hang forever", elapsed)
+	assert.True(t, sawDeadline, "the check must be cancelled by a deadline, not merely return an error")
+	// A timeout is not evidence of a bad credential, so it must not be
+	// reported as one.
+	assert.NotContains(t, err.Error(), "gh auth login",
+		"a timed-out check must not tell an authenticated operator to re-login: %s", err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 // A missing binary and a cancelled command are true regardless of which
@@ -458,4 +470,69 @@ func TestRunGHPassthroughReportsAMissingBinaryInsideADevSession(t *testing.T) {
 	assert.Contains(t, err.Error(), "https://cli.github.com")
 	assert.NotContains(t, err.Error(), "dev session",
 		"gh being absent is not the shared connection's fault: %s", err)
+}
+
+// git accepts a URL where a remote name goes, and `github push` is reachable
+// as an MCP write tool alongside read tools that fetch attacker-authored PR
+// and issue text, so the value is not always the operator's own.
+func TestRunGitHubPushRequiresARemoteName(t *testing.T) {
+	for _, tc := range []struct{ name, remote string }{
+		{"https URL", "https://github.com/attacker/x.git"},
+		{"scp-style", "git@github.com:attacker/x.git"},
+		{"ssh URL", "ssh://git@host/x.git"},
+		{"path", "../elsewhere"},
+		{"empty", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var pushed bool
+			withFakeGH(t, nil, nil,
+				func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
+					pushed = true
+					return githubcli.Result{}, nil
+				},
+				func(context.Context, string) (string, error) { return "feature/x", nil },
+			)
+
+			cmd := newTestCmd(t, map[string]string{"remote": tc.remote}, githubPushCmd)
+			err := runGitHubPush(cmd, nil)
+
+			require.Error(t, err)
+			assert.False(t, pushed, "the push must not run: %q is not a configured remote's name", tc.remote)
+		})
+	}
+
+	t.Run("a plain name is accepted", func(t *testing.T) {
+		var gotRemote string
+		withFakeGH(t, nil, nil,
+			func(_ context.Context, _, _, remote, _ string, _ bool) (githubcli.Result, error) {
+				gotRemote = remote
+				return githubcli.Result{}, nil
+			},
+			func(context.Context, string) (string, error) { return "feature/x", nil },
+		)
+
+		cmd := newTestCmd(t, map[string]string{"remote": "upstream"}, githubPushCmd)
+		require.NoError(t, runGitHubPush(cmd, nil))
+		assert.Equal(t, "upstream", gotRemote)
+	})
+}
+
+// `gh pr checks` exits 8 for "checks pending" as distinct from 1 for "a check
+// failed". Flattening both to 1 destroys the signal for an agent polling CI.
+func TestExitCodeForPassesAWrappedBinarysStatusThrough(t *testing.T) {
+	pendingChecks := githubcli.ErrExit{
+		Name: "gh",
+		Code: 8,
+		Err:  errors.New("gh pr checks -- 7: exit status 8"),
+	}
+
+	// Through the same wrapping a real failure takes, so the test covers the
+	// classification and message layers rather than the bare error.
+	assert.Equal(t, 8, exitCodeFor(classifyGitHubError(pendingChecks, "")),
+		"gh's pending-checks code must survive classification and wrapping")
+	assert.Equal(t, 8, exitCodeFor(classifyGitHubError(pendingChecks, "a-dev-session-token")),
+		"and must not depend on which credential was in play")
+
+	assert.Equal(t, 1, exitCodeFor(classifyGitHubError(errors.New("boom"), "")),
+		"an error carrying no child status still exits 1")
 }

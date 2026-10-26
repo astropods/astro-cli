@@ -10,8 +10,9 @@ import (
 
 const githubConnectionProvider = "github"
 
-// resolveGitHubTokenTimeout bounds the connections-token fetch.
-const resolveGitHubTokenTimeout = 5 * time.Second
+// resolveGitHubTokenTimeout bounds the connections-token fetch. A var so a
+// test can shorten it rather than sleep out the real value.
+var resolveGitHubTokenTimeout = 5 * time.Second
 
 type issueConnectionTokenRequest struct {
 	Provider string `json:"provider"`

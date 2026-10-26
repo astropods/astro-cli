@@ -126,6 +126,14 @@ func errGitHubCommandInterrupted(err error) error {
 	return fmt.Errorf("github: command did not finish: %w", err)
 }
 
+func errGitHubRemoteEmpty() error {
+	return fmt.Errorf("--remote cannot be empty; name a configured remote such as `origin`")
+}
+
+func errGitHubRemoteNotAName(remote string) error {
+	return fmt.Errorf("--remote takes a configured remote's name, not a URL or path (got %q); add it with `git remote add` first", remote)
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }

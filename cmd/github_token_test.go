@@ -44,23 +44,29 @@ func TestResolveGitHubTokenFetchesFromTheConnectionsEndpoint(t *testing.T) {
 }
 
 func TestResolveGitHubTokenGivesUpOnAnUnresponsiveServer(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(resolveGitHubTokenTimeout + 5*time.Second)
+	// Shortened rather than slept out, and the handler blocks on the client
+	// giving up instead of sleeping past the real timeout.
+	prev := resolveGitHubTokenTimeout
+	resolveGitHubTokenTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { resolveGitHubTokenTimeout = prev })
+
+	released := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done(): // the client gave up, as expected
+		case <-released: // the test is over
+		}
 	}))
-	defer srv.Close()
+	t.Cleanup(func() { close(released); srv.Close() })
 
 	prevURL := sandboxServerURLOverride
 	sandboxServerURLOverride = srv.URL
 	t.Cleanup(func() { sandboxServerURLOverride = prevURL })
 	t.Setenv(sandboxTokenEnvVar, "the-dev-session-bearer")
 
-	start := time.Now()
 	token := resolveGitHubToken(context.Background(), false)
-	elapsed := time.Since(start)
 
-	assert.Empty(t, token)
-	assert.Less(t, elapsed, resolveGitHubTokenTimeout+2*time.Second,
-		"took %s; must give up at roughly resolveGitHubTokenTimeout, not hang on the slow server", elapsed)
+	assert.Empty(t, token, "an unresponsive connections server must fall back to the operator's own credentials")
 }
 
 func TestResolveGitHubTokenFallsBackSilentlyOnServerFailure(t *testing.T) {

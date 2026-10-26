@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,8 +22,9 @@ var (
 )
 
 // ghAuthCheckTimeout bounds `gh auth status`, which validates the token
-// against GitHub's API.
-const ghAuthCheckTimeout = 10 * time.Second
+// against GitHub's API. A var so a test can shorten it rather than sleep out
+// the real value.
+var ghAuthCheckTimeout = 10 * time.Second
 
 // devSessionToken returns the dev session's GitHub connection token, or ""
 // to use the operator's own local credentials.
@@ -103,6 +105,24 @@ func classifyGitHubError(err error, token string) error {
 	return errGitHubCommandFailed(err)
 }
 
+// validateRemoteName keeps --remote to a configured remote's name. git also
+// accepts a URL in that position, which would let a caller send the branch to
+// a repository the operator never configured. `github push` is reachable as an
+// MCP write tool, alongside read tools that can fetch a PR or issue body an
+// attacker wrote, so the value is not always the operator's own. Pushing to a
+// URL is not part of this command; a remote has to be configured first.
+func validateRemoteName(remote string) error {
+	if remote == "" {
+		return errGitHubRemoteEmpty()
+	}
+	// ":" catches scp-style (git@host:owner/repo) and any scheme; "/" catches
+	// a path. git remote names permit neither.
+	if strings.ContainsAny(remote, ":/") {
+		return errGitHubRemoteNotAName(remote)
+	}
+	return nil
+}
+
 // withRepoFlag appends gh's own -R flag when --repo was given.
 func withRepoFlag(cmd *cobra.Command, ghArgs []string) []string {
 	if repo, _ := cmd.Flags().GetString("repo"); repo != "" {
@@ -121,11 +141,34 @@ func writePassthrough(w io.Writer, s string) {
 	}
 }
 
+// Default field sets for --json. gh requires a field list and errors with
+// the available names when given none, so a boolean --json has to pick one.
+// Every name here is from the respective `gh <cmd> --json` listing.
+const (
+	prViewJSONFields    = "number,title,state,author,url,body,isDraft,headRefName,baseRefName,reviewDecision,createdAt,updatedAt"
+	prChecksJSONFields  = "name,state,bucket,description,workflow,event,link,startedAt,completedAt"
+	issueViewJSONFields = "number,title,state,author,url,body,labels,assignees,createdAt,updatedAt"
+)
+
+// jsonFields resolves --json/--fields to the list handed to gh, or "" for
+// gh's own human view. --json is a bool here to match the other ~40 commands
+// that carry one; --fields keeps gh's field selection available and implies
+// --json, so neither has to be given with the other.
+func jsonFields(cmd *cobra.Command, defaults string) string {
+	if fields, _ := cmd.Flags().GetString("fields"); fields != "" {
+		return fields
+	}
+	if asJSON, _ := cmd.Flags().GetBool("json"); asJSON {
+		return defaults
+	}
+	return ""
+}
+
 // runGHWithOptionalNumber builds `base [--json fields] [-R repo] [-- number]`
 // and runs it: the shape shared by pr view, pr checks, and issue view.
-func runGHWithOptionalNumber(cmd *cobra.Command, base []string, args []string) error {
+func runGHWithOptionalNumber(cmd *cobra.Command, base []string, args []string, defaultFields string) error {
 	ghArgs := base
-	if fields, _ := cmd.Flags().GetString("json"); fields != "" {
+	if fields := jsonFields(cmd, defaultFields); fields != "" {
 		ghArgs = append(ghArgs, "--json", fields)
 	}
 	ghArgs = githubcli.WithPositional(withRepoFlag(cmd, ghArgs), args...)
@@ -133,7 +176,7 @@ func runGHWithOptionalNumber(cmd *cobra.Command, base []string, args []string) e
 }
 
 func runGitHubPRView(cmd *cobra.Command, args []string) error {
-	return runGHWithOptionalNumber(cmd, []string{"pr", "view"}, args)
+	return runGHWithOptionalNumber(cmd, []string{"pr", "view"}, args, prViewJSONFields)
 }
 
 func runGitHubPRCreate(cmd *cobra.Command, _ []string) error {
@@ -164,16 +207,19 @@ func runGitHubPRComment(cmd *cobra.Command, args []string) error {
 }
 
 func runGitHubPRChecks(cmd *cobra.Command, args []string) error {
-	return runGHWithOptionalNumber(cmd, []string{"pr", "checks"}, args)
+	return runGHWithOptionalNumber(cmd, []string{"pr", "checks"}, args, prChecksJSONFields)
 }
 
 func runGitHubIssueView(cmd *cobra.Command, args []string) error {
-	return runGHWithOptionalNumber(cmd, []string{"issue", "view"}, args)
+	return runGHWithOptionalNumber(cmd, []string{"issue", "view"}, args, issueViewJSONFields)
 }
 
 func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	token := devSessionToken(cmd)
 	remote, _ := cmd.Flags().GetString("remote")
+	if err := validateRemoteName(remote); err != nil {
+		return err
+	}
 	setUpstream, _ := cmd.Flags().GetBool("set-upstream")
 
 	ctx := cmd.Context()

@@ -59,10 +59,15 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return result, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), ctxErr)
 		}
+		wrapped := fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
 		if detail := strings.TrimSpace(stderr.String()); detail != "" {
-			return result, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, detail)
+			wrapped = fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, detail)
 		}
-		return result, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return result, ErrExit{Name: name, Code: exitErr.ExitCode(), Err: wrapped}
+		}
+		return result, wrapped
 	}
 	return result, nil
 }
@@ -81,6 +86,22 @@ func WithPositional(argv []string, positional ...string) []string {
 type ErrNotInstalled struct{ Name string }
 
 func (e ErrNotInstalled) Error() string { return e.Name + " is not installed or not on PATH" }
+
+// ErrExit carries the child's own exit status. `gh` gives some of its codes
+// meaning — `gh pr checks` exits 8 for "checks pending" as distinct from 1 for
+// "a check failed" — and flattening those to 1 destroys the signal for the
+// caller most likely to want it, an agent asking whether CI has finished.
+type ErrExit struct {
+	Name string
+	Code int
+	Err  error
+}
+
+func (e ErrExit) Error() string { return e.Err.Error() }
+func (e ErrExit) Unwrap() error { return e.Err }
+
+// ExitCode is the child's status, or 0 when it could not be determined.
+func (e ErrExit) ExitCode() int { return e.Code }
 
 // GH runs `gh` with args in dir. A non-empty token is passed as GH_TOKEN,
 // which gh reads in preference to its own stored login.

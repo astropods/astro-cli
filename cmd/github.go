@@ -86,7 +86,8 @@ func init() {
 	githubPRCmd.AddCommand(githubPRChecksCmd)
 	githubIssueCmd.AddCommand(githubIssueViewCmd)
 
-	githubPRViewCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. number,title,state)")
+	githubPRViewCmd.Flags().Bool("json", false, "Print raw JSON output")
+	githubPRViewCmd.Flags().String("fields", "", "Print only these JSON fields (comma-separated, e.g. number,title,state); implies --json")
 	githubPRViewCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
 	githubPRCreateCmd.Flags().String("title", "", "Pull request title (required)")
@@ -102,10 +103,12 @@ func init() {
 	githubPRCommentCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 	githubPRCommentCmd.MarkFlagRequired("body") //nolint:errcheck,gosec
 
-	githubPRChecksCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. name,state,conclusion)")
+	githubPRChecksCmd.Flags().Bool("json", false, "Print raw JSON output")
+	githubPRChecksCmd.Flags().String("fields", "", "Print only these JSON fields (comma-separated, e.g. name,state,bucket); implies --json")
 	githubPRChecksCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
-	githubIssueViewCmd.Flags().String("json", "", "Print these fields as JSON instead of gh's default view (comma-separated, e.g. number,title,state)")
+	githubIssueViewCmd.Flags().Bool("json", false, "Print raw JSON output")
+	githubIssueViewCmd.Flags().String("fields", "", "Print only these JSON fields (comma-separated, e.g. number,title,state); implies --json")
 	githubIssueViewCmd.Flags().String("repo", "", "Target repository as OWNER/REPO (defaults to the current directory's remote)")
 
 	githubPushCmd.Flags().String("remote", "origin", "Remote to push to")
