@@ -46,6 +46,14 @@ func withFakeGH(t *testing.T,
 	})
 }
 
+// withFakeRemotes replaces the `git remote` lookup for one test.
+func withFakeRemotes(t *testing.T, names []string, err error) {
+	t.Helper()
+	prev := ghRemotes
+	ghRemotes = func(context.Context, string) ([]string, error) { return names, err }
+	t.Cleanup(func() { ghRemotes = prev })
+}
+
 // newTestCmd wraps source's own flag set (not a copy: AddFlagSet shares the
 // underlying *Flag pointers), so every value set here is reset to its
 // default on cleanup, since source's flags outlive this one test.
@@ -472,37 +480,49 @@ func TestRunGHPassthroughReportsAMissingBinaryInsideADevSession(t *testing.T) {
 		"gh being absent is not the shared connection's fault: %s", err)
 }
 
-// git accepts a URL where a remote name goes, and `github push` is reachable
-// as an MCP write tool alongside read tools that fetch attacker-authored PR
-// and issue text, so the value is not always the operator's own.
-func TestRunGitHubPushRequiresARemoteName(t *testing.T) {
-	for _, tc := range []struct{ name, remote string }{
-		{"https URL", "https://github.com/attacker/x.git"},
-		{"scp-style", "git@github.com:attacker/x.git"},
-		{"ssh URL", "ssh://git@host/x.git"},
-		{"path", "../elsewhere"},
-		{"empty", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var pushed bool
-			withFakeGH(t, nil, nil,
-				func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
-					pushed = true
-					return githubcli.Result{}, nil
-				},
-				func(context.Context, string) (string, error) { return "feature/x", nil },
-			)
+// git accepts a URL or a local path where a remote name goes, and `github
+// push` is reachable as an MCP write tool alongside read tools that fetch
+// attacker-authored PR and issue text, so the value is not always the
+// operator's own. Checked against the repository's configured remotes rather
+// than the string's shape: git permits "/" in a remote name, so no character
+// separates a name from a URL.
+func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
+	configured := []string{"origin", "team/upstream"}
 
-			cmd := newTestCmd(t, map[string]string{"remote": tc.remote}, githubPushCmd)
-			err := runGitHubPush(cmd, nil)
+	t.Run("refuses anything the repository does not have", func(t *testing.T) {
+		for _, remote := range []string{
+			"https://github.com/attacker/x.git",
+			"git@github.com:attacker/x.git",
+			"ssh://git@host/x.git",
+			"../elsewhere",
+			"typo",
+			"",
+		} {
+			t.Run(remote, func(t *testing.T) {
+				var pushed bool
+				withFakeRemotes(t, configured, nil)
+				withFakeGH(t, nil, nil,
+					func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
+						pushed = true
+						return githubcli.Result{}, nil
+					},
+					func(context.Context, string) (string, error) { return "feature/x", nil },
+				)
 
-			require.Error(t, err)
-			assert.False(t, pushed, "the push must not run: %q is not a configured remote's name", tc.remote)
-		})
-	}
+				cmd := newTestCmd(t, map[string]string{"remote": remote}, githubPushCmd)
+				err := runGitHubPush(cmd, nil)
 
-	t.Run("a plain name is accepted", func(t *testing.T) {
+				require.Error(t, err)
+				assert.False(t, pushed, "the push must not run for %q", remote)
+			})
+		}
+	})
+
+	// The case a shape-based check got wrong: git permits "/" in a remote
+	// name, so refusing it rejects a real remote.
+	t.Run("accepts a configured name containing a slash", func(t *testing.T) {
 		var gotRemote string
+		withFakeRemotes(t, configured, nil)
 		withFakeGH(t, nil, nil,
 			func(_ context.Context, _, _, remote, _ string, _ bool) (githubcli.Result, error) {
 				gotRemote = remote
@@ -511,9 +531,22 @@ func TestRunGitHubPushRequiresARemoteName(t *testing.T) {
 			func(context.Context, string) (string, error) { return "feature/x", nil },
 		)
 
-		cmd := newTestCmd(t, map[string]string{"remote": "upstream"}, githubPushCmd)
+		cmd := newTestCmd(t, map[string]string{"remote": "team/upstream"}, githubPushCmd)
 		require.NoError(t, runGitHubPush(cmd, nil))
-		assert.Equal(t, "upstream", gotRemote)
+		assert.Equal(t, "team/upstream", gotRemote)
+	})
+
+	t.Run("a missing git is reported as missing, not as an unknown remote", func(t *testing.T) {
+		withFakeRemotes(t, nil, githubcli.ErrNotInstalled{Name: "git"})
+		withFakeGH(t, nil, nil, nil,
+			func(context.Context, string) (string, error) { return "feature/x", nil },
+		)
+
+		cmd := newTestCmd(t, map[string]string{"remote": "origin"}, githubPushCmd)
+		err := runGitHubPush(cmd, nil)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "git-scm.com")
 	})
 }
 

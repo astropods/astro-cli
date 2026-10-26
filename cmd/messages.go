@@ -130,8 +130,11 @@ func errGitHubRemoteEmpty() error {
 	return fmt.Errorf("--remote cannot be empty; name a configured remote such as `origin`")
 }
 
-func errGitHubRemoteNotAName(remote string) error {
-	return fmt.Errorf("--remote takes a configured remote's name, not a URL or path (got %q); add it with `git remote add` first", remote)
+func errGitHubRemoteUnknown(remote string, configured []string) error {
+	if len(configured) == 0 {
+		return fmt.Errorf("this repository has no remotes, so there is nowhere to push %q; add one with `git remote add`", remote)
+	}
+	return fmt.Errorf("no remote named %q; this repository has %s. --remote takes a configured remote's name, not a URL or path", remote, strings.Join(configured, ", "))
 }
 
 func msgConnectionsDevSessionFailed(err error) string {

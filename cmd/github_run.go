@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -19,6 +19,7 @@ var (
 	ghAuthenticated = githubcli.GHAuthenticated
 	ghPush          = githubcli.Push
 	ghCurrentBranch = githubcli.CurrentBranch
+	ghRemotes       = githubcli.Remotes
 )
 
 // ghAuthCheckTimeout bounds `gh auth status`, which validates the token
@@ -105,22 +106,28 @@ func classifyGitHubError(err error, token string) error {
 	return errGitHubCommandFailed(err)
 }
 
-// validateRemoteName keeps --remote to a configured remote's name. git also
-// accepts a URL in that position, which would let a caller send the branch to
-// a repository the operator never configured. `github push` is reachable as an
-// MCP write tool, alongside read tools that can fetch a PR or issue body an
-// attacker wrote, so the value is not always the operator's own. Pushing to a
-// URL is not part of this command; a remote has to be configured first.
-func validateRemoteName(remote string) error {
+// resolveRemote checks --remote names a remote this repository actually has.
+// git also accepts a URL or a local path there, which would send the branch
+// somewhere the operator never configured; `github push` is reachable as an
+// MCP write tool alongside read tools that fetch pull request and issue text
+// an attacker may have written, so the value is not always the operator's own.
+//
+// Checked against `git remote` rather than the string's shape, because no
+// character separates a name from a URL: git permits "/" in a remote name, so
+// refusing it rejects a real `team/upstream`, and allowing it admits a bare
+// path like `../elsewhere`.
+func resolveRemote(ctx context.Context, remote string) error {
 	if remote == "" {
 		return errGitHubRemoteEmpty()
 	}
-	// ":" catches scp-style (git@host:owner/repo) and any scheme; "/" catches
-	// a path. git remote names permit neither.
-	if strings.ContainsAny(remote, ":/") {
-		return errGitHubRemoteNotAName(remote)
+	names, err := ghRemotes(ctx, "")
+	if err != nil {
+		return classifyGitHubError(err, "")
 	}
-	return nil
+	if slices.Contains(names, remote) {
+		return nil
+	}
+	return errGitHubRemoteUnknown(remote, names)
 }
 
 // withRepoFlag appends gh's own -R flag when --repo was given.
@@ -217,7 +224,7 @@ func runGitHubIssueView(cmd *cobra.Command, args []string) error {
 func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	token := devSessionToken(cmd)
 	remote, _ := cmd.Flags().GetString("remote")
-	if err := validateRemoteName(remote); err != nil {
+	if err := resolveRemote(cmd.Context(), remote); err != nil {
 		return err
 	}
 	setUpstream, _ := cmd.Flags().GetBool("set-upstream")

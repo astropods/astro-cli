@@ -141,6 +141,28 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 	return run(ctx, dir, env, "git", args...)
 }
 
+// Remotes lists the repository's configured remote names.
+//
+// An allowlist is the only workable check on a caller-supplied remote. git
+// accepts a URL or a local path where a name goes, and a blocklist cannot
+// separate them from a name: git permits "/" in a remote name (team/upstream
+// is valid), so rejecting it refuses real remotes, while permitting it lets a
+// bare path like ../elsewhere through. git rejects ":" itself, which leaves no
+// character that reliably marks the difference.
+func Remotes(ctx context.Context, dir string) ([]string, error) {
+	result, err := run(ctx, dir, nil, "git", "remote")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
 func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	result, err := run(ctx, dir, nil, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
