@@ -44,8 +44,6 @@ func TestResolveGitHubTokenFetchesFromTheConnectionsEndpoint(t *testing.T) {
 }
 
 func TestResolveGitHubTokenGivesUpOnAnUnresponsiveServer(t *testing.T) {
-	// Shortened rather than slept out, and the handler blocks on the client
-	// giving up instead of sleeping past the real timeout.
 	prev := resolveGitHubTokenTimeout
 	resolveGitHubTokenTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { resolveGitHubTokenTimeout = prev })

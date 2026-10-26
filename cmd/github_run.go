@@ -22,9 +22,7 @@ var (
 	ghRemotes       = githubcli.Remotes
 )
 
-// ghAuthCheckTimeout bounds `gh auth status`, which validates the token
-// against GitHub's API. A var so a test can shorten it rather than sleep out
-// the real value.
+// ghAuthCheckTimeout bounds `gh auth status`, which reaches GitHub's API.
 var ghAuthCheckTimeout = 10 * time.Second
 
 // devSessionToken returns the dev session's GitHub connection token, or ""
@@ -49,9 +47,6 @@ func ghAuth(cmd *cobra.Command) (token string, err error) {
 		if errors.As(err, &notInstalled) {
 			return "", errGHNotInstalled()
 		}
-		// The check reaches GitHub's API, so a proxy, captive portal or
-		// outage trips the deadline. Reporting that as "not authenticated"
-		// tells an operator whose login is fine to go and re-login.
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return "", errGHAuthCheckTimedOut(err)
 		}
@@ -77,16 +72,9 @@ func runGHPassthrough(cmd *cobra.Command, args ...string) error {
 	return nil
 }
 
-// classifyGitHubError maps a githubcli failure to the message naming its real
-// cause. Every call site routes failures through here, because the one that
-// did not reported a missing binary as a credential problem: ghAuth returns
-// before its own not-installed check whenever a dev session supplies a token,
-// so a sandbox with a connection but no gh binary was told its connection was
-// at fault.
-//
-// Order matters: a missing binary and a cancelled command are both true
-// regardless of which credential was in play, so they are named before the
-// credential source is.
+// classifyGitHubError maps a githubcli failure to the message naming its
+// cause. A missing binary and a cancelled command hold whatever credential
+// was in play, so both are checked before token.
 func classifyGitHubError(err error, token string) error {
 	var notInstalled githubcli.ErrNotInstalled
 	if errors.As(err, &notInstalled) {
@@ -98,24 +86,16 @@ func classifyGitHubError(err error, token string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return errGitHubCommandInterrupted(err)
 	}
-	// gh's own error text may suggest `gh auth login`, which has no effect
-	// once GH_TOKEN is set, so name the credential actually in use.
 	if token != "" {
 		return errGitHubCommandFailedWithDevSessionToken(err)
 	}
 	return errGitHubCommandFailed(err)
 }
 
-// resolveRemote checks --remote names a remote this repository actually has.
-// git also accepts a URL or a local path there, which would send the branch
-// somewhere the operator never configured; `github push` is reachable as an
-// MCP write tool alongside read tools that fetch pull request and issue text
-// an attacker may have written, so the value is not always the operator's own.
-//
-// Checked against `git remote` rather than the string's shape, because no
-// character separates a name from a URL: git permits "/" in a remote name, so
-// refusing it rejects a real `team/upstream`, and allowing it admits a bare
-// path like `../elsewhere`.
+// resolveRemote checks that remote names one of this repository's remotes.
+// Compared against `git remote` rather than the string's shape: git accepts a
+// URL or a path here too, and permits "/" in a name, so no character tells
+// them apart.
 func resolveRemote(ctx context.Context, remote string) error {
 	if remote == "" {
 		return errGitHubRemoteEmpty()
@@ -148,19 +128,16 @@ func writePassthrough(w io.Writer, s string) {
 	}
 }
 
-// Default field sets for --json. gh requires a field list and errors with
-// the available names when given none, so a boolean --json has to pick one.
-// Every name here is from the respective `gh <cmd> --json` listing.
+// Default field sets for --json. gh rejects --json without a field list, so a
+// boolean flag has to supply one. Names come from `gh <cmd> --json`.
 const (
 	prViewJSONFields    = "number,title,state,author,url,body,isDraft,headRefName,baseRefName,reviewDecision,createdAt,updatedAt"
 	prChecksJSONFields  = "name,state,bucket,description,workflow,event,link,startedAt,completedAt"
 	issueViewJSONFields = "number,title,state,author,url,body,labels,assignees,createdAt,updatedAt"
 )
 
-// jsonFields resolves --json/--fields to the list handed to gh, or "" for
-// gh's own human view. --json is a bool here to match the other ~40 commands
-// that carry one; --fields keeps gh's field selection available and implies
-// --json, so neither has to be given with the other.
+// jsonFields resolves --json and --fields to the list handed to gh, or "" for
+// gh's own view. --fields implies --json.
 func jsonFields(cmd *cobra.Command, defaults string) string {
 	if fields, _ := cmd.Flags().GetString("fields"); fields != "" {
 		return fields
@@ -232,7 +209,7 @@ func runGitHubPush(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	branch, err := ghCurrentBranch(ctx, "")
 	if err != nil {
-		// No token: resolving the branch runs plain git, never the connection.
+		// Empty token: resolving the branch runs plain git.
 		return classifyGitHubError(err, "")
 	}
 	if branch == "HEAD" {

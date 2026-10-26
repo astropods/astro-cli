@@ -51,11 +51,8 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 		if errors.As(err, &execErr) {
 			return result, ErrNotInstalled{Name: name}
 		}
-		// A context kill surfaces as "signal: killed", which is an ExitError
-		// like any other non-zero exit. Reported as one it reads as a
-		// credential or command failure, so a slow network becomes "gh is not
-		// authenticated" and Ctrl-C becomes a push failure. Wrapping ctx.Err()
-		// lets callers tell the two apart with errors.Is.
+		// A context kill arrives as an ExitError ("signal: killed"), so
+		// ctx.Err() is the only thing distinguishing it from a real exit.
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return result, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), ctxErr)
 		}
@@ -87,10 +84,9 @@ type ErrNotInstalled struct{ Name string }
 
 func (e ErrNotInstalled) Error() string { return e.Name + " is not installed or not on PATH" }
 
-// ErrExit carries the child's own exit status. `gh` gives some of its codes
-// meaning — `gh pr checks` exits 8 for "checks pending" as distinct from 1 for
-// "a check failed" — and flattening those to 1 destroys the signal for the
-// caller most likely to want it, an agent asking whether CI has finished.
+// ErrExit carries the child's own exit status, which some of gh's codes give
+// meaning to: `gh pr checks` exits 8 for "checks pending", 1 for "a check
+// failed".
 type ErrExit struct {
 	Name string
 	Code int
@@ -123,12 +119,8 @@ func GHAuthenticated(ctx context.Context, dir string) error {
 // (GIT_CONFIG_*, git 2.31+), never argv: runCommand's error formatting
 // joins args into its message, so a credential placed there would leak.
 func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bool) (Result, error) {
-	// git reads a credential prompt from /dev/tty, not stdin, so the child's
-	// nil stdin does not stop it blocking on one. Push is the only call here
-	// that authenticates over the network and the only one given no deadline,
-	// since a real push legitimately takes as long as it takes, which leaves
-	// WaitDelay nothing to fire on. Failing fast is the behaviour we want:
-	// `gh` already gets the same treatment through GH_PROMPT_DISABLED.
+	// git prompts for credentials on /dev/tty, which the child's nil stdin
+	// does not close off.
 	env := []string{"GIT_TERMINAL_PROMPT=0"}
 	if token != "" {
 		env = append(env, appendGitConfigEnv("http.https://github.com/.extraheader", "AUTHORIZATION: basic "+basicAuthHeader(token))...)
@@ -142,13 +134,6 @@ func Push(ctx context.Context, dir, token, remote, branch string, setUpstream bo
 }
 
 // Remotes lists the repository's configured remote names.
-//
-// An allowlist is the only workable check on a caller-supplied remote. git
-// accepts a URL or a local path where a name goes, and a blocklist cannot
-// separate them from a name: git permits "/" in a remote name (team/upstream
-// is valid), so rejecting it refuses real remotes, while permitting it lets a
-// bare path like ../elsewhere through. git rejects ":" itself, which leaves no
-// character that reliably marks the difference.
 func Remotes(ctx context.Context, dir string) ([]string, error) {
 	result, err := run(ctx, dir, nil, "git", "remote")
 	if err != nil {

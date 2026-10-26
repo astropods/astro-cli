@@ -64,9 +64,6 @@ func TestPushOnlySetsAuthHeaderWhenTokenGiven(t *testing.T) {
 		_, err := Push(context.Background(), "/repo", "", "origin", "my-branch", false)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"push", "--", "origin", "my-branch"}, capturedArgs)
-		// Prompt suppression is not conditional on a token: an operator
-		// pushing with their own credentials should also fail rather than
-		// block on a /dev/tty prompt.
 		assert.Equal(t, []string{"GIT_TERMINAL_PROMPT=0"}, capturedEnv,
 			"an empty token must leave git's own credential setup alone apart from prompt suppression")
 	})
@@ -107,13 +104,8 @@ func TestWithPositional(t *testing.T) {
 }
 
 func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
-	// Isolate every git call below, setup and subject alike, from the
-	// runner's own configuration: both inherit this process's environment.
-	// The assertions read git's error text, and its messages depend on
-	// config this test does not own — push.default decides what a bare
-	// `git push <x>` even attempts, and commit.gpgsign or core.hooksPath
-	// would fail the setup commands outright. Without this the test passed
-	// with the regression present under push.default=current.
+	// git's error text here depends on push.default, and commit.gpgsign or
+	// core.hooksPath would fail the setup commands outright.
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 
@@ -134,15 +126,8 @@ func TestPushNeverLetsARemoteValueActAsAGitFlag(t *testing.T) {
 	_, err := Push(context.Background(), dir, "", "--force", "main", false)
 
 	require.Error(t, err)
-	// Positive assertion: protected, git reads "--force" as the destination
-	// and rejects it as a pathname. Verified stable across every
-	// push.default value, unlike the message git emits for the unprotected
-	// case. Asserting only the absence of that other message is what let the
-	// regression through.
 	assert.Contains(t, err.Error(), "strange pathname '--force' blocked",
 		"-- did not protect %q as a positional, so git parsed it as a flag: %s", "--force", err.Error())
-	// The regression's own signature: --force consumed as a real flag leaves
-	// "main" to be misread as the remote.
 	assert.NotContains(t, err.Error(), "has no upstream branch",
 		"--force reached git as a real flag instead of a positional: %s", err.Error())
 }
@@ -205,9 +190,6 @@ func TestRunCommandDoesNotHangOnAnOrphanedGrandchild(t *testing.T) {
 		"took %s; must give up at roughly waitDelay, not wait for the orphan's full lifetime", elapsed)
 }
 
-// A context kill arrives as an ExitError ("signal: killed") like any other
-// non-zero exit. Without this the caller reads it as a command or credential
-// failure, so a slow network becomes "gh is not authenticated".
 func TestRunCommandReportsACancelledContextAsCancellation(t *testing.T) {
 	t.Run("deadline exceeded", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -232,8 +214,6 @@ func TestRunCommandReportsACancelledContextAsCancellation(t *testing.T) {
 }
 
 func TestRunCommandOmitsATrailingSeparatorWhenStderrIsEmpty(t *testing.T) {
-	// `gh pr checks` exits non-zero with nothing on stderr when checks are
-	// pending, which used to render as "...: exit status 8: ".
 	_, err := run(context.Background(), t.TempDir(), nil, "sh", "-c", "exit 8")
 
 	require.Error(t, err)

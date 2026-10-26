@@ -390,8 +390,6 @@ func TestRunGitHubPushRefusesDetachedHead(t *testing.T) {
 }
 
 func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
-	// Shortened rather than slept out: the real 10s says nothing extra, and
-	// asserting "finished within the constant + 2s" holds for any constant.
 	prev := ghAuthCheckTimeout
 	ghAuthCheckTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { ghAuthCheckTimeout = prev })
@@ -408,17 +406,11 @@ func TestGHAuthAppliesATimeoutToTheAuthCheck(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, sawDeadline, "the check must be cancelled by a deadline, not merely return an error")
-	// A timeout is not evidence of a bad credential, so it must not be
-	// reported as one.
 	assert.NotContains(t, err.Error(), "gh auth login",
 		"a timed-out check must not tell an authenticated operator to re-login: %s", err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-// A missing binary and a cancelled command are true regardless of which
-// credential was in play, so they must be named before the credential source
-// is. ghAuth returns before its own not-installed check whenever a dev session
-// supplies a token, which left this path blaming the connection.
 func TestClassifyGitHubErrorNamesTheRealCauseBeforeTheCredential(t *testing.T) {
 	t.Run("a missing gh is reported as missing, not as a connection problem", func(t *testing.T) {
 		err := classifyGitHubError(githubcli.ErrNotInstalled{Name: "gh"}, "a-dev-session-token")
@@ -456,8 +448,6 @@ func TestClassifyGitHubErrorNamesTheRealCauseBeforeTheCredential(t *testing.T) {
 }
 
 func TestRunGHPassthroughReportsAMissingBinaryInsideADevSession(t *testing.T) {
-	// The feature's target case: a sandboxed agent with a shared connection
-	// and no gh binary.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(issueConnectionTokenResponse{AccessToken: "gho_fromconnection"})) //nolint:errcheck,gosec
@@ -480,12 +470,6 @@ func TestRunGHPassthroughReportsAMissingBinaryInsideADevSession(t *testing.T) {
 		"gh being absent is not the shared connection's fault: %s", err)
 }
 
-// git accepts a URL or a local path where a remote name goes, and `github
-// push` is reachable as an MCP write tool alongside read tools that fetch
-// attacker-authored PR and issue text, so the value is not always the
-// operator's own. Checked against the repository's configured remotes rather
-// than the string's shape: git permits "/" in a remote name, so no character
-// separates a name from a URL.
 func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 	configured := []string{"origin", "team/upstream"}
 
@@ -518,8 +502,6 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 		}
 	})
 
-	// The case a shape-based check got wrong: git permits "/" in a remote
-	// name, so refusing it rejects a real remote.
 	t.Run("accepts a configured name containing a slash", func(t *testing.T) {
 		var gotRemote string
 		withFakeRemotes(t, configured, nil)
@@ -550,8 +532,6 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 	})
 }
 
-// `gh pr checks` exits 8 for "checks pending" as distinct from 1 for "a check
-// failed". Flattening both to 1 destroys the signal for an agent polling CI.
 func TestExitCodeForPassesAWrappedBinarysStatusThrough(t *testing.T) {
 	pendingChecks := githubcli.ErrExit{
 		Name: "gh",
@@ -559,8 +539,6 @@ func TestExitCodeForPassesAWrappedBinarysStatusThrough(t *testing.T) {
 		Err:  errors.New("gh pr checks -- 7: exit status 8"),
 	}
 
-	// Through the same wrapping a real failure takes, so the test covers the
-	// classification and message layers rather than the bare error.
 	assert.Equal(t, 8, exitCodeFor(classifyGitHubError(pendingChecks, "")),
 		"gh's pending-checks code must survive classification and wrapping")
 	assert.Equal(t, 8, exitCodeFor(classifyGitHubError(pendingChecks, "a-dev-session-token")),

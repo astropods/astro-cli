@@ -221,10 +221,8 @@ func exitCodeFor(err error) int {
 	if errors.As(err, &apiErr) && apiErr.isBillingSuspended() {
 		return exitCodeBillingSuspended
 	}
-	// A wrapped binary's own status, for commands that pass one through:
-	// `gh pr checks` exits 8 for "checks pending" rather than 1 for "a check
-	// failed", and an agent polling CI needs to tell those apart. Checked
-	// after the billing code so our own meaning for 3 still wins.
+	// Checked after the billing code, so exitCodeBillingSuspended keeps its
+	// meaning even if a wrapped binary exits with the same number.
 	var exitErr githubcli.ErrExit
 	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
 		return exitErr.ExitCode()
