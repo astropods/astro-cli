@@ -28,6 +28,7 @@ func withFakeGH(t *testing.T,
 ) {
 	t.Helper()
 	prevRun, prevAuth, prevPush, prevBranch := ghRun, ghAuthenticated, ghPush, ghCurrentBranch
+	prevRemotes := ghRemotes
 	if run != nil {
 		ghRun = run
 	}
@@ -40,9 +41,15 @@ func withFakeGH(t *testing.T,
 	if currentBranch != nil {
 		ghCurrentBranch = currentBranch
 	}
+	// Stubbed unconditionally: push resolves --remote against `git remote`, so
+	// without this a push test reads the remotes of whatever repository the
+	// test binary happens to run in. Call withFakeRemotes afterwards to choose
+	// different ones.
+	ghRemotes = func(context.Context, string) ([]string, error) { return []string{"origin"}, nil }
 	t.Setenv(sandboxTokenEnvVar, "")
 	t.Cleanup(func() {
 		ghRun, ghAuthenticated, ghPush, ghCurrentBranch = prevRun, prevAuth, prevPush, prevBranch
+		ghRemotes = prevRemotes
 	})
 }
 
@@ -484,7 +491,6 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 		} {
 			t.Run(remote, func(t *testing.T) {
 				var pushed bool
-				withFakeRemotes(t, configured, nil)
 				withFakeGH(t, nil, nil,
 					func(context.Context, string, string, string, string, bool) (githubcli.Result, error) {
 						pushed = true
@@ -492,6 +498,7 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 					},
 					func(context.Context, string) (string, error) { return "feature/x", nil },
 				)
+				withFakeRemotes(t, configured, nil)
 
 				cmd := newTestCmd(t, map[string]string{"remote": remote}, githubPushCmd)
 				err := runGitHubPush(cmd, nil)
@@ -504,7 +511,6 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 
 	t.Run("accepts a configured name containing a slash", func(t *testing.T) {
 		var gotRemote string
-		withFakeRemotes(t, configured, nil)
 		withFakeGH(t, nil, nil,
 			func(_ context.Context, _, _, remote, _ string, _ bool) (githubcli.Result, error) {
 				gotRemote = remote
@@ -512,6 +518,7 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 			},
 			func(context.Context, string) (string, error) { return "feature/x", nil },
 		)
+		withFakeRemotes(t, configured, nil)
 
 		cmd := newTestCmd(t, map[string]string{"remote": "team/upstream"}, githubPushCmd)
 		require.NoError(t, runGitHubPush(cmd, nil))
@@ -519,10 +526,10 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 	})
 
 	t.Run("a missing git is reported as missing, not as an unknown remote", func(t *testing.T) {
-		withFakeRemotes(t, nil, githubcli.ErrNotInstalled{Name: "git"})
 		withFakeGH(t, nil, nil, nil,
 			func(context.Context, string) (string, error) { return "feature/x", nil },
 		)
+		withFakeRemotes(t, nil, githubcli.ErrNotInstalled{Name: "git"})
 
 		cmd := newTestCmd(t, map[string]string{"remote": "origin"}, githubPushCmd)
 		err := runGitHubPush(cmd, nil)
@@ -534,7 +541,6 @@ func TestRunGitHubPushRequiresAConfiguredRemote(t *testing.T) {
 
 func TestExitCodeForPassesAWrappedBinarysStatusThrough(t *testing.T) {
 	pendingChecks := githubcli.ErrExit{
-		Name: "gh",
 		Code: 8,
 		Err:  errors.New("gh pr checks -- 7: exit status 8"),
 	}

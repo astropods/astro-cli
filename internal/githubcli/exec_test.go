@@ -221,3 +221,25 @@ func TestRunCommandOmitsATrailingSeparatorWhenStderrIsEmpty(t *testing.T) {
 	assert.False(t, strings.HasSuffix(err.Error(), ": "),
 		"error should not end in a dangling separator: %q", err.Error())
 }
+
+func TestRemotesParsesOneNamePerLine(t *testing.T) {
+	withFakeRun(t, func(_ context.Context, _ string, _ []string, name string, args ...string) (Result, error) {
+		assert.Equal(t, "git", name)
+		assert.Equal(t, []string{"remote"}, args)
+		return Result{Stdout: "origin\nteam/upstream\n"}, nil
+	})
+
+	names, err := Remotes(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"origin", "team/upstream"}, names)
+}
+
+func TestRemotesReturnsNothingForARepositoryWithNoRemotes(t *testing.T) {
+	withFakeRun(t, func(context.Context, string, []string, string, ...string) (Result, error) {
+		return Result{Stdout: "\n"}, nil
+	})
+
+	names, err := Remotes(context.Background(), "/repo")
+	require.NoError(t, err)
+	assert.Empty(t, names, "a blank line must not become a remote named \"\"")
+}

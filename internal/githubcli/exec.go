@@ -62,7 +62,7 @@ func runCommand(ctx context.Context, dir string, env []string, name string, args
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return result, ErrExit{Name: name, Code: exitErr.ExitCode(), Err: wrapped}
+			return result, ErrExit{Code: exitErr.ExitCode(), Err: wrapped}
 		}
 		return result, wrapped
 	}
@@ -88,7 +88,6 @@ func (e ErrNotInstalled) Error() string { return e.Name + " is not installed or 
 // meaning to: `gh pr checks` exits 8 for "checks pending", 1 for "a check
 // failed".
 type ErrExit struct {
-	Name string
 	Code int
 	Err  error
 }
