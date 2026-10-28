@@ -37,6 +37,9 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	clusterID, _ := cmd.Flags().GetString("cluster")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
+	if _, err := buildCommit(cmd, build); err != nil {
+		return err
+	}
 	if latest && build != "" {
 		return errRedeployLatestWithBuild()
 	}
@@ -76,7 +79,23 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	commit, _ := cmd.Flags().GetString("commit")
+	var revision int
+	var publisher string
+	wait, _ := cmd.Flags().GetBool("wait")
+	if commit != "" || wait {
+		full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
+		if err != nil {
+			return err
+		}
+		revision, publisher = full.CurrentRevision, full.SourceAccount
+		if revision < 1 {
+			return errDeploymentRevisionUnsupported()
+		}
+	}
+
 	req := deployTemplateRequest{
+		ExpectedRevision: revision, Publisher: publisher,
 		Build:        build,
 		DeploymentID: dep.ID,
 		Interfaces:   iface,

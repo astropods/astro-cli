@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 )
@@ -272,6 +274,16 @@ type AccountToken struct {
 }
 
 func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
+	if token := auth.GetEnvAccessToken(); token != "" {
+		if account := strings.TrimSpace(os.Getenv(envvar.Account)); account != "" {
+			token, err := getAccountToken(ctx, account)
+			if err != nil {
+				return AccountToken{}, err
+			}
+			expiresAt, _ := auth.ParseJWTExpiry(token)
+			return AccountToken{Account: account, Token: token, ExpiresAt: expiresAt}, nil
+		}
+	}
 	account, err := accountNewStorage().GetCurrentAccount()
 	if err != nil {
 		return AccountToken{}, errAccountNotLoggedIn()
@@ -302,6 +314,12 @@ func accountOrgID(accounts []auth.StoredAccount, account string) string {
 }
 
 func accountToken(ctx context.Context, account string, force bool) (string, error) {
+	if token := auth.GetEnvAccessToken(); token != "" {
+		if expiresAt, err := auth.ParseJWTExpiry(token); err == nil && time.Until(expiresAt) <= 0 {
+			return "", errMachineTokenExpired()
+		}
+		return token, nil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

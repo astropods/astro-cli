@@ -89,21 +89,22 @@ type buildVulnerabilitySummary struct {
 }
 
 type blueprintBuild struct {
-	BuildID         string                     `json:"build_id"`
-	Source          string                     `json:"source"`
-	Status          string                     `json:"status"`
-	StartedAt       string                     `json:"started_at"`
-	CompletedAt     string                     `json:"completed_at,omitempty"`
-	Step            string                     `json:"step,omitempty"`
-	Error           string                     `json:"error,omitempty"`
-	IsLatest        bool                       `json:"is_latest"`
-	CommitSHA       string                     `json:"commit_sha,omitempty"`
-	CommitMessage   string                     `json:"commit_message,omitempty"`
-	Branch          string                     `json:"branch,omitempty"`
-	RepoFullName    string                     `json:"repo_full_name,omitempty"`
-	PushedBy        string                     `json:"pushed_by,omitempty"`
-	PushedByHandle  string                     `json:"pushed_by_handle,omitempty"`
-	Vulnerabilities *buildVulnerabilitySummary `json:"vulnerabilities,omitempty"`
+	BuildID          string                     `json:"build_id"`
+	Source           string                     `json:"source"`
+	Status           string                     `json:"status"`
+	StartedAt        string                     `json:"started_at"`
+	CompletedAt      string                     `json:"completed_at,omitempty"`
+	Step             string                     `json:"step,omitempty"`
+	Error            string                     `json:"error,omitempty"`
+	IsLatest         bool                       `json:"is_latest"`
+	WorkingTreeDirty *bool                      `json:"working_tree_dirty,omitempty"`
+	CommitSHA        string                     `json:"commit_sha,omitempty"`
+	CommitMessage    string                     `json:"commit_message,omitempty"`
+	Branch           string                     `json:"branch,omitempty"`
+	RepoFullName     string                     `json:"repo_full_name,omitempty"`
+	PushedBy         string                     `json:"pushed_by,omitempty"`
+	PushedByHandle   string                     `json:"pushed_by_handle,omitempty"`
+	Vulnerabilities  *buildVulnerabilitySummary `json:"vulnerabilities,omitempty"`
 }
 
 type blueprintBuildsResponse struct {

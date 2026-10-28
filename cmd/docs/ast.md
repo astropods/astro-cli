@@ -161,3 +161,26 @@ After pushing, **navigate to the Astropods platform** to see your agent and depl
 ### `build` — Build containers (optional)
 
 Build agent and custom component containers from the spec. This step is optional: when you run `ast push`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without pushing.
+
+## Deploy from a Git workflow
+
+Wait for a connected blueprint's exact commit, then deploy it to an existing agent:
+
+```sh
+ast agent redeploy --id "$DEPLOYMENT_ID" --commit "$COMMIT_SHA" --wait --timeout 45m --json
+```
+
+The command preserves existing configuration when its flags are omitted.
+It returns success after the requested revision becomes ready. Progress goes to stderr; stdout contains the JSON result.
+Failed, canceled, or skipped builds return errors. The command never substitutes a newer build.
+
+Set `ASTRO_ACCOUNT` and `ASTRO_ACCESS_TOKEN` for CI without a saved login.
+The machine app needs `blueprint:read`, `deployment:read`, `deployment:edit`, and `deployment:operate`.
+Obtain a fresh token from the app's token URL before running the command.
+
+To wait for publication alone, run `ast blueprint builds wait NAME --commit SHA --json`.
+After a deployment timeout, resume observation without resubmitting:
+
+```sh
+ast agent wait --id "$DEPLOYMENT_ID" --build "$BUILD_ID" --revision "$REVISION" --timeout 20m --json
+```
