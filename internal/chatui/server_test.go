@@ -125,7 +125,7 @@ func TestServer_ChatsRoutes(t *testing.T) {
 			path:     "/api/v1/accounts/local/chats",
 			wantCode: http.StatusOK,
 			wantBody: listChatsResponse{Chats: []chat{{Deployment: chatDeployment{
-				ID: LocalDeploymentID, Name: "my-agent", DisplayName: "My Agent", Status: localDeploymentStatus,
+				ID: LocalDeploymentID, Name: "my-agent", DisplayName: "My Agent",
 			}}}},
 		},
 		{name: "another account's chats", path: "/api/v1/accounts/acme/chats", wantCode: http.StatusNotFound},

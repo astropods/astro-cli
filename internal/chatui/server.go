@@ -262,7 +262,6 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 			ID:          local.ID,
 			Name:        local.Name,
 			DisplayName: local.DisplayName,
-			Status:      localDeploymentStatus,
 		}})
 	}
 	writeJSON(w, http.StatusOK, listChatsResponse{Chats: chats})
