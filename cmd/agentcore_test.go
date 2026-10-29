@@ -413,3 +413,21 @@ func TestAgentCoreDeploy_PlanMakesNoFilesystemPromise(t *testing.T) {
 	assert.NotContains(t, out.String(), "filesystemConfigurations")
 	assert.NotContains(t, out.String(), "s3FilesAccessPoint")
 }
+
+func TestAgentCoreRejectsUnsupportedOrchestrationFlagsBeforeDeploying(t *testing.T) {
+	for _, tc := range []struct{ name, value string }{
+		{"commit", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		{"build", "build-two"},
+		{"timeout", "2m"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			cmd := newDeployTestCmd(&out)
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs([]string{"--file", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run", "--" + tc.name, tc.value})
+			require.EqualError(t, cmd.Execute(), errAgentCoreOrchestrationFlags([]string{"--" + tc.name}).Error())
+			require.Empty(t, out.String())
+		})
+	}
+}

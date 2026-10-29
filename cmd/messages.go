@@ -1295,3 +1295,7 @@ func msgDeploymentReady(id string, revision int) string {
 func msgDeploymentWaiting(status, detail string) string {
 	return fmt.Sprintf("Waiting for deployment: %s %s", status, detail)
 }
+
+func errAgentCoreOrchestrationFlags(flags []string) error {
+	return fmt.Errorf("%s cannot be used with AgentCore deployments; use --image to select the artifact (AgentCore uses its own readiness timeout)", strings.Join(flags, ", "))
+}

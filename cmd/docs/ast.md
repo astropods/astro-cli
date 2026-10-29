@@ -171,6 +171,7 @@ ast agent redeploy --id "$DEPLOYMENT_ID" --commit "$COMMIT_SHA" --wait --timeout
 ```
 
 The command preserves existing configuration when its flags are omitted.
+AgentCore deployments use `--image`; they reject `--commit`, `--build`, and `--timeout`.
 It returns success after the requested revision becomes ready. Progress goes to stderr; stdout contains the JSON result.
 Failed, canceled, or skipped builds return errors. The command never substitutes a newer build.
 

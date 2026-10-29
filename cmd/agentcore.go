@@ -106,6 +106,15 @@ func maybeAgentCoreDeploy(cmd *cobra.Command, args []string) (handled bool, err 
 	if len(args) > 0 {
 		return true, errAgentCoreDeployTakesNoName(args[0], astroSpec.Name)
 	}
+	var unsupported []string
+	for _, name := range []string{"commit", "build", "timeout"} {
+		if cmd.Flags().Changed(name) {
+			unsupported = append(unsupported, "--"+name)
+		}
+	}
+	if len(unsupported) > 0 {
+		return true, errAgentCoreOrchestrationFlags(unsupported)
+	}
 	return true, runAgentCoreDeploy(cmd, astroSpec, specPath)
 }
 

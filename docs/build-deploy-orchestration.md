@@ -3,6 +3,8 @@
 `agent redeploy --commit <full-sha> --wait --json` waits for publication, selects that build, and waits for its deployment revision.
 `blueprint deploy` accepts the same flags for a new deployment.
 `--timeout` defaults to 45 minutes and covers publication and rollout together.
+AgentCore deployments select artifacts with `--image` and use their own readiness timeout.
+They reject `--commit`, `--build`, and `--timeout` before deployment (see `cmd/agentcore_test.go`).
 
 ```sh
 ast blueprint builds wait my-blueprint --commit "$COMMIT_SHA" --json
@@ -22,7 +24,7 @@ A concurrent change fails the precondition. A newer revision detected during wai
 Readiness requires both the expected current revision and the server's matching `ready_revision` observation.
 A missing chat URL does not imply success. A deadline or cancellation returns an error.
 Deployment errors can recover; the waiter continues observing them until the deadline.
-`OnDelete` workloads require updated pods before this check succeeds.
+Unchanged `OnDelete` dependencies retain their pods. Changed dependency templates require updated pods before this check succeeds.
 
 `--json` writes one result to stdout after the requested wait. Progress goes to stderr.
 Timeout errors include the deployment, build, and revision needed by `agent wait`.

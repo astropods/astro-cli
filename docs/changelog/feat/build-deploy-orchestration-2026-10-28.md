@@ -11,6 +11,8 @@ The commands support account-bound machine tokens without a saved human profile.
 `agent redeploy --commit SHA --wait` preserves omitted configuration and submits the deployment's revision as an `If-Match` precondition.
 The shared timeout covers publication and rollout. Readiness requires the expected build, revision, and server readiness observation.
 
+AgentCore rejects unsupported commit, build, and timeout flags before deployment, preventing silent artifact substitution.
+
 JSON output contains one result after the requested wait; progress goes to stderr.
 `agent wait` resumes observation after interruption without submitting another deployment.
 
