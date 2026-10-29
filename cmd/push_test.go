@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1598,6 +1599,8 @@ func TestTransformSpecForRegistry_UsesAgentName(t *testing.T) {
 }
 
 func TestPush_OrgScopedSpecName(t *testing.T) {
+	resetPushFlags(t)
+	t.Cleanup(func() { resetPushFlags(t) })
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	_ = os.Unsetenv(envvar.AccessToken)
@@ -1654,6 +1657,8 @@ func TestPush_OrgScopedSpecName(t *testing.T) {
 }
 
 func TestPush_AllowAccountOverride(t *testing.T) {
+	resetPushFlags(t)
+	t.Cleanup(func() { resetPushFlags(t) })
 	registerCalled := false
 	var registration map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1733,10 +1738,14 @@ func setupPushHomeAndSpec(t *testing.T, currentAccount, specAgentName string) {
 // resetPushFlags resets all push-command flags to their defaults and clears Changed.
 func resetPushFlags(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"visibility", "no-build", "allow-dirty", "yes", "allow-account-override", "file", "json"} {
-		if f := blueprintPushCmd.Flags().Lookup(name); f != nil {
-			_ = f.Value.Set(f.DefValue)
-			f.Changed = false
+	topLevelPush, _, err := rootCmd.Find([]string{"push"})
+	require.NoError(t, err)
+	for _, command := range []*cobra.Command{blueprintPushCmd, topLevelPush} {
+		for _, name := range []string{"visibility", "no-build", "allow-dirty", "yes", "allow-account-override", "file", "json", "message"} {
+			if f := command.Flags().Lookup(name); f != nil {
+				require.NoError(t, f.Value.Set(f.DefValue))
+				f.Changed = false
+			}
 		}
 	}
 }

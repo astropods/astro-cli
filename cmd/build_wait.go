@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -106,7 +105,7 @@ func waitForBuild(ctx context.Context, at AccountToken, publisher, name, build, 
 		}
 		u := apiPath(blueprintBaseURL(), publisher, "agents", name, "builds") + "?" + query.Encode()
 		var response blueprintBuildsResponse
-		_, err = apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &response)
+		_, err = pollingGET(ctx, u, at.Token, verbose, &response)
 		if err != nil {
 			return blueprintBuild{}, errBuildWaitEnded(name, build, commit, err)
 		}
@@ -137,14 +136,7 @@ func waitForBuild(ctx context.Context, at AccountToken, publisher, name, build, 
 }
 
 func waitOrchestrationPoll(ctx context.Context) error {
-	timer := time.NewTimer(orchestrationPollInterval)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
+	return waitWithContext(ctx, orchestrationPollInterval)
 }
 
 func refreshPollingToken(ctx context.Context, at AccountToken) (AccountToken, error) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -82,7 +81,7 @@ func waitForDeployment(ctx context.Context, expected agentDeployResult, at Accou
 				} `json:"runtime"`
 			}
 			u := apiPath(agentBaseURL(), url.PathEscape(expected.DeploymentID), "deployments", "runtime")
-			if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &response); err != nil {
+			if _, err := pollingGET(ctx, u, at.Token, verbose, &response); err != nil {
 				return errDeploymentWaitEnded(expected, err)
 			}
 			if response.Runtime.ReadyRevision == expected.Revision {

@@ -35,6 +35,13 @@ Unchanged `OnDelete` dependencies retain their pods. Changed dependency template
 Timeout errors include the deployment, build, and revision needed by `agent wait`.
 Waiting does not cancel a build or deployment, and resuming a wait does not submit another deployment.
 
+Build history, deployment detail, and runtime polling GETs retry transient failures up to three times per read.
+Backoff starts at 250 milliseconds, doubles per retry, and adds jitter up to the current delay.
+The reader honors `Retry-After`; cancellation and the shared timeout interrupt backoff.
+Retryable HTTP statuses are `408`, `429`, `500`, `502`, `503`, and `504` (`cmd/polling_read.go`).
+Authentication failures, missing resources, revision conflicts, and malformed JSON fail immediately.
+Template and deployment POSTs remain single attempts (`TestDeployDoesNotRetryFailedWrites`).
+
 For CI, set `ASTRO_ACCOUNT` and `ASTRO_ACCESS_TOKEN`. These bypass saved-profile lookup together.
 Machine tokens retain their server-side account binding and permission scopes.
 The CLI cannot renew client-credentials tokens. Obtain a new token and resume the wait after expiry.

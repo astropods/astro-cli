@@ -16,6 +16,12 @@ Target resolution shares ID, name, and environment lookup without rereading the 
 Deployment reads preserve authorization and availability errors; only missing deployments receive the not-found message.
 Redeployment preserves the server template's display name, avoiding stale name writes during concurrent changes.
 The shared timeout covers publication and rollout. Readiness requires the expected build, revision, and server readiness observation.
+Build, deployment-detail, and runtime GETs retry transient network errors and selected HTTP failures up to three times per read.
+Exponential backoff adds jitter, honors `Retry-After`, and stops on cancellation or the command deadline.
+Authentication errors, missing resources, revision conflicts, and invalid JSON fail immediately.
+Writes remain single attempts so an uncertain response cannot submit another deployment.
+Regression coverage exercises recovery across all polling reads, retry exhaustion, cancellation, and failed writes.
+Push tests reset both command forms, preventing flag state from leaking across repeated suite runs.
 
 AgentCore rejects unsupported commit, build, and timeout flags before deployment, preventing silent artifact substitution.
 Machine and saved-profile authentication share token validation and expiry handling after account selection.

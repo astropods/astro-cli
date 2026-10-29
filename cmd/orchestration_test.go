@@ -28,7 +28,15 @@ func TestCommitDeployWaitsForPublishedBuildAndReadyRevisionWithJSON(t *testing.T
 	fastOrchestration(t)
 	sha := strings.Repeat("a", 40)
 	buildPolls, runtimePolls, deployPosts := 0, 0, 0
+	reads := make(map[string]int)
 	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			reads[r.URL.Path]++
+			if reads[r.URL.Path] == 1 {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+		}
 		switch r.URL.Path {
 		case "/api/v1/agents/testaccount/dummy/builds":
 			require.Equal(t, sha, r.URL.Query().Get("commit"))

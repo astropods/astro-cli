@@ -146,7 +146,9 @@ func apiCallWithHeaders(ctx context.Context, method, reqURL string, body any, to
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp.StatusCode, newAPIError(resp.StatusCode, respBody)
+		apiErr := newAPIError(resp.StatusCode, respBody)
+		apiErr.RetryAfter = resp.Header.Get("Retry-After")
+		return resp.StatusCode, apiErr
 	}
 
 	if dest != nil {

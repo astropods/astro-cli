@@ -38,6 +38,7 @@ const exitCodeBillingSuspended = 3
 // or any non-JSON body leaves them empty and Error() falls back to the raw text.
 type apiError struct {
 	StatusCode int
+	RetryAfter string
 	Code       string
 	Reason     string
 	Action     string

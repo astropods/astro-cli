@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"net/http"
 	"net/url"
 )
 
@@ -39,7 +38,7 @@ type agentDeploymentFullResponse struct {
 func getAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
 	u := apiPath(agentBaseURL(), url.PathEscape(id), "deployments")
 	var result agentDeploymentFullResponse
-	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result)
+	status, err := pollingGET(ctx, u, at.Token, verbose, &result)
 	if isNotFound(status, err) {
 		return nil, errAgentDeploymentNotFoundForID(id)
 	}
