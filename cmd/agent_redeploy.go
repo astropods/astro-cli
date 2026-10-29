@@ -21,6 +21,12 @@ func init() {
 }
 
 func runAgentRedeploy(cmd *cobra.Command, args []string) error {
+	_, cancel, err := orchestrationContext(cmd)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	schedules, err := parseDeploySchedulesFromCmd(cmd)
 	if err != nil {
 		return err

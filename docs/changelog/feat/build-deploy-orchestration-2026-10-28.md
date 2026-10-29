@@ -15,7 +15,9 @@ Orchestration options remain separate from the HTTP template payload, and deploy
 Target resolution shares ID, name, and environment lookup without rereading the full record before submission.
 Deployment reads preserve authorization and availability errors; only missing deployments receive the not-found message.
 Redeployment preserves the server template's display name, avoiding stale name writes during concurrent changes.
-The shared timeout covers publication and rollout. Readiness requires the expected build, revision, and server readiness observation.
+The shared deadline starts before authentication and target resolution, covering publication, submission, and rollout.
+Initial read retries honor it, including long `Retry-After` delays.
+Readiness requires the expected build, revision, and server readiness observation.
 Build, deployment-detail, and runtime GETs retry transient network errors and selected HTTP failures up to three times per read.
 Exponential backoff adds jitter, honors `Retry-After`, and stops on cancellation or the command deadline.
 Authentication errors, missing resources, revision conflicts, and invalid JSON fail immediately.
@@ -28,6 +30,7 @@ Machine and saved-profile authentication share token validation and expiry handl
 
 JSON output contains one result after the requested wait; progress goes to stderr.
 `agent wait` resumes observation after interruption without submitting another deployment.
+
 
 ## Migration
 

@@ -55,8 +55,13 @@ func orchestrationContext(cmd *cobra.Command) (context.Context, context.CancelFu
 	if timeout <= 0 {
 		return nil, nil, errWaitTimeout()
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
-	return ctx, cancel, nil
+	parent := cmd.Context()
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	cmd.SetContext(ctx)
+	return ctx, func() {
+		cancel()
+		cmd.SetContext(parent)
+	}, nil
 }
 
 func runBlueprintBuildsWait(cmd *cobra.Command, args []string) error {

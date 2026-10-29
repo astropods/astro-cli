@@ -292,6 +292,12 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
 		return err
 	}
+	_, cancel, err := orchestrationContext(cmd)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	var arg string
 	if len(args) > 0 {
 		arg = args[0]

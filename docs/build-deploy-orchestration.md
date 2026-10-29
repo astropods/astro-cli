@@ -2,7 +2,7 @@
 
 `agent redeploy --commit <full-sha> --wait --json` waits for publication, selects that build, and waits for its deployment revision.
 `blueprint deploy` accepts the same flags for a new deployment.
-`--timeout` defaults to 45 minutes and covers publication and rollout together.
+`--timeout` defaults to 45 minutes and covers authentication, target resolution, publication, submission, and rollout together.
 AgentCore deployments select artifacts with `--image` and use their own readiness timeout.
 They reject `--commit`, `--build`, and `--timeout` before deployment (see `cmd/agentcore_test.go`).
 
@@ -19,6 +19,7 @@ An explicit build ID can select a local artifact with unknown provenance.
 
 Redeployment preserves existing adapters, variables, schedules, and other stored configuration when their flags are omitted.
 The CLI reads the target and revision together before waiting, then requests a template that preserves stored configuration.
+Default redeployment preserves the current revision's build and configuration after rollback.
 It supplies that revision as `If-Match` when submitting the template.
 Plain redeploys also send the reported revision, including requests without `--commit` or `--wait`.
 Older servers that omit revisions still support plain redeploys; orchestration requires revision support.
@@ -37,7 +38,8 @@ Waiting does not cancel a build or deployment, and resuming a wait does not subm
 
 Build history, deployment detail, and runtime polling GETs retry transient failures up to three times per read.
 Backoff starts at 250 milliseconds, doubles per retry, and adds jitter up to the current delay.
-The reader honors `Retry-After`; cancellation and the shared timeout interrupt backoff.
+The reader honors `Retry-After`; cancellation and the shared timeout interrupt backoff, including the initial deployment lookup.
+`TestRedeployTimeoutIncludesInitialReadBackoff` verifies that boundary.
 Retryable HTTP statuses are `408`, `429`, `500`, `502`, `503`, and `504` (`cmd/polling_read.go`).
 Authentication failures, missing resources, revision conflicts, and malformed JSON fail immediately.
 Template and deployment POSTs remain single attempts (`TestDeployDoesNotRetryFailedWrites`).
