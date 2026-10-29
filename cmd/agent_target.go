@@ -63,6 +63,10 @@ func fetchAgentDeploymentSummary(ctx context.Context, id string, at AccountToken
 	if err != nil {
 		return nil, errAgentDeploymentNotFoundForID(id)
 	}
+	return deploymentSummary(full), nil
+}
+
+func deploymentSummary(full *agentDeploymentFull) *agentDeployment {
 	return &agentDeployment{
 		ID:              full.ID,
 		Name:            full.Name,
@@ -73,7 +77,7 @@ func fetchAgentDeploymentSummary(ctx context.Context, id string, at AccountToken
 		CreatedAt:       full.CreatedAt,
 		EnvironmentID:   full.EnvironmentID,
 		EnvironmentName: full.EnvironmentName,
-	}, nil
+	}
 }
 
 func findDeploymentByTarget(cmd *cobra.Command, target string, at AccountToken, verbose bool) (*agentDeployment, error) {

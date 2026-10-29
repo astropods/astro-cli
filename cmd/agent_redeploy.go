@@ -72,25 +72,30 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if latest {
-		build, err = latestDeploymentBuild(cmd, at, dep, verbose)
-		if err != nil {
-			return err
-		}
-	}
-
 	commit, _ := cmd.Flags().GetString("commit")
 	var revision int
 	var publisher string
 	wait, _ := cmd.Flags().GetBool("wait")
-	if commit != "" || wait {
+	if latest || commit != "" || wait {
 		full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
 		if err != nil {
 			return err
 		}
+		dep = deploymentSummary(full)
 		revision, publisher = full.CurrentRevision, full.SourceAccount
-		if revision < 1 {
+		if (commit != "" || wait) && revision < 1 {
 			return errDeploymentRevisionUnsupported()
+		}
+	}
+
+	if latest {
+		buildPublisher := publisher
+		if buildPublisher == "" {
+			buildPublisher = at.Account
+		}
+		build, err = latestBlueprintBuild(cmd, at, buildPublisher, dep.Name, verbose)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -110,18 +115,6 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 
 	// The URL account scopes knowledge bindings; the server finds the publisher from the deployment.
 	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun)
-}
-
-func latestDeploymentBuild(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (string, error) {
-	full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
-	if err != nil {
-		return "", errAgentDeploymentNotFoundForID(dep.ID)
-	}
-	publisher := full.SourceAccount
-	if publisher == "" {
-		publisher = at.Account
-	}
-	return latestBlueprintBuild(cmd, at, publisher, dep.Name, verbose)
 }
 
 // latestBlueprintBuild returns the build ID of the blueprint's most recently

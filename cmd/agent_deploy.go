@@ -459,7 +459,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 
 	template := tmplResp.Template
 	target := map[string]string{}
-	if displayName != "" {
+	if displayName != "" && req.DeploymentID == "" {
 		target["display_name"] = displayName
 	}
 	if environment != nil {
