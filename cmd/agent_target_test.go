@@ -169,3 +169,28 @@ func TestAgentGetMultiWordDisplayName(t *testing.T) {
 	require.NoError(t, runAgentGet(agentGetCmd, nil))
 	assert.Contains(t, buf.String(), "Pirate Parrot EU!")
 }
+
+func TestResolveAgentTargetPreservesDeploymentReadErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{http.StatusNotFound, `{"error":"not found"}`, errAgentDeploymentNotFoundForID("dep").Error()},
+		{http.StatusForbidden, `{"error":"deployment:read scope required"}`, "deployment:read scope required"},
+		{http.StatusServiceUnavailable, `{"error":"authorization temporarily unavailable"}`, "authorization temporarily unavailable"},
+	} {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			cmd := &cobra.Command{}
+			registerAgentTargetFlags(cmd)
+			cmd.SetContext(context.Background())
+			require.NoError(t, cmd.Flags().Set("id", "dep"))
+			_, err := resolveAgentTarget(cmd, AccountToken{Account: "testaccount"}, false)
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}

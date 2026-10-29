@@ -18,10 +18,8 @@ func TestRedeployPreservesTheTemplateNameAfterConcurrentConfigurationChanges(t *
 		switch r.URL.Path {
 		case "/api/v1/deployments/dep":
 			reads++
-			name, revision := "renamed", 4
-			if reads == 1 {
-				name, revision = "original", 3
-			} else if reads > 2 {
+			name, revision := "original", 4
+			if reads > 1 {
 				revision = 5
 			}
 			_ = json.NewEncoder(w).Encode(agentDeploymentFullResponse{Deployment: agentDeploymentFull{ID: "dep", Name: "dummy", DisplayName: name, BuildID: "build", CurrentRevision: revision, SourceAccount: "testaccount", Status: "Running"}})
@@ -55,4 +53,5 @@ func TestRedeployPreservesTheTemplateNameAfterConcurrentConfigurationChanges(t *
 	require.NoError(t, runAgentRedeploy(command, nil))
 	require.Equal(t, `"4"`, expectedRevision)
 	require.Equal(t, "renamed", submittedName)
+	require.Equal(t, 2, reads, "read the deployment once before submission and once while waiting")
 }

@@ -274,19 +274,16 @@ type AccountToken struct {
 }
 
 func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
-	if token := auth.GetEnvAccessToken(); token != "" {
-		if account := strings.TrimSpace(os.Getenv(envvar.Account)); account != "" {
-			token, err := getAccountToken(ctx, account)
-			if err != nil {
-				return AccountToken{}, err
-			}
-			expiresAt, _ := auth.ParseJWTExpiry(token)
-			return AccountToken{Account: account, Token: token, ExpiresAt: expiresAt}, nil
-		}
+	var account string
+	if auth.GetEnvAccessToken() != "" {
+		account = strings.TrimSpace(os.Getenv(envvar.Account))
 	}
-	account, err := accountNewStorage().GetCurrentAccount()
-	if err != nil {
-		return AccountToken{}, errAccountNotLoggedIn()
+	if account == "" {
+		var err error
+		account, err = accountNewStorage().GetCurrentAccount()
+		if err != nil {
+			return AccountToken{}, errAccountNotLoggedIn()
+		}
 	}
 	token, err := getAccountToken(ctx, account)
 	if err != nil {

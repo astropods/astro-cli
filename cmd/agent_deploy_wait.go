@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 )
@@ -38,9 +37,13 @@ type agentDeploymentFullResponse struct {
 }
 
 func getAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
-	u := fmt.Sprintf("%s/api/v1/deployments/%s", agentBaseURL(), url.PathEscape(id))
+	u := apiPath(agentBaseURL(), url.PathEscape(id), "deployments")
 	var result agentDeploymentFullResponse
-	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	status, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result)
+	if isNotFound(status, err) {
+		return nil, errAgentDeploymentNotFoundForID(id)
+	}
+	if err != nil {
 		return nil, err
 	}
 	return &result.Deployment, nil

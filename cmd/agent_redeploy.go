@@ -67,17 +67,13 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	dep, err := resolveAgentTarget(cmd, at, verbose)
-	if err != nil {
-		return err
-	}
-
 	commit, _ := cmd.Flags().GetString("commit")
 	var revision int
 	var publisher string
+	var dep *agentDeployment
 	wait, _ := cmd.Flags().GetBool("wait")
 	if latest || commit != "" || wait {
-		full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
+		full, err := resolveAgentDeploymentTarget(cmd, at, verbose)
 		if err != nil {
 			return err
 		}
@@ -85,6 +81,11 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		revision, publisher = full.CurrentRevision, full.SourceAccount
 		if (commit != "" || wait) && revision < 1 {
 			return errDeploymentRevisionUnsupported()
+		}
+	} else {
+		dep, err = resolveAgentTarget(cmd, at, verbose)
+		if err != nil {
+			return err
 		}
 	}
 

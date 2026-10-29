@@ -367,10 +367,6 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	return runDeployWithRequest(cmd, at, verbose, publisher, name, displayName, environment, req, dryRun)
 }
 
-// runDeployWithRequest handles the template POST → validation → deploy POST flow.
-// Shared by blueprint deploy and agent redeploy; set req.DeploymentID to retarget an existing deployment.
-// displayName is patched into template.target.display_name before the deploy POST when non-empty,
-// and environment's id into template.target.environment_id when non-nil.
 func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, publisher, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
 	commit, err := buildCommit(cmd, req.Build)
 	if err != nil {

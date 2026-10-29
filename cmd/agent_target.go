@@ -1,10 +1,6 @@
 package cmd
 
-import (
-	"context"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 func agentTargetArgs(_ *cobra.Command, args []string) error {
 	if len(args) > 0 {
@@ -32,38 +28,47 @@ func registerAgentTargetFlags(cmd *cobra.Command) {
 }
 
 func resolveAgentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*agentDeployment, error) {
+	if flagString(cmd, "id") == "" && flagString(cmd, "env") == "" {
+		return findDeploymentByTarget(cmd, flagString(cmd, "name"), at, verbose)
+	}
+	full, err := resolveAgentDeploymentTarget(cmd, at, verbose)
+	if err != nil {
+		return nil, err
+	}
+	return deploymentSummary(full), nil
+}
+
+func resolveAgentDeploymentTarget(cmd *cobra.Command, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
+	id, err := resolveAgentTargetID(cmd, at, verbose)
+	if err != nil {
+		return nil, err
+	}
+	return getAgentDeploymentFull(cmd.Context(), id, at, verbose)
+}
+
+func resolveAgentTargetID(cmd *cobra.Command, at AccountToken, verbose bool) (string, error) {
 	if id, _ := cmd.Flags().GetString("id"); id != "" {
-		return fetchAgentDeploymentSummary(cmd.Context(), id, at, verbose)
+		return id, nil
 	}
 	if env := flagString(cmd, "env"); env != "" {
 		blueprint, err := resolveBlueprintName(flagString(cmd, "blueprint"))
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		e, err := findBlueprintEnvironment(cmd.Context(), at, at.Account, blueprint, env, verbose)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		if e.DeploymentID == "" {
-			return nil, errEnvironmentHasNoAgent(env, blueprint)
+			return "", errEnvironmentHasNoAgent(env, blueprint)
 		}
-		return fetchAgentDeploymentSummary(cmd.Context(), e.DeploymentID, at, verbose)
+		return e.DeploymentID, nil
 	}
-
-	name, _ := cmd.Flags().GetString("name")
-	if name == "" {
-		return nil, errAgentTargetRequired()
-	}
-
-	return findDeploymentByTarget(cmd, name, at, verbose)
-}
-
-func fetchAgentDeploymentSummary(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeployment, error) {
-	full, err := getAgentDeploymentFull(ctx, id, at, verbose)
+	dep, err := findDeploymentByTarget(cmd, flagString(cmd, "name"), at, verbose)
 	if err != nil {
-		return nil, errAgentDeploymentNotFoundForID(id)
+		return "", err
 	}
-	return deploymentSummary(full), nil
+	return dep.ID, nil
 }
 
 func deploymentSummary(full *agentDeploymentFull) *agentDeployment {
@@ -81,6 +86,9 @@ func deploymentSummary(full *agentDeploymentFull) *agentDeployment {
 }
 
 func findDeploymentByTarget(cmd *cobra.Command, target string, at AccountToken, verbose bool) (*agentDeployment, error) {
+	if target == "" {
+		return nil, errAgentTargetRequired()
+	}
 	result, err := listAccountDeployments(cmd.Context(), at, verbose)
 	if err != nil {
 		return nil, err
