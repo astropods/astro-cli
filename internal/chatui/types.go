@@ -10,8 +10,8 @@ import (
 // shell reads. They intentionally match the chat client's TypeScript response
 // interfaces (DeploymentsSummaryResponse, DeploymentsListResponse,
 // AgentDeploymentSummary, DeploymentStatus, DeploymentRuntime,
-// DeploymentConnectionsResponse) so the embedded
-// client deserializes them unchanged.
+// DeploymentConnectionsResponse, ListChatsResponse, DeploymentChatStatus) so
+// the embedded client deserializes them unchanged.
 
 type deploymentsSummaryResponse struct {
 	Accounts []accountDeploymentsSummary `json:"accounts"`
@@ -61,6 +61,31 @@ type deploymentRuntime struct {
 	Ready              int  `json:"ready"`
 	Replicas           int  `json:"replicas"`
 	MessagingReachable bool `json:"messaging_reachable"`
+}
+
+type listChatsResponse struct {
+	Chats []chat `json:"chats"`
+}
+
+type chat struct {
+	Deployment chatDeployment `json:"deployment"`
+}
+
+type chatDeployment struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name,omitempty"`
+	Status      string `json:"status"`
+}
+
+type chatStatusResponse struct {
+	Status             chatStatusValue `json:"status"`
+	MessagingReachable bool            `json:"messaging_reachable"`
+}
+
+type chatStatusValue struct {
+	Value  string `json:"value"`
+	Reason string `json:"reason"`
 }
 
 type deploymentConnectionsResponse struct {

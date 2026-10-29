@@ -4,9 +4,10 @@
 // It embeds the prebuilt chat SPA (see embed.go) and serves it, while exposing
 // the same deployment-scoped HTTP contract astro-server presents in production
 // (`/api/v1/deployments/:id/{chat,messaging,files}/*`). Read endpoints the chat shell
-// needs (deployments summary/list, status, runtime) are synthesized for a single
-// local deployment; chat/messaging traffic is proxied verbatim to the local
-// messaging sidecar. Because the contract matches production, the embedded React
+// needs (deployments summary/list, status, runtime, the account's chats and their
+// status) are synthesized for a single local deployment, and every dry-run
+// permission check is allowed; chat/messaging traffic is proxied verbatim to the
+// local messaging sidecar. Because the contract matches production, the embedded React
 // runs unchanged whether the agent is local or deployed.
 package chatui
 
@@ -21,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -119,6 +121,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/deployments/{id}/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/deployments/{id}/runtime", s.handleRuntime)
 	mux.HandleFunc("GET /api/v1/deployments/{id}/connections", s.handleConnections)
+	mux.HandleFunc("GET /api/v1/accounts/{account}/chats", s.handleChats)
+	mux.HandleFunc("GET /api/v1/accounts/{account}/chats/{id}/status", s.handleChatStatus)
 
 	// Proxy the deployment-scoped chat + messaging contract to the sidecar,
 	// translating to its native /api/* and /api/chat/* paths — exactly the
@@ -135,7 +139,22 @@ func (s *Server) Handler() http.Handler {
 
 	// SPA (must be last so /api/* always wins).
 	mux.Handle("/", s.spaHandler())
-	return mux
+
+	return answerDryRuns(mux)
+}
+
+// answerDryRuns allows every dry-run permission check (?dryrun=true), as
+// astro-server answers one it would allow: 204, nothing done. The local
+// developer may do anything with their own agent, and a dry run must never
+// reach the sidecar proxy, which would carry the request out.
+func answerDryRuns(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if dryRun, _ := strconv.ParseBool(r.URL.Query().Get("dryrun")); dryRun && strings.HasPrefix(r.URL.Path, "/api/") {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ListenAndServe starts the server and blocks until ctx is canceled.
@@ -223,17 +242,55 @@ func (s *Server) handleListDeployments(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, deploymentStatus{
-		Value:   localDeploymentStatus,
-		Reason:  "ready",
-		Details: "Local agent",
-	})
+	writeJSON(w, http.StatusOK, localStatus())
 }
 
 func (s *Server) handleRuntime(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, deploymentRuntimeResponse{
-		Runtime: deploymentRuntime{Ready: 1, Replicas: 1, MessagingReachable: true},
+	writeJSON(w, http.StatusOK, deploymentRuntimeResponse{Runtime: localRuntime()})
+}
+
+// handleChats lists the agents the viewer may web chat with: the local one.
+func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("account") != LocalAccount {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "account not found"})
+		return
+	}
+	local := s.localDeployment()
+	chats := []chat{}
+	if local.MessagingWebConfigured {
+		chats = append(chats, chat{Deployment: chatDeployment{
+			ID:          local.ID,
+			Name:        local.Name,
+			DisplayName: local.DisplayName,
+			Status:      localDeploymentStatus,
+		}})
+	}
+	writeJSON(w, http.StatusOK, listChatsResponse{Chats: chats})
+}
+
+// handleChatStatus gives the chat composer's readiness: the same answer
+// handleStatus and handleRuntime give, in the shape astro-server's chat status
+// route uses.
+func (s *Server) handleChatStatus(w http.ResponseWriter, r *http.Request) {
+	if r.PathValue("account") != LocalAccount || r.PathValue("id") != LocalDeploymentID {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "deployment not found"})
+		return
+	}
+	status := localStatus()
+	writeJSON(w, http.StatusOK, chatStatusResponse{
+		Status:             chatStatusValue{Value: status.Value, Reason: status.Reason},
+		MessagingReachable: localRuntime().MessagingReachable,
 	})
+}
+
+// localStatus is the status the local deployment reports: running whenever this
+// server is.
+func localStatus() deploymentStatus {
+	return deploymentStatus{Value: localDeploymentStatus, Reason: "ready", Details: "Local agent"}
+}
+
+func localRuntime() deploymentRuntime {
+	return deploymentRuntime{Ready: 1, Replicas: 1, MessagingReachable: true}
 }
 
 func (s *Server) handleConnections(w http.ResponseWriter, _ *http.Request) {
