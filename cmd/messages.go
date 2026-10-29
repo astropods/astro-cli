@@ -1244,56 +1244,91 @@ func msgAccessNoGrants() string {
 }
 
 func errCommitWithBuild() error {
-	return fmt.Errorf("--commit cannot be combined with --build or --latest")
+	return errors.New("--commit cannot be combined with --build or --latest")
 }
+
 func errInvalidCommit() error {
-	return fmt.Errorf("--commit must be a full hexadecimal Git commit SHA")
+	return errors.New("--commit must be a full hexadecimal Git commit SHA")
 }
-func errWaitTimeout() error           { return fmt.Errorf("--timeout must be positive") }
-func errBuildSelectorRequired() error { return fmt.Errorf("provide --build or --commit") }
+
+func errWaitTimeout() error {
+	return errors.New("--timeout must be positive")
+}
+
+func errBuildSelectorRequired() error {
+	return errors.New("provide --build or --commit")
+}
+
 func errBuildSelectorUnsupported() error {
-	return fmt.Errorf("the server returned a different build; upgrade the server to support exact build selection")
+	return errors.New("the server returned a different build; upgrade the server to support exact build selection")
 }
+
 func errBuildSourceUnverified(build string) error {
 	return fmt.Errorf("build %s has unverified local changes; select it explicitly with --build", build)
 }
+
 func errBuildNotPublished(build, status, reason string) error {
 	return fmt.Errorf("build %s did not publish (status %s): %s", build, status, reason)
 }
+
 func errBuildWaitEnded(name, build, commit string, cause error) error {
 	return fmt.Errorf("waiting for blueprint %s (build %s, commit %s): %w", name, build, commit, cause)
 }
+
 func msgBuildPublished(build, commit string) string {
 	return fmt.Sprintf("Build %s published (commit %s)", build, commit)
 }
-func msgBuildWaiting(build, status string) string { return fmt.Sprintf("Build %s: %s", build, status) }
+
+func msgBuildWaiting(build, status string) string {
+	return fmt.Sprintf("Build %s: %s", build, status)
+}
 
 func errMachineTokenExpired() error {
-	return fmt.Errorf("ASTRO_ACCESS_TOKEN expired; obtain a new token and resume waiting")
+	return errors.New("ASTRO_ACCESS_TOKEN expired; obtain a new token and resume waiting")
 }
+
 func errDeploymentRevisionUnsupported() error {
-	return fmt.Errorf("server does not report deployment revisions; upgrade the server before using deployment orchestration")
+	return errors.New("server does not report deployment revisions; upgrade the server before using deployment orchestration")
 }
+
 func errDeploymentWaitSelector() error {
-	return fmt.Errorf("--id, --build, and a positive --revision are required")
+	return errors.New("--id, --build, and a positive --revision are required")
 }
+
 func errDeploymentSuperseded(r agentDeployResult) error {
 	return fmt.Errorf("deployment %s no longer targets build %s revision %d; another operation superseded it", r.DeploymentID, r.BuildID, r.Revision)
 }
+
 func errDeploymentStopped(id, status string) error {
 	return fmt.Errorf("deployment %s is %s", id, status)
 }
+
 func errDeploymentWaitEnded(r agentDeployResult, cause error) error {
 	return fmt.Errorf("waiting for deployment %s build %s revision %d: %w; resume with ast agent wait --id %s --build %s --revision %d", r.DeploymentID, r.BuildID, r.Revision, cause, r.DeploymentID, r.BuildID, r.Revision)
 }
+
 func msgDeploymentQueued(r agentDeployResult) string {
 	return fmt.Sprintf("Deployment %s queued: build %s, revision %d", r.DeploymentID, r.BuildID, r.Revision)
 }
+
 func msgDeploymentReady(id string, revision int) string {
 	return fmt.Sprintf("Deployment %s revision %d is ready", id, revision)
 }
+
 func msgDeploymentWaiting(status, detail string) string {
 	return fmt.Sprintf("Waiting for deployment: %s %s", status, detail)
+}
+
+func errDeploymentValidation() error {
+	return errors.New("deployment validation failed")
+}
+
+func errPatchDeployTarget(cause error) error {
+	return fmt.Errorf("patching deploy target: %w", cause)
+}
+
+func errDeployUnavailable(name string, cause error) error {
+	return fmt.Errorf("could not deploy %q: %w (the deployment may have been deleted, or your access may not cover it or its blueprint)", name, cause)
 }
 
 func errAgentCoreOrchestrationFlags(flags []string) error {

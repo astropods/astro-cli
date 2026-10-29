@@ -73,7 +73,10 @@ func TestCommitDeployWaitsForPublishedBuildAndReadyRevisionWithJSON(t *testing.T
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	err := runDeployWithRequest(cmd, AccountToken{Account: "testaccount", Token: "test-token"}, false, "testaccount", "dummy", "Dummy", nil, deployTemplateRequest{DeploymentID: "dep", ExpectedRevision: 3}, false)
+	err := runDeployWithRequest(cmd, AccountToken{Account: "testaccount", Token: "test-token"}, false, deployOptions{
+		TemplateAccount: "testaccount", Blueprint: "dummy", DisplayName: "Dummy", ExpectedRevision: 3,
+		Request: deployTemplateRequest{DeploymentID: "dep"},
+	})
 	require.NoError(t, err)
 	var result agentDeployResult
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))

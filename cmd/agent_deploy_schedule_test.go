@@ -147,6 +147,11 @@ func scheduleTemplateHandler(t *testing.T, deployments []agentDeployment, schedu
 		switch {
 		case r.URL.Path == "/api/v1/deployments":
 			jsonHandler(http.StatusOK, listDeploymentsResponse{Deployments: deployments, Count: len(deployments)})(w, r)
+		case len(deployments) > 0 && r.URL.Path == "/api/v1/deployments/"+deployments[0].ID:
+			d := deployments[0]
+			jsonHandler(http.StatusOK, agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+				ID: d.ID, Name: d.Name, DisplayName: d.DisplayName, BuildID: d.BuildID, CurrentRevision: 1,
+			}})(w, r)
 		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
 			require.NoError(t, json.NewDecoder(r.Body).Decode(captured))
 			jsonHandler(http.StatusOK, map[string]any{

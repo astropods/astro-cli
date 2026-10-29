@@ -18,7 +18,10 @@ Commit selection accepts only clean CLI provenance or server builds.
 An explicit build ID can select a local artifact with unknown provenance.
 
 Redeployment preserves existing adapters, variables, schedules, and other stored configuration when their flags are omitted.
-The CLI reads the configuration and revision together before waiting and supplies `If-Match` when submitting its template.
+The CLI reads the target and revision together before waiting, then requests a template that preserves stored configuration.
+It supplies that revision as `If-Match` when submitting the template.
+Plain redeploys also send the reported revision, including requests without `--commit` or `--wait`.
+Older servers that omit revisions still support plain redeploys; orchestration requires revision support.
 Redeployment preserves the display name returned by the server template, including a concurrent rename.
 `TestRedeployPreservesTheTemplateNameAfterConcurrentConfigurationChanges` covers this behavior.
 A concurrent change fails the precondition. A newer revision detected during waiting fails the wait.

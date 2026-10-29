@@ -44,16 +44,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return errRedeployLatestWithBuild()
 	}
 
-	// A redeploy with no --adapter must PRESERVE the deployment's existing
-	// adapters. buildDeployInterfaces defaults an empty list to
-	// {Adapters: ["web"], Auth: web/oidc}, which is right for a first deploy
-	// but destructive here: the server overwrites stored adapters whenever
-	// req.Interfaces is non-nil (astro-server internal/deployment/template.go,
-	// "shaped.Interfaces.Adapters = req.Interfaces.Adapters"). So a flagless
-	// redeploy silently dropped a Slack-facing agent's slack adapter, leaving a
-	// healthy pod with no Slack connection -- Status Running, URL ready,
-	// healthcheck passing, and the app showing "This agent is unavailable" in
-	// Slack. Sending nil leaves the stored adapters untouched.
+	// A nil interfaces block preserves the deployment's stored adapters.
 	var iface *deployTemplateInterfaces
 	if len(adapters) > 0 {
 		iface, err = buildDeployInterfaces(adapters)
@@ -68,29 +59,17 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	commit, _ := cmd.Flags().GetString("commit")
-	var revision int
-	var publisher string
-	var dep *agentDeployment
 	wait, _ := cmd.Flags().GetBool("wait")
-	if latest || commit != "" || wait {
-		full, err := resolveAgentDeploymentTarget(cmd, at, verbose)
-		if err != nil {
-			return err
-		}
-		dep = deploymentSummary(full)
-		revision, publisher = full.CurrentRevision, full.SourceAccount
-		if (commit != "" || wait) && revision < 1 {
-			return errDeploymentRevisionUnsupported()
-		}
-	} else {
-		dep, err = resolveAgentTarget(cmd, at, verbose)
-		if err != nil {
-			return err
-		}
+	dep, err := resolveAgentDeploymentTarget(cmd, at, verbose)
+	if err != nil {
+		return err
+	}
+	if (commit != "" || wait) && dep.CurrentRevision < 1 {
+		return errDeploymentRevisionUnsupported()
 	}
 
 	if latest {
-		buildPublisher := publisher
+		buildPublisher := dep.SourceAccount
 		if buildPublisher == "" {
 			buildPublisher = at.Account
 		}
@@ -101,7 +80,6 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	req := deployTemplateRequest{
-		ExpectedRevision: revision, Publisher: publisher,
 		Build:        build,
 		DeploymentID: dep.ID,
 		Interfaces:   iface,
@@ -115,16 +93,13 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	// The URL account scopes knowledge bindings; the server finds the publisher from the deployment.
-	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, deployOptions{
+		TemplateAccount: at.Account, Blueprint: dep.Name, DisplayName: dep.DisplayName,
+		BuildPublisher: dep.SourceAccount, ExpectedRevision: dep.CurrentRevision,
+		Request: req, DryRun: dryRun,
+	})
 }
 
-// latestBlueprintBuild returns the build ID of the blueprint's most recently
-// published version.
-//
-// A redeploy without --build re-runs whatever build the deployment already
-// pins, so shipping a fresh push means passing that push's tag back in. The
-// tag is only printed in the push banner, which leaves scripted deploys
-// scraping it back out of ANSI-formatted output. --latest looks it up instead.
 func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, publisher, name string, verbose bool) (string, error) {
 	u := apiPath(blueprintBaseURL(), publisher, "agents", name)
 	var bp blueprintItem

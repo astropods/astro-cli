@@ -9,7 +9,9 @@ The commands support account-bound machine tokens without a saved human profile.
 
 `blueprint builds wait` queries exact commit or build selectors and pins the selected attempt.
 `agent redeploy --commit SHA --wait` preserves omitted configuration and submits the deployment's revision as an `If-Match` precondition.
-The precondition and configuration come from one full deployment record read.
+The target and revision come from one deployment record read before requesting a template that preserves stored configuration.
+Plain redeploys use the same read and send the revision when available, covering requests without build selection or waiting.
+Orchestration options remain separate from the HTTP template payload, and deployment errors use the shared message functions.
 Target resolution shares ID, name, and environment lookup without rereading the full record before submission.
 Deployment reads preserve authorization and availability errors; only missing deployments receive the not-found message.
 Redeployment preserves the server template's display name, avoiding stale name writes during concurrent changes.

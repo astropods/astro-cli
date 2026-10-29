@@ -146,6 +146,10 @@ func TestRunAgentRedeploy(t *testing.T) {
 					} else {
 						jsonHandler(http.StatusOK, listResp)(w, r)
 					}
+				case r.URL.Path == "/api/v1/deployments/dep-123":
+					jsonHandler(http.StatusOK, agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+						ID: "dep-123", Name: "weather-bp", DisplayName: "weather-agent", BuildID: "build-abc", CurrentRevision: 1,
+					}})(w, r)
 				case strings.HasSuffix(r.URL.Path, "/deployment-template"):
 					jsonHandler(tc.tmplStatus, tc.tmplResp)(w, r)
 				case r.URL.Path == "/api/v1/deploy":
@@ -199,6 +203,11 @@ func makeRedeployCapturingHandler(t *testing.T, deployments []agentDeployment, c
 		switch {
 		case r.URL.Path == "/api/v1/deployments":
 			jsonHandler(http.StatusOK, listDeploymentsResponse{Deployments: deployments, Count: len(deployments)})(w, r)
+		case r.URL.Path == "/api/v1/deployments/"+deployments[0].ID:
+			d := deployments[0]
+			jsonHandler(http.StatusOK, agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+				ID: d.ID, Name: d.Name, DisplayName: d.DisplayName, BuildID: d.BuildID, CurrentRevision: 1,
+			}})(w, r)
 		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
 			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
 				http.Error(w, "bad body", http.StatusBadRequest)
@@ -209,6 +218,7 @@ func makeRedeployCapturingHandler(t *testing.T, deployments []agentDeployment, c
 				"validation": map[string]any{"valid": true},
 			})(w, r)
 		case r.URL.Path == "/api/v1/deploy":
+			require.Equal(t, `"1"`, r.Header.Get("If-Match"))
 			jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": deployments[0].ID})(w, r)
 		default:
 			http.NotFound(w, r)
@@ -252,18 +262,11 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 }
 
 func TestRunAgentRedeployWithoutAdapterPreservesStoredAdapters(t *testing.T) {
-	// REGRESSION: a flagless redeploy used to send {Adapters: ["web"]}, which the
-	// server applies over the stored set (internal/deployment/template.go), so it
-	// silently removed a Slack-facing agent's slack adapter. The pod stayed
-	// healthy and Slack reported "This agent is unavailable". Omitting --adapter
-	// must send nil Interfaces so the server leaves stored adapters alone.
 	deployments := []agentDeployment{
 		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
 	}
 	var captured deployTemplateRequest
 	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
-
-	// deliberately no setRedeployFlag(t, "adapter", ...)
 
 	buf := &bytes.Buffer{}
 	agentRedeployCmd.SetOut(buf)

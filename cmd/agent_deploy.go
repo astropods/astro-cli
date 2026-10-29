@@ -22,10 +22,8 @@ import (
 
 // deployTemplateRequest is the POST body for /agents/:account/:name/deployment-template.
 type deployTemplateRequest struct {
-	ExpectedRevision int    `json:"-"`
-	Publisher        string `json:"-"`
-	Build            string `json:"build,omitempty"`
-	DeploymentID     string `json:"deployment_id,omitempty"`
+	Build        string `json:"build,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
 	// The URL account is the blueprint's publisher; this is where the agent runs.
 	TargetAccount string                    `json:"target_account,omitempty"`
 	Interfaces    *deployTemplateInterfaces `json:"interfaces,omitempty"`
@@ -364,10 +362,25 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, publisher, name, displayName, environment, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, deployOptions{
+		TemplateAccount: publisher, Blueprint: name, DisplayName: displayName,
+		Environment: environment, Request: req, DryRun: dryRun,
+	})
 }
 
-func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, publisher, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
+type deployOptions struct {
+	TemplateAccount  string
+	Blueprint        string
+	DisplayName      string
+	BuildPublisher   string
+	ExpectedRevision int
+	Environment      *blueprintEnvironment
+	Request          deployTemplateRequest
+	DryRun           bool
+}
+
+func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opts deployOptions) error {
+	req := opts.Request
 	commit, err := buildCommit(cmd, req.Build)
 	if err != nil {
 		return err
@@ -385,11 +398,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 		progress = cmd.ErrOrStderr()
 	}
 	if commit != "" || (wait && req.Build != "") {
-		buildPublisher := publisher
-		if req.Publisher != "" {
-			buildPublisher = req.Publisher
+		buildPublisher := opts.TemplateAccount
+		if opts.BuildPublisher != "" {
+			buildPublisher = opts.BuildPublisher
 		}
-		built, err := waitForBuild(ctx, at, buildPublisher, name, req.Build, commit, verbose, progress)
+		built, err := waitForBuild(ctx, at, buildPublisher, opts.Blueprint, req.Build, commit, verbose, progress)
 		if err != nil {
 			return err
 		}
@@ -405,24 +418,23 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 		verb = "Redeploying"
 	}
 	into := ""
-	if environment != nil {
-		into = fmt.Sprintf(" into environment %s%s%s", colorBold, environment.Name, colorReset)
+	if opts.Environment != nil {
+		into = fmt.Sprintf(" into environment %s%s%s", colorBold, opts.Environment.Name, colorReset)
 	}
-	label := name
-	if publisher != at.Account {
-		label = publisher + "/" + name
+	label := opts.Blueprint
+	if opts.TemplateAccount != at.Account {
+		label = opts.TemplateAccount + "/" + opts.Blueprint
 	}
-	fmt.Fprintf(progress, "%s→%s %s blueprint %s%s%s as agent %s%s%s%s\n", colorCyan, colorReset, verb, colorBold, label, colorReset, colorBold, displayName, colorReset, into) //nolint:errcheck,gosec
+	fmt.Fprintf(progress, "%s→%s %s blueprint %s%s%s as agent %s%s%s%s\n", colorCyan, colorReset, verb, colorBold, label, colorReset, colorBold, opts.DisplayName, colorReset, into) //nolint:errcheck,gosec
 
-	// finalize=true asks the server to sign the template; the signature is
-	// the only deploy-time integrity check, so we always request it here.
+	// Finalized templates include the signature required by the deploy endpoint.
 	req.Finalize = true
 
-	u := apiPath(blueprintBaseURL(), publisher, "agents", name, "deployment-template")
+	u := apiPath(blueprintBaseURL(), opts.TemplateAccount, "agents", opts.Blueprint, "deployment-template")
 	var tmplResp deployTemplateResponse
 	if status, err := apiCall(ctx, http.MethodPost, u, req, at.Token, verbose, &tmplResp); err != nil {
 		if isNotFound(status, err) {
-			return notFoundFromTemplateErr(err, publisher, name, req.Build, publisher == at.Account)
+			return notFoundFromTemplateErr(err, opts.TemplateAccount, opts.Blueprint, req.Build, opts.TemplateAccount == at.Account)
 		}
 		if status == http.StatusForbidden {
 			if clusterErr := clusterNotAvailableFromErr(err); clusterErr != nil {
@@ -442,10 +454,10 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 			label, subject := deployValidationSubject(e.Field)
 			fmt.Fprintf(progress, "    %s%s%s%s%s%s:%s %s\n", colorDim, label, colorReset, colorBold, subject, colorDim, colorReset, e.Message) //nolint:errcheck,gosec
 		}
-		return fmt.Errorf("deployment validation failed")
+		return errDeploymentValidation()
 	}
 
-	if dryRun {
+	if opts.DryRun {
 		if jsonOut {
 			return writeJSON(w, tmplResp)
 		}
@@ -455,42 +467,38 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 
 	template := tmplResp.Template
 	target := map[string]string{}
-	if displayName != "" && req.DeploymentID == "" {
-		target["display_name"] = displayName
+	if opts.DisplayName != "" && req.DeploymentID == "" {
+		target["display_name"] = opts.DisplayName
 	}
-	if environment != nil {
-		target["environment_id"] = environment.ID
+	if opts.Environment != nil {
+		target["environment_id"] = opts.Environment.ID
 	}
 	if len(target) > 0 {
 		patched, err := patchTemplateTarget(template, target)
 		if err != nil {
-			return fmt.Errorf("patching deploy target: %w", err)
+			return errPatchDeployTarget(err)
 		}
 		template = patched
 	}
 
 	deployURL := blueprintBaseURL() + "/api/v1/deploy"
 	deployHeaders := http.Header{"X-Template-Signature": []string{tmplResp.Signature}}
-	if req.ExpectedRevision > 0 {
-		deployHeaders.Set("If-Match", strconv.Quote(strconv.Itoa(req.ExpectedRevision)))
+	if opts.ExpectedRevision > 0 {
+		deployHeaders.Set("If-Match", strconv.Quote(strconv.Itoa(opts.ExpectedRevision)))
 	}
 	var result agentDeployResult
 	if status, err := apiCallWithHeaders(ctx, http.MethodPost, deployURL, template, at.Token, deployHeaders, verbose, &result); err != nil {
 		if isNotFound(status, err) {
-			// A 404 here is not only a deleted deployment: the server conceals a
-			// denied deployment or source blueprint as one too. Lead with the
-			// server's own message so a permission problem is not reported as a
-			// deployment that no longer exists.
-			return fmt.Errorf("could not deploy %q: %w (the deployment may have been deleted, or your access may not cover it or its blueprint)", displayName, err)
+			return errDeployUnavailable(opts.DisplayName, err)
 		}
 		if status == http.StatusConflict {
-			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && environment != nil {
-				return environmentOccupiedErr(at, environment.Name, publisher, name)
+			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && opts.Environment != nil {
+				return environmentOccupiedErr(at, opts.Environment.Name, opts.TemplateAccount, opts.Blueprint)
 			}
 			if code, _ := apiErrorCodeAndBody(err); code == "rollout_in_progress" {
 				return err
 			}
-			return errDeployNameConflict(displayName)
+			return errDeployNameConflict(opts.DisplayName)
 		}
 		return err
 	}
