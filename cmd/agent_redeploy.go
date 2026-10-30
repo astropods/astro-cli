@@ -90,7 +90,7 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	// The URL account scopes knowledge bindings; the server finds the publisher from the deployment.
-	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun, nil)
 }
 
 func latestDeploymentBuild(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (string, error) {
