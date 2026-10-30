@@ -38,26 +38,11 @@ type deployTemplateInterfaces struct {
 }
 
 type deployInterfacesAuth struct {
-	Web   *deployWebAuth   `json:"web,omitempty"`
-	Slack *deploySlackAuth `json:"slack,omitempty"`
+	Web *deployWebAuth `json:"web,omitempty"`
 }
 
 type deployWebAuth struct {
 	Type string `json:"type,omitempty"`
-	// Grants is nil when --grant named no web subject. The server reads nil as
-	// "say nothing about web access" and leaves existing grants alone, so a
-	// redeploy that only selects OIDC does not revoke anyone.
-	Grants []deployAuthGrant `json:"grants,omitempty"`
-}
-
-type deploySlackAuth struct {
-	Grants []deployAuthGrant `json:"grants,omitempty"`
-}
-
-type deployAuthGrant struct {
-	Org    string `json:"org,omitempty"`
-	UserID string `json:"user_id,omitempty"`
-	Anyone bool   `json:"anyone,omitempty"`
 }
 
 type deployVarInput struct {
@@ -106,7 +91,6 @@ blueprint in the current directory's astropods.yml.`,
 // registerDeployCommonFlags registers adapter/var/build/dry-run/json flags shared by deploy and redeploy.
 func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("adapter", nil, "Adapter to enable: web, insecure-web, slack (default: web; repeatable)")
-	cmd.Flags().StringArray("grant", nil, "Who may use an adapter: <adapter>:anyone, <adapter>:user=<id>, or <adapter>:org=<account> (repeatable). Omit to leave existing grants unchanged")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
 	cmd.Flags().Bool("from-local", false, "Load variables saved by 'project configure' in the current directory as plaintext values, not secret references; --var and --vars-file take precedence")
@@ -171,21 +155,12 @@ func parseDeployVars(varFlags []string) (map[string]deployVarInput, error) {
 // Both web and insecure-web send "web" to the server; the only difference is that
 // web enables OIDC auth while insecure-web does not.
 // When no adapters are given, defaults to web with OIDC auth.
-func buildDeployInterfaces(adapters, grants []string) (*deployTemplateInterfaces, error) {
-	web, slack, err := parseGrants(grants)
-	if err != nil {
-		return nil, err
-	}
-
+func buildDeployInterfaces(adapters []string) (*deployTemplateInterfaces, error) {
 	if len(adapters) == 0 {
-		iface := &deployTemplateInterfaces{
+		return &deployTemplateInterfaces{
 			Adapters: []string{"web"},
-			Auth:     &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc", Grants: web}},
-		}
-		if slack != nil {
-			return nil, fmt.Errorf("--grant slack:… requires --adapter slack")
-		}
-		return iface, nil
+			Auth:     &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}},
+		}, nil
 	}
 
 	serverAdapters := make([]string, 0, len(adapters))
@@ -211,66 +186,11 @@ func buildDeployInterfaces(adapters, grants []string) (*deployTemplateInterfaces
 		return nil, fmt.Errorf("--adapter web and --adapter insecure-web are mutually exclusive")
 	}
 
-	if slack != nil && !slices.Contains(serverAdapters, "slack") {
-		return nil, fmt.Errorf("--grant slack:… requires --adapter slack")
-	}
-	if web != nil && webVariants == 0 {
-		return nil, fmt.Errorf("--grant web:… requires --adapter web or --adapter insecure-web")
-	}
-
 	iface := &deployTemplateInterfaces{Adapters: serverAdapters}
-	switch {
-	case secureWeb:
-		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc", Grants: web}}
-	case web != nil:
-		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Grants: web}}
-	}
-	if slack != nil {
-		if iface.Auth == nil {
-			iface.Auth = &deployInterfacesAuth{}
-		}
-		iface.Auth.Slack = &deploySlackAuth{Grants: slack}
+	if secureWeb {
+		iface.Auth = &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}}
 	}
 	return iface, nil
-}
-
-// parseGrants turns repeated --grant values into per-adapter grant lists.
-//
-// Form: <adapter>:<subject>, where subject is "anyone", "user=<workos id>", or
-// "org=<account>". A returned nil list means the flag named no subject for that
-// adapter, which the server reads as "leave those grants alone"; an empty list
-// is a deliberate revoke and is not reachable from this flag.
-func parseGrants(values []string) (web, slack []deployAuthGrant, err error) {
-	for _, raw := range values {
-		adapter, subject, ok := strings.Cut(strings.TrimSpace(raw), ":")
-		if !ok || adapter == "" || subject == "" {
-			return nil, nil, fmt.Errorf("invalid --grant %q: expected <adapter>:<subject>, e.g. web:anyone", raw)
-		}
-
-		var g deployAuthGrant
-		switch kind, value, hasValue := strings.Cut(subject, "="); {
-		case subject == "anyone":
-			g.Anyone = true
-		case hasValue && kind == "user" && value != "":
-			g.UserID = value
-		case hasValue && kind == "org" && value != "":
-			g.Org = value
-		default:
-			return nil, nil, fmt.Errorf(
-				"invalid --grant subject %q: expected anyone, user=<id>, or org=<account>", subject)
-		}
-
-		switch adapter {
-		case "web", "insecure-web":
-			web = append(web, g)
-		case "slack":
-			slack = append(slack, g)
-		default:
-			return nil, nil, fmt.Errorf(
-				"invalid --grant adapter %q: must be one of: web, insecure-web, slack", adapter)
-		}
-	}
-	return web, slack, nil
 }
 
 // parseDeployVarsFromCmd reads --var, --vars-file, and --from-local and merges
@@ -416,7 +336,6 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	adapters, _ := cmd.Flags().GetStringArray("adapter")
-	grants, _ := cmd.Flags().GetStringArray("grant")
 	build, _ := cmd.Flags().GetString("build")
 	displayName, _ := cmd.Flags().GetString("name")
 	if displayName == "" {
@@ -429,7 +348,7 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	iface, err := buildDeployInterfaces(adapters, grants)
+	iface, err := buildDeployInterfaces(adapters)
 	if err != nil {
 		return err
 	}

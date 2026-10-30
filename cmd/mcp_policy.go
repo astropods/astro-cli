@@ -28,6 +28,7 @@ const (
 // except a top-level alias of a longer command.
 var mcpPolicies = map[string]mcpPolicy{
 	"account list":          {class: mcpRead},
+	"agent access get":      {class: mcpRead},
 	"agent get":             {class: mcpRead},
 	"agent history":         {class: mcpRead},
 	"agent list":            {class: mcpRead},
@@ -62,6 +63,7 @@ var mcpPolicies = map[string]mcpPolicy{
 	"spec validate":         {class: mcpRead},
 	"whoami":                {class: mcpRead},
 
+	"agent access set":         {class: mcpWrite},
 	"agent pause":              {class: mcpWrite},
 	"agent redeploy":           {class: mcpWrite, timeout: mcpLongTimeout},
 	"agent restart":            {class: mcpWrite},
