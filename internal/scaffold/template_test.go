@@ -122,8 +122,8 @@ func TestMastraTemplate_AgentIndex_UsesMastraImports(t *testing.T) {
 	if !strings.Contains(content, `observability,`) {
 		t.Error("mastra agent/index.ts should wire an observability object")
 	}
-	if !strings.Contains(content, `serve(agent)`) {
-		t.Error("mastra agent/index.ts should call serve(agent)")
+	if !strings.Contains(content, `serve(agent, { models: MODELS });`) {
+		t.Error("mastra agent/index.ts should call serve(agent, { models: MODELS })")
 	}
 }
 
@@ -301,8 +301,8 @@ func TestGenerateFiles_MastraTemplate(t *testing.T) {
 	if !strings.Contains(string(agentContent), "@mastra/core/agent") {
 		t.Error("generated agent/index.ts should contain @mastra/core/agent import")
 	}
-	if !strings.Contains(string(agentContent), "serve(agent)") {
-		t.Error("generated agent/index.ts should call serve(agent)")
+	if !strings.Contains(string(agentContent), "serve(agent, { models: MODELS });") {
+		t.Error("generated agent/index.ts should call serve(agent, { models: MODELS })")
 	}
 
 	// Verify package.json has mastra deps
@@ -863,6 +863,7 @@ func TestMastraTemplate_SDKChannelRewrite(t *testing.T) {
 }
 
 func TestMastraAgentOffersItsModelsAndAnswersWithThePick(t *testing.T) {
+	const byokResolver = "model: ({ requestContext }) => requestContext.get<'model', string | undefined>('model') ?? MODELS[0],"
 	paths, err := GetTemplatePaths("mastra")
 	require.NoError(t, err)
 	for name, tc := range map[string]struct {
@@ -878,7 +879,15 @@ func TestMastraAgentOffersItsModelsAndAnswersWithThePick(t *testing.T) {
 		},
 		"openai key": {
 			ScaffoldConfig{Name: "ag", Description: "d", Integrations: []string{"openai"}, IntegrationKeys: map[string]string{}},
-			[]string{"const MODELS = ['openai/gpt-4o'];", "requestContext.get<'model', string | undefined>('model') ?? MODELS[0]"},
+			[]string{"const MODELS = ['openai/gpt-4o'];", byokResolver},
+		},
+		"anthropic key": {
+			ScaffoldConfig{Name: "ag", Description: "d", Integrations: []string{"anthropic"}, IntegrationKeys: map[string]string{}},
+			[]string{"const MODELS = ['anthropic/claude-sonnet-4-5'];", byokResolver},
+		},
+		"no integration": {
+			ScaffoldConfig{Name: "ag", Description: "d", IntegrationKeys: map[string]string{}},
+			[]string{"const MODELS = ['anthropic/claude-sonnet-4-5'];", byokResolver},
 		},
 	} {
 		index, err := RenderTemplate(paths.AgentIndex, tc.cfg)
