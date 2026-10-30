@@ -48,13 +48,12 @@ import (
 // it changes per build and belongs to neither the blueprint nor the environment.
 
 // agentCoreOnlyFlags are read only by the agentcore deploy path.
-var agentCoreOnlyFlags = []string{"file", "image", "secret", "secrets-file"}
+var agentCoreOnlyFlags = []string{"image", "secret", "secrets-file"}
 
 // registerAgentCoreDeployFlags adds the flags the agentcore path needs to a
 // deploy command, hidden because only a spec that opts in reads them.
 func registerAgentCoreDeployFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
 	f.String("image", "", "ECR image URI (agentcore runtime)")
 	f.StringArray("secret", nil, "Secret NAME=VALUE resolving an @SECRET: placeholder (agentcore runtime; repeatable, never logged)")
 	f.String("secrets-file", "", "Load agentcore secrets from a .env file (KEY=VALUE lines)")
@@ -83,19 +82,13 @@ func rejectAgentCoreOnlyFlags(cmd *cobra.Command) error {
 // spec or the spec uses the default runtime, so `ast deploy <name>` keeps
 // working against the server without a local checkout.
 func maybeAgentCoreDeploy(cmd *cobra.Command, args []string) (handled bool, err error) {
-	specFile, _ := cmd.Flags().GetString("file")
-	specPath, _, err := resolveSpecPathAndCwd(specFile)
+	specPath, _, err := resolveSpecPathAndCwd("")
 	if err != nil {
 		// No local spec: this is a name-based server deploy.
 		return false, nil
 	}
 	astroSpec, err := spec.ParseSpec(specPath)
 	if err != nil {
-		// An explicit --file that will not parse is a real error; otherwise fall
-		// through rather than failing a server deploy over a stray file.
-		if specFile != "" {
-			return true, err
-		}
 		return false, nil
 	}
 	if astroSpec.Agent.Runtime() != spec.AgentCoreRuntime {

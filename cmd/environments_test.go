@@ -28,6 +28,8 @@ type envTestServer struct {
 	status       map[string]int
 	requests     []string
 	bodies       map[string]map[string]any
+	bodyLog      map[string][]map[string]any
+	templateVars map[string]any
 }
 
 func newEnvTestServer() *envTestServer {
@@ -46,8 +48,9 @@ func newEnvTestServer() *envTestServer {
 			"env-main":    {{"name": "API_KEY", "secret": true}, {"name": "REGION", "secret": false, "value": "eu"}},
 			"env-staging": {},
 		},
-		status: map[string]int{},
-		bodies: map[string]map[string]any{},
+		status:  map[string]int{},
+		bodies:  map[string]map[string]any{},
+		bodyLog: map[string][]map[string]any{},
 	}
 }
 
@@ -58,6 +61,7 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.Unmarshal(raw, &body)
 		s.bodies[key] = body
+		s.bodyLog[key] = append(s.bodyLog[key], body)
 	}
 	if code, ok := s.status[key]; ok {
 		jsonHandler(code, map[string]any{"error": "forced", "error_code": s.errorCode(code)})(w, r)
@@ -91,6 +95,7 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"template":   json.RawMessage(`{"spec":"deployment/v1","target":{}}`),
 			"validation": map[string]any{"valid": true},
 			"signature":  "sig",
+			"variables":  s.templateVars,
 		})(w, r)
 	case "POST /api/v1/deploy":
 		jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": "dep-2", "environment_id": "env-staging", "environment_name": "staging"})(w, r)

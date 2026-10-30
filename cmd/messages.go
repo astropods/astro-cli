@@ -605,7 +605,7 @@ func errAgentCoreOnlyFlags(flags []string) error {
 
 func errAgentCoreDeployTakesNoName(name, specName string) error {
 	return fmt.Errorf(
-		"cannot deploy %q: this spec sets agent.annotations.runtime: agentcore, which deploys %q from the local spec. Drop the name, or pass -f to select another spec",
+		"cannot deploy %q: this spec sets agent.annotations.runtime: agentcore, which deploys %q from the local spec. Drop the name, or run the deploy from the directory of the spec you want",
 		name, specName,
 	)
 }
@@ -1248,4 +1248,49 @@ func errAccessInvalidSubject(iface, subject string) error {
 
 func msgAccessNoGrants() string {
 	return "members of the agent's account (no grants set)"
+}
+
+func errEnvRepeatNeedsDeployFile() error {
+	return fmt.Errorf("--env names one environment; repeat it only with -f astropods.deploy.yml")
+}
+
+func errReadDeployFile(path string, err error) error {
+	return fmt.Errorf("could not read %s: %w", path, err)
+}
+
+func errInvalidDeployFile(path string, err error) error {
+	return fmt.Errorf("%s: %w", path, err)
+}
+
+func errDeployFileTakesNoName(name string) error {
+	return fmt.Errorf(
+		"-f deploys the blueprint in the astropods.yml beside the file, so it takes no name; remove %q", name,
+	)
+}
+
+func errDeployFileFlags(flags []string) error {
+	return fmt.Errorf(
+		"cannot use %s with -f: the deploy file sets those; change them in the file",
+		strings.Join(flags, ", "),
+	)
+}
+
+func errDeployFileNoSpec(dir string) error {
+	return fmt.Errorf("no astropods.yml beside the deploy file in %s; -f deploys the blueprint that file names", dir)
+}
+
+func errDeployFileUnknownEnv(env, path string, available []string) error {
+	return fmt.Errorf("%s has no environment %q (environments: %s)", path, env, strings.Join(available, ", "))
+}
+
+func errDeployFileSecretLiteral(variable string) error {
+	return fmt.Errorf("variable %s is a secret, so the deploy file must reference it: %s: { ref: NAME }", variable, variable)
+}
+
+func errDeployFileFailed(failed []string, total int) error {
+	return fmt.Errorf("%d of %d environments failed to deploy: %s", len(failed), total, strings.Join(failed, ", "))
+}
+
+func msgDeployFileEnvironmentFailed(env string, err error) string {
+	return fmt.Sprintf("%s: %v", env, err)
 }
