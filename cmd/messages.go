@@ -715,10 +715,6 @@ func msgUsageControlsSaved(metric string) string {
 	return fmt.Sprintf("Usage controls saved for %s", metric)
 }
 
-func errGrantNeedsAdapterOnRedeploy() error {
-	return fmt.Errorf("--grant needs --adapter on redeploy: grants alone would reset the deployment's adapters")
-}
-
 func msgWorkloadIssueLine(workload, component, phase, message string) string {
 	name := workload
 	if component != "" && component != workload {
@@ -1244,4 +1240,12 @@ func errMCPMissingInput(name string) error {
 
 func errMCPInputNotObject() error {
 	return errors.New("tool arguments must be a JSON object")
+}
+
+func errAccessInvalidSubject(iface, subject string) error {
+	return fmt.Errorf("invalid --%s subject %q: expected anyone, user=<user id>, org=<account name>, or audience=<audience arn>", iface, subject)
+}
+
+func msgAccessNoGrants() string {
+	return "members of the agent's account (no grants set)"
 }

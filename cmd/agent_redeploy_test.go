@@ -249,7 +249,6 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
 	require.NotNil(t, captured.Interfaces)
 	assert.Equal(t, []string{"slack"}, captured.Interfaces.Adapters)
-	assert.Nil(t, captured.Interfaces.Auth, "slack adapter should have no auth")
 }
 
 func TestRunAgentRedeployWithoutAdapterPreservesStoredAdapters(t *testing.T) {
@@ -326,48 +325,6 @@ func TestRunAgentRedeployInvalidAdapterBeforeAPICall(t *testing.T) {
 	err := runAgentRedeploy(agentRedeployCmd, nil)
 	require.ErrorContains(t, err, "unknown adapter")
 	assert.False(t, apiCalled, "API should not be called when adapter is invalid")
-}
-
-func TestRunAgentRedeployGrantWithoutAdapterIsRejected(t *testing.T) {
-	apiCalled := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		apiCalled = true
-		http.NotFound(w, r)
-	})
-	setupAgentRedeployTest(t, handler)
-
-	setRedeployFlag(t, "grant", "web:anyone")
-
-	agentRedeployCmd.SetOut(&bytes.Buffer{})
-	agentRedeployCmd.SetContext(context.Background())
-
-	setAgentTargetName(t, agentRedeployCmd, "my-agent")
-	err := runAgentRedeploy(agentRedeployCmd, nil)
-	require.ErrorContains(t, err, "--grant needs --adapter")
-	assert.False(t, apiCalled,
-		"grants ride in the interfaces block, which resets stored adapters, so refuse before calling the API")
-}
-
-func TestRunAgentRedeployGrantWithAdapterReachesTheWire(t *testing.T) {
-	deployments := []agentDeployment{
-		{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", Status: "active"},
-	}
-	var captured deployTemplateRequest
-	setupAgentRedeployTest(t, makeRedeployCapturingHandler(t, deployments, &captured))
-
-	setRedeployFlag(t, "adapter", "web")
-	setRedeployFlag(t, "grant", "web:anyone")
-
-	agentRedeployCmd.SetOut(&bytes.Buffer{})
-	agentRedeployCmd.SetContext(context.Background())
-
-	setAgentTargetName(t, agentRedeployCmd, "my-agent")
-	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
-	require.NotNil(t, captured.Interfaces)
-	require.NotNil(t, captured.Interfaces.Auth)
-	require.NotNil(t, captured.Interfaces.Auth.Web)
-	require.Len(t, captured.Interfaces.Auth.Web.Grants, 1)
-	assert.True(t, captured.Interfaces.Auth.Web.Grants[0].Anyone)
 }
 
 // Only the publisher's path serves the blueprint, so a wrong-account lookup 404s.

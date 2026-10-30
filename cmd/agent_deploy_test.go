@@ -345,8 +345,6 @@ func TestRunBlueprintDeployValidationErrors(t *testing.T) {
 }
 
 func TestBuildDeployInterfaces(t *testing.T) {
-	oidcAuth := &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}}
-
 	cases := []struct {
 		name      string
 		adapters  []string
@@ -354,45 +352,36 @@ func TestBuildDeployInterfaces(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			name:     "default (no adapters) → web with oidc auth",
-			adapters: nil,
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web"},
-				Auth:     oidcAuth,
-			},
+			name:      "default (no adapters) → web",
+			adapters:  nil,
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web"}},
 		},
 		{
-			name:     "explicit web → oidc auth",
-			adapters: []string{"web"},
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web"},
-				Auth:     oidcAuth,
-			},
+			name:      "explicit web",
+			adapters:  []string{"web"},
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web"}},
 		},
 		{
-			name:     "insecure-web → web adapter, no auth",
+			name:     "insecure-web is the same as web",
 			adapters: []string{"insecure-web"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"web"},
 			},
 		},
 		{
-			name:     "slack only → no auth",
+			name:     "slack only",
 			adapters: []string{"slack"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"slack"},
 			},
 		},
 		{
-			name:     "web + slack → oidc auth",
-			adapters: []string{"web", "slack"},
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web", "slack"},
-				Auth:     oidcAuth,
-			},
+			name:      "web + slack",
+			adapters:  []string{"web", "slack"},
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web", "slack"}},
 		},
 		{
-			name:     "insecure-web + slack → no auth",
+			name:     "insecure-web + slack",
 			adapters: []string{"insecure-web", "slack"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"web", "slack"},
@@ -412,7 +401,7 @@ func TestBuildDeployInterfaces(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := buildDeployInterfaces(tc.adapters, nil)
+			got, err := buildDeployInterfaces(tc.adapters)
 			if tc.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErr)
@@ -707,90 +696,13 @@ type apiCallTestError struct{ msg string }
 
 func (e *apiCallTestError) Error() string { return e.msg }
 
-func TestParseGrants(t *testing.T) {
-	cases := []struct {
-		name      string
-		values    []string
-		wantWeb   []deployAuthGrant
-		wantSlack []deployAuthGrant
-		wantErr   string
-	}{
-		{name: "no flags leaves both nil"},
-		{
-			name:    "anyone on web",
-			values:  []string{"web:anyone"},
-			wantWeb: []deployAuthGrant{{Anyone: true}},
-		},
-		{
-			name:    "a user id",
-			values:  []string{"web:user=user_01ABC"},
-			wantWeb: []deployAuthGrant{{UserID: "user_01ABC"}},
-		},
-		{
-			name:    "an org",
-			values:  []string{"web:org=acme"},
-			wantWeb: []deployAuthGrant{{Org: "acme"}},
-		},
-		{
-			name:      "adapters are kept apart",
-			values:    []string{"web:user=user_01ABC", "slack:anyone"},
-			wantWeb:   []deployAuthGrant{{UserID: "user_01ABC"}},
-			wantSlack: []deployAuthGrant{{Anyone: true}},
-		},
-		{
-			name:    "insecure-web grants land on web",
-			values:  []string{"insecure-web:anyone"},
-			wantWeb: []deployAuthGrant{{Anyone: true}},
-		},
-		{name: "missing subject", values: []string{"web"}, wantErr: "expected <adapter>:<subject>"},
-		{name: "empty subject", values: []string{"web:"}, wantErr: "expected <adapter>:<subject>"},
-		{name: "unknown subject", values: []string{"web:everyone"}, wantErr: "expected anyone, user="},
-		{name: "empty user id", values: []string{"web:user="}, wantErr: "expected anyone, user="},
-		{name: "unknown adapter", values: []string{"grpc:anyone"}, wantErr: "must be one of"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			web, slack, err := parseGrants(tc.values)
-			if tc.wantErr != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantWeb, web)
-			assert.Equal(t, tc.wantSlack, slack)
-		})
-	}
-}
-
-// Nil grants are what let the server leave existing access alone on a redeploy.
-// Sending an empty list instead would revoke everyone the moment someone
-// redeployed without the flag.
-func TestBuildDeployInterfaces_NoGrantFlagSendsNilGrants(t *testing.T) {
-	iface, err := buildDeployInterfaces([]string{"web", "slack"}, nil)
+func TestBuildDeployInterfacesSendsNoGrants(t *testing.T) {
+	iface, err := buildDeployInterfaces([]string{"web", "slack"})
 	require.NoError(t, err)
-	require.NotNil(t, iface.Auth)
-	require.NotNil(t, iface.Auth.Web)
-	assert.Equal(t, "oidc", iface.Auth.Web.Type)
-	assert.Nil(t, iface.Auth.Web.Grants)
-	assert.Nil(t, iface.Auth.Slack)
-}
-
-func TestBuildDeployInterfaces_GrantsReachTheirAdapter(t *testing.T) {
-	iface, err := buildDeployInterfaces(
-		[]string{"web", "slack"}, []string{"web:anyone", "slack:anyone"})
+	body, err := json.Marshal(iface)
 	require.NoError(t, err)
-	assert.Equal(t, []deployAuthGrant{{Anyone: true}}, iface.Auth.Web.Grants)
-	require.NotNil(t, iface.Auth.Slack)
-	assert.Equal(t, []deployAuthGrant{{Anyone: true}}, iface.Auth.Slack.Grants)
-}
-
-// Granting access to an adapter that is not enabled is a typo, not an intent.
-func TestBuildDeployInterfaces_GrantRequiresItsAdapter(t *testing.T) {
-	_, err := buildDeployInterfaces([]string{"web"}, []string{"slack:anyone"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "requires --adapter slack")
+	assert.NotContains(t, string(body), "auth",
+		"the CLI sets no public flags, and grants are set with ast agent access set")
 }
 
 func TestOptionalBlueprintRef(t *testing.T) {
