@@ -100,3 +100,100 @@ func TestServer_SummaryAndListReportTheSameDeployment(t *testing.T) {
 	}}, summary.Accounts[0].Deployments,
 		"the summary must carry the deployment the list reports, or the chat page refetches it on every mount")
 }
+
+// The chat page lists its agents from the account's chats and reads each one's
+// readiness from the chat status route, with no fallback when either is missing.
+// The local server answers both for its one deployment, as astro-server would.
+func TestServer_ChatsRoutes(t *testing.T) {
+	s, err := New(Config{
+		Addr:         "127.0.0.1:0",
+		MessagingURL: "http://127.0.0.1:1",
+		AgentName:    "my-agent",
+		AgentDisplay: "My Agent",
+	})
+	require.NoError(t, err)
+	handler := s.Handler()
+
+	tests := []struct {
+		name     string
+		path     string
+		wantCode int
+		wantBody any
+	}{
+		{
+			name:     "the local account's chats",
+			path:     "/api/v1/accounts/local/chats",
+			wantCode: http.StatusOK,
+			wantBody: listChatsResponse{Chats: []chat{{Deployment: chatDeployment{
+				ID: LocalDeploymentID, Name: "my-agent", DisplayName: "My Agent",
+			}}}},
+		},
+		{name: "another account's chats", path: "/api/v1/accounts/acme/chats", wantCode: http.StatusNotFound},
+		{
+			name:     "the local agent's chat status",
+			path:     "/api/v1/accounts/local/chats/local/status",
+			wantCode: http.StatusOK,
+			wantBody: chatStatusResponse{
+				Status:             chatStatusValue{Value: localDeploymentStatus, Reason: "ready"},
+				MessagingReachable: true,
+			},
+		},
+		{name: "another agent's chat status", path: "/api/v1/accounts/local/chats/other/status", wantCode: http.StatusNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			require.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+			if tt.wantBody == nil {
+				return
+			}
+			want, err := json.Marshal(tt.wantBody)
+			require.NoError(t, err)
+			require.JSONEq(t, string(want), rec.Body.String())
+		})
+	}
+}
+
+// The chat page gates attach, Files and the agent links on dry-run permission
+// checks. Locally every one is allowed, and none may reach the sidecar: the
+// files proxy forwards any method, so a forwarded dry run would upload.
+func TestServer_AnswersDryRunsWithoutProxying(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		upstream []string
+	)
+	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		upstream = append(upstream, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sidecar.Close()
+
+	s, err := New(Config{Addr: "127.0.0.1:0", MessagingURL: sidecar.URL, AgentName: "test"})
+	require.NoError(t, err)
+	handler := s.Handler()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"upload a file", http.MethodPost, "/api/v1/deployments/local/files?dryrun=true"},
+		{"open the agent", http.MethodGet, "/api/v1/deployments/local?dryrun=true"},
+		{"a messaging route", http.MethodPost, "/api/v1/deployments/local/messaging/conversations?dryrun=true"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+
+			require.Equal(t, http.StatusNoContent, rec.Code, "a local dry run is allowed")
+		})
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	require.Empty(t, upstream, "no dry run may reach the sidecar")
+}

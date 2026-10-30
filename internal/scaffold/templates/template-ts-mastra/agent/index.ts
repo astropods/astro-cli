@@ -70,20 +70,27 @@ const observability = new Observability({
   },
 });
 
+// Models a chat user can pick from. The first is the default; two or more show a picker.
+{{- if .AIGateway}}
+// MODEL_DEFAULT is the model chosen at deploy from the gateway options.
+const MODELS = [process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'];
+{{- else if .HasIntegration "anthropic"}}
+const MODELS = ['anthropic/claude-sonnet-4-5'];
+{{- else if .HasIntegration "openai"}}
+const MODELS = ['openai/gpt-4o'];
+{{- else}}
+const MODELS = ['anthropic/claude-sonnet-4-5'];
+{{- end}}
+
 const agent = new Agent({
   id: '{{.Name}}',
   name: '{{.Name | humanName}}',
   instructions: 'You are {{.Name | humanName}}, a helpful AI assistant. {{.Description | jsStr}}',
 {{- if .AIGateway}}
-  // Model chosen at deploy time from the gateway options; injected as MODEL_DEFAULT.
   // .chat() uses Chat Completions: the gateway's Responses API rejects Claude tool results.
-  model: gateway.chat(process.env.MODEL_DEFAULT ?? 'claude-sonnet-4-6'),
-{{- else if .HasIntegration "anthropic"}}
-  model: 'anthropic/claude-sonnet-4-5',
-{{- else if .HasIntegration "openai"}}
-  model: 'openai/gpt-4o',
+  model: ({ requestContext }) => gateway.chat(requestContext.get<'model', string | undefined>('model') ?? MODELS[0]),
 {{- else}}
-  model: 'anthropic/claude-sonnet-4-5',
+  model: ({ requestContext }) => requestContext.get<'model', string | undefined>('model') ?? MODELS[0],
 {{- end}}
   memory,
   // Ensure traces include stable Astro metadata by default.
@@ -109,4 +116,4 @@ new Mastra({
   observability,
 });
 
-serve(agent);
+serve(agent, { models: MODELS });
