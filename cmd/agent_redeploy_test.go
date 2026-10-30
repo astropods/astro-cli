@@ -249,7 +249,6 @@ func TestRunAgentRedeployAdapterOverride(t *testing.T) {
 	require.NoError(t, runAgentRedeploy(agentRedeployCmd, nil))
 	require.NotNil(t, captured.Interfaces)
 	assert.Equal(t, []string{"slack"}, captured.Interfaces.Adapters)
-	assert.Nil(t, captured.Interfaces.Auth, "slack adapter should have no auth")
 }
 
 func TestRunAgentRedeployWithoutAdapterPreservesStoredAdapters(t *testing.T) {

@@ -345,8 +345,6 @@ func TestRunBlueprintDeployValidationErrors(t *testing.T) {
 }
 
 func TestBuildDeployInterfaces(t *testing.T) {
-	oidcAuth := &deployInterfacesAuth{Web: &deployWebAuth{Type: "oidc"}}
-
 	cases := []struct {
 		name      string
 		adapters  []string
@@ -354,45 +352,36 @@ func TestBuildDeployInterfaces(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			name:     "default (no adapters) → web with oidc auth",
-			adapters: nil,
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web"},
-				Auth:     oidcAuth,
-			},
+			name:      "default (no adapters) → web",
+			adapters:  nil,
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web"}},
 		},
 		{
-			name:     "explicit web → oidc auth",
-			adapters: []string{"web"},
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web"},
-				Auth:     oidcAuth,
-			},
+			name:      "explicit web",
+			adapters:  []string{"web"},
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web"}},
 		},
 		{
-			name:     "insecure-web → web adapter, no auth",
+			name:     "insecure-web is the same as web",
 			adapters: []string{"insecure-web"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"web"},
 			},
 		},
 		{
-			name:     "slack only → no auth",
+			name:     "slack only",
 			adapters: []string{"slack"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"slack"},
 			},
 		},
 		{
-			name:     "web + slack → oidc auth",
-			adapters: []string{"web", "slack"},
-			wantIface: &deployTemplateInterfaces{
-				Adapters: []string{"web", "slack"},
-				Auth:     oidcAuth,
-			},
+			name:      "web + slack",
+			adapters:  []string{"web", "slack"},
+			wantIface: &deployTemplateInterfaces{Adapters: []string{"web", "slack"}},
 		},
 		{
-			name:     "insecure-web + slack → no auth",
+			name:     "insecure-web + slack",
 			adapters: []string{"insecure-web", "slack"},
 			wantIface: &deployTemplateInterfaces{
 				Adapters: []string{"web", "slack"},
@@ -712,8 +701,8 @@ func TestBuildDeployInterfacesSendsNoGrants(t *testing.T) {
 	require.NoError(t, err)
 	body, err := json.Marshal(iface)
 	require.NoError(t, err)
-	assert.NotContains(t, string(body), "grants",
-		"the server refuses grants in a deployment template; they are set with ast agent access set")
+	assert.NotContains(t, string(body), "auth",
+		"the CLI sets no public flags, and grants are set with ast agent access set")
 }
 
 func TestOptionalBlueprintRef(t *testing.T) {
