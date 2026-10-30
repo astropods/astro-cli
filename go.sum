@@ -34,10 +34,8 @@ github.com/anthropics/anthropic-sdk-go v1.38.0 h1:bA4DcK+91gorIX+5VTONnynyt9LRU4
 github.com/anthropics/anthropic-sdk-go v1.38.0/go.mod h1:d288C1L+m74OYuYBvc4UFtR1Q8J0gC55oYDh2t+XxdI=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3dyBCFEj5IhUbnKptjxatkF07cF2ak3yi77so=
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
-github.com/astropods/astro-spec v0.9.0 h1:DrVELX78Y2EgXfkuv4GxrMJKXkVC67cK+Jl+bxD7T5c=
-github.com/astropods/astro-spec v0.9.0/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
-github.com/astropods/astro-spec v0.9.1-0.20261030210045-2294702b9347 h1:CwU7pSBwhaic0TnTCODkTZFg97EiXKYRYi8M2MRRzoY=
-github.com/astropods/astro-spec v0.9.1-0.20261030210045-2294702b9347/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
+github.com/astropods/astro-spec v0.10.0 h1:5sKGRKw8Wl8hGGj4qP39/asQCt9IqOFiGjesvtjH9zI=
+github.com/astropods/astro-spec v0.10.0/go.mod h1:L2rth/aZsLG5hY56cALhnzGR0QygH/Iu50Xqoupr1TY=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
