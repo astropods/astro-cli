@@ -83,6 +83,55 @@ func msgConnectionsDevSessionOpened(expiresAt string) string {
 	return fmt.Sprintf("Dev session opened for connections (expires %s)", expiresAt)
 }
 
+func errGHNotInstalled() error {
+	return fmt.Errorf("the GitHub CLI (gh) is not installed or not on PATH; install it from https://cli.github.com")
+}
+
+func errGitNotInstalled() error {
+	return fmt.Errorf("git is not installed or not on PATH; install it from https://git-scm.com/downloads")
+}
+
+func errGHNotAuthenticated(err error) error {
+	return fmt.Errorf("gh is not authenticated; run `gh auth login`, or share a GitHub connection with this dev session: %w", err)
+}
+
+func errGHDevSessionTokenUnavailable(err error) error {
+	return fmt.Errorf("this dev session's shared GitHub connection token is unavailable, and gh is not authenticated locally either: %w", err)
+}
+
+func errGitHubCommandFailed(err error) error {
+	return fmt.Errorf("github: %w", err)
+}
+
+// errGitHubCommandFailedWithDevSessionToken: gh's own error text may
+// suggest `gh auth login`, which has no effect once GH_TOKEN is set.
+func errGitHubCommandFailedWithDevSessionToken(err error) error {
+	return fmt.Errorf("github (using this dev session's shared GitHub connection, not your local gh login): %w", err)
+}
+
+func errGitHubDetachedHead() error {
+	return fmt.Errorf("not on a branch (detached HEAD); check out a branch before pushing")
+}
+
+func errGHAuthCheckTimedOut(err error) error {
+	return fmt.Errorf("could not reach GitHub to check gh's login within %s; this says nothing about whether you are authenticated: %w", ghAuthCheckTimeout, err)
+}
+
+func errGitHubCommandInterrupted(err error) error {
+	return fmt.Errorf("github: command did not finish: %w", err)
+}
+
+func errGitHubRemoteEmpty() error {
+	return fmt.Errorf("--remote cannot be empty; name a configured remote such as `origin`")
+}
+
+func errGitHubRemoteUnknown(remote string, configured []string) error {
+	if len(configured) == 0 {
+		return fmt.Errorf("this repository has no remotes, so there is nowhere to push %q; add one with `git remote add`", remote)
+	}
+	return fmt.Errorf("no remote named %q; this repository has %s. --remote takes a configured remote's name, not a URL or path", remote, strings.Join(configured, ", "))
+}
+
 func msgConnectionsDevSessionFailed(err error) string {
 	return fmt.Sprintf("Connections won't work in this session, because a dev session could not be opened: %v", err)
 }

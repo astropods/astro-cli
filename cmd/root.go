@@ -15,6 +15,7 @@ import (
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/envvar"
+	"github.com/astropods/astro-cli/internal/githubcli"
 	"github.com/astropods/astro-cli/internal/telemetry"
 )
 
@@ -212,11 +213,19 @@ func resolveBlueprintName(name string) (string, error) {
 // exitCodeFor maps an error to the process exit code. A billing suspension gets
 // its own, because a script that retries on failure has to be able to tell a
 // transient server problem from an account that cannot run anything until
-// someone pays. Every other failure keeps 1.
+// someone pays. A command that wraps another binary passes that binary's
+// status through, since some of those codes carry meaning of their own. Every
+// other failure keeps 1.
 func exitCodeFor(err error) int {
 	var apiErr *apiError
 	if errors.As(err, &apiErr) && apiErr.isBillingSuspended() {
 		return exitCodeBillingSuspended
+	}
+	// Checked after the billing code, so exitCodeBillingSuspended keeps its
+	// meaning even if a wrapped binary exits with the same number.
+	var exitErr githubcli.ErrExit
+	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
+		return exitErr.ExitCode()
 	}
 	return 1
 }
