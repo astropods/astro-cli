@@ -42,7 +42,7 @@ environments:
     models: { default: claude-sonnet-5-5 }
     knowledge: { docs: kb_docs }
     resources:
-      agent: { cpu: "1", memory: 2Gi }
+      agent: { sizing: fixed, cpu: "1", memory: 2Gi }
   staging: {}
   qa: {}
 `))
@@ -62,7 +62,7 @@ environments:
 	assert.Equal(t, map[string]any{"REGION": map[string]any{"value": "eu"}, "API_KEY": map[string]any{"ref": "API_KEY"}}, main["variables"])
 	assert.Equal(t, map[string]any{"default": "claude-sonnet-5-5"}, main["models"])
 	assert.Equal(t, map[string]any{"knowledge": map[string]any{"docs": "kb_docs"}}, main["bindings"])
-	assert.Equal(t, map[string]any{"agent": map[string]any{"compute": map[string]any{"cpu": "1", "memory": "2Gi"}}}, main["provisioning"])
+	assert.Equal(t, map[string]any{"agent": map[string]any{"compute": map[string]any{"cpu": "1", "memory": "2Gi"}, "sizing": map[string]any{"mode": "fixed"}}}, main["provisioning"])
 	assert.Equal(t, map[string]any{"display_name": "Mybot"}, deploys[0]["target"], "a redeploy keeps the agent's name")
 
 	assert.Equal(t, "qa", fake.bodies["POST /api/v1/agents/testaccount/mybot/environments"]["name"], "a missing environment is created")
