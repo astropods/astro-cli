@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -92,8 +95,9 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 	req.Build = build
 	req.TargetAccount = at.Account
 
-	displayName := blueprint + "-" + envName
+	displayName := generatedDisplayName(blueprint, envName)
 	var target *blueprintEnvironment
+	var created *blueprintEnvironment
 	switch {
 	case environment != nil && environment.DeploymentID != "":
 		dep, err := getAgentDeploymentFull(cmd.Context(), environment.DeploymentID, at, verbose)
@@ -105,7 +109,8 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 	case environment != nil:
 		target = environment
 	case !dryRun:
-		created, err := createBlueprintEnvironment(cmd.Context(), at, blueprint, envName, verbose)
+		var err error
+		created, err = createBlueprintEnvironment(cmd.Context(), at, blueprint, envName, verbose)
 		if err != nil {
 			return err
 		}
@@ -114,7 +119,7 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 		target = &blueprintEnvironment{Name: envName}
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, at.Account, blueprint, displayName, target, req, dryRun, func(tmpl deployTemplateResponse) error {
+	err := runDeployWithRequest(cmd, at, verbose, at.Account, blueprint, displayName, target, req, dryRun, func(tmpl deployTemplateResponse) error {
 		for varName, v := range req.Variables {
 			if v.Value != "" && tmpl.Variables[varName].Secret {
 				return errDeployFileSecretLiteral(varName)
@@ -122,6 +127,24 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 		}
 		return nil
 	})
+	if err != nil && created != nil {
+		if _, delErr := apiCallForAccount(cmd.Context(), http.MethodDelete, environmentPath(at, created.ID), nil, at.Account, verbose, nil); delErr != nil {
+			return errors.Join(err, delErr)
+		}
+	}
+	return err
+}
+
+// deploymentDisplayNameMaxLength matches astro-server's display name limit.
+const deploymentDisplayNameMaxLength = 42
+
+// generatedDisplayName is <blueprint>-<environment>, cut to the display name limit.
+func generatedDisplayName(blueprint, environment string) string {
+	name := []rune(blueprint + "-" + environment)
+	if len(name) > deploymentDisplayNameMaxLength {
+		name = name[:deploymentDisplayNameMaxLength]
+	}
+	return strings.TrimRight(string(name), "- ")
 }
 
 func deployFileTemplateRequest(entry deployspec.Environment) deployTemplateRequest {

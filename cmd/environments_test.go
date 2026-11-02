@@ -76,7 +76,7 @@ func (s *envTestServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		jsonHandler(http.StatusCreated, map[string]any{"id": "env-new", "name": s.bodies[key]["name"], "account_name": "testaccount"})(w, r)
 	case "PATCH /api/v1/accounts/testaccount/environments/env-staging":
 		jsonHandler(http.StatusOK, map[string]any{"id": "env-staging", "name": s.bodies[key]["name"]})(w, r)
-	case "DELETE /api/v1/accounts/testaccount/environments/env-staging":
+	case "DELETE /api/v1/accounts/testaccount/environments/env-staging", "DELETE /api/v1/accounts/testaccount/environments/env-new":
 		jsonHandler(http.StatusOK, map[string]any{"message": "environment deleted"})(w, r)
 	case "GET /api/v1/accounts/testaccount/variables":
 		jsonHandler(http.StatusOK, map[string]any{"variables": s.accountVars})(w, r)

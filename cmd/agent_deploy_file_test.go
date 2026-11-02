@@ -116,6 +116,47 @@ environments:
 	assert.Equal(t, "env-staging", deploys[0]["target"].(map[string]any)["environment_id"])
 }
 
+func TestDeployFileRemovesOnlyTheEnvironmentItCreatedWhenTheDeployFails(t *testing.T) {
+	cases := []struct {
+		name        string
+		env         string
+		wantDeleted bool
+	}{
+		{name: "a created environment", env: "qa", wantDeleted: true},
+		{name: "an existing free environment", env: "staging", wantDeleted: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := setupEnvTest(t)
+			fake.templateVars = map[string]any{"API_KEY": map[string]any{"secret": true}}
+			setDeployFlags(t, "file", writeDeployFileProject(t, "spec: deploy/v1\nenvironments: {"+tc.env+": {variables: {API_KEY: sk-live}}}\n"))
+
+			_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy)
+			require.Error(t, err)
+			assert.Equal(t, tc.wantDeleted, fake.called("DELETE /api/v1/accounts/testaccount/environments/env-new"),
+				"an environment created for a deploy that never happened is removed, and nothing else is")
+			assert.False(t, fake.called("DELETE /api/v1/accounts/testaccount/environments/env-staging"), "an existing environment stays")
+		})
+	}
+}
+
+func TestGeneratedDisplayName(t *testing.T) {
+	cases := []struct {
+		name, blueprint, environment, want string
+	}{
+		{"a short name", "mybot", "qa", "mybot-qa"},
+		{"a name over the limit", "customer-support-assistant", "production-eu-west", "customer-support-assistant-production-eu-w"},
+		{"a cut that ends on a dash", "customer-support-assistant-x", "production-------eu", "customer-support-assistant-x-production"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := generatedDisplayName(tc.blueprint, tc.environment)
+			assert.Equal(t, tc.want, got)
+			assert.LessOrEqual(t, len([]rune(got)), deploymentDisplayNameMaxLength, "astro-server refuses a longer display name")
+		})
+	}
+}
+
 func TestDeployFileRefusals(t *testing.T) {
 	const twoEnvs = "spec: deploy/v1\nenvironments: {main: {}, staging: {}}\n"
 
