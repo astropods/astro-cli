@@ -132,6 +132,26 @@ func findBlueprintEnvironment(ctx context.Context, at AccountToken, publisher, b
 	return nil, errEnvironmentNotFound(name, blueprint, names)
 }
 
+func createBlueprintEnvironment(ctx context.Context, at AccountToken, blueprint, name string, verbose bool) (*blueprintEnvironment, error) {
+	var created blueprintEnvironment
+	status, err := apiCall(ctx, http.MethodPost,
+		apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"),
+		map[string]string{"name": name}, at.Token, verbose, &created)
+	if isConcealed(err) {
+		return nil, err
+	}
+	switch status {
+	case http.StatusNotFound:
+		return nil, errBlueprintNotFound(blueprint, at.Account)
+	case http.StatusConflict:
+		return nil, errEnvironmentNameTaken(name, blueprint)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &created, nil
+}
+
 func environmentPath(at AccountToken, environmentID string, parts ...string) string {
 	return apiPath(environmentsBaseURL(), at.Account, "accounts", append([]string{"environments", environmentID}, parts...)...)
 }
@@ -272,19 +292,7 @@ func runEnvCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var created blueprintEnvironment
-	status, err := apiCall(cmd.Context(), http.MethodPost,
-		apiPath(environmentsBaseURL(), at.Account, "agents", blueprint, "environments"),
-		map[string]string{"name": name}, at.Token, verbose, &created)
-	if isConcealed(err) {
-		return err
-	}
-	switch status {
-	case http.StatusNotFound:
-		return errBlueprintNotFound(blueprint, at.Account)
-	case http.StatusConflict:
-		return errEnvironmentNameTaken(name, blueprint)
-	}
+	created, err := createBlueprintEnvironment(cmd.Context(), at, blueprint, name, verbose)
 	if err != nil {
 		return err
 	}

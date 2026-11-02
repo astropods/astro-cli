@@ -26,12 +26,12 @@ const agentCoreSecretInput = `inputs:
     secret: true
 `
 
-// writeAgentCoreSpec drops an astropods.yml in a temp dir and returns its path.
-func writeAgentCoreSpec(t *testing.T, body string) string {
+// useAgentCoreSpec drops an astropods.yml in a temp dir and runs the test from it.
+func useAgentCoreSpec(t *testing.T, body string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "astropods.yml")
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-	return path
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "astropods.yml"), []byte(body), 0o600))
+	t.Chdir(dir)
 }
 
 // newDeployTestCmd builds a deploy command with the real flag set, so tests
@@ -70,7 +70,7 @@ func TestMaybeAgentCoreDeploy_RoutesOnTheSpecRuntime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			c := newDeployTestCmd(&out)
-			require.NoError(t, c.Flags().Set("file", writeAgentCoreSpec(t, tt.body)))
+			useAgentCoreSpec(t, tt.body)
 			require.NoError(t, c.Flags().Set("dry-run", "true"))
 
 			handled, err := maybeAgentCoreDeploy(c, nil)
@@ -96,7 +96,7 @@ func TestMaybeAgentCoreDeploy_NoLocalSpecFallsThrough(t *testing.T) {
 func TestMaybeAgentCoreDeploy_RefusesAPositionalName(t *testing.T) {
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	require.NoError(t, c.Flags().Set("file", writeAgentCoreSpec(t, agentCoreSpecYAML)))
+	useAgentCoreSpec(t, agentCoreSpecYAML)
 	require.NoError(t, c.Flags().Set("dry-run", "true"))
 
 	handled, err := maybeAgentCoreDeploy(c, []string{"some-other-agent"})
@@ -121,8 +121,6 @@ func TestDeployAgentCoreOnlyFlagsAreHidden(t *testing.T) {
 
 // A flag the server path cannot honor is refused, not accepted and discarded.
 func TestDeployRejectsAgentCoreOnlyFlagsOnTheServerPath(t *testing.T) {
-	const defaultRuntimeSpec = "spec: package/v1\nname: hello-astro\nagent:\n  image: hello:latest\n"
-
 	tests := []struct {
 		flag  string
 		value func(t *testing.T) string
@@ -130,11 +128,6 @@ func TestDeployRejectsAgentCoreOnlyFlagsOnTheServerPath(t *testing.T) {
 		{flag: "image", value: func(*testing.T) string { return "acct.dkr.ecr.us-east-1.amazonaws.com/x:1" }},
 		{flag: "secrets-file", value: func(*testing.T) string { return ".env" }},
 		{flag: "secret", value: func(*testing.T) string { return "TOKEN=x" }},
-		{
-			// A spec that parses but does not opt in: the flag is still unusable.
-			flag:  "file",
-			value: func(t *testing.T) string { return writeAgentCoreSpec(t, defaultRuntimeSpec) },
-		},
 	}
 
 	for _, tt := range tests {
@@ -179,8 +172,8 @@ func TestAWSRegionFromEnv(t *testing.T) {
 func TestAgentCoreDeploy_DryRunNeverPrintsSecretValues(t *testing.T) {
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
+	useAgentCoreSpec(t, agentCoreSpecYAML+agentCoreSecretInput)
 	c.SetArgs([]string{
-		"-f", writeAgentCoreSpec(t, agentCoreSpecYAML+agentCoreSecretInput),
 		"--dry-run",
 		"--secret", "API_TOKEN=super-secret-value",
 	})
@@ -234,7 +227,8 @@ func TestAgentCoreDeploy_FailsClosed(t *testing.T) {
 			t.Setenv(execRoleEnv, tt.role)
 			var out bytes.Buffer
 			c := newDeployTestCmd(&out)
-			c.SetArgs(append([]string{"-f", writeAgentCoreSpec(t, tt.body)}, tt.args...))
+			useAgentCoreSpec(t, tt.body)
+			c.SetArgs(tt.args)
 
 			err := c.Execute()
 
@@ -256,7 +250,8 @@ func TestAgentCoreDeploy_VPCOptionsFromEnv(t *testing.T) {
 
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, body), "--dry-run"})
+	useAgentCoreSpec(t, body)
+	c.SetArgs([]string{"--dry-run"})
 	require.NoError(t, c.Execute())
 
 	got := out.String()
@@ -276,7 +271,8 @@ func TestAgentCoreDeploy_NoNetworkEnvStaysPublic(t *testing.T) {
 
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	useAgentCoreSpec(t, agentCoreSpecYAML)
+	c.SetArgs([]string{"--dry-run"})
 	require.NoError(t, c.Execute())
 
 	assert.Contains(t, out.String(), `"networkMode": "PUBLIC"`)
@@ -310,7 +306,8 @@ func TestAgentCoreDeploy_RejectsIncompleteNetworkEnv(t *testing.T) {
 
 			var out bytes.Buffer
 			c := newDeployTestCmd(&out)
-			c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+			useAgentCoreSpec(t, agentCoreSpecYAML)
+			c.SetArgs([]string{"--dry-run"})
 
 			err := c.Execute()
 
@@ -347,7 +344,8 @@ agent:
 `
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, body), "--dry-run"})
+	useAgentCoreSpec(t, body)
+	c.SetArgs([]string{"--dry-run"})
 
 	err := c.Execute()
 
@@ -361,7 +359,8 @@ func TestAgentCoreDeploy_SessionTimeoutsFromEnv(t *testing.T) {
 
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	useAgentCoreSpec(t, agentCoreSpecYAML)
+	c.SetArgs([]string{"--dry-run"})
 	require.NoError(t, c.Execute())
 
 	got := out.String()
@@ -377,7 +376,8 @@ func TestAgentCoreDeploy_UnsetSessionTimeoutsKeepTheDefaults(t *testing.T) {
 
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	useAgentCoreSpec(t, agentCoreSpecYAML)
+	c.SetArgs([]string{"--dry-run"})
 	require.NoError(t, c.Execute())
 
 	got := out.String()
@@ -392,7 +392,8 @@ func TestAgentCoreDeploy_RejectsAnUnusableSessionTimeout(t *testing.T) {
 
 			var out bytes.Buffer
 			c := newDeployTestCmd(&out)
-			c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+			useAgentCoreSpec(t, agentCoreSpecYAML)
+			c.SetArgs([]string{"--dry-run"})
 
 			err := c.Execute()
 
@@ -407,7 +408,8 @@ func TestAgentCoreDeploy_RejectsAnUnusableSessionTimeout(t *testing.T) {
 func TestAgentCoreDeploy_PlanMakesNoFilesystemPromise(t *testing.T) {
 	var out bytes.Buffer
 	c := newDeployTestCmd(&out)
-	c.SetArgs([]string{"-f", writeAgentCoreSpec(t, agentCoreSpecYAML), "--dry-run"})
+	useAgentCoreSpec(t, agentCoreSpecYAML)
+	c.SetArgs([]string{"--dry-run"})
 	require.NoError(t, c.Execute())
 
 	assert.NotContains(t, out.String(), "filesystemConfigurations")

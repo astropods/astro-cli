@@ -14,6 +14,8 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
+	deployspec "github.com/astropods/astro-spec/deploy"
+
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/config"
 	"github.com/astropods/astro-cli/internal/tui"
@@ -28,12 +30,16 @@ type deployTemplateRequest struct {
 	Interfaces    *deployTemplateInterfaces `json:"interfaces,omitempty"`
 	Variables     map[string]deployVarInput `json:"variables,omitempty"`
 	Schedules     map[string]string         `json:"schedules,omitempty"`
+	Models        map[string]string         `json:"models,omitempty"`
+	Bindings      *deployspec.Bindings      `json:"bindings,omitempty"`
+	Provisioning  *deployspec.Provisioning  `json:"provisioning,omitempty"`
 	Finalize      bool                      `json:"finalize,omitempty"`
 	ClusterID     string                    `json:"cluster_id,omitempty"`
 }
 
 type deployTemplateInterfaces struct {
-	Adapters []string `json:"adapters"`
+	Adapters []string                   `json:"adapters"`
+	Auth     *deployspec.InterfacesAuth `json:"auth,omitempty"`
 }
 
 type deployVarInput struct {
@@ -56,6 +62,9 @@ type deployTemplateResponse struct {
 	Validation deployTemplateValidation `json:"validation"`
 	Signature  string                   `json:"signature,omitempty"`
 	Schedules  map[string]string        `json:"schedules,omitempty"`
+	Variables  map[string]struct {
+		Secret bool `json:"secret,omitempty"`
+	} `json:"variables,omitempty"`
 }
 
 type agentDeployResult struct {
@@ -74,7 +83,12 @@ var blueprintDeployCmd = &cobra.Command{
 
 Name a blueprint that another account publishes as <account>/<name>. A bare
 <name> is a blueprint in the active account. With no argument, deploy the
-blueprint in the current directory's astropods.yml.`,
+blueprint in the current directory's astropods.yml.
+
+With -f astropods.deploy.yml, deploy each environment the file declares, for
+the blueprint in the astropods.yml beside it. An environment that holds an
+agent is redeployed, and a missing one is created. --env picks environments
+from the file and can repeat.`,
 	Args: optionalBlueprintRef,
 	RunE: runBlueprintDeploy,
 }
@@ -95,7 +109,8 @@ func registerDeployCommonFlags(cmd *cobra.Command) {
 
 func registerDeployFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("name", "n", "", "Display name for the deployment")
-	cmd.Flags().String("env", "", "Environment to deploy into; it must have no agent (default: a free environment, or a new one)")
+	cmd.Flags().StringArray("env", nil, "Environment to deploy into; it must have no agent (default: a free environment, or a new one). With -f, an environment from the file (repeatable)")
+	cmd.Flags().StringP("file", "f", "", "Deploy the environments in an astropods.deploy.yml")
 	registerDeployCommonFlags(cmd)
 	registerAgentCoreDeployFlags(cmd)
 }
@@ -278,6 +293,9 @@ func deployValidationSubject(field string) (label, subject string) {
 }
 
 func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
+	if file := flagString(cmd, "file"); file != "" {
+		return runDeployFile(cmd, args, file)
+	}
 	// The spec picks the runtime: a local astropods.yml with
 	// agent.annotations.runtime: agentcore deploys to AWS Bedrock AgentCore
 	// instead of taking the server-mediated path. There is no target flag.
@@ -286,6 +304,10 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	}
 	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
 		return err
+	}
+	envs, _ := cmd.Flags().GetStringArray("env")
+	if len(envs) > 1 {
+		return errEnvRepeatNeedsDeployFile()
 	}
 	var arg string
 	if len(args) > 0 {
@@ -330,7 +352,8 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	var environment *blueprintEnvironment
-	if env := flagString(cmd, "env"); env != "" {
+	if len(envs) == 1 && envs[0] != "" {
+		env := envs[0]
 		environment, err = findBlueprintEnvironment(cmd.Context(), at, publisher, name, env, verbose)
 		if err != nil {
 			return err
@@ -357,14 +380,14 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 		req.Schedules = schedules
 	}
 
-	return runDeployWithRequest(cmd, at, verbose, publisher, name, displayName, environment, req, dryRun)
+	return runDeployWithRequest(cmd, at, verbose, publisher, name, displayName, environment, req, dryRun, nil)
 }
 
 // runDeployWithRequest handles the template POST → validation → deploy POST flow.
 // Shared by blueprint deploy and agent redeploy; set req.DeploymentID to retarget an existing deployment.
 // displayName is patched into template.target.display_name before the deploy POST when non-empty,
 // and environment's id into template.target.environment_id when non-nil.
-func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, publisher, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool) error {
+func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, publisher, name, displayName string, environment *blueprintEnvironment, req deployTemplateRequest, dryRun bool, checkTemplate func(deployTemplateResponse) error) error {
 	w := cmd.OutOrStdout()
 	verb := "Deploying"
 	if req.DeploymentID != "" {
@@ -409,6 +432,12 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, pub
 			fmt.Fprintf(w, "    %s%s%s%s%s%s:%s %s\n", colorDim, label, colorReset, colorBold, subject, colorDim, colorReset, e.Message) //nolint:errcheck,gosec
 		}
 		return fmt.Errorf("deployment validation failed")
+	}
+
+	if checkTemplate != nil {
+		if err := checkTemplate(tmplResp); err != nil {
+			return err
+		}
 	}
 
 	if dryRun {
