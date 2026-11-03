@@ -91,12 +91,16 @@ func pushRegistryURL() string {
 
 func checkBlueprintPushPermission(ctx context.Context, serverURL string, at AccountToken, agentName string, verbose bool) error {
 	reqURL := apiPath(serverURL, at.Account, "agents", agentName, "register") + "?dryrun=true"
-	status, err := apiCall(ctx, http.MethodPost, reqURL, nil, at.Token, verbose, nil)
+	headers := http.Header{"X-Cli-Version": []string{buildinfo.Version}}
+	status, err := apiCallWithHeaders(ctx, http.MethodPost, reqURL, nil, at.Token, headers, verbose, nil)
 	if status == http.StatusNoContent && err == nil {
 		return nil
 	}
 	if err != nil {
 		var response *apiError
+		if errors.As(err, &response) && response.StatusCode == http.StatusUpgradeRequired {
+			return errCLIUpgradeRequired(response.Message)
+		}
 		if errors.As(err, &response) && response.isStructured() {
 			return response
 		}
@@ -561,13 +565,7 @@ func postAgentRegistration(ctx context.Context, serverURL, agentName, buildID, r
 
 	if resp.StatusCode == http.StatusUpgradeRequired {
 		body, _ := io.ReadAll(resp.Body)
-		var errResp map[string]interface{}
-		if json.Unmarshal(body, &errResp) == nil {
-			if msg, ok := errResp["error"].(string); ok {
-				return fmt.Errorf("%s\nRun '%s upgrade' to update", msg, buildinfo.BinaryName)
-			}
-		}
-		return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", buildinfo.Version, buildinfo.BinaryName)
+		return errCLIUpgradeRequired(newAPIError(resp.StatusCode, body).Message)
 	}
 
 	var unauthorizedBody []byte

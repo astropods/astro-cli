@@ -235,6 +235,13 @@ func errBlueprintPushPermissionCheck(account, name string, cause error) error {
 	return fmt.Errorf("could not check permission to push Blueprint %q to account %q: %w", name, account, cause)
 }
 
+func errCLIUpgradeRequired(serverMsg string) error {
+	if serverMsg != "" {
+		return fmt.Errorf("%s\nRun '%s upgrade' to update", serverMsg, buildinfo.BinaryName)
+	}
+	return fmt.Errorf("CLI version %s is too old. Run '%s upgrade' to update", buildinfo.Version, buildinfo.BinaryName)
+}
+
 func errBlueprintPushPermissionVerdict(account, name string, status int) error {
 	return fmt.Errorf(
 		"could not check permission to push Blueprint %q to account %q: server returned unexpected status %d",
