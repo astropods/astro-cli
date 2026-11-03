@@ -1379,3 +1379,110 @@ func errDeployUnavailable(name string, cause error) error {
 func errAgentCoreOrchestrationFlags(flags []string) error {
 	return fmt.Errorf("%s cannot be used with AgentCore deployments; use --image to select the artifact (AgentCore uses its own readiness timeout)", strings.Join(flags, ", "))
 }
+
+func errReleaseDeploymentRequired() error { return errors.New("--id is required") }
+func errReleaseBuildRequired() error {
+	return errors.New("--build is required to retry the expected publication")
+}
+func errReleaseRequestID() error    { return errors.New("--request-id must be a canonical, nonzero UUID") }
+func errReleaseHistoryLimit() error { return errors.New("--limit must be between 1 and 50") }
+func msgReleaseHistoryHeader() string {
+	return "ID or version\tBuild\tStatus\tLatest acceptance (policy)\tCreated"
+}
+func msgReleaseHistoryCursor(cursor string) string { return "Next page: --cursor " + cursor }
+func msgReleaseRetry(p releasePolicy) string {
+	return fmt.Sprintf("Publication %s: %s. Retry request: %s", p.DesiredBuild, p.Outcome, p.Version)
+}
+func msgReleaseStatus(s releaseStatus) string {
+	stage := s.Policy.Outcome
+	if !s.Policy.Enabled {
+		stage = "disabled"
+	} else if s.Ready {
+		stage = "ready"
+	}
+	message := fmt.Sprintf("Release: %s\nBuild: %s", stage, s.Policy.DesiredBuild)
+	if s.Policy.CandidateID != "" {
+		message += "\nCandidate: " + s.Policy.CandidateID
+	}
+	if s.Evidence != nil {
+		message += "\nEvaluation: " + s.Evidence.Reason
+		if s.Evidence.RunID != "" {
+			message += "\nRun: " + s.Evidence.RunID
+		}
+	}
+	if s.Policy.Message != "" {
+		message += "\n" + s.Policy.Message
+	}
+	return message
+}
+
+func errReleaseRetryRequest(version, requestID string, err error) error {
+	return fmt.Errorf("retry request failed; resume with --policy-version %s --request-id %s: %w", version, requestID, err)
+}
+
+func msgReleaseSetupHelp() string {
+	return "Checks the dataset, active evaluators, candidate revision, and target blueprint, then writes a pinned acceptance plan. Review the plan before repeating with --apply. Applying enables both deployments for future publications. It does not evaluate or publish a build."
+}
+func errReleaseSetupFlags() error {
+	return errors.New("setup requires a distinct --candidate, --dataset, --rules, --runner, --output, and --max-age from 1 to 3600")
+}
+func errReleaseJSONFile(path string) error {
+	return fmt.Errorf("%s must contain valid JSON within the 4 MiB payload limit", path)
+}
+func errReleaseSetupResponse() error {
+	return errors.New("the server returned a different or incomplete acceptance plan")
+}
+func errReleaseCandidatePolicy() error {
+	return errors.New("the candidate already uses an acceptance policy; choose a dedicated candidate before enabling this workflow")
+}
+func errReleaseSetupPartial(err error) error {
+	return fmt.Errorf("the candidate is enabled, but target configuration failed; inspect release status and retry setup: %w", err)
+}
+func msgReleaseSetupComplete(path string, applied bool) string {
+	if applied {
+		return fmt.Sprintf("Candidate and target automatic deployment are enabled for future publications. Plan: %s", path)
+	}
+	return fmt.Sprintf("Saved plan to %s. Review it, then repeat with --apply to enable future publications. Configure the trusted runner before publishing.", path)
+}
+
+func msgDatasetSnapshotHelp() string {
+	return "Writes an immutable JSON snapshot with case inputs, expected outputs, and verified evaluator values. Source data stays unchanged. For datasets larger than 50 items, choose a subset explicitly with --limit and --offset."
+}
+func errDatasetSnapshotFlags() error {
+	return errors.New("snapshot requires --limit from 1 to 50, a nonnegative --offset divisible by limit, and --output")
+}
+func errDatasetSnapshotSelection() error {
+	return errors.New("the dataset exceeds one evaluation batch; choose a subset explicitly with --limit and --offset")
+}
+func errDatasetSnapshotEmpty() error { return errors.New("a snapshot requires 1 to 50 dataset items") }
+func errDatasetSnapshotOutdated(id string) error {
+	return fmt.Errorf("dataset item %s uses outdated evaluators; review its verified values before exporting", id)
+}
+func errDatasetSnapshotInput(id string) error {
+	return fmt.Errorf("dataset item %s has an invalid or duplicate ID, input, or evaluator value", id)
+}
+func msgDatasetSnapshotSaved(count int, path string) string {
+	return fmt.Sprintf("Saved %d cases to %s.", count, path)
+}
+
+func errReleaseComparisonRuns() error {
+	return errors.New("--run and --baseline must name distinct evaluation runs")
+}
+func msgReleaseComparison(c releaseComparison) string {
+	return fmt.Sprintf("Build %s compared with %s: %d changed values, %d improvements, %d regressions against verified values.", c.CurrentBuildID, c.BaselineBuildID, c.Changed, c.Improved, c.Regressed)
+}
+
+func errReleasePolicyVersion() error {
+	return errors.New("--policy-version must be a canonical, nonzero UUID distinct from --request-id")
+}
+
+func msgReleaseHistoryDecision(item releaseHistoryItem) string {
+	if item.Decision == nil {
+		return "-"
+	}
+	outcome := "rejected"
+	if item.Decision.Accepted {
+		outcome = "accepted"
+	}
+	return fmt.Sprintf("%s: %s (%s)", outcome, item.Decision.Reason, item.Decision.PolicyVersion)
+}
