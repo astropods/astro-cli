@@ -29,17 +29,20 @@ A concurrent change fails the precondition. A newer revision detected during wai
 
 Readiness requires both the expected current revision and the server's matching `ready_revision` observation.
 A missing chat URL does not imply success. A deadline or cancellation returns an error.
-Deployment errors can recover; the waiter continues observing them until the deadline.
+A deployment the server reports as `failed` or `error` ends the wait with its message, because the server sets those only after its own retries are exhausted.
 Unchanged `OnDelete` dependencies retain their pods. Changed dependency templates require updated pods before this check succeeds.
 
 `--json` writes one result to stdout after the requested wait. Progress goes to stderr.
+A successful wait without `--json` prints the launch URL from the record the readiness check already read.
+`--dry-run --json` prints the validated template without its signature, which authorizes a deploy the dry run never submits.
+MCP hides `--timeout` on the waiting commands, because the runner ends the subprocess at its own tool timeout.
 Timeout errors include the deployment, build, and revision needed by `agent wait`.
 Waiting does not cancel a build or deployment, and resuming a wait does not submit another deployment.
 
 Polling reads inside a wait retry transient failures up to three times per read.
 Backoff starts at 250 milliseconds, doubles per retry, and adds jitter up to the current delay.
 The reader honors `Retry-After` up to thirty seconds, and cancellation or the shared timeout interrupts backoff.
-Resolving a `--id` or `--env` target reads once, because those commands set no deadline to bound a retry loop against.
+Resolving a `--id` or `--env` target reads once. That read is shared with commands that set no deadline, so it never retries, including in the commands that do set one.
 `TestTargetReadsDoNotRetryAndRetryAfterIsCapped` covers both halves, and `TestRedeployTimeoutBoundsTheBuildWait` covers the deadline.
 Retryable HTTP statuses are `408`, `429`, `500`, `502`, `503`, and `504` (`cmd/polling_read.go`).
 Authentication failures, missing resources, revision conflicts, and malformed JSON fail immediately.

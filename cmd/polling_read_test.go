@@ -198,7 +198,7 @@ func TestTargetReadsDoNotRetryAndRetryAfterIsCapped(t *testing.T) {
 		start := time.Now()
 		_, err := getAgentDeploymentFull(context.Background(), "dep", AccountToken{Token: "token"}, false)
 		require.Error(t, err)
-		require.Equal(t, 1, calls, "every --id command resolves its target here and sets no deadline")
+		require.Equal(t, 1, calls, "this read is shared with commands that set no deadline")
 		require.Less(t, time.Since(start), time.Second)
 	})
 

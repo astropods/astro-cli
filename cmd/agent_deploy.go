@@ -468,6 +468,8 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 
 	if opts.DryRun {
 		if jsonOut {
+			// The signature authorizes a deploy, which a dry run never submits.
+			tmplResp.Signature = ""
 			return writeJSON(w, tmplResp)
 		}
 		fmt.Fprintf(progress, "  %s✓%s template valid\n", colorGreen, colorReset) //nolint:errcheck,gosec
@@ -500,7 +502,8 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 		if isNotFound(status, err) {
 			return errDeployUnavailable(opts.DisplayName, err)
 		}
-		if status == http.StatusPreconditionFailed {
+		// Only a precondition this command sent can have failed.
+		if status == http.StatusPreconditionFailed && opts.ExpectedRevision > 0 {
 			return errDeploymentRevisionConflict(opts.ExpectedRevision)
 		}
 		if status == http.StatusConflict {
@@ -516,6 +519,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 	}
 
 	result.CommitSHA = commit
+	var ready *agentDeploymentFull
 	if wait {
 		// The deployment is already submitted, so a server that reports no
 		// revision downgrades the wait instead of failing a created deployment.
@@ -523,9 +527,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 			fmt.Fprintln(progress, msgDeploymentWaitUnsupported(result.DeploymentID)) //nolint:errcheck
 		} else {
 			fmt.Fprintln(progress, msgDeploymentQueued(result)) //nolint:errcheck
-			if err := waitForDeployment(ctx, result, at, verbose, progress); err != nil {
+			dep, err := waitForDeployment(ctx, result, at, verbose, progress)
+			if err != nil {
 				return err
 			}
+			ready = dep
 			result.Status = "active"
 		}
 	}
@@ -541,6 +547,7 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 	} else {
 		fmt.Fprintln(w) //nolint:errcheck,gosec
 	}
+	printLaunchURL(w, ready)
 
 	return nil
 }

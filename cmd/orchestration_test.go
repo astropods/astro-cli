@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestDeploymentWaitTimesOutWithoutRevisionReadinessAndDetectsReplacement(t *
 			}))
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 			defer cancel()
-			err := waitForDeployment(ctx, expected, AccountToken{Account: "testaccount"}, false, io.Discard)
+			_, err := waitForDeployment(ctx, expected, AccountToken{Account: "testaccount"}, false, io.Discard)
 			if revision == 3 {
 				require.EqualError(t, err, errDeploymentSuperseded(expected).Error())
 			} else {
@@ -269,7 +270,7 @@ func TestDeploymentWaitStopsOnAFailedRollout(t *testing.T) {
 			ID: "dep", BuildID: "one", CurrentRevision: 2, Status: "failed", ErrorMessage: "image pull failed",
 		}})
 	}))
-	err := waitForDeployment(context.Background(), agentDeployResult{DeploymentID: "dep", BuildID: "one", Revision: 2},
+	_, err := waitForDeployment(context.Background(), agentDeployResult{DeploymentID: "dep", BuildID: "one", Revision: 2},
 		AccountToken{Account: "testaccount", Token: "test-token"}, false, io.Discard)
 	require.EqualError(t, err, errDeploymentFailed("dep", "failed", "image pull failed").Error())
 	require.Equal(t, 1, reads, "a failed rollout is not polled until the deadline")
@@ -326,4 +327,74 @@ func TestMachineTokenRejectsAnotherAccount(t *testing.T) {
 	child.Env = append(child.Env, "ASTRO_ORCHESTRATION_AUTH_CHILD=1", "ASTRO_ACCOUNT=ci-account", "ASTRO_ACCESS_TOKEN=synthetic-test-token")
 	output, err := child.CombinedOutput()
 	require.NoError(t, err, "%s", output)
+}
+
+func TestDeployMapsAPreconditionFailureOnlyToASentRevision(t *testing.T) {
+	for _, expected := range []int{0, 3} {
+		t.Run(strconv.Itoa(expected), func(t *testing.T) {
+			setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/v1/deploy" {
+					w.WriteHeader(http.StatusPreconditionFailed)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(deployTemplateResponse{Template: json.RawMessage(`{"spec":"deployment/v1"}`), Validation: deployTemplateValidation{Valid: true}, Signature: "signature"})
+			}))
+			cmd := &cobra.Command{}
+			registerDeployCommonFlags(cmd)
+			cmd.SetContext(context.Background())
+			cmd.SetOut(io.Discard)
+			err := runDeployWithRequest(cmd, AccountToken{Account: "testaccount"}, false, deployOptions{TemplateAccount: "testaccount", Blueprint: "dummy", ExpectedRevision: expected})
+			if expected == 0 {
+				var apiErr *apiError
+				require.ErrorAs(t, err, &apiErr, "a precondition this command never sent keeps the server's error")
+				require.Equal(t, http.StatusPreconditionFailed, apiErr.StatusCode)
+				return
+			}
+			require.EqualError(t, err, errDeploymentRevisionConflict(expected).Error())
+		})
+	}
+}
+
+func TestDeployDryRunJSONWithholdsTheTemplateSignature(t *testing.T) {
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NotEqual(t, "/api/v1/deploy", r.URL.Path, "a dry run submits nothing")
+		_ = json.NewEncoder(w).Encode(deployTemplateResponse{Template: json.RawMessage(`{"spec":"deployment/v1"}`), Validation: deployTemplateValidation{Valid: true}, Signature: "deploy-me"})
+	}))
+	cmd := &cobra.Command{}
+	registerDeployCommonFlags(cmd)
+	require.NoError(t, cmd.Flags().Set("json", "true"))
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, runDeployWithRequest(cmd, AccountToken{Account: "testaccount"}, false, deployOptions{TemplateAccount: "testaccount", Blueprint: "dummy", DryRun: true}))
+	require.Contains(t, out.String(), "deployment/v1")
+	require.NotContains(t, out.String(), "deploy-me", "the signature authorizes a deploy and must stay out of captured output")
+}
+
+func TestDeploymentWaitReportsTheLaunchURL(t *testing.T) {
+	fastOrchestration(t)
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/runtime") {
+			_, _ = io.WriteString(w, `{"runtime":{"ready_revision":2}}`)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+			ID: "dep", BuildID: "build", CurrentRevision: 2, Status: "Running",
+			ExternalURLs: []serviceEndpointInfo{{Type: "messaging", URL: "https://agent.example.test"}},
+		}})
+	}))
+	cmd := &cobra.Command{RunE: runAgentWait}
+	cmd.Flags().String("id", "dep", "")
+	cmd.Flags().String("build", "build", "")
+	cmd.Flags().Int("revision", 2, "")
+	cmd.Flags().Bool("json", false, "")
+	cmd.Flags().Duration("timeout", orchestrationTimeout, "")
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs(nil)
+	require.NoError(t, cmd.Execute())
+	require.Contains(t, out.String(), msgDeploymentReady("dep", 2))
+	require.Contains(t, out.String(), msgLaunchURLLine("https://agent.example.test"))
 }

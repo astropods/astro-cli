@@ -602,3 +602,22 @@ func TestMCPToolSchemaMarshalsAsJSONSchema(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"type":"array","items":{"type":"string"},"description":"Variable"}`, string(raw))
 }
+
+func TestMCPWaitingToolsDoNotExposeTheirTimeout(t *testing.T) {
+	// A caller-chosen timeout past the runner's own would replace the resume
+	// instructions with a generic timeout message.
+	waiting := map[string]bool{"blueprint builds wait": true, "agent wait": true, "agent redeploy": true, "blueprint deploy": true}
+	for _, c := range mcpLeafCommands(rootCmd) {
+		key := mcpCommandKey(c)
+		if !waiting[key] {
+			continue
+		}
+		delete(waiting, key)
+		policy := mcpPolicies[key]
+		require.Equal(t, orchestrationTimeout+time.Minute, policy.timeout, "%s", key)
+		tool, err := buildMCPTool(c, policy)
+		require.NoError(t, err)
+		require.NotContains(t, mcpSchema(t, tool).Properties, "timeout", "%s exposes --timeout", key)
+	}
+	require.Empty(t, waiting, "a waiting command is no longer a leaf under this name")
+}

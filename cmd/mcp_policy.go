@@ -26,6 +26,7 @@ const (
 
 // mcpPolicies is keyed by command path without the binary name. Every visible leaf command needs an entry,
 // except a top-level alias of a longer command.
+// The waiting commands hide --timeout; the runner kills the subprocess at the tool timeout.
 var mcpPolicies = map[string]mcpPolicy{
 	"account list":          {class: mcpRead},
 	"agent access get":      {class: mcpRead},
@@ -41,7 +42,7 @@ var mcpPolicies = map[string]mcpPolicy{
 	"billing invoices":      {class: mcpRead},
 	"billing models":        {class: mcpRead, args: "[model]"},
 	"billing status":        {class: mcpRead},
-	"blueprint builds wait": {class: mcpRead, timeout: orchestrationTimeout + time.Minute},
+	"blueprint builds wait": {class: mcpRead, timeout: orchestrationTimeout + time.Minute, excludeFlags: []string{"timeout"}},
 	"blueprint builds get":  {class: mcpRead},
 	"blueprint builds list": {class: mcpRead},
 	"blueprint builds logs": {class: mcpRead, excludeFlags: []string{"tail"}},
@@ -66,15 +67,15 @@ var mcpPolicies = map[string]mcpPolicy{
 
 	"agent access set":         {class: mcpWrite},
 	"agent pause":              {class: mcpWrite},
-	"agent wait":               {class: mcpRead, timeout: orchestrationTimeout + time.Minute},
-	"agent redeploy":           {class: mcpWrite, timeout: orchestrationTimeout + time.Minute},
+	"agent wait":               {class: mcpRead, timeout: orchestrationTimeout + time.Minute, excludeFlags: []string{"timeout"}},
+	"agent redeploy":           {class: mcpWrite, timeout: orchestrationTimeout + time.Minute, excludeFlags: []string{"timeout"}},
 	"agent restart":            {class: mcpWrite},
 	"agent resume":             {class: mcpWrite},
 	"agent trigger":            {class: mcpWrite},
 	"billing set":              {class: mcpWrite},
 	"blueprint build":          {class: mcpWrite, timeout: mcpLongTimeout},
 	"blueprint builds rebuild": {class: mcpWrite, excludeFlags: []string{"tail"}},
-	"blueprint deploy":         {class: mcpWrite, args: "<blueprint>", timeout: orchestrationTimeout + time.Minute, excludeFlags: []string{"secret"}},
+	"blueprint deploy":         {class: mcpWrite, args: "<blueprint>", timeout: orchestrationTimeout + time.Minute, excludeFlags: []string{"secret", "timeout"}},
 	"blueprint push":           {class: mcpWrite, timeout: mcpLongTimeout},
 	"blueprint set":            {class: mcpWrite},
 	"dataset add":              {class: mcpWrite},

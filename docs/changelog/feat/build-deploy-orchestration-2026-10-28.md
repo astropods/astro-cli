@@ -21,7 +21,7 @@ Readiness requires the expected build, revision, and server readiness observatio
 A deployment the server reports as failed ends the wait with its message, rather than polling a terminal state until the deadline. The message is reprinted whenever it changes.
 Only the waiting commands retry. Build, deployment-detail, and runtime reads inside a wait retry transient network errors and selected HTTP failures up to three times per read.
 Exponential backoff adds jitter, stops on cancellation or the command deadline, and honors `Retry-After` up to thirty seconds.
-Resolving a `--id` or `--env` target reads once, because those commands set no deadline to bound a retry loop against.
+Resolving a `--id` or `--env` target reads once. That read is shared with commands that set no deadline, so it never retries, including in the commands that do set one.
 Authentication errors, missing resources, revision conflicts, and invalid JSON fail immediately.
 Writes remain single attempts so an uncertain response cannot submit another deployment.
 Regression coverage exercises recovery across all polling reads, retry exhaustion, cancellation, and failed writes.
@@ -34,13 +34,15 @@ A machine token stands in for a saved login only when `ASTRO_ACCOUNT` names the 
 JSON output contains one result after the requested wait; progress goes to stderr.
 `agent wait` resumes observation after interruption without submitting another deployment.
 A server that reports no deployment revision downgrades `--wait` to a warning, leaving a submitted deployment reported as deployed rather than failing a command that already created it.
-A stale `If-Match` and an in-progress rollout each report what to do next instead of surfacing the raw status.
+A stale `If-Match` and an in-progress rollout each report what to do next instead of surfacing the raw status. A precondition failure is reported as a revision conflict only when this command sent the precondition.
+`--dry-run --json` prints the validated template without its signature, keeping a usable deploy authorization out of captured output.
+The waiting commands hide `--timeout` from MCP, where the runner ends the subprocess at its own tool timeout and a longer wait would lose the resume instructions.
 
 
 ## Migration
 
 Install the server's build-selector and revision-readiness support before using these commands.
-`--wait` now checks workload readiness instead of the public chat URL.
+`--wait` now checks workload readiness instead of the public chat URL. It still prints the launch URL once the revision is ready.
 Set `ASTRO_ACCOUNT` and `ASTRO_ACCESS_TOKEN` for headless use.
 `ASTRO_ACCESS_TOKEN` now requires `ASTRO_ACCOUNT`, and addresses only that account. A saved login plus an exported token with no account set previously authenticated as the profile's current account and now fails; export both, or unset the token to use the saved login.
 `agent redeploy --commit` requires a server that reports deployment revisions. A bare `--wait` against an older server submits and reports the deployment without confirming readiness.

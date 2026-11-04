@@ -35,8 +35,7 @@ type agentDeploymentFullResponse struct {
 	Deployment agentDeploymentFull `json:"deployment"`
 }
 
-// Single attempt: every `--id` and `--env` command resolves its target here
-// without a deadline.
+// Single attempt: this read is shared with commands that set no deadline.
 func getAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
 	return readAgentDeploymentFull(ctx, id, at, verbose, apiGET)
 }
