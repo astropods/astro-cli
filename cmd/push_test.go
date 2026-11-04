@@ -119,16 +119,23 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 			body:       `{"message":"registered"}`,
 			wantErr:    errBlueprintPushPermissionVerdict("acme", "daily-driver", http.StatusCreated).Error(),
 		},
+		{
+			name:       "CLI below the server minimum",
+			statusCode: http.StatusUpgradeRequired,
+			body:       `{"error":"CLI version 0.31.2 is below the minimum required version 0.32.0. Please upgrade"}`,
+			wantErr:    "CLI version 0.31.2 is below the minimum required version 0.32.0. Please upgrade\nRun '" + buildinfo.BinaryName + " upgrade' to update",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var method, path, query, authorization string
+			var method, path, query, authorization, cliVersion string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				method = r.Method
 				path = r.URL.Path
 				query = r.URL.RawQuery
 				authorization = r.Header.Get("Authorization")
+				cliVersion = r.Header.Get("X-Cli-Version")
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
 				_, _ = w.Write([]byte(tt.body))
@@ -152,6 +159,7 @@ func TestCheckBlueprintPushPermission(t *testing.T) {
 			assert.Equal(t, "/api/v1/agents/acme/daily-driver/register", path)
 			assert.Equal(t, "dryrun=true", query)
 			assert.Equal(t, "Bearer token", authorization)
+			assert.Equal(t, buildinfo.Version, cliVersion, "the dry run must carry the version so the server's minimum gate can refuse it before the build")
 		})
 	}
 }
@@ -605,6 +613,41 @@ func TestRegisterAgentWithServerSendsGitMetadataWhenAvailable(t *testing.T) {
 	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", received["commit_sha"])
 	assert.Equal(t, "feat: preserve git context\n\nCommit body", received["commit_message"])
 	assert.Equal(t, true, received["working_tree_dirty"])
+}
+
+func TestRegisterAgentWithServerUpgradeRequired(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "server sentence then the upgrade command",
+			body:    `{"error":"CLI version 0.31.2 is below the minimum required version 0.32.0. Please upgrade"}`,
+			wantErr: "registration failed: CLI version 0.31.2 is below the minimum required version 0.32.0. Please upgrade\nRun '" + buildinfo.BinaryName + " upgrade' to update",
+		},
+		{
+			name:    "no server sentence names the running version",
+			body:    `not json`,
+			wantErr: "registration failed: CLI version " + buildinfo.Version + " is too old. Run '" + buildinfo.BinaryName + " upgrade' to update",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUpgradeRequired)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+
+			err := registerAgentWithServer(
+				context.Background(), srv.URL, "daily-driver", "build-id", "registry.example.com/acme",
+				"spec: blueprint/v1", "", nil, "private", false, true, "acme", gitmetadata.Metadata{},
+			)
+
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestRegisterAgentWithServerOmitsUnavailableGitMetadata(t *testing.T) {
