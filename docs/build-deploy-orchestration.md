@@ -32,7 +32,7 @@ The revision is read before the build wait, so another change during a long wait
 Readiness requires both the expected current revision and the server's matching `ready_revision` observation.
 A missing chat URL does not imply success. A deadline or cancellation returns an error.
 A deployment the server reports as `failed` or `error` ends the wait with its message, because the server sets those only after its own retries are exhausted.
-Unchanged `OnDelete` dependencies retain their pods. Changed dependency templates require updated pods before this check succeeds.
+Unchanged `OnDelete` dependencies retain their pods. A changed dependency template is rolled out by the server, which replaces the stale pods of a `recreate` dependency, so waiting needs no operator step.
 
 `--json` writes one result to stdout after the requested wait. Progress goes to stderr.
 A successful wait without `--json` prints the launch URL from the record the readiness check already read.
