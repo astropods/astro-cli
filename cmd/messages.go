@@ -1445,9 +1445,14 @@ func errReleaseNoPolicyToRetry(id string) error {
 	return fmt.Errorf("deployment %s has no automatic deployment policy version to retry; check that this is the gated target and that setup has been applied", id)
 }
 
-func errReleaseRetryAlreadyApplied(requestID string) error {
-	return fmt.Errorf("retry request %s was already applied; run 'agent release status --id <id>' to see its outcome", requestID)
+func msgReleaseRetryAlreadyApplied(id, requestID string) string {
+	return fmt.Sprintf("Retry request %s was already applied. Run 'agent release status --id %s' to see its outcome.", requestID, id)
 }
+
+func errReleaseAcceptancePolicyStored(stored, reviewed string) error {
+	return fmt.Errorf("the server stored acceptance policy %s, which differs from the reviewed %s; nothing was enabled, so inspect the candidate's policy versions before retrying setup", stored, reviewed)
+}
+
 func errReleaseCandidatePolicy() error {
 	return errors.New("the candidate already uses an acceptance policy; choose a dedicated candidate before enabling this workflow")
 }

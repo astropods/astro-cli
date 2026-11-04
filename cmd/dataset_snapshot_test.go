@@ -70,3 +70,26 @@ func TestDatasetSnapshotPreservesReferenceValuesAndRequiresAnExplicitSubset(t *t
 		})
 	}
 }
+
+func TestDatasetSnapshotMapsAnOffsetToAPage(t *testing.T) {
+	var gotPage, gotLimit string
+	setupDatasetTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/items") {
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"datasets": []any{datasetRow(1, "dummy")}, "total": 1}))
+			return
+		}
+		gotPage, gotLimit = r.URL.Query().Get("page"), r.URL.Query().Get("limit")
+		require.NoError(t, json.NewEncoder(w).Encode(datasetItemsResponse{TotalItems: 120, Items: []datasetItem{
+			{ID: "one", Input: json.RawMessage(`{"message":"hello"}`)},
+		}}))
+	}))
+	command := newDatasetSnapshotCommand()
+	command.SetArgs([]string{"eval-dep00000001", "--limit", "20", "--offset", "40", "--output", filepath.Join(t.TempDir(), "snapshot.json")})
+	command.SetContext(t.Context())
+	command.SilenceErrors, command.SilenceUsage = true, true
+	command.SetOut(&bytes.Buffer{})
+	require.NoError(t, command.Execute())
+
+	require.Equal(t, "3", gotPage, "offset 40 at limit 20 asks for the third page")
+	require.Equal(t, "20", gotLimit)
+}

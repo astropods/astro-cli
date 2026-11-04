@@ -201,17 +201,26 @@ func runReleaseRetry(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	fetched := version == ""
-	if fetched {
+	// A resume reads the policy even when --policy-version was given, because
+	// the printed hint supplies both and the landed check needs the current
+	// version. The explicit version is still what the request asserts.
+	if resuming := cmd.Flags().Changed("request-id"); fetched || resuming {
 		var policy releasePolicy
 		if _, err = apiCall(cmd.Context(), http.MethodGet, releaseURL(id, "auto-deploy"), nil, at.Token, verbose, &policy); err != nil {
 			return err
 		}
-		version = policy.Version
-	}
-	// A retry sets the policy version to its request ID, so finding them equal
-	// on a resume means this request already landed.
-	if fetched && version == requestID {
-		return errReleaseRetryAlreadyApplied(requestID)
+		// A retry sets the policy version to its request ID, so finding them
+		// equal means this request already landed.
+		if policy.Version == requestID {
+			if output, _ := cmd.Flags().GetBool("json"); output {
+				return writeJSON(cmd.OutOrStdout(), policy)
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), msgReleaseRetryAlreadyApplied(id, requestID))
+			return err
+		}
+		if fetched {
+			version = policy.Version
+		}
 	}
 	if parsed, parseErr := uuid.Parse(version); parseErr != nil || parsed == uuid.Nil || parsed.String() != version || version == requestID {
 		if fetched {

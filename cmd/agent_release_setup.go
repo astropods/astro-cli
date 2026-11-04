@@ -149,7 +149,7 @@ func runReleaseSetup(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		if accepted.Version != plan.Version {
-			return errReleaseSetupResponse()
+			return errReleaseAcceptancePolicyStored(accepted.Version, plan.Version)
 		}
 		var policy releasePolicy
 		if _, err = apiCall(cmd.Context(), http.MethodPut, releaseURL(candidate, "auto-deploy"), candidatePolicy, at.Token, verbose, &policy); err != nil {

@@ -31,6 +31,7 @@ ast agent release setup --id TARGET --candidate CANDIDATE \
 
 Review `promotion-plan.json`, then repeat with `--apply` to enable future publications.
 The apply run enables the plan you reviewed. It refuses to continue when the target, candidate, acceptance version, build, or revision differs from the file, and leaves the file in place so the reviewed plan is still there to compare against. Run setup again without `--apply` to review the new plan.
+The plan file records what you reviewed. Apply reads it to detect a change and sends the policy it recomputes from the dataset, rules, and runner, so editing the file changes nothing about what is written.
 Setup checks permissions before writing policies. It does not create a runner or change the active evaluator set.
 Configure the trusted runner with this dataset and policy version before publishing.
 The server repository's build evaluation workflow guide covers runner artifacts, the reference adapter, and scheduling.

@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -86,9 +85,15 @@ func TestReleaseHistoryPreservesTheCursorAndFullJSONMetadata(t *testing.T) {
 
 func TestReleaseRetryPreservesExplicitPreconditionsAndMakesOneMutation(t *testing.T) {
 	version, requestID := uuid.NewString(), uuid.NewString()
-	calls := 0
+	posts := 0
 	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
+		if r.Method == http.MethodGet {
+			// The resume reads the policy to see whether the request landed.
+			_, err := w.Write([]byte(`{"version":"` + uuid.NewString() + `"}`))
+			require.NoError(t, err)
+			return
+		}
+		posts++
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/api/v1/deployments/target/auto-deploy/retry", r.URL.Path)
 		var body map[string]string
@@ -99,7 +104,7 @@ func TestReleaseRetryPreservesExplicitPreconditionsAndMakesOneMutation(t *testin
 	raw, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--policy-version", version, "--request-id", requestID)
 	require.NoError(t, err)
 	require.Equal(t, msgReleaseRetry(releasePolicy{Version: requestID, DesiredBuild: "build", Outcome: "pending"})+"\n", raw)
-	require.Equal(t, 1, calls)
+	require.Equal(t, 1, posts, "a retry makes exactly one mutation")
 }
 
 func TestReleaseCommandsValidateBeforeAuthentication(t *testing.T) {
@@ -239,17 +244,31 @@ func TestReleaseSetupApplyRefusesAPlanThatChangedSinceReview(t *testing.T) {
 
 func TestReleaseRetryReportsAnAlreadyAppliedRequest(t *testing.T) {
 	requestID := "11111111-1111-4111-8111-111111111111"
-	posts := 0
-	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			posts++
-		}
-		_, err := w.Write([]byte(`{"version":"` + requestID + `"}`))
-		require.NoError(t, err)
-	}))
-	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--request-id", requestID)
-	require.EqualError(t, err, errReleaseRetryAlreadyApplied(requestID).Error())
-	require.Zero(t, posts, "a request that already landed is not sent again")
+	stale := "22222222-2222-4222-8222-222222222222"
+	// The printed hint supplies both flags, so both shapes must detect a
+	// request that already landed.
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"request id only", []string{"retry", "--id", "target", "--build", "build", "--request-id", requestID}},
+		{"both flags from the hint", []string{"retry", "--id", "target", "--build", "build", "--request-id", requestID, "--policy-version", stale}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			posts := 0
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posts++
+				}
+				_, err := w.Write([]byte(`{"version":"` + requestID + `","desired_build_id":"build","outcome":"pending"}`))
+				require.NoError(t, err)
+			}))
+			out, err := executeReleaseCommand(t, tc.args...)
+			require.NoError(t, err, "a resume that finds its request applied has succeeded")
+			require.Contains(t, out, msgReleaseRetryAlreadyApplied("target", requestID))
+			require.Zero(t, posts, "a request that already landed is not sent again")
+		})
+	}
 }
 
 func TestReleaseSetupApplyRefusesAPlanReviewedForAnotherTarget(t *testing.T) {
@@ -346,7 +365,10 @@ func TestReleaseSetupApplyReportsAPartialConfiguration(t *testing.T) {
 	apply = true
 	_, err = executeReleaseCommand(t, append(args, "--apply")...)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), errReleaseSetupPartial(errors.New("x")).Error()[:40])
+	var apiErr *apiError
+	require.ErrorAs(t, err, &apiErr, "the wrapped cause must survive")
+	require.Equal(t, http.StatusServiceUnavailable, apiErr.StatusCode)
+	require.EqualError(t, err, errReleaseSetupPartial(apiErr).Error())
 }
 
 func TestReleaseRetryDoesNotAdviseResumingAfterARejection(t *testing.T) {
@@ -371,4 +393,25 @@ func TestReleaseRetryNamesADeploymentWithNoPolicy(t *testing.T) {
 	}))
 	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build")
 	require.EqualError(t, err, errReleaseNoPolicyToRetry("target").Error())
+}
+
+func TestReleaseRetryOffersAResumeWhenTheResponseMayBeLost(t *testing.T) {
+	version, requestID := uuid.NewString(), uuid.NewString()
+	for _, status := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					_, err := w.Write([]byte(`{"version":"` + version + `"}`))
+					require.NoError(t, err)
+					return
+				}
+				require.Equal(t, http.MethodPost, r.Method)
+				w.WriteHeader(status)
+			}))
+			_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--policy-version", version, "--request-id", requestID)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "--policy-version "+version)
+			require.Contains(t, err.Error(), "--request-id "+requestID)
+		})
+	}
 }
