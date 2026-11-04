@@ -56,7 +56,7 @@ func runDatasetSnapshot(cmd *cobra.Command, args []string) error {
 	if _, err = apiCall(cmd.Context(), http.MethodGet, endpoint, nil, at.Token, verbose, &page); err != nil {
 		return err
 	}
-	if page.TotalItems > limit && !cmd.Flags().Changed("limit") {
+	if page.TotalItems > limit && !cmd.Flags().Changed("limit") && !cmd.Flags().Changed("offset") {
 		return errDatasetSnapshotSelection()
 	}
 	snapshot, err := snapshotDataset(dataset.DatasetName, dataset.ID, page.Items)

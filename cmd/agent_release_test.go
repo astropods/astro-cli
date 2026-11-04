@@ -33,7 +33,9 @@ func TestReleaseStatusRequiresTheSubmittedBuildAndReadyRevision(t *testing.T) {
 			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/api/v1/deployments/target/auto-deploy/status":
-					_, err := w.Write([]byte(`{"policy":{"enabled":true,"outcome":"submitted","desired_build_id":"wanted","submitted_revision":2}}`))
+					// ready is true here so the mismatch case proves the client
+					// discards it, rather than passing on an absent field.
+					_, err := w.Write([]byte(`{"ready":true,"policy":{"enabled":true,"outcome":"submitted","desired_build_id":"wanted","submitted_revision":2}}`))
 					require.NoError(t, err)
 				case "/api/v1/deployments/target":
 					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"deployment": map[string]any{"id": "target", "build_id": build, "current_revision": 2, "status": "Running"}}))
@@ -141,6 +143,10 @@ func TestReleaseSetupValidatesWithoutApplyingAndChecksPermissionsBeforeWrites(t 
 			}))
 			args := []string{"setup", "--id", "target", "--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
 			if tc.apply {
+				// --apply enables the reviewed plan, so the plan run comes first.
+				_, err := executeReleaseCommand(t, args...)
+				require.NoError(t, err)
+				calls = calls[:0]
 				args = append(args, "--apply")
 			}
 			_, err := executeReleaseCommand(t, args...)
@@ -183,4 +189,53 @@ func TestReleaseComparePreservesTheFullComparisonAndUsesTheSelectedRuns(t *testi
 	out, err = executeReleaseCommand(t, args...)
 	require.NoError(t, err)
 	require.Equal(t, msgReleaseComparison(releaseComparison{BaselineBuildID: "old", CurrentBuildID: "new", Changed: 1, Regressed: 1})+"\n", out)
+}
+
+func TestReleaseSetupApplyRefusesAPlanThatChangedSinceReview(t *testing.T) {
+	dir := t.TempDir()
+	dataset := filepath.Join(dir, "dataset.json")
+	rules := filepath.Join(dir, "rules.json")
+	output := filepath.Join(dir, "plan.json")
+	require.NoError(t, os.WriteFile(dataset, []byte(`{"name":"fixture","cases":[{"id":"one","input":true}]}`), 0600))
+	require.NoError(t, os.WriteFile(rules, []byte(`[{"key":"accuracy","equals":true,"min_confidence":0.8}]`), 0600))
+	version := "pinned"
+	writes := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/build-evaluation-preflight"):
+			_, err := w.Write([]byte(`{"candidate_id":"candidate","target_id":"target","build_id":"build","revision":1,"policy":{"schema":"acceptance/v1"},"version":"` + version + `"}`))
+			require.NoError(t, err)
+		default:
+			writes++
+			w.WriteHeader(204)
+		}
+	}))
+	args := []string{"setup", "--id", "target", "--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
+	_, err := executeReleaseCommand(t, args...)
+	require.NoError(t, err)
+
+	// The candidate's evaluator set moves on between review and apply.
+	version = "different"
+	_, err = executeReleaseCommand(t, append(args, "--apply")...)
+	require.EqualError(t, err, errReleasePlanChanged(output).Error())
+	require.Zero(t, writes, "nothing is enabled against an unreviewed plan")
+
+	raw, err := os.ReadFile(output)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"pinned"`, "the reviewed plan survives a refusal")
+}
+
+func TestReleaseRetryReportsAnAlreadyAppliedRequest(t *testing.T) {
+	requestID := "11111111-1111-4111-8111-111111111111"
+	posts := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+		}
+		_, err := w.Write([]byte(`{"version":"` + requestID + `"}`))
+		require.NoError(t, err)
+	}))
+	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--request-id", requestID)
+	require.EqualError(t, err, errReleaseRetryAlreadyApplied(requestID).Error())
+	require.Zero(t, posts, "a request that already landed is not sent again")
 }

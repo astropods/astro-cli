@@ -52,6 +52,25 @@ func readReleaseJSON(path string) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// matchesReviewedPlan compares a fresh preflight result with the saved plan.
+// Version is the server's hash of the acceptance definition, so it covers the
+// dataset, evaluator set, rules, runners, and age limit; build and revision
+// cover the candidate's state.
+func matchesReviewedPlan(path string, plan releasePlan) error {
+	saved, err := readReleaseJSON(path)
+	if err != nil {
+		return errReleasePlanUnreadable(path, err)
+	}
+	var reviewed releasePlan
+	if err = json.Unmarshal(saved, &reviewed); err != nil {
+		return errReleasePlanUnreadable(path, err)
+	}
+	if reviewed.Version != plan.Version || reviewed.BuildID != plan.BuildID || reviewed.Revision != plan.Revision {
+		return errReleasePlanChanged(path)
+	}
+	return nil
+}
+
 func runReleaseSetup(cmd *cobra.Command, _ []string) error {
 	target, err := releaseDeploymentID(cmd)
 	if err != nil {
@@ -90,10 +109,16 @@ func runReleaseSetup(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = writeFileAtomically(output, bytes.NewReader(append(raw, '\n'))); err != nil {
+	apply, _ := cmd.Flags().GetBool("apply")
+	if apply {
+		// Apply what was reviewed, not a plan generated moments ago. The file
+		// is left untouched so the reviewed artifact survives a refusal.
+		if err = matchesReviewedPlan(output, plan); err != nil {
+			return err
+		}
+	} else if _, err = writeFileAtomically(output, bytes.NewReader(append(raw, '\n'))); err != nil {
 		return err
 	}
-	apply, _ := cmd.Flags().GetBool("apply")
 	if apply {
 		var existing releasePolicy
 		if _, err = apiCall(cmd.Context(), http.MethodGet, releaseURL(candidate, "auto-deploy"), nil, at.Token, verbose, &existing); err != nil {

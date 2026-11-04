@@ -84,20 +84,18 @@ func runReleaseStatus(cmd *cobra.Command, _ []string) error {
 	}
 	p := result.Policy
 	if p.Outcome == "submitted" && p.SubmittedRevision != nil {
+		// The server's flag cannot describe a target that has since moved.
+		result.Ready = false
 		dep, err := getAgentDeploymentFull(cmd.Context(), id, at, verbose)
 		if err != nil {
 			return err
 		}
 		if dep.BuildID == p.DesiredBuild && dep.CurrentRevision == *p.SubmittedRevision {
-			var runtime struct {
-				Runtime struct {
-					ReadyRevision int `json:"ready_revision"`
-				} `json:"runtime"`
-			}
-			if _, err = apiCall(cmd.Context(), http.MethodGet, releaseURL(id, "runtime"), nil, at.Token, verbose, &runtime); err != nil {
+			runtime, err := pollDeploymentRuntime(cmd.Context(), id, at, verbose)
+			if err != nil {
 				return err
 			}
-			result.Ready = runtime.Runtime.ReadyRevision == *p.SubmittedRevision
+			result.Ready = runtime.ReadyRevision == *p.SubmittedRevision
 		}
 	}
 	if output, _ := cmd.Flags().GetBool("json"); output {
@@ -202,12 +200,18 @@ func runReleaseRetry(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if version == "" {
+	fetched := version == ""
+	if fetched {
 		var policy releasePolicy
 		if _, err = apiCall(cmd.Context(), http.MethodGet, releaseURL(id, "auto-deploy"), nil, at.Token, verbose, &policy); err != nil {
 			return err
 		}
 		version = policy.Version
+	}
+	// A retry sets the policy version to its request ID, so finding them equal
+	// on a resume means this request already landed.
+	if fetched && version == requestID {
+		return errReleaseRetryAlreadyApplied(requestID)
 	}
 	if parsed, parseErr := uuid.Parse(version); parseErr != nil || parsed == uuid.Nil || parsed.String() != version || version == requestID {
 		return errReleasePolicyVersion()

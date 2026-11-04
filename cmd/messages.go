@@ -1432,6 +1432,18 @@ func errReleaseJSONFile(path string) error {
 func errReleaseSetupResponse() error {
 	return errors.New("the server returned a different or incomplete acceptance plan")
 }
+
+func errReleasePlanUnreadable(path string, cause error) error {
+	return fmt.Errorf("could not read the reviewed plan %s: %w; run setup without --apply to produce it", path, cause)
+}
+
+func errReleasePlanChanged(path string) error {
+	return fmt.Errorf("the candidate or its configuration changed since %s was written; review the new plan by running setup without --apply, then repeat with --apply", path)
+}
+
+func errReleaseRetryAlreadyApplied(requestID string) error {
+	return fmt.Errorf("retry request %s was already applied; run 'agent release status --id <id>' to see its outcome", requestID)
+}
 func errReleaseCandidatePolicy() error {
 	return errors.New("the candidate already uses an acceptance policy; choose a dedicated candidate before enabling this workflow")
 }
