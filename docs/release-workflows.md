@@ -7,7 +7,7 @@ These commands require a server with build evaluation and promotion support.
 Use separate candidate and target deployments of the same blueprint in the same account.
 Configure the candidate's active evaluators for input/output evaluation first.
 
-Export reviewed dataset items, including their expected outputs and verified evaluator values:
+Export reviewed dataset items with their expected outputs and evaluator values:
 
 ```sh
 ast dataset snapshot regression-cases --output dataset.json
@@ -15,6 +15,7 @@ ast dataset snapshot regression-cases --output dataset.json
 
 Snapshots contain 1 to 50 cases. For larger datasets, select a batch explicitly with `--limit` and `--offset`.
 Review outdated evaluator values before exporting.
+A snapshot exports the evaluator values the dataset holds for each case. Values an evaluation run produced and no human review confirmed are exported as they stand, and acceptance rules then gate on them, so review the dataset before exporting it.
 
 Write an acceptance rules array, for example:
 
@@ -63,5 +64,5 @@ ast agent release compare --id CANDIDATE --run CURRENT_RUN --baseline PREVIOUS_R
 ```
 
 Comparison requires completed runs from different builds with identical datasets and evaluator configuration.
-The earlier run is the baseline. Changes in verified-value matches count as improvements or regressions.
+The earlier run is the baseline. Changes in dataset-value matches count as improvements or regressions.
 Numeric values include deltas. Comparison does not change acceptance or trigger deployment.

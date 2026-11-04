@@ -397,8 +397,16 @@ func TestReleaseRetryNamesADeploymentWithNoPolicy(t *testing.T) {
 
 func TestReleaseRetryOffersAResumeWhenTheResponseMayBeLost(t *testing.T) {
 	version, requestID := uuid.NewString(), uuid.NewString()
-	for _, status := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
-		t.Run(strconv.Itoa(status), func(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply func(w http.ResponseWriter)
+	}{
+		{"unavailable", func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }},
+		{"throttled", func(w http.ResponseWriter) { w.WriteHeader(http.StatusTooManyRequests) }},
+		// A success the client cannot read still landed on the server.
+		{"truncated success", func(w http.ResponseWriter) { _, _ = w.Write([]byte(`{"version":`)) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					_, err := w.Write([]byte(`{"version":"` + version + `"}`))
@@ -406,7 +414,7 @@ func TestReleaseRetryOffersAResumeWhenTheResponseMayBeLost(t *testing.T) {
 					return
 				}
 				require.Equal(t, http.MethodPost, r.Method)
-				w.WriteHeader(status)
+				tc.reply(w)
 			}))
 			_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--policy-version", version, "--request-id", requestID)
 			require.Error(t, err)
@@ -414,4 +422,55 @@ func TestReleaseRetryOffersAResumeWhenTheResponseMayBeLost(t *testing.T) {
 			require.Contains(t, err.Error(), "--request-id "+requestID)
 		})
 	}
+}
+
+func TestReleaseRetryRefusesAnAppliedRequestForAnotherBuild(t *testing.T) {
+	requestID := uuid.NewString()
+	posts := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+		}
+		_, err := w.Write([]byte(`{"version":"` + requestID + `","desired_build_id":"applied"}`))
+		require.NoError(t, err)
+	}))
+	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "requested", "--request-id", requestID)
+	require.EqualError(t, err, errReleaseRetryBuildMismatch(requestID, "applied", "requested").Error())
+	require.Zero(t, posts, "a request applied for another build is not retried")
+}
+
+func TestReleaseSetupAcceptsEnablementResponsesWithNoBody(t *testing.T) {
+	dir := t.TempDir()
+	dataset := filepath.Join(dir, "dataset.json")
+	rules := filepath.Join(dir, "rules.json")
+	output := filepath.Join(dir, "plan.json")
+	require.NoError(t, os.WriteFile(dataset, []byte(`{"name":"fixture","cases":[{"id":"one","input":true}]}`), 0600))
+	require.NoError(t, os.WriteFile(rules, []byte(`[{"key":"accuracy","equals":true,"min_confidence":0.8}]`), 0600))
+	puts := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/build-evaluation-preflight"):
+			_, err := w.Write([]byte(`{"candidate_id":"candidate","target_id":"target","build_id":"build","revision":1,"policy":{"schema":"acceptance/v1"},"version":"pinned"}`))
+			require.NoError(t, err)
+		case r.Method == http.MethodGet:
+			_, err := w.Write([]byte(`{"mode":"published"}`))
+			require.NoError(t, err)
+		case r.URL.Query().Get("dryrun") == "true":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPut:
+			// Enablement answers 204, which is what the dry run already returns.
+			puts++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			_, err := w.Write([]byte(`{"version":"pinned"}`))
+			require.NoError(t, err)
+		}
+	}))
+	args := []string{"setup", "--id", "target", "--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
+	_, err := executeReleaseCommand(t, args...)
+	require.NoError(t, err)
+
+	_, err = executeReleaseCommand(t, append(args, "--apply")...)
+	require.NoError(t, err, "an empty enablement response is a success, not a partial configuration")
+	require.Equal(t, 2, puts, "the candidate and the target are both enabled")
 }

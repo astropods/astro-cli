@@ -1449,6 +1449,10 @@ func msgReleaseRetryAlreadyApplied(id, requestID string) string {
 	return fmt.Sprintf("Retry request %s was already applied. Run 'agent release status --id %s' to see its outcome.", requestID, id)
 }
 
+func errReleaseRetryBuildMismatch(requestID, applied, requested string) error {
+	return fmt.Errorf("retry request %s was already applied for build %s, not %s; use a new --request-id to retry a different build", requestID, applied, requested)
+}
+
 func errReleaseAcceptancePolicyStored(stored, reviewed string) error {
 	return fmt.Errorf("the server stored acceptance policy %s, which differs from the reviewed %s; nothing was enabled, so inspect the candidate's policy versions before retrying setup", stored, reviewed)
 }
@@ -1467,7 +1471,7 @@ func msgReleaseSetupComplete(path string, applied bool) string {
 }
 
 func msgDatasetSnapshotHelp() string {
-	return "Writes an immutable JSON snapshot with case inputs, expected outputs, and verified evaluator values. Source data stays unchanged. For datasets larger than 50 items, choose a subset explicitly with --limit and --offset."
+	return "Writes an immutable JSON snapshot with case inputs, expected outputs, and the evaluator values each case carries in the dataset. A value a human review did not confirm is exported as it stands, so review the dataset before exporting. Source data stays unchanged. For datasets larger than 50 items, choose a subset explicitly with --limit and --offset."
 }
 func errDatasetSnapshotFlags() error {
 	return errors.New("snapshot requires --limit from 1 to 50, a nonnegative --offset divisible by limit, and --output")
@@ -1477,7 +1481,7 @@ func errDatasetSnapshotSelection() error {
 }
 func errDatasetSnapshotEmpty() error { return errors.New("a snapshot requires 1 to 50 dataset items") }
 func errDatasetSnapshotOutdated(id string) error {
-	return fmt.Errorf("dataset item %s uses outdated evaluators; review its verified values before exporting", id)
+	return fmt.Errorf("dataset item %s uses outdated evaluators; review its values before exporting", id)
 }
 func errDatasetSnapshotInput(id string) error {
 	return fmt.Errorf("dataset item %s has an invalid or duplicate ID, input, or evaluator value", id)
@@ -1490,7 +1494,7 @@ func errReleaseComparisonRuns() error {
 	return errors.New("--run and --baseline must name distinct evaluation runs")
 }
 func msgReleaseComparison(c releaseComparison) string {
-	return fmt.Sprintf("Build %s compared with %s: %d changed values, %d improvements, %d regressions against verified values.", c.CurrentBuildID, c.BaselineBuildID, c.Changed, c.Improved, c.Regressed)
+	return fmt.Sprintf("Build %s compared with %s: %d changed values, %d improvements, %d regressions against the dataset values.", c.CurrentBuildID, c.BaselineBuildID, c.Changed, c.Improved, c.Regressed)
 }
 
 func errReleasePolicyVersion() error {

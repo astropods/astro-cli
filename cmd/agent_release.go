@@ -212,6 +212,9 @@ func runReleaseRetry(cmd *cobra.Command, _ []string) error {
 		// A retry sets the policy version to its request ID, so finding them
 		// equal means this request already landed.
 		if policy.Version == requestID {
+			if policy.DesiredBuild != build {
+				return errReleaseRetryBuildMismatch(requestID, policy.DesiredBuild, build)
+			}
 			if output, _ := cmd.Flags().GetBool("json"); output {
 				return writeJSON(cmd.OutOrStdout(), policy)
 			}
@@ -233,7 +236,8 @@ func runReleaseRetry(cmd *cobra.Command, _ []string) error {
 	status, err := apiCall(cmd.Context(), http.MethodPost, releaseURL(id, "auto-deploy", "retry"), body, at.Token, verbose, &result)
 	if err != nil {
 		// Resuming only helps when the response was lost. A rejection repeats.
-		if status < 0 || status >= 500 || status == http.StatusTooManyRequests {
+		// A 2xx that failed to decode landed, so it needs the hint as well.
+		if status < 0 || status >= 500 || status == http.StatusTooManyRequests || (status >= 200 && status < 300) {
 			return errReleaseRetryRequest(version, requestID, err)
 		}
 		return err

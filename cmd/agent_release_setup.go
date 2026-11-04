@@ -151,11 +151,12 @@ func runReleaseSetup(cmd *cobra.Command, _ []string) error {
 		if accepted.Version != plan.Version {
 			return errReleaseAcceptancePolicyStored(accepted.Version, plan.Version)
 		}
-		var policy releasePolicy
-		if _, err = apiCall(cmd.Context(), http.MethodPut, releaseURL(candidate, "auto-deploy"), candidatePolicy, at.Token, verbose, &policy); err != nil {
+		// Nothing reads the enabled policies back, and decoding an empty body
+		// would report a write that succeeded as a failure.
+		if _, err = apiCall(cmd.Context(), http.MethodPut, releaseURL(candidate, "auto-deploy"), candidatePolicy, at.Token, verbose, nil); err != nil {
 			return err
 		}
-		if _, err = apiCall(cmd.Context(), http.MethodPut, releaseURL(target, "auto-deploy"), targetPolicy, at.Token, verbose, &policy); err != nil {
+		if _, err = apiCall(cmd.Context(), http.MethodPut, releaseURL(target, "auto-deploy"), targetPolicy, at.Token, verbose, nil); err != nil {
 			return errReleaseSetupPartial(err)
 		}
 	}
