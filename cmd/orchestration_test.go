@@ -398,3 +398,74 @@ func TestDeploymentWaitReportsTheLaunchURL(t *testing.T) {
 	require.Contains(t, out.String(), msgDeploymentReady("dep", 2))
 	require.Contains(t, out.String(), msgLaunchURLLine("https://agent.example.test"))
 }
+
+func TestWhoamiAppliesTheMachineTokenBinding(t *testing.T) {
+	if os.Getenv("ASTRO_ORCHESTRATION_AUTH_CHILD") == "1" {
+		t.Setenv("HOME", t.TempDir())
+		writeAccountTestCredentials(t, accountTestCreds("acme-corp"))
+		cmd := &cobra.Command{RunE: runWhoami}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		err := cmd.Execute()
+		if os.Getenv("ASTRO_ACCOUNT") == "" {
+			require.EqualError(t, err, errMachineTokenNeedsAccount().Error(), "whoami cannot claim an identity every command rejects")
+			return
+		}
+		require.NoError(t, err)
+		require.Contains(t, out.String(), msgMachineTokenAuthenticated("ci-account"))
+		return
+	}
+	for _, account := range []string{"", "ci-account"} {
+		t.Run("ASTRO_ACCOUNT="+account, func(t *testing.T) {
+			executable, err := os.Executable()
+			require.NoError(t, err)
+			child := exec.Command(executable, "-test.run=^TestWhoamiAppliesTheMachineTokenBinding$")
+			for _, v := range os.Environ() {
+				if !strings.HasPrefix(v, "ASTRO_ACCOUNT=") && !strings.HasPrefix(v, "ASTRO_ACCESS_TOKEN=") {
+					child.Env = append(child.Env, v)
+				}
+			}
+			child.Env = append(child.Env, "ASTRO_ORCHESTRATION_AUTH_CHILD=1", "ASTRO_ACCESS_TOKEN=synthetic-test-token")
+			if account != "" {
+				child.Env = append(child.Env, "ASTRO_ACCOUNT="+account)
+			}
+			output, err := child.CombinedOutput()
+			require.NoError(t, err, "%s", output)
+		})
+	}
+}
+
+func TestBuildWaitNamesAnUnreadableBuildHistory(t *testing.T) {
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	_, err := waitForBuild(context.Background(), AccountToken{Account: "testaccount"}, "publisher", "dummy", "", strings.Repeat("b", 40), false, io.Discard)
+	require.EqualError(t, err, errBuildHistoryUnavailable("publisher", "dummy").Error())
+}
+
+func TestBlueprintDeployRejectsABadCommitBeforeAuthenticating(t *testing.T) {
+	// No credentials, so an unauthenticated run reports the selector only when
+	// it is checked ahead of authentication, as redeploy already does.
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		name string
+		args []string
+		want error
+	}{
+		{"not a sha", []string{"--commit", "nope"}, errInvalidCommit()},
+		{"with a build", []string{"--commit", strings.Repeat("b", 40), "--build", "build"}, errCommitWithBuild()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{RunE: runBlueprintDeploy}
+			registerDeployFlags(cmd)
+			cmd.SetArgs(append([]string{"dummy"}, tc.args...))
+			cmd.SetContext(context.Background())
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			require.EqualError(t, cmd.Execute(), tc.want.Error())
+		})
+	}
+}

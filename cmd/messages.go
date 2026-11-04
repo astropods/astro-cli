@@ -1320,6 +1320,14 @@ func errDeploymentFailed(id, status, detail string) error {
 	return fmt.Errorf("deployment %s reported %s: %s", id, status, detail)
 }
 
+func errBuildHistoryUnavailable(publisher, name string) error {
+	return fmt.Errorf("cannot read the build history of blueprint %s/%s; --commit resolves a build from that history, so deploy a published build with --build instead", publisher, name)
+}
+
+func msgMachineTokenAuthenticated(account string) string {
+	return fmt.Sprintf("Authenticated as account %q with ASTRO_ACCESS_TOKEN", account)
+}
+
 func errMachineTokenNeedsAccount() error {
 	return errors.New("ASTRO_ACCESS_TOKEN is set without ASTRO_ACCOUNT; set both to use a machine token, or unset ASTRO_ACCESS_TOKEN to use your saved login")
 }

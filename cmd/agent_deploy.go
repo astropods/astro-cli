@@ -292,6 +292,11 @@ func runBlueprintDeploy(cmd *cobra.Command, args []string) error {
 	if err := rejectAgentCoreOnlyFlags(cmd); err != nil {
 		return err
 	}
+	// Reject a bad selector before authentication, the environment lookup, and
+	// the cluster prompt, as redeploy already does.
+	if _, err := buildCommit(cmd, flagString(cmd, "build")); err != nil {
+		return err
+	}
 	_, cancel, err := orchestrationContext(cmd)
 	if err != nil {
 		return err
@@ -507,10 +512,11 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 			return errDeploymentRevisionConflict(opts.ExpectedRevision)
 		}
 		if status == http.StatusConflict {
-			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && opts.Environment != nil {
+			code, _ := apiErrorCodeAndBody(err)
+			switch {
+			case code == errCodeEnvironmentTaken && opts.Environment != nil:
 				return environmentOccupiedErr(at, opts.Environment.Name, opts.TemplateAccount, opts.Blueprint)
-			}
-			if code, _ := apiErrorCodeAndBody(err); code == "rollout_in_progress" {
+			case code == errCodeRolloutInProgress:
 				return errDeploymentRolloutInProgress()
 			}
 			return errDeployNameConflict(opts.DisplayName)
@@ -559,6 +565,7 @@ const (
 	errCodeBlueprintNotFound = "blueprint_not_found"
 	errCodeBuildNotFound     = "build_not_found"
 	errCodeEnvironmentTaken  = "environment_taken"
+	errCodeRolloutInProgress = "rollout_in_progress"
 )
 
 // notFoundFromTemplateErr maps the deployment-template 404 body to a more

@@ -110,7 +110,12 @@ func waitForBuild(ctx context.Context, at AccountToken, publisher, name, build, 
 		}
 		u := apiPath(blueprintBaseURL(), publisher, "agents", name, "builds") + "?" + query.Encode()
 		var response blueprintBuildsResponse
-		_, err = pollingGET(ctx, u, at.Token, verbose, &response)
+		status, err := pollingGET(ctx, u, at.Token, verbose, &response)
+		if isNotFound(status, err) {
+			// The endpoint answers 404 to a caller who cannot edit the blueprint,
+			// so a reachable blueprint reports this as a missing one.
+			return blueprintBuild{}, errBuildHistoryUnavailable(publisher, name)
+		}
 		if err != nil {
 			return blueprintBuild{}, errBuildWaitEnded(name, build, commit, err)
 		}

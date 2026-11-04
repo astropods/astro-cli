@@ -29,13 +29,15 @@ Push tests reset both command forms, preventing flag state from leaking across r
 
 AgentCore rejects unsupported commit, build, and timeout flags before deployment, preventing silent artifact substitution.
 Machine and saved-profile authentication share token validation and expiry handling after account selection.
-A machine token stands in for a saved login only when `ASTRO_ACCOUNT` names the account it was issued for, and addresses only that account. Setting the token alone, or naming a different account with it, fails with that instruction rather than sending one account's credential to another account's endpoints.
+A machine token stands in for a saved login only when `ASTRO_ACCOUNT` names the account it was issued for, and addresses only that account. Setting the token alone, or naming a different account with it, fails with that instruction rather than sending one account's credential to another account's endpoints. `whoami` applies the same rule, so it no longer reports an identity every other command refuses.
 
 JSON output contains one result after the requested wait; progress goes to stderr.
 `agent wait` resumes observation after interruption without submitting another deployment.
 A server that reports no deployment revision downgrades `--wait` to a warning, leaving a submitted deployment reported as deployed rather than failing a command that already created it.
 A stale `If-Match` and an in-progress rollout each report what to do next instead of surfacing the raw status. A precondition failure is reported as a revision conflict only when this command sent the precondition.
 `--dry-run --json` prints the validated template without its signature, keeping a usable deploy authorization out of captured output.
+`blueprint deploy` rejects an invalid or conflicting commit selector before authenticating, matching `agent redeploy`.
+A commit selector against a blueprint whose build history the caller cannot read names that limit and points at `--build`, rather than reporting the commit as missing.
 The waiting commands hide `--timeout` from MCP, where the runner ends the subprocess at its own tool timeout and a longer wait would lose the resume instructions.
 
 
@@ -44,6 +46,7 @@ The waiting commands hide `--timeout` from MCP, where the runner ends the subpro
 Install the server's build-selector and revision-readiness support before using these commands.
 `--wait` now checks workload readiness instead of the public chat URL. It still prints the launch URL once the revision is ready.
 Set `ASTRO_ACCOUNT` and `ASTRO_ACCESS_TOKEN` for headless use.
-`ASTRO_ACCESS_TOKEN` now requires `ASTRO_ACCOUNT`, and addresses only that account. A saved login plus an exported token with no account set previously authenticated as the profile's current account and now fails; export both, or unset the token to use the saved login.
+`ASTRO_ACCESS_TOKEN` now requires `ASTRO_ACCOUNT`, and addresses only that account. This is a breaking change for every command, not only the orchestration commands: a saved login plus an exported token with no account set now fails, so export both or unset the token to use the saved login.
+That combination used to behave inconsistently. The token was used when the active account carried no cached organization, which sent a token issued for one account under another account's name, and it was ignored in favour of the saved credential when the account did carry one. The same export therefore did different things depending on which account happened to be selected.
 `agent redeploy --commit` requires a server that reports deployment revisions. A bare `--wait` against an older server submits and reports the deployment without confirming readiness.
 Obtain a new machine token after expiry and resume with `agent wait`.

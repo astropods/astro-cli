@@ -3,12 +3,16 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/theme"
 )
 
@@ -33,10 +37,18 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	dim := color.New(color.Faint)
 	bold := color.New(color.Bold)
 
-	// Check for environment token first
+	// The binding every other command applies, so whoami reports no identity they refuse.
 	if token := auth.GetEnvAccessToken(); token != "" {
-		cyan.Print("→ ") //nolint:errcheck,gosec
-		fmt.Println("Authenticated via ASTRO_ACCESS_TOKEN environment variable")
+		account := strings.TrimSpace(os.Getenv(envvar.Account))
+		if account == "" {
+			return errMachineTokenNeedsAccount()
+		}
+		if expiresAt, err := auth.ParseJWTExpiry(token); err == nil && time.Until(expiresAt) <= 0 {
+			return errMachineTokenExpired()
+		}
+		w := cmd.OutOrStdout()
+		cyan.Fprint(w, "→ ")                                   //nolint:errcheck,gosec
+		fmt.Fprintln(w, msgMachineTokenAuthenticated(account)) //nolint:errcheck,gosec
 		return nil
 	}
 

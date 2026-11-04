@@ -26,6 +26,8 @@ Older servers that omit revisions still support plain redeploys; orchestration r
 Redeployment preserves the display name returned by the server template, including a concurrent rename.
 `TestRedeployPreservesTheTemplateNameAfterConcurrentConfigurationChanges` covers this behavior.
 A concurrent change fails the precondition. A newer revision detected during waiting fails the wait.
+The revision is read before the build wait, so another change during a long wait fails the precondition at submission. That keeps omitted flags faithful to the configuration that was read, and re-running is cheap because the build is already published.
+`--commit` resolves a build from the publisher's history, which a caller who cannot edit the blueprint cannot read. Deploy a published build of someone else's blueprint with `--build`.
 
 Readiness requires both the expected current revision and the server's matching `ready_revision` observation.
 A missing chat URL does not imply success. A deadline or cancellation returns an error.
