@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -62,7 +61,7 @@ func waitForDeployment(ctx context.Context, expected agentDeployResult, at Accou
 		if err != nil {
 			return errDeploymentWaitEnded(expected, err)
 		}
-		dep, err := getAgentDeploymentFull(ctx, expected.DeploymentID, at, verbose)
+		dep, err := pollAgentDeploymentFull(ctx, expected.DeploymentID, at, verbose)
 		if err != nil {
 			return errDeploymentWaitEnded(expected, err)
 		}
@@ -75,16 +74,11 @@ func waitForDeployment(ctx context.Context, expected agentDeployResult, at Accou
 		status := strings.ToLower(dep.Status)
 		switch status {
 		case "running", "active":
-			var response struct {
-				Runtime struct {
-					ReadyRevision int `json:"ready_revision"`
-				} `json:"runtime"`
-			}
-			u := apiPath(agentBaseURL(), url.PathEscape(expected.DeploymentID), "deployments", "runtime")
-			if _, err := pollingGET(ctx, u, at.Token, verbose, &response); err != nil {
+			runtime, err := pollDeploymentRuntime(ctx, expected.DeploymentID, at, verbose)
+			if err != nil {
 				return errDeploymentWaitEnded(expected, err)
 			}
-			if response.Runtime.ReadyRevision == expected.Revision {
+			if runtime.ReadyRevision == expected.Revision {
 				return nil
 			}
 		case "stopped", "suspended", "undeploying", "undeployed", "restricted":

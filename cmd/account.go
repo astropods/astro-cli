@@ -312,6 +312,11 @@ func accountOrgID(accounts []auth.StoredAccount, account string) string {
 
 func accountToken(ctx context.Context, account string, force bool) (string, error) {
 	if token := auth.GetEnvAccessToken(); token != "" {
+		// The token is bound to the account that issued it, so it may only
+		// stand in for a saved login when ASTRO_ACCOUNT names that account.
+		if strings.TrimSpace(os.Getenv(envvar.Account)) == "" {
+			return "", errMachineTokenNeedsAccount()
+		}
 		if expiresAt, err := auth.ParseJWTExpiry(token); err == nil && time.Until(expiresAt) <= 0 {
 			return "", errMachineTokenExpired()
 		}

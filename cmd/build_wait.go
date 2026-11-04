@@ -133,6 +133,9 @@ func waitForBuild(ctx context.Context, at AccountToken, publisher, name, build, 
 				fmt.Fprintln(progress, msgBuildWaiting(build, candidate.Status)) //nolint:errcheck
 				lastStatus = candidate.Status
 			}
+		} else if lastStatus == "" {
+			fmt.Fprintln(progress, msgBuildAbsent(build, commit)) //nolint:errcheck
+			lastStatus = "absent"
 		}
 		if err := waitOrchestrationPoll(ctx); err != nil {
 			return blueprintBuild{}, errBuildWaitEnded(name, build, commit, err)

@@ -182,3 +182,28 @@ func TestDeployDoesNotRetryFailedWrites(t *testing.T) {
 		})
 	}
 }
+
+func TestTargetReadsDoNotRetryAndRetryAfterIsCapped(t *testing.T) {
+	t.Run("single attempt without a deadline", func(t *testing.T) {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls++
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(server.Close)
+		agentServerURLOverride = server.URL
+		t.Cleanup(func() { agentServerURLOverride = "" })
+
+		start := time.Now()
+		_, err := getAgentDeploymentFull(context.Background(), "dep", AccountToken{Token: "token"}, false)
+		require.Error(t, err)
+		require.Equal(t, 1, calls, "every --id command resolves its target here and sets no deadline")
+		require.Less(t, time.Since(start), time.Second)
+	})
+
+	t.Run("orchestration caps Retry-After", func(t *testing.T) {
+		require.Equal(t, maxRetryAfter, min(retryAfterDelay("3600", time.Now()), maxRetryAfter))
+		require.Equal(t, 5*time.Second, min(retryAfterDelay("5", time.Now()), maxRetryAfter))
+	})
+}

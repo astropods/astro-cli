@@ -497,12 +497,15 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 		if isNotFound(status, err) {
 			return errDeployUnavailable(opts.DisplayName, err)
 		}
+		if status == http.StatusPreconditionFailed {
+			return errDeploymentRevisionConflict(opts.ExpectedRevision)
+		}
 		if status == http.StatusConflict {
 			if code, _ := apiErrorCodeAndBody(err); code == errCodeEnvironmentTaken && opts.Environment != nil {
 				return environmentOccupiedErr(at, opts.Environment.Name, opts.TemplateAccount, opts.Blueprint)
 			}
 			if code, _ := apiErrorCodeAndBody(err); code == "rollout_in_progress" {
-				return err
+				return errDeploymentRolloutInProgress()
 			}
 			return errDeployNameConflict(opts.DisplayName)
 		}
@@ -511,14 +514,17 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 
 	result.CommitSHA = commit
 	if wait {
+		// The deployment is already submitted, so a server that reports no
+		// revision downgrades the wait instead of failing a created deployment.
 		if result.DeploymentID == "" || result.Revision < 1 {
-			return errDeploymentRevisionUnsupported()
+			fmt.Fprintln(progress, msgDeploymentWaitUnsupported(result.DeploymentID)) //nolint:errcheck
+		} else {
+			fmt.Fprintln(progress, msgDeploymentQueued(result)) //nolint:errcheck
+			if err := waitForDeployment(ctx, result, at, verbose, progress); err != nil {
+				return err
+			}
+			result.Status = "active"
 		}
-		fmt.Fprintln(progress, msgDeploymentQueued(result)) //nolint:errcheck
-		if err := waitForDeployment(ctx, result, at, verbose, progress); err != nil {
-			return err
-		}
-		result.Status = "active"
 	}
 	if jsonOut {
 		return writeJSON(w, result)

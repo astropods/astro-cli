@@ -45,9 +45,11 @@ type runtimeWorkload struct {
 }
 
 type deploymentRuntime struct {
-	Ready     int32             `json:"ready"`
-	Replicas  int32             `json:"replicas"`
-	Workloads []runtimeWorkload `json:"workloads,omitempty"`
+	Ready int32 `json:"ready"`
+	// Zero until the server reports one.
+	ReadyRevision int               `json:"ready_revision"`
+	Replicas      int32             `json:"replicas"`
+	Workloads     []runtimeWorkload `json:"workloads,omitempty"`
 }
 
 type deploymentAlert struct {
@@ -88,9 +90,17 @@ type deploymentRuntimeResponse struct {
 }
 
 func getDeploymentRuntime(ctx context.Context, id string, at AccountToken, verbose bool) (*deploymentRuntime, error) {
-	u := fmt.Sprintf("%s/api/v1/deployments/%s/runtime", agentBaseURL(), url.PathEscape(id))
+	return readDeploymentRuntime(ctx, id, at, verbose, apiGET)
+}
+
+func pollDeploymentRuntime(ctx context.Context, id string, at AccountToken, verbose bool) (*deploymentRuntime, error) {
+	return readDeploymentRuntime(ctx, id, at, verbose, pollingGET)
+}
+
+func readDeploymentRuntime(ctx context.Context, id string, at AccountToken, verbose bool, get getFunc) (*deploymentRuntime, error) {
+	u := apiPath(agentBaseURL(), url.PathEscape(id), "deployments", "runtime")
 	var result deploymentRuntimeResponse
-	if _, err := apiCall(ctx, http.MethodGet, u, nil, at.Token, verbose, &result); err != nil {
+	if _, err := get(ctx, u, at.Token, verbose, &result); err != nil {
 		return nil, err
 	}
 	return &result.Runtime, nil

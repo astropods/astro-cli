@@ -35,10 +35,20 @@ type agentDeploymentFullResponse struct {
 	Deployment agentDeploymentFull `json:"deployment"`
 }
 
+// Single attempt: every `--id` and `--env` command resolves its target here
+// without a deadline.
 func getAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
+	return readAgentDeploymentFull(ctx, id, at, verbose, apiGET)
+}
+
+func pollAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool) (*agentDeploymentFull, error) {
+	return readAgentDeploymentFull(ctx, id, at, verbose, pollingGET)
+}
+
+func readAgentDeploymentFull(ctx context.Context, id string, at AccountToken, verbose bool, get getFunc) (*agentDeploymentFull, error) {
 	u := apiPath(agentBaseURL(), url.PathEscape(id), "deployments")
 	var result agentDeploymentFullResponse
-	status, err := pollingGET(ctx, u, at.Token, verbose, &result)
+	status, err := get(ctx, u, at.Token, verbose, &result)
 	if isNotFound(status, err) {
 		return nil, errAgentDeploymentNotFoundForID(id)
 	}

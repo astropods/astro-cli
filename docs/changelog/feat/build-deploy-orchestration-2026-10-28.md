@@ -16,10 +16,10 @@ Target resolution shares ID, name, and environment lookup without rereading the 
 Deployment reads preserve authorization and availability errors; only missing deployments receive the not-found message.
 Redeployment preserves the server template's display name, avoiding stale name writes during concurrent changes.
 The shared deadline starts before authentication and target resolution, covering publication, submission, and rollout.
-Initial read retries honor it, including long `Retry-After` delays.
 Readiness requires the expected build, revision, and server readiness observation.
-Build, deployment-detail, and runtime GETs retry transient network errors and selected HTTP failures up to three times per read.
-Exponential backoff adds jitter, honors `Retry-After`, and stops on cancellation or the command deadline.
+Only the waiting commands retry. Build, deployment-detail, and runtime reads inside a wait retry transient network errors and selected HTTP failures up to three times per read.
+Exponential backoff adds jitter, stops on cancellation or the command deadline, and honors `Retry-After` up to thirty seconds.
+Resolving a `--id` or `--env` target reads once, because those commands set no deadline to bound a retry loop against.
 Authentication errors, missing resources, revision conflicts, and invalid JSON fail immediately.
 Writes remain single attempts so an uncertain response cannot submit another deployment.
 Regression coverage exercises recovery across all polling reads, retry exhaustion, cancellation, and failed writes.
@@ -27,9 +27,12 @@ Push tests reset both command forms, preventing flag state from leaking across r
 
 AgentCore rejects unsupported commit, build, and timeout flags before deployment, preventing silent artifact substitution.
 Machine and saved-profile authentication share token validation and expiry handling after account selection.
+A machine token stands in for a saved login only when `ASTRO_ACCOUNT` names the account it was issued for. Setting the token alone fails with that instruction rather than authenticating a saved org account with an unrelated credential.
 
 JSON output contains one result after the requested wait; progress goes to stderr.
 `agent wait` resumes observation after interruption without submitting another deployment.
+A server that reports no deployment revision downgrades `--wait` to a warning, leaving a submitted deployment reported as deployed rather than failing a command that already created it.
+A stale `If-Match` and an in-progress rollout each report what to do next instead of surfacing the raw status.
 
 
 ## Migration

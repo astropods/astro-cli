@@ -77,7 +77,7 @@ func TestRedeployPreservesTheTemplateNameAfterConcurrentConfigurationChanges(t *
 			}
 			err := runAgentRedeploy(command, nil)
 			if tc.stale {
-				require.EqualError(t, err, newAPIError(http.StatusPreconditionFailed, conflict).Error())
+				require.EqualError(t, err, errDeploymentRevisionConflict(4).Error())
 			} else {
 				require.NoError(t, err)
 			}

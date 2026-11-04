@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+const maxRetryAfter = 30 * time.Second
+
+type getFunc func(ctx context.Context, requestURL, token string, verbose bool, dest any) (int, error)
+
+func apiGET(ctx context.Context, requestURL, token string, verbose bool, dest any) (int, error) {
+	return apiCall(ctx, http.MethodGet, requestURL, nil, token, verbose, dest)
+}
+
 func pollingGET(ctx context.Context, requestURL, token string, verbose bool, dest any) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -29,7 +37,7 @@ func pollingGET(ctx context.Context, requestURL, token string, verbose bool, des
 		delay += time.Duration(rand.Int64N(int64(delay))) //nolint:gosec
 		var apiErr *apiError
 		if errors.As(err, &apiErr) {
-			delay = max(delay, retryAfterDelay(apiErr.RetryAfter, time.Now()))
+			delay = max(delay, min(retryAfterDelay(apiErr.RetryAfter, time.Now()), maxRetryAfter))
 		}
 		if err := waitWithContext(ctx, delay); err != nil {
 			return status, err

@@ -160,3 +160,62 @@ func TestHeadlessAccountTokenNeedsNoStoredProfile(t *testing.T) {
 	output, err := child.CombinedOutput()
 	require.NoError(t, err, "%s", output)
 }
+
+func TestMachineTokenWithoutAccountIsRejected(t *testing.T) {
+	if os.Getenv("ASTRO_ORCHESTRATION_AUTH_CHILD") == "1" {
+		t.Setenv("HOME", t.TempDir())
+		writeAccountTestCredentials(t, accountTestCreds("acme-corp"))
+		_, err := getCurrentAccountToken(context.Background())
+		require.EqualError(t, err, errMachineTokenNeedsAccount().Error())
+		return
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	child := exec.Command(executable, "-test.run=^TestMachineTokenWithoutAccountIsRejected$")
+	for _, v := range os.Environ() {
+		if !strings.HasPrefix(v, "ASTRO_ACCOUNT=") && !strings.HasPrefix(v, "ASTRO_ACCESS_TOKEN=") {
+			child.Env = append(child.Env, v)
+		}
+	}
+	child.Env = append(child.Env, "ASTRO_ORCHESTRATION_AUTH_CHILD=1", "ASTRO_ACCESS_TOKEN=synthetic-test-token")
+	output, err := child.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+}
+
+func TestDeployWaitSucceedsWhenTheServerReportsNoRevision(t *testing.T) {
+	fastOrchestration(t)
+	deployPosts, runtimePolls := 0, 0
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agents/testaccount/dummy/deployment-template":
+			_ = json.NewEncoder(w).Encode(deployTemplateResponse{Template: json.RawMessage(`{"spec":"deployment/v1"}`), Validation: deployTemplateValidation{Valid: true}, Signature: "signature"})
+		case "/api/v1/deploy":
+			deployPosts++
+			_ = json.NewEncoder(w).Encode(agentDeployResult{DeploymentID: "dep", BuildID: "exact-build", Status: "pending"})
+		case "/api/v1/deployments/dep/runtime":
+			runtimePolls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"runtime": map[string]any{}})
+		default:
+			require.Failf(t, "unexpected request", "%s", r.URL)
+		}
+	}))
+	cmd := &cobra.Command{}
+	registerDeployCommonFlags(cmd)
+	cmd.SetContext(context.Background())
+	require.NoError(t, cmd.Flags().Set("wait", "true"))
+	require.NoError(t, cmd.Flags().Set("json", "true"))
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	err := runDeployWithRequest(cmd, AccountToken{Account: "testaccount", Token: "test-token"}, false, deployOptions{
+		TemplateAccount: "testaccount", Blueprint: "dummy", DisplayName: "Dummy",
+	})
+
+	require.NoError(t, err, "a submitted deployment must not fail the command")
+	require.Equal(t, 1, deployPosts)
+	require.Zero(t, runtimePolls, "no revision to wait for")
+	require.Contains(t, stderr.String(), msgDeploymentWaitUnsupported("dep"))
+	var result agentDeployResult
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+	require.Equal(t, "dep", result.DeploymentID)
+}

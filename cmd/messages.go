@@ -1283,8 +1283,34 @@ func msgBuildWaiting(build, status string) string {
 	return fmt.Sprintf("Build %s: %s", build, status)
 }
 
+func msgBuildAbsent(build, commit string) string {
+	if build != "" {
+		return fmt.Sprintf("No build %s yet; waiting for it to appear", build)
+	}
+	return fmt.Sprintf("No build for commit %s yet; waiting for it to appear", commit)
+}
+
+func errDeploymentRevisionConflict(revision int) error {
+	return fmt.Errorf("deployment changed since it was read (expected revision %d); re-run the redeploy to pick up the current revision", revision)
+}
+
+func errDeploymentRolloutInProgress() error {
+	return errors.New("a rollout is already in progress for this deployment; wait for it to finish, then redeploy")
+}
+
 func errMachineTokenExpired() error {
 	return errors.New("ASTRO_ACCESS_TOKEN expired; obtain a new token and resume waiting")
+}
+
+func msgDeploymentWaitUnsupported(id string) string {
+	if id == "" {
+		return "Deployed. This server does not report deployment revisions, so --wait returned without confirming readiness."
+	}
+	return fmt.Sprintf("Deployed %s. This server does not report deployment revisions, so --wait returned without confirming readiness.", id)
+}
+
+func errMachineTokenNeedsAccount() error {
+	return errors.New("ASTRO_ACCESS_TOKEN is set without ASTRO_ACCOUNT; set both to use a machine token, or unset ASTRO_ACCESS_TOKEN to use your saved login")
 }
 
 func errDeploymentRevisionUnsupported() error {
