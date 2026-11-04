@@ -3,9 +3,11 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,8 +29,18 @@ func executeReleaseCommand(t *testing.T, args ...string) (string, error) {
 }
 
 func TestReleaseStatusRequiresTheSubmittedBuildAndReadyRevision(t *testing.T) {
-	for _, build := range []string{"wanted", "newer"} {
-		t.Run(build, func(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		build         string
+		readyRevision int
+		wantReady     bool
+	}{
+		{"ready", "wanted", 2, true},
+		{"rollout behind", "wanted", 1, false},
+		{"target moved on", "newer", 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			build := tc.build
 			runtimeReads := 0
 			setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -41,7 +53,7 @@ func TestReleaseStatusRequiresTheSubmittedBuildAndReadyRevision(t *testing.T) {
 					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"deployment": map[string]any{"id": "target", "build_id": build, "current_revision": 2, "status": "Running"}}))
 				case "/api/v1/deployments/target/runtime":
 					runtimeReads++
-					_, err := w.Write([]byte(`{"runtime":{"ready_revision":2}}`))
+					_, err := w.Write([]byte(`{"runtime":{"ready_revision":` + strconv.Itoa(tc.readyRevision) + `}}`))
 					require.NoError(t, err)
 				default:
 					require.FailNow(t, "unexpected request", r.URL.String())
@@ -51,9 +63,9 @@ func TestReleaseStatusRequiresTheSubmittedBuildAndReadyRevision(t *testing.T) {
 			require.NoError(t, err)
 			var result releaseStatus
 			require.NoError(t, json.Unmarshal([]byte(raw), &result))
-			require.Equal(t, build == "wanted", result.Ready)
+			require.Equal(t, tc.wantReady, result.Ready)
 			if build == "newer" {
-				require.Zero(t, runtimeReads)
+				require.Zero(t, runtimeReads, "a moved target is not probed for readiness")
 			}
 		})
 	}
@@ -238,4 +250,125 @@ func TestReleaseRetryReportsAnAlreadyAppliedRequest(t *testing.T) {
 	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--request-id", requestID)
 	require.EqualError(t, err, errReleaseRetryAlreadyApplied(requestID).Error())
 	require.Zero(t, posts, "a request that already landed is not sent again")
+}
+
+func TestReleaseSetupApplyRefusesAPlanReviewedForAnotherTarget(t *testing.T) {
+	dir := t.TempDir()
+	dataset := filepath.Join(dir, "dataset.json")
+	rules := filepath.Join(dir, "rules.json")
+	output := filepath.Join(dir, "plan.json")
+	require.NoError(t, os.WriteFile(dataset, []byte(`{"name":"fixture","cases":[{"id":"one","input":true}]}`), 0600))
+	require.NoError(t, os.WriteFile(rules, []byte(`[{"key":"accuracy","equals":true,"min_confidence":0.8}]`), 0600))
+	writes := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/build-evaluation-preflight") {
+			writes++
+			w.WriteHeader(204)
+			return
+		}
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		// Same candidate and policy, so version, build and revision all match.
+		_, err := w.Write([]byte(`{"candidate_id":"candidate","target_id":"` + body["target_id"].(string) + `","build_id":"build","revision":1,"policy":{"schema":"acceptance/v1"},"version":"pinned"}`))
+		require.NoError(t, err)
+	}))
+	common := []string{"--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
+	_, err := executeReleaseCommand(t, append([]string{"setup", "--id", "staging"}, common...)...)
+	require.NoError(t, err)
+
+	_, err = executeReleaseCommand(t, append(append([]string{"setup", "--id", "prod"}, common...), "--apply")...)
+	require.EqualError(t, err, errReleasePlanChanged(output).Error())
+	require.Zero(t, writes, "a target absent from the reviewed plan is never configured")
+}
+
+func TestReleaseSetupApplyStopsOnACandidateThatIsAlreadyGated(t *testing.T) {
+	dir := t.TempDir()
+	dataset := filepath.Join(dir, "dataset.json")
+	rules := filepath.Join(dir, "rules.json")
+	output := filepath.Join(dir, "plan.json")
+	require.NoError(t, os.WriteFile(dataset, []byte(`{"name":"fixture","cases":[{"id":"one","input":true}]}`), 0600))
+	require.NoError(t, os.WriteFile(rules, []byte(`[{"key":"accuracy","equals":true,"min_confidence":0.8}]`), 0600))
+	mode := "published"
+	writes := 0
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/build-evaluation-preflight"):
+			_, err := w.Write([]byte(`{"candidate_id":"candidate","target_id":"target","build_id":"build","revision":1,"policy":{"schema":"acceptance/v1"},"version":"pinned"}`))
+			require.NoError(t, err)
+		case r.Method == http.MethodGet:
+			_, err := w.Write([]byte(`{"mode":"` + mode + `"}`))
+			require.NoError(t, err)
+		default:
+			writes++
+			w.WriteHeader(204)
+		}
+	}))
+	args := []string{"setup", "--id", "target", "--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
+	_, err := executeReleaseCommand(t, args...)
+	require.NoError(t, err)
+
+	mode = "accepted"
+	_, err = executeReleaseCommand(t, append(args, "--apply")...)
+	require.EqualError(t, err, errReleaseCandidatePolicy().Error())
+	require.Zero(t, writes, "a candidate that is itself gated is refused before any write")
+}
+
+func TestReleaseSetupApplyReportsAPartialConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	dataset := filepath.Join(dir, "dataset.json")
+	rules := filepath.Join(dir, "rules.json")
+	output := filepath.Join(dir, "plan.json")
+	require.NoError(t, os.WriteFile(dataset, []byte(`{"name":"fixture","cases":[{"id":"one","input":true}]}`), 0600))
+	require.NoError(t, os.WriteFile(rules, []byte(`[{"key":"accuracy","equals":true,"min_confidence":0.8}]`), 0600))
+	apply := false
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/build-evaluation-preflight"):
+			_, err := w.Write([]byte(`{"candidate_id":"candidate","target_id":"target","build_id":"build","revision":1,"policy":{"schema":"acceptance/v1"},"version":"pinned"}`))
+			require.NoError(t, err)
+		case r.Method == http.MethodGet:
+			_, err := w.Write([]byte(`{"mode":"published"}`))
+			require.NoError(t, err)
+		case r.URL.Query().Get("dryrun") == "true":
+			w.WriteHeader(204)
+		case apply && r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/target/"):
+			// The candidate is already enabled when the target write fails.
+			w.WriteHeader(503)
+		default:
+			_, err := w.Write([]byte(`{"version":"pinned"}`))
+			require.NoError(t, err)
+		}
+	}))
+	args := []string{"setup", "--id", "target", "--candidate", "candidate", "--dataset", dataset, "--rules", rules, "--runner", "app:runner", "--output", output}
+	_, err := executeReleaseCommand(t, args...)
+	require.NoError(t, err)
+
+	apply = true
+	_, err = executeReleaseCommand(t, append(args, "--apply")...)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), errReleaseSetupPartial(errors.New("x")).Error()[:40])
+}
+
+func TestReleaseRetryDoesNotAdviseResumingAfterARejection(t *testing.T) {
+	version := uuid.NewString()
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusConflict)
+		_, err := w.Write([]byte(`{"error":"publication superseded"}`))
+		require.NoError(t, err)
+	}))
+	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build", "--policy-version", version)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "resume with", "a rejected retry repeats; resuming is wrong advice")
+	require.Contains(t, err.Error(), "publication superseded")
+}
+
+func TestReleaseRetryNamesADeploymentWithNoPolicy(t *testing.T) {
+	setupAgentTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		_, err := w.Write([]byte(`{"enabled":false}`))
+		require.NoError(t, err)
+	}))
+	_, err := executeReleaseCommand(t, "retry", "--id", "target", "--build", "build")
+	require.EqualError(t, err, errReleaseNoPolicyToRetry("target").Error())
 }

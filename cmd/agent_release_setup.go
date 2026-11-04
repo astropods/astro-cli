@@ -53,9 +53,9 @@ func readReleaseJSON(path string) (json.RawMessage, error) {
 }
 
 // matchesReviewedPlan compares a fresh preflight result with the saved plan.
-// Version is the server's hash of the acceptance definition, so it covers the
-// dataset, evaluator set, rules, runners, and age limit; build and revision
-// cover the candidate's state.
+// Version is the server's hash of the acceptance definition, which carries the
+// dataset, evaluator set, rules, runners, and age limit but neither deployment,
+// so the target and candidate are compared on their own.
 func matchesReviewedPlan(path string, plan releasePlan) error {
 	saved, err := readReleaseJSON(path)
 	if err != nil {
@@ -65,7 +65,8 @@ func matchesReviewedPlan(path string, plan releasePlan) error {
 	if err = json.Unmarshal(saved, &reviewed); err != nil {
 		return errReleasePlanUnreadable(path, err)
 	}
-	if reviewed.Version != plan.Version || reviewed.BuildID != plan.BuildID || reviewed.Revision != plan.Revision {
+	if reviewed.TargetID != plan.TargetID || reviewed.CandidateID != plan.CandidateID ||
+		reviewed.Version != plan.Version || reviewed.BuildID != plan.BuildID || reviewed.Revision != plan.Revision {
 		return errReleasePlanChanged(path)
 	}
 	return nil

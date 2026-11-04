@@ -214,12 +214,20 @@ func runReleaseRetry(cmd *cobra.Command, _ []string) error {
 		return errReleaseRetryAlreadyApplied(requestID)
 	}
 	if parsed, parseErr := uuid.Parse(version); parseErr != nil || parsed == uuid.Nil || parsed.String() != version || version == requestID {
+		if fetched {
+			return errReleaseNoPolicyToRetry(id)
+		}
 		return errReleasePolicyVersion()
 	}
 	body := map[string]string{"policy_version": version, "build_id": build, "request_id": requestID}
 	var result releasePolicy
-	if _, err = apiCall(cmd.Context(), http.MethodPost, releaseURL(id, "auto-deploy", "retry"), body, at.Token, verbose, &result); err != nil {
-		return errReleaseRetryRequest(version, requestID, err)
+	status, err := apiCall(cmd.Context(), http.MethodPost, releaseURL(id, "auto-deploy", "retry"), body, at.Token, verbose, &result)
+	if err != nil {
+		// Resuming only helps when the response was lost. A rejection repeats.
+		if status < 0 || status >= 500 || status == http.StatusTooManyRequests {
+			return errReleaseRetryRequest(version, requestID, err)
+		}
+		return err
 	}
 	if output, _ := cmd.Flags().GetBool("json"); output {
 		return writeJSON(cmd.OutOrStdout(), result)
