@@ -202,8 +202,16 @@ func TestTargetReadsDoNotRetryAndRetryAfterIsCapped(t *testing.T) {
 		require.Less(t, time.Since(start), time.Second)
 	})
 
-	t.Run("orchestration caps Retry-After", func(t *testing.T) {
-		require.Equal(t, maxRetryAfter, min(retryAfterDelay("3600", time.Now()), maxRetryAfter))
-		require.Equal(t, 5*time.Second, min(retryAfterDelay("5", time.Now()), maxRetryAfter))
+	t.Run("Retry-After is capped", func(t *testing.T) {
+		now := time.Now()
+		hour := newAPIError(http.StatusServiceUnavailable, []byte(`{}`))
+		hour.RetryAfter = "3600"
+		require.Equal(t, maxRetryAfter, retryDelay(0, hour, now), "an hour is clamped to the cap")
+
+		short := newAPIError(http.StatusServiceUnavailable, []byte(`{}`))
+		short.RetryAfter = "5"
+		require.Equal(t, 5*time.Second, retryDelay(0, short, now), "a short Retry-After is honoured as sent")
+
+		require.Less(t, retryDelay(0, errors.New("network"), now), time.Second, "backoff alone stays small")
 	})
 }

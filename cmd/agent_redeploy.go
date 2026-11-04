@@ -65,12 +65,13 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	commit, _ := cmd.Flags().GetString("commit")
-	wait, _ := cmd.Flags().GetBool("wait")
 	dep, err := resolveAgentDeploymentTarget(cmd, at, verbose)
 	if err != nil {
 		return err
 	}
-	if (commit != "" || wait) && dep.CurrentRevision < 1 {
+	// A commit needs the revision for the If-Match precondition. A bare --wait
+	// takes the same downgrade as blueprint deploy on a pre-revision server.
+	if commit != "" && dep.CurrentRevision < 1 {
 		return errDeploymentRevisionUnsupported()
 	}
 

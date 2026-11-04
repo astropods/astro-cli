@@ -219,3 +219,111 @@ func TestDeployWaitSucceedsWhenTheServerReportsNoRevision(t *testing.T) {
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
 	require.Equal(t, "dep", result.DeploymentID)
 }
+
+func TestDeployWaitWithAnExplicitBuildSkipsThePublishersBuildHistory(t *testing.T) {
+	fastOrchestration(t)
+	buildReads, runtimePolls := 0, 0
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/builds"):
+			// Another account's build history answers 404 to a reader.
+			buildReads++
+			w.WriteHeader(http.StatusNotFound)
+		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
+			_ = json.NewEncoder(w).Encode(deployTemplateResponse{Template: json.RawMessage(`{"spec":"deployment/v1"}`), Validation: deployTemplateValidation{Valid: true}, Signature: "signature"})
+		case r.URL.Path == "/api/v1/deploy":
+			_ = json.NewEncoder(w).Encode(agentDeployResult{DeploymentID: "dep", BuildID: "exact-build", Revision: 4, Status: "pending"})
+		case r.URL.Path == "/api/v1/deployments/dep":
+			_ = json.NewEncoder(w).Encode(agentDeploymentFullResponse{Deployment: agentDeploymentFull{ID: "dep", BuildID: "exact-build", CurrentRevision: 4, Status: "Running"}})
+		case r.URL.Path == "/api/v1/deployments/dep/runtime":
+			runtimePolls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"runtime": map[string]any{"ready_revision": 4}})
+		default:
+			require.Failf(t, "unexpected request", "%s", r.URL)
+		}
+	}))
+	cmd := &cobra.Command{}
+	registerDeployCommonFlags(cmd)
+	cmd.SetContext(context.Background())
+	require.NoError(t, cmd.Flags().Set("wait", "true"))
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	err := runDeployWithRequest(cmd, AccountToken{Account: "mine", Token: "test-token"}, false, deployOptions{
+		TemplateAccount: "acme", Blueprint: "dummy", DisplayName: "Dummy",
+		Request: deployTemplateRequest{DeploymentID: "dep", Build: "exact-build"},
+	})
+
+	require.NoError(t, err, "a cross-account deploy with an explicit build must not need build history")
+	require.Zero(t, buildReads, "an already published build is not waited for")
+	require.Equal(t, 1, runtimePolls)
+}
+
+func TestDeploymentWaitStopsOnAFailedRollout(t *testing.T) {
+	fastOrchestration(t)
+	reads := 0
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/deployments/dep", r.URL.Path)
+		reads++
+		_ = json.NewEncoder(w).Encode(agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+			ID: "dep", BuildID: "one", CurrentRevision: 2, Status: "failed", ErrorMessage: "image pull failed",
+		}})
+	}))
+	err := waitForDeployment(context.Background(), agentDeployResult{DeploymentID: "dep", BuildID: "one", Revision: 2},
+		AccountToken{Account: "testaccount", Token: "test-token"}, false, io.Discard)
+	require.EqualError(t, err, errDeploymentFailed("dep", "failed", "image pull failed").Error())
+	require.Equal(t, 1, reads, "a failed rollout is not polled until the deadline")
+}
+
+func TestRedeployWaitDowngradesOnAServerWithoutRevisions(t *testing.T) {
+	fastOrchestration(t)
+	deployPosts := 0
+	setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
+			_ = json.NewEncoder(w).Encode(deployTemplateResponse{Template: json.RawMessage(`{"spec":"deployment/v1"}`), Validation: deployTemplateValidation{Valid: true}, Signature: "signature"})
+		case r.URL.Path == "/api/v1/deploy":
+			deployPosts++
+			_ = json.NewEncoder(w).Encode(agentDeployResult{DeploymentID: "dep", BuildID: "one", Status: "pending"})
+		case r.URL.Path == "/api/v1/deployments/dep":
+			// A pre-revision server reports no current_revision.
+			_ = json.NewEncoder(w).Encode(agentDeploymentFullResponse{Deployment: agentDeploymentFull{ID: "dep", Name: "dummy", BuildID: "one", Status: "Running"}})
+		default:
+			require.Failf(t, "unexpected request", "%s", r.URL)
+		}
+	}))
+	cmd := &cobra.Command{}
+	registerDeployCommonFlags(cmd)
+	registerAgentTargetFlags(cmd)
+	cmd.Flags().Bool("latest", false, "")
+	cmd.SetContext(context.Background())
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	require.NoError(t, cmd.Flags().Set("id", "dep"))
+	require.NoError(t, cmd.Flags().Set("wait", "true"))
+
+	require.NoError(t, runAgentRedeploy(cmd, nil), "a bare --wait matches blueprint deploy and does not fail before submitting")
+	require.Equal(t, 1, deployPosts)
+}
+
+func TestMachineTokenRejectsAnotherAccount(t *testing.T) {
+	if os.Getenv("ASTRO_ORCHESTRATION_AUTH_CHILD") == "1" {
+		t.Setenv("HOME", t.TempDir())
+		writeAccountTestCredentials(t, accountTestCreds("acme-corp"))
+		_, err := getAccountToken(context.Background(), "other-org")
+		require.EqualError(t, err, errMachineTokenAccountMismatch("ci-account", "other-org").Error())
+		return
+	}
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	child := exec.Command(executable, "-test.run=^TestMachineTokenRejectsAnotherAccount$")
+	for _, v := range os.Environ() {
+		if !strings.HasPrefix(v, "ASTRO_ACCOUNT=") && !strings.HasPrefix(v, "ASTRO_ACCESS_TOKEN=") {
+			child.Env = append(child.Env, v)
+		}
+	}
+	child.Env = append(child.Env, "ASTRO_ORCHESTRATION_AUTH_CHILD=1", "ASTRO_ACCOUNT=ci-account", "ASTRO_ACCESS_TOKEN=synthetic-test-token")
+	output, err := child.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+}

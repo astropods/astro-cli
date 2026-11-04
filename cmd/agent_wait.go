@@ -83,10 +83,14 @@ func waitForDeployment(ctx context.Context, expected agentDeployResult, at Accou
 			}
 		case "stopped", "suspended", "undeploying", "undeployed", "restricted":
 			return errDeploymentStopped(expected.DeploymentID, dep.Status)
+		case "failed", "error":
+			// The server sets these once its own retries are exhausted, so the
+			// expected revision will not become ready on its own.
+			return errDeploymentFailed(expected.DeploymentID, dep.Status, dep.ErrorMessage)
 		}
-		if dep.Status != lastStatus {
+		if detail := dep.Status + "\x00" + dep.ErrorMessage; detail != lastStatus {
 			fmt.Fprintln(progress, msgDeploymentWaiting(dep.Status, dep.ErrorMessage)) //nolint:errcheck
-			lastStatus = dep.Status
+			lastStatus = detail
 		}
 		if err := waitOrchestrationPoll(ctx); err != nil {
 			return errDeploymentWaitEnded(expected, err)

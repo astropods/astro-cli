@@ -1309,6 +1309,17 @@ func msgDeploymentWaitUnsupported(id string) string {
 	return fmt.Sprintf("Deployed %s. This server does not report deployment revisions, so --wait returned without confirming readiness.", id)
 }
 
+func errMachineTokenAccountMismatch(bound, requested string) error {
+	return fmt.Errorf("ASTRO_ACCESS_TOKEN is bound to account %q, but this command addresses %q; set ASTRO_ACCOUNT to the account you mean", bound, requested)
+}
+
+func errDeploymentFailed(id, status, detail string) error {
+	if detail == "" {
+		return fmt.Errorf("deployment %s reported %s; inspect it and redeploy after resolving the cause", id, status)
+	}
+	return fmt.Errorf("deployment %s reported %s: %s", id, status, detail)
+}
+
 func errMachineTokenNeedsAccount() error {
 	return errors.New("ASTRO_ACCESS_TOKEN is set without ASTRO_ACCOUNT; set both to use a machine token, or unset ASTRO_ACCESS_TOKEN to use your saved login")
 }

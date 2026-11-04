@@ -403,7 +403,10 @@ func runDeployWithRequest(cmd *cobra.Command, at AccountToken, verbose bool, opt
 	if jsonOut {
 		progress = cmd.ErrOrStderr()
 	}
-	if commit != "" || (wait && req.Build != "") {
+	// Only a commit needs resolving to a build. An explicit --build or --latest
+	// is already published, and the builds endpoint answers 404 to a caller who
+	// cannot edit the blueprint, which would break cross-account deploys.
+	if commit != "" {
 		buildPublisher := opts.TemplateAccount
 		if opts.BuildPublisher != "" {
 			buildPublisher = opts.BuildPublisher

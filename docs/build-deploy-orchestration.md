@@ -36,10 +36,11 @@ Unchanged `OnDelete` dependencies retain their pods. Changed dependency template
 Timeout errors include the deployment, build, and revision needed by `agent wait`.
 Waiting does not cancel a build or deployment, and resuming a wait does not submit another deployment.
 
-Build history, deployment detail, and runtime polling GETs retry transient failures up to three times per read.
+Polling reads inside a wait retry transient failures up to three times per read.
 Backoff starts at 250 milliseconds, doubles per retry, and adds jitter up to the current delay.
-The reader honors `Retry-After`; cancellation and the shared timeout interrupt backoff, including the initial deployment lookup.
-`TestRedeployTimeoutIncludesInitialReadBackoff` verifies that boundary.
+The reader honors `Retry-After` up to thirty seconds, and cancellation or the shared timeout interrupts backoff.
+Resolving a `--id` or `--env` target reads once, because those commands set no deadline to bound a retry loop against.
+`TestTargetReadsDoNotRetryAndRetryAfterIsCapped` covers both halves, and `TestRedeployTimeoutBoundsTheBuildWait` covers the deadline.
 Retryable HTTP statuses are `408`, `429`, `500`, `502`, `503`, and `504` (`cmd/polling_read.go`).
 Authentication failures, missing resources, revision conflicts, and malformed JSON fail immediately.
 Template and deployment POSTs remain single attempts (`TestDeployDoesNotRetryFailedWrites`).

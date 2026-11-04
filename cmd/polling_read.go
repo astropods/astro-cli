@@ -33,16 +33,22 @@ func pollingGET(ctx context.Context, requestURL, token string, verbose bool, des
 		if err == nil || attempt == attempts-1 || !retryableRead(status, err) {
 			return status, err
 		}
-		delay := 250 * time.Millisecond << attempt
-		delay += time.Duration(rand.Int64N(int64(delay))) //nolint:gosec
-		var apiErr *apiError
-		if errors.As(err, &apiErr) {
-			delay = max(delay, min(retryAfterDelay(apiErr.RetryAfter, time.Now()), maxRetryAfter))
-		}
-		if err := waitWithContext(ctx, delay); err != nil {
+		if err := waitWithContext(ctx, retryDelay(attempt, err, time.Now())); err != nil {
 			return status, err
 		}
 	}
+}
+
+// retryDelay is exponential backoff with jitter, raised to the server's
+// Retry-After when that is longer, and never beyond maxRetryAfter.
+func retryDelay(attempt int, err error, now time.Time) time.Duration {
+	delay := 250 * time.Millisecond << attempt
+	delay += time.Duration(rand.Int64N(int64(delay))) //nolint:gosec
+	var apiErr *apiError
+	if errors.As(err, &apiErr) {
+		delay = max(delay, min(retryAfterDelay(apiErr.RetryAfter, now), maxRetryAfter))
+	}
+	return delay
 }
 
 func retryableRead(status int, err error) bool {
