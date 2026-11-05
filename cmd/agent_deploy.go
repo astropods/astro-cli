@@ -65,6 +65,56 @@ type deployTemplateResponse struct {
 	Variables  map[string]struct {
 		Secret bool `json:"secret,omitempty"`
 	} `json:"variables,omitempty"`
+	Models       []deployTemplateModel       `json:"models,omitempty"`
+	Interfaces   deployTemplateInterfaceView `json:"interfaces"`
+	Bindings     *deployTemplateBindings     `json:"bindings,omitempty"`
+	Provisioning deployTemplateProvisioning  `json:"provisioning"`
+}
+
+type deployTemplateModel struct {
+	Name     string `json:"name"`
+	Selected string `json:"selected"`
+}
+
+type deployTemplateInterfaceView struct {
+	Adapters []string `json:"adapters"`
+	Auth     *struct {
+		Web    *deployTemplatePublic `json:"web,omitempty"`
+		Custom *deployTemplatePublic `json:"custom,omitempty"`
+	} `json:"auth,omitempty"`
+}
+
+type deployTemplatePublic struct {
+	Public bool `json:"public"`
+}
+
+type deployTemplateBindings struct {
+	Knowledge map[string]struct {
+		Name string `json:"name"`
+		ARN  string `json:"arn"`
+	} `json:"knowledge,omitempty"`
+}
+
+type deployTemplateProvisioning struct {
+	Agent        *deployTemplateComponent           `json:"agent,omitempty"`
+	Models       map[string]deployTemplateComponent `json:"models,omitempty"`
+	Knowledge    map[string]deployTemplateComponent `json:"knowledge,omitempty"`
+	Integrations map[string]deployTemplateComponent `json:"integrations,omitempty"`
+	Ingestion    map[string]deployTemplateComponent `json:"ingestion,omitempty"`
+}
+
+type deployTemplateComponent struct {
+	Compute *deployTemplateSize `json:"compute,omitempty"`
+	Sizing  *struct {
+		Mode string              `json:"mode"`
+		Min  *deployTemplateSize `json:"min,omitempty"`
+		Max  *deployTemplateSize `json:"max,omitempty"`
+	} `json:"sizing,omitempty"`
+}
+
+type deployTemplateSize struct {
+	CPU    string `json:"cpu,omitempty"`
+	Memory string `json:"memory,omitempty"`
 }
 
 type agentDeployResult struct {
@@ -88,7 +138,12 @@ blueprint in the current directory's astropods.yml.
 With -f astropods.deploy.yml, deploy each environment the file declares, for
 the blueprint in the astropods.yml beside it. An environment that holds an
 agent is redeployed, and a missing one is created. --env picks environments
-from the file and can repeat.`,
+from the file and can repeat.
+
+A redeploy keeps the agent's build, and a new agent gets the latest registered
+build. --build sets the build for every environment. Each environment prints
+its plan: the build, what the file changes, and what it leaves as is.
+--dry-run prints the plans and deploys nothing.`,
 	Args: optionalBlueprintRef,
 	RunE: runBlueprintDeploy,
 }
