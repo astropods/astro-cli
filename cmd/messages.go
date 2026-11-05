@@ -1301,3 +1301,54 @@ func errDeployFileFailed(failed []string, total int) error {
 func msgDeployFileEnvironmentFailed(env string, err error) string {
 	return fmt.Sprintf("%s: %v", env, err)
 }
+
+func msgDeployFilePlan(plan deployPlan) string {
+	var b strings.Builder
+	line := func(label, value string) {
+		fmt.Fprintf(&b, "    %-18s %s\n", label, value)
+	}
+	switch {
+	case plan.New:
+		line(plan.Build.Label, plan.Build.After+" (latest registered)")
+	case plan.Build.Before == plan.Build.After && plan.Latest != "":
+		line(plan.Build.Label, plan.Build.After+" (kept; "+plan.Latest+" is newer, deploy it with --build "+plan.Latest+")")
+	case plan.Build.Before == plan.Build.After && !plan.Pinned:
+		line(plan.Build.Label, plan.Build.After+" (kept, the latest build)")
+	case plan.Build.Before == plan.Build.After:
+		line(plan.Build.Label, plan.Build.After+" (unchanged)")
+	default:
+		line(plan.Build.Label, plan.Build.Before+" → "+plan.Build.After)
+	}
+	for _, r := range plan.Rows {
+		after := r.After
+		if after == "" {
+			after = "none"
+		}
+		switch {
+		case plan.New:
+			line(r.Label, after)
+		case r.NotCompared:
+			line(r.Label, "set "+after)
+		case r.Before == r.After:
+			line(r.Label, after+" (unchanged)")
+		default:
+			before := r.Before
+			if before == "" {
+				before = "none"
+			}
+			line(r.Label, before+" → "+after)
+		}
+	}
+	if len(plan.Kept) > 0 {
+		verb := "kept"
+		if plan.New {
+			verb = "defaults"
+		}
+		line("not in file", strings.Join(plan.Kept, ", ")+" ("+verb+")")
+	}
+	return b.String()
+}
+
+func msgDeployFileNothingDeployed(total int) string {
+	return fmt.Sprintf("Dry run: checked %s. Nothing was deployed.", plural(total, "environment"))
+}

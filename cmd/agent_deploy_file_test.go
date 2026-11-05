@@ -50,9 +50,9 @@ environments:
 	_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy)
 	require.NoError(t, err)
 
-	templates := fake.bodyLog[deployFileTemplatePath]
+	templates := finalizedTemplates(fake.bodyLog[deployFileTemplatePath])
 	deploys := fake.bodyLog["POST /api/v1/deploy"]
-	require.Len(t, templates, 3, "one template per environment, in sorted order: main, qa, staging")
+	require.Len(t, templates, 3, "one signed template per environment, in sorted order: main, qa, staging")
 	require.Len(t, deploys, 3)
 
 	main := templates[0]
@@ -72,6 +72,17 @@ environments:
 	assert.Nil(t, templates[2]["deployment_id"])
 	assert.Nil(t, templates[2]["interfaces"], "an environment that names no interfaces must not send any, or the stored adapters are replaced")
 	assert.Equal(t, map[string]any{"display_name": "mybot-staging", "environment_id": "env-staging"}, deploys[2]["target"])
+}
+
+// finalizedTemplates drops the plan's read-only template requests, keeping the signed ones /deploy uses.
+func finalizedTemplates(bodies []map[string]any) []map[string]any {
+	var out []map[string]any
+	for _, b := range bodies {
+		if b["finalize"] == true {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func TestDeployFileDeploysOnlyTheNamedEnvironments(t *testing.T) {

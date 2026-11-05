@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -82,6 +83,9 @@ func runDeployFile(cmd *cobra.Command, args []string, path string) error {
 	if len(failed) > 0 {
 		return errDeployFileFailed(failed, len(selected))
 	}
+	if dryRun {
+		fmt.Fprintln(w, msgDeployFileNothingDeployed(len(selected))) //nolint:errcheck,gosec
+	}
 	return nil
 }
 
@@ -98,6 +102,8 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 	displayName := generatedDisplayName(blueprint, envName)
 	var target *blueprintEnvironment
 	var created *blueprintEnvironment
+	var stored *deployTemplateResponse
+	var latestBuild string
 	switch {
 	case environment != nil && environment.DeploymentID != "":
 		dep, err := getAgentDeploymentFull(cmd.Context(), environment.DeploymentID, at, verbose)
@@ -106,6 +112,14 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 		}
 		req.DeploymentID = dep.ID
 		displayName = dep.DisplayName
+		if stored, err = storedDeployTemplate(cmd, at, verbose, blueprint, dep.ID); err != nil {
+			return err
+		}
+		if build == "" {
+			if latest, err := storedDeployTemplate(cmd, at, verbose, blueprint, ""); err == nil {
+				latestBuild = templateBuild(*latest)
+			}
+		}
 	case environment != nil:
 		target = environment
 	case !dryRun:
@@ -120,6 +134,7 @@ func deployFileEnvironment(cmd *cobra.Command, at AccountToken, verbose bool, bl
 	}
 
 	err := runDeployWithRequest(cmd, at, verbose, at.Account, blueprint, displayName, target, req, dryRun, func(tmpl deployTemplateResponse) error {
+		fmt.Fprint(cmd.OutOrStdout(), msgDeployFilePlan(buildDeployPlan(entry, stored, tmpl, build != "", latestBuild))) //nolint:errcheck,gosec
 		for varName, v := range req.Variables {
 			if v.Value != "" && tmpl.Variables[varName].Secret {
 				return errDeployFileSecretLiteral(varName)
