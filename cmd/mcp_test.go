@@ -218,6 +218,22 @@ func TestMCPToolSchemaFromFlags(t *testing.T) {
 	}
 }
 
+func TestMCPToolSchemaMarksRequiredFlags(t *testing.T) {
+	c := &cobra.Command{Use: "create", RunE: func(*cobra.Command, []string) error { return nil }}
+	c.Flags().String("title", "", "Title")
+	c.Flags().String("body", "", "Body")
+	c.Flags().String("base", "", "Base")
+	require.NoError(t, c.MarkFlagRequired("title"))
+	require.NoError(t, c.MarkFlagRequired("body"))
+	(&cobra.Command{Use: "ast"}).AddCommand(c)
+
+	tool, err := buildMCPTool(c, mcpPolicy{class: mcpWrite})
+	require.NoError(t, err)
+	s := mcpSchema(t, tool)
+
+	assert.ElementsMatch(t, []string{"title", "body"}, s.Required)
+}
+
 func TestMCPToolArgsOverrideRenamesPositional(t *testing.T) {
 	c := &cobra.Command{Use: "deploy <name>"}
 	c.Flags().String("name", "", "Display name")
