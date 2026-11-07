@@ -1,14 +1,23 @@
 package git
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 const MaxCommitMessageBytes = 8 << 10
+
+// gitTimeout bounds each invocation; CollectMetadata runs on every push.
+const gitTimeout = 30 * time.Second
+
+// gitWaitDelay bounds the pipe drain after the context deadline kills the
+// direct child, in case git spawned its own child that inherited the pipe.
+const gitWaitDelay = 5 * time.Second
 
 // Metadata describes the Git state used for a local blueprint build.
 type Metadata struct {
@@ -131,7 +140,11 @@ func truncateUTF8(value string, limit int) string {
 }
 
 func runGit(dir string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
 	commandArgs := append([]string{"-C", dir}, args...)
-	output, err := exec.Command("git", commandArgs...).Output() //nolint:gosec
+	cmd := exec.CommandContext(ctx, "git", commandArgs...) //nolint:gosec
+	cmd.WaitDelay = gitWaitDelay
+	output, err := cmd.Output()
 	return string(output), err
 }
