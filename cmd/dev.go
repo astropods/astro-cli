@@ -369,10 +369,10 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	if counts.FromStore == 0 && len(envVars) == 0 {
 		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
 	}
-	// Build Docker Compose project
-	project, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars, composeBuilder.WithWarnings(w))
+	warnStoredProxyEnvKeys(w, envVars)
+	project, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars)
 	if err != nil {
-		return fmt.Errorf("failed to build compose project: %w", err)
+		return err
 	}
 
 	astDir := filepath.Join(workingDir, buildinfo.AppDirName)
@@ -710,9 +710,9 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ingProject, err := composeBuilder.BuildProject(astroSpec, workingDir, envVars, composeBuilder.WithWarnings(w))
+	ingProject, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars)
 	if err != nil {
-		return fmt.Errorf("failed to build compose project: %w", err)
+		return err
 	}
 	// The run creates the running services again; a port moved at start must stay moved.
 	projectName, err := readDevProjectName(statePath, cmd)
