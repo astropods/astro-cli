@@ -1391,6 +1391,8 @@ func errSecretRefCheck(e *secretref.CheckError) error {
 func msgSecretRefFix(err error) string {
 	var mint *secretref.PassportMintError
 	switch {
+	case errors.Is(err, secretref.ErrPassportUnsupportedPlatform):
+		return "Passport routing isn't supported on Linux yet: containers can't reach the Passport daemon, which only listens on 127.0.0.1. Use Docker Desktop on macOS or Windows."
 	case errors.Is(err, secretref.ErrPassportNotInstalled):
 		return "the passport CLI isn't installed. Install the Passport CLI Enterprise Edition, then run 'passport setup'."
 	case errors.Is(err, secretref.ErrPassportDaemonStopped):

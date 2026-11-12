@@ -72,6 +72,7 @@ func TestPassport_Check(t *testing.T) {
 	healthy := `{"running":true,"port":10144,"upstream":{"reachable":true},"lastMintError":null,"certExpiresInSec":-62}`
 	cases := []struct {
 		name     string
+		goos     string
 		lookPath func(string) (string, error)
 		out      string
 		runErr   error
@@ -86,6 +87,8 @@ func TestPassport_Check(t *testing.T) {
 		{name: "upstream unreachable", lookPath: installed, out: `{"running":true,"port":10144,"upstream":{"reachable":false}}`, wantErr: ErrPassportUpstream},
 		{name: "last mint failed", lookPath: installed, out: `{"running":true,"port":10144,"upstream":{"reachable":true},"lastMintError":"ETIMEDOUT"}`, wantMint: true},
 		{name: "CA missing", lookPath: installed, out: healthy, noCA: true, wantErr: ErrPassportCANotFound},
+		{name: "linux is refused even with a healthy daemon", goos: "linux", lookPath: installed, out: healthy, wantErr: ErrPassportUnsupportedPlatform},
+		{name: "windows with a healthy daemon passes", goos: "windows", lookPath: installed, out: healthy},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +96,11 @@ func TestPassport_Check(t *testing.T) {
 			if !tc.noCA {
 				writeTestCA(t, dir)
 			}
-			p := &Passport{PassportDir: dir, LookPath: tc.lookPath, Run: fakeRunner(tc.out, tc.runErr)}
+			goos := tc.goos
+			if goos == "" {
+				goos = "darwin"
+			}
+			p := &Passport{PassportDir: dir, GOOS: goos, LookPath: tc.lookPath, Run: fakeRunner(tc.out, tc.runErr)}
 
 			err := p.Check(context.Background())
 
@@ -123,6 +130,7 @@ func TestPassport_ResolveRoutesThroughDaemonAndKeepsPlaceholders(t *testing.T) {
 	p := &Passport{
 		PassportDir: passportDir,
 		BundleDir:   bundleDir,
+		GOOS:        "darwin",
 		LookPath:    installed,
 		Run:         fakeRunner(`{"running":true,"port":10155,"upstream":{"reachable":true}}`, nil),
 	}

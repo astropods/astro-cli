@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 )
 
 // Passport errors, mapped to user-facing messages by the caller.
@@ -17,6 +18,9 @@ var (
 	ErrPassportDaemonStopped = errors.New("passport daemon is not running")
 	ErrPassportUpstream      = errors.New("passport proxy is unreachable")
 	ErrPassportCANotFound    = errors.New("passport CA certificate not found")
+	// Containers reach the daemon through host.docker.internal, which on Linux
+	// can't reach the daemon's 127.0.0.1 listener.
+	ErrPassportUnsupportedPlatform = errors.New("passport routing is not supported on linux")
 )
 
 // PassportMintError reports the daemon's last failed certificate mint.
@@ -48,6 +52,8 @@ type Passport struct {
 	LookPath func(string) (string, error)
 	// PassportDir defaults to $PASSPORT_DIR, then ~/.passport.
 	PassportDir string
+	// GOOS defaults to runtime.GOOS; tests replace it.
+	GOOS string
 
 	status *passportStatus
 }
@@ -68,6 +74,13 @@ func (p *Passport) Matches(value string) bool { return passportPlaceholder.Match
 // Check needs the daemon running with a reachable upstream. An expired client
 // cert is fine: the daemon mints a new one on the next request.
 func (p *Passport) Check(ctx context.Context) error {
+	goos := p.GOOS
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goos == "linux" {
+		return ErrPassportUnsupportedPlatform
+	}
 	lookPath := p.LookPath
 	if lookPath == nil {
 		lookPath = exec.LookPath

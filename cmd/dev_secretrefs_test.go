@@ -53,6 +53,7 @@ func usePassportForTest(t *testing.T, status string, runErr error) {
 	devSecretProvidersOverride = []secretref.Provider{&secretref.Passport{
 		PassportDir: passportDir,
 		BundleDir:   t.TempDir(),
+		GOOS:        "darwin",
 		LookPath:    func(string) (string, error) { return "/usr/local/bin/passport", nil },
 		Run: func(context.Context, string, ...string) ([]byte, error) {
 			return []byte(status), runErr
@@ -126,6 +127,7 @@ func TestMsgSecretRefFix(t *testing.T) {
 		err  error
 		want string
 	}{
+		{secretref.ErrPassportUnsupportedPlatform, "Passport routing isn't supported on Linux yet: containers can't reach the Passport daemon, which only listens on 127.0.0.1. Use Docker Desktop on macOS or Windows."},
 		{secretref.ErrPassportNotInstalled, "the passport CLI isn't installed. Install the Passport CLI Enterprise Edition, then run 'passport setup'."},
 		{secretref.ErrPassportDaemonStopped, "the Passport daemon isn't running. Run 'passport daemon start'."},
 		{secretref.ErrPassportUpstream, "the Passport daemon can't reach your Passport proxy. Check that the proxy is up, then run 'passport daemon status'."},
