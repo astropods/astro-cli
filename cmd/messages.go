@@ -12,12 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
+	"github.com/astropods/astro-cli/internal/secretref"
 )
 
 var errDirtyWorkingTree = errors.New(msgDirtyPushBlocked())
@@ -1351,4 +1353,55 @@ func msgDeployFilePlan(plan deployPlan) string {
 
 func msgDeployFileNothingDeployed(total int) string {
 	return fmt.Sprintf("Dry run: checked %s. Nothing was deployed.", plural(total, "environment"))
+}
+
+func msgSecretRefsResolved(u secretref.Use) string {
+	detail := ""
+	if u.Detail != "" {
+		detail = " " + u.Detail
+	}
+	return fmt.Sprintf("%s→%s %s: %s%s\n", colorCyan, colorReset, u.Provider, plural(len(u.Keys), "secret"), detail)
+}
+
+func msgDevEnvProxyKeysStored(keys []string) string {
+	return fmt.Sprintf(
+		"%s⚠%s  %s set in your env file or project store. %s exports stored values into its own process, so image builds also use them. Remove them unless the build needs them: '%s project configure --rm-var KEY'.\n",
+		colorYellow, colorReset, strings.Join(keys, ", "), buildinfo.BinaryName, buildinfo.BinaryName)
+}
+
+func msgSecretRefRuntimeOverridden(keys []string) string {
+	return fmt.Sprintf(
+		"%s⚠%s  The agent already sets %s, so secret routing may not work. Remove the input to let %s set it.\n",
+		colorYellow, colorReset, strings.Join(keys, ", "), buildinfo.BinaryName)
+}
+
+func errSecretRefCheck(e *secretref.CheckError) error {
+	names := make([]string, 0, len(e.Failures))
+	for n := range e.Failures {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	lines := make([]string, 0, len(names))
+	for _, n := range names {
+		lines = append(lines, fmt.Sprintf("  %s: %s", n, msgSecretRefFix(e.Failures[n])))
+	}
+	return fmt.Errorf("secret references can't be resolved:\n%s", strings.Join(lines, "\n"))
+}
+
+func msgSecretRefFix(err error) string {
+	var mint *secretref.PassportMintError
+	switch {
+	case errors.Is(err, secretref.ErrPassportNotInstalled):
+		return "the passport CLI isn't installed. Install the Passport CLI Enterprise Edition, then run 'passport setup'."
+	case errors.Is(err, secretref.ErrPassportDaemonStopped):
+		return "the Passport daemon isn't running. Run 'passport daemon start'."
+	case errors.Is(err, secretref.ErrPassportUpstream):
+		return "the Passport daemon can't reach your Passport proxy. Check that the proxy is up, then run 'passport daemon status'."
+	case errors.Is(err, secretref.ErrPassportCANotFound):
+		return "the Passport CA certificate is missing. Run 'passport setup'."
+	case errors.As(err, &mint):
+		return fmt.Sprintf("the Passport daemon couldn't renew its certificate (%s). It retries on the next request; if this keeps failing, run 'passport setup'.", mint.Detail)
+	default:
+		return err.Error()
+	}
 }
