@@ -449,6 +449,26 @@ func msgEvalReviewSaved(traceID string, evaluators int, datasetRequested, datase
 	return msg
 }
 
+func errEvalConfigureAutoAddValue(value string) error {
+	return fmt.Errorf("--auto-add must be on or off, got %q", value)
+}
+
+func errEvalConfigureMinConfidence(value string) error {
+	return fmt.Errorf("--auto-add-min-confidence must be a number from 0 to 1, got %q", value)
+}
+
+func errEvalConfigureOffWithSettings() error {
+	return fmt.Errorf("--auto-add off can't be combined with other --auto-add-* flags")
+}
+
+func errEvalConfigureAutoAddIsOff(target string) error {
+	return fmt.Errorf("auto-add is off for %s; add --auto-add on to turn it on with these settings", target)
+}
+
+func errEvalConfigureInvalid(message string) error {
+	return fmt.Errorf("settings rejected: %s", message)
+}
+
 func errDatasetNotFound(name string) error {
 	return fmt.Errorf("dataset %q not found; run `%s dataset list` to see dataset names", name, buildinfo.BinaryName)
 }
