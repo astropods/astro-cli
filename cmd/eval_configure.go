@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -172,9 +173,22 @@ func writeEvalSettings(cmd *cobra.Command, dep *agentDeployment, settings datase
 		fmt.Fprintln(w, "  Auto-add to dataset:      off") //nolint:errcheck,gosec
 		return
 	}
-	fmt.Fprintln(w, "  Auto-add to dataset:      on")                                                 //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Minimum confidence:       %d%%\n", int(math.Round(settings.MinConfidence*100))) //nolint:errcheck,gosec
-	fmt.Fprintf(w, "  Update on re-evaluation:  %s\n", onOff(settings.UpdateOnReevaluation))          //nolint:errcheck,gosec
+	fmt.Fprintln(w, "  Auto-add to dataset:      on")                                         //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Minimum confidence:       %s\n", formatPercent(settings.MinConfidence)) //nolint:errcheck,gosec
+	fmt.Fprintf(w, "  Update on re-evaluation:  %s\n", onOff(settings.UpdateOnReevaluation))  //nolint:errcheck,gosec
+}
+
+func formatPercent(v float64) string {
+	whole, frac, _ := strings.Cut(strconv.FormatFloat(v, 'f', -1, 64), ".")
+	frac += "00"
+	whole = strings.TrimLeft(whole+frac[:2], "0")
+	if whole == "" {
+		whole = "0"
+	}
+	if rest := strings.TrimRight(frac[2:], "0"); rest != "" {
+		whole += "." + rest
+	}
+	return whole + "%"
 }
 
 func onOff(value bool) string {

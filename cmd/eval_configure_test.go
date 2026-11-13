@@ -47,7 +47,11 @@ func TestEvalConfigure(t *testing.T) {
 	}{
 		{name: "no flags prints the settings when auto-add is on", current: on,
 			wantRequests: []string{getRequest},
-			wantOut:      []string{"Auto-add to dataset:      on", "Minimum confidence:       80%", "Update on re-evaluation:  on"}},
+			wantOut:      []string{"Auto-add to dataset:      on", "Minimum confidence:       80%\n", "Update on re-evaluation:  on"}},
+		{name: "no flags prints a three-decimal minimum without rounding it",
+			current:      datasetAutoAddSettings{Enabled: true, MinConfidence: 0.995},
+			wantRequests: []string{getRequest},
+			wantOut:      []string{"Minimum confidence:       99.5%\n"}},
 		{name: "no flags prints only the switch when auto-add is off", current: off,
 			wantRequests: []string{getRequest},
 			wantOut:      []string{"Auto-add to dataset:      off"}},
@@ -56,7 +60,7 @@ func TestEvalConfigure(t *testing.T) {
 			writeBody:    datasetAutoAddSettings{Enabled: true, MinConfidence: 0.9},
 			wantRequests: []string{getRequest, "PUT " + settingsPath},
 			wantPutBody:  map[string]any{"deployment_id": "dep-abc-123", "min_confidence": 0.9, "update_on_reevaluation": false},
-			wantOut:      []string{"Auto-add to dataset:      on", "Minimum confidence:       90%"}},
+			wantOut:      []string{"Auto-add to dataset:      on", "Minimum confidence:       90%\n"}},
 		{name: "turning auto-add on applies the settings passed with it", current: off,
 			flags:        map[string]string{"auto-add": "on", "auto-add-min-confidence": "0.75", "auto-add-update-on-reevaluation": "true"},
 			writeBody:    datasetAutoAddSettings{Enabled: true, MinConfidence: 0.75, UpdateOnReevaluation: true},
@@ -207,6 +211,13 @@ func TestParseMinConfidenceAcceptsAnyNumberFromZeroToOne(t *testing.T) {
 		got, err := parseMinConfidence(value)
 		require.NoError(t, err, value)
 		assert.InDelta(t, want, got, 1e-9, value)
+	}
+}
+
+func TestFormatPercentKeepsEveryDecimalPlace(t *testing.T) {
+	cases := map[float64]string{0: "0%", 1: "100%", 0.8: "80%", 0.9: "90%", 0.75: "75%", 0.855: "85.5%", 0.995: "99.5%", 0.001: "0.1%", 0.12345: "12.345%"}
+	for value, want := range cases {
+		assert.Equal(t, want, formatPercent(value), "formatPercent(%v)", value)
 	}
 }
 
