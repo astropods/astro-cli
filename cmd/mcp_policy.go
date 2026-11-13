@@ -79,6 +79,7 @@ var mcpPolicies = map[string]mcpPolicy{
 	"dataset edit":             {class: mcpWrite},
 	"env create":               {class: mcpWrite},
 	"env rename":               {class: mcpWrite},
+	"eval configure":           {class: mcpWrite},
 	"eval push":                {class: mcpWrite},
 	"eval review":              {class: mcpWrite},
 	"eval run":                 {class: mcpWrite},
