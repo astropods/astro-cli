@@ -116,6 +116,7 @@ func runEvalConfigure(cmd *cobra.Command, _ []string) error {
 
 	switch {
 	case !changes.any():
+	case changes.autoAdd == "off" && !settings.Enabled:
 	case changes.autoAdd == "off":
 		status, err = apiCall(cmd.Context(), http.MethodDelete, path+query, nil, at.Token, verbose, &settings)
 		if err := evalConfigureError(status, err, dep); err != nil {
