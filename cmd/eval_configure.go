@@ -158,6 +158,8 @@ func evalConfigureError(status int, err error, dep *agentDeployment) error {
 		return errAgentDeploymentNotFound(deploymentLabel(dep))
 	case http.StatusBadRequest:
 		return errEvalConfigureInvalid(apiErrorMessage(err))
+	case http.StatusServiceUnavailable:
+		return errEvaluationNotConfigured()
 	}
 	return err
 }

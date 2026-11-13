@@ -37,6 +37,7 @@ func TestEvalConfigure(t *testing.T) {
 		name         string
 		flags        map[string]string
 		current      datasetAutoAddSettings
+		getStatus    int
 		writeStatus  int
 		writeBody    any
 		wantRequests []string
@@ -84,6 +85,12 @@ func TestEvalConfigure(t *testing.T) {
 			flags:        map[string]string{"auto-add-min-confidence": "0.8"},
 			wantRequests: []string{getRequest},
 			wantErr:      errEvalConfigureAutoAddIsOff("coach-dev").Error()},
+		{name: "evaluation not configured on the server", getStatus: http.StatusServiceUnavailable,
+			wantRequests: []string{getRequest},
+			wantErr:      errEvaluationNotConfigured().Error()},
+		{name: "deployment not found", getStatus: http.StatusNotFound,
+			wantRequests: []string{getRequest},
+			wantErr:      errAgentDeploymentNotFound("coach-dev").Error()},
 		{name: "a server validation error is reported", current: on,
 			flags:        map[string]string{"auto-add-min-confidence": "0.5"},
 			writeStatus:  http.StatusBadRequest,
@@ -107,6 +114,10 @@ func TestEvalConfigure(t *testing.T) {
 				requests = append(requests, request)
 				switch r.Method {
 				case http.MethodGet:
+					if tc.getStatus != 0 {
+						jsonHandler(tc.getStatus, map[string]any{"error": http.StatusText(tc.getStatus)})(w, r)
+						return
+					}
 					jsonHandler(http.StatusOK, tc.current)(w, r)
 				default:
 					if r.Method == http.MethodPut {
