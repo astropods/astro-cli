@@ -15,6 +15,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
 	spec "github.com/astropods/astro-spec"
@@ -288,9 +289,12 @@ func runBlueprintPush(cmd *cobra.Command, args []string) error {
 	allowDirty, _ := cmd.Flags().GetBool("allow-dirty")
 	message, _ := cmd.Flags().GetString("message")
 
-	personalAccount, err := accountNewStorage().GetPersonalAccount()
-	if err != nil {
-		return err
+	personalAccount := ""
+	if !auth.UsesMachineCredentials() {
+		personalAccount, err = accountNewStorage().GetPersonalAccount()
+		if err != nil {
+			return err
+		}
 	}
 	agentName, err = resolvePushName(cmd.Context(), warnW, pushBaseURL(), at, agentName, personalAccount, specPath, yes, verbose)
 	if err != nil {

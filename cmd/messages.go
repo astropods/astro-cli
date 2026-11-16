@@ -18,6 +18,7 @@ import (
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
+	"github.com/astropods/astro-cli/internal/envvar"
 )
 
 var errDirtyWorkingTree = errors.New(msgDirtyPushBlocked())
@@ -182,6 +183,26 @@ func msgLaunchURLReady() string {
 
 func errPromptNonInteractive() error {
 	return fmt.Errorf("this command needs an answer to a prompt, but --%s turns prompts off; pass the value as a flag instead (see '%s <command> --help')", nonInteractiveFlag, buildinfo.BinaryName)
+}
+
+func errMachineAuthFailed(err error) error {
+	return fmt.Errorf("signing in with %s failed: %w", envvar.ClientID, err)
+}
+
+func errMachineAccountLookup(err error) error {
+	return fmt.Errorf("could not find the account %s belongs to: %w", envvar.ClientID, err)
+}
+
+func errMachineAccountMismatch(requested, bound string) error {
+	return fmt.Errorf("%s is %q, but %s belongs to %q", envvar.Account, requested, envvar.ClientID, bound)
+}
+
+func msgMachineCommandUnsupported() string {
+	return fmt.Sprintf("With %s set, only '%s push' and '%s deploy -f' run. Other commands need a person signed in with '%s login'.", envvar.ClientID, buildinfo.BinaryName, buildinfo.BinaryName, buildinfo.BinaryName)
+}
+
+func errNeedsPerson(command string) error {
+	return fmt.Errorf("'%s %s' needs a person; it can't run with %s", buildinfo.BinaryName, command, envvar.ClientID)
 }
 
 func errAccountNotLoggedIn() error {

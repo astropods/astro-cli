@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/astropods/astro-cli/internal/auth"
 )
 
 func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
@@ -161,4 +164,39 @@ func touch(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func TestPrintExecutionErrorPointsAppsAtSupportedCommands(t *testing.T) {
+	memberOnly := newAPIError(http.StatusForbidden, []byte(`{"error":"this endpoint requires a signed-in member"}`))
+	scopeDenied := newAPIError(http.StatusForbidden, []byte(`{"error":"permission denied","code":"AUTHORIZATION_DENIED","action":"deployment:read"}`))
+	tests := []struct {
+		name     string
+		machine  bool
+		err      error
+		wantHint bool
+	}{
+		{"app on a member-only route", true, memberOnly, true},
+		{"app refused a scope it lacks", true, scopeDenied, false},
+		{"person on a member-only route", false, memberOnly, false},
+		{"app with a non-auth failure", true, errors.New("ordinary failure"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.machine {
+				auth.SetMachineCredentialsOverride("client_01", "secret")
+			} else {
+				auth.SetMachineCredentialsOverride("", "")
+			}
+			t.Cleanup(func() { auth.SetMachineCredentialsOverride("", "") })
+
+			var output bytes.Buffer
+			printExecutionError(&output, tt.err)
+
+			want := tt.err.Error() + "\n"
+			if tt.wantHint {
+				want += "  " + msgMachineCommandUnsupported() + "\n"
+			}
+			assert.Equal(t, want, output.String(), "an app gets the supported-commands hint only when the server refuses it as a non-person")
+		})
+	}
 }

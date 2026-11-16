@@ -4,6 +4,8 @@ package envvar
 const (
 	AccessToken  = "ASTRO_ACCESS_TOKEN"
 	RefreshToken = "ASTRO_REFRESH_TOKEN"
+	ClientID     = "ASTRO_CLIENT_ID"
+	ClientSecret = "ASTRO_CLIENT_SECRET"
 	Account      = "ASTRO_ACCOUNT"
 	NoTelemetry  = "ASTRO_NO_TELEMETRY"
 	// Via names the caller that started this process, such as "mcp" for a child of ast mcp.

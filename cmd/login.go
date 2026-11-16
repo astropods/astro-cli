@@ -83,6 +83,9 @@ func printVerificationCode(code string, highlight *color.Color) {
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	if auth.UsesMachineCredentials() {
+		return errNeedsPerson("login")
+	}
 	noBrowser := flagBool(cmd, "no-browser")
 	loginAccount := flagString(cmd, "account")
 	verbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
