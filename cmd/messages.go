@@ -197,6 +197,10 @@ func errMachineAccountMismatch(requested, bound string) error {
 	return fmt.Errorf("%s is %q, but %s belongs to %q", envvar.Account, requested, envvar.ClientID, bound)
 }
 
+func msgMachineCommandUnsupported() string {
+	return fmt.Sprintf("With %s set, only '%s push' and '%s deploy -f' run. Other commands need a person signed in with '%s login'.", envvar.ClientID, buildinfo.BinaryName, buildinfo.BinaryName, buildinfo.BinaryName)
+}
+
 func errNeedsPerson(command string) error {
 	return fmt.Errorf("'%s %s' needs a person; it can't run with %s", buildinfo.BinaryName, command, envvar.ClientID)
 }
