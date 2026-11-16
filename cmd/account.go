@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/huh"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 )
@@ -137,6 +140,9 @@ func runAccountList(cmd *cobra.Command, args []string) error {
 }
 
 func runAccountSwitch(cmd *cobra.Command, args []string) error {
+	if auth.UsesMachineCredentials() {
+		return errNeedsPerson("account switch")
+	}
 	storage := accountNewStorage()
 	w := cmd.OutOrStdout()
 	green := color.New(color.FgGreen)
@@ -272,6 +278,9 @@ type AccountToken struct {
 }
 
 func getCurrentAccountToken(ctx context.Context) (AccountToken, error) {
+	if auth.UsesMachineCredentials() {
+		return machineAccountToken(ctx)
+	}
 	account, err := accountNewStorage().GetCurrentAccount()
 	if err != nil {
 		return AccountToken{}, errAccountNotLoggedIn()
@@ -304,6 +313,9 @@ func accountOrgID(accounts []auth.StoredAccount, account string) string {
 func accountToken(ctx context.Context, account string, force bool) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if auth.UsesMachineCredentials() {
+		return machineToken(ctx, force)
 	}
 	storage := accountNewStorage()
 	profile, err := storage.GetCurrentProfile()
@@ -376,4 +388,49 @@ func selectAccountInteractive(ctx context.Context, storage *auth.Storage) (strin
 		return "", err
 	}
 	return selected, nil
+}
+
+var (
+	machineAccountMu sync.Mutex
+	machineAccount   string
+)
+
+// machineAccountToken resolves the account an app is bound to from GET /api/v1/me.
+func machineAccountToken(ctx context.Context) (AccountToken, error) {
+	token, err := machineToken(ctx, false)
+	if err != nil {
+		return AccountToken{}, err
+	}
+	machineAccountMu.Lock()
+	defer machineAccountMu.Unlock()
+	if machineAccount == "" {
+		accounts, err := fetchUserAccounts(accountBaseURL(), token)
+		if err != nil {
+			return AccountToken{}, errMachineAccountLookup(err)
+		}
+		if len(accounts) != 1 {
+			return AccountToken{}, errMachineAccountLookup(fmt.Errorf("expected one account, got %d", len(accounts)))
+		}
+		machineAccount = accounts[0].Name
+	}
+	if override := strings.TrimSpace(os.Getenv(envvar.Account)); override != "" && !strings.EqualFold(override, machineAccount) {
+		return AccountToken{}, errMachineAccountMismatch(override, machineAccount)
+	}
+	expiresAt, _ := auth.ParseJWTExpiry(token)
+	return AccountToken{Account: machineAccount, Token: token, ExpiresAt: expiresAt}, nil
+}
+
+func machineToken(ctx context.Context, force bool) (string, error) {
+	tokenManager := auth.NewTokenManager(buildinfo.BinaryName)
+	var token string
+	var err error
+	if force {
+		token, err = tokenManager.ForceRefreshAccessToken(ctx)
+	} else {
+		token, err = tokenManager.GetValidAccessToken(ctx)
+	}
+	if err != nil {
+		return "", errMachineAuthFailed(err)
+	}
+	return token, nil
 }

@@ -41,6 +41,9 @@ func (m *TokenManager) GetValidAccessToken(ctx context.Context) (string, error) 
 	if token := GetEnvAccessToken(); token != "" {
 		return token, nil
 	}
+	if UsesMachineCredentials() {
+		return m.machineAccessToken(ctx, false)
+	}
 
 	profile, err := m.storage.GetCurrentProfile()
 	if err != nil {
@@ -190,8 +193,7 @@ func (m *TokenManager) GetCurrentUser() (*StoredUser, error) {
 
 // IsAuthenticated checks if the user is authenticated (has valid or refreshable credentials)
 func (m *TokenManager) IsAuthenticated() bool {
-	// Check environment variable first
-	if GetEnvAccessToken() != "" {
+	if GetEnvAccessToken() != "" || UsesMachineCredentials() {
 		return true
 	}
 
@@ -304,6 +306,9 @@ func RefreshAndUpdateHeader(ctx context.Context, req *http.Request, binaryName s
 }
 
 func (m *TokenManager) forceRefresh(ctx context.Context) (string, error) {
+	if UsesMachineCredentials() {
+		return m.machineAccessToken(ctx, true)
+	}
 	profile, err := m.storage.GetCurrentProfile()
 	if err != nil {
 		return "", fmt.Errorf("not authenticated: %w", err)
