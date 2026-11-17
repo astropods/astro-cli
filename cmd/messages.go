@@ -284,9 +284,6 @@ func msgFixRetryLater() string {
 	return "Wait a minute and run the command again. If it keeps failing, contact support."
 }
 
-func msgServerStatus(status int) string {
-	return fmt.Sprintf("Astropods returned HTTP %d without an explanation.", status)
-}
 
 func msgRequestFailedHeadline(status int) string {
 	switch {
@@ -429,11 +426,7 @@ func errServerStatus(status int, summary string) error {
 }
 
 func errRegistrationUnauthorized(summary string) error {
-	reason := sentence(summary)
-	if reason == "" {
-		reason = msgServerStatus(http.StatusUnauthorized)
-	}
-	return newCLIError(msgRequestFailedHeadline(http.StatusUnauthorized), reason, msgFixSignIn(), nil)
+	return newCLIError(msgRequestFailedHeadline(http.StatusUnauthorized), sentence(summary), msgFixSignIn(), nil)
 }
 
 func msgPrivateVisibilityExistingDeploymentsWarning() string {

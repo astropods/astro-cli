@@ -76,9 +76,6 @@ func explainError(err error) *cliError {
 
 func explainAPIError(err error, apiErr *apiError) *cliError {
 	reason := sentence(apiErr.detailSentence())
-	if reason == "" {
-		reason = msgServerStatus(apiErr.StatusCode)
-	}
 	headline := msgRequestFailedHeadline(apiErr.StatusCode)
 	refused := apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden
 	switch {
