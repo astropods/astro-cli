@@ -46,14 +46,18 @@ func serverSentence(text string) error {
 	return nil
 }
 
+// errorBodyIndent sets the cause and fix lines apart from the headline without
+// lining them up under its text, since terminals draw ✗ at different widths.
+const errorBodyIndent = "    "
+
 func printExecutionError(w io.Writer, err error) {
 	e := explainError(err)
 	fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, e.headline, colorReset) //nolint:errcheck
 	if e.cause != nil {
-		fmt.Fprintf(w, "  %s\n", sentence(e.cause.Error())) //nolint:errcheck
+		fmt.Fprintf(w, "%s%s\n", errorBodyIndent, sentence(e.cause.Error())) //nolint:errcheck
 	}
 	if e.fix != "" {
-		fmt.Fprintf(w, "  %s→ %s%s\n", colorBold, e.fix, colorReset) //nolint:errcheck
+		fmt.Fprintf(w, "%s%s→ %s%s\n", errorBodyIndent, colorBold, e.fix, colorReset) //nolint:errcheck
 	}
 }
 

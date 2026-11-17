@@ -23,7 +23,7 @@ func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
 
 	require.Equal(t,
 		"✗ "+msgDirtyPushBlockedHeadline()+"\n"+
-			"  → "+msgDirtyPushBlockedRemediation()+"\n",
+			errorBodyIndent+"→ "+msgDirtyPushBlockedRemediation()+"\n",
 		stripANSI(output.String()),
 	)
 	plain := stripANSI(output.String())
