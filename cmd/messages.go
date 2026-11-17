@@ -20,6 +20,7 @@ import (
 	"github.com/astropods/astro-cli/internal/claudesettings"
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
 	"github.com/astropods/astro-cli/internal/envvar"
+	"github.com/astropods/astro-cli/internal/hostproxy"
 )
 
 var errDirtyWorkingTree = errors.New(msgDirtyPushBlocked())
@@ -1450,4 +1451,51 @@ func msgDeployFilePlan(plan deployPlan) string {
 
 func msgDeployFileNothingDeployed(total int) string {
 	return fmt.Sprintf("Dry run: checked %s. Nothing was deployed.", plural(total, "environment"))
+}
+
+func msgHostProxyApplied(cfg *hostproxy.Config) string {
+	via := ""
+	if cfg.ContainerURL != cfg.HostURL {
+		via = fmt.Sprintf(", reached as %s", cfg.ContainerURL)
+	}
+	return fmt.Sprintf("%s→%s Proxy: %s from your environment%s. Set %s=1 to turn it off.\n",
+		colorCyan, colorReset, cfg.HostURL, via, envvar.NoHostProxy)
+}
+
+func msgHostProxyOverridden(keys []string) string {
+	return fmt.Sprintf(
+		"%s⚠%s  The agent already sets %s, so it may not use your proxy. Remove the input to let %s set it.\n",
+		colorYellow, colorReset, strings.Join(keys, ", "), buildinfo.BinaryName)
+}
+
+func errHostProxyUnreachable(proxyURL string, cause error) error {
+	return newCLIError(
+		fmt.Sprintf("The proxy at %s isn't answering", proxyURL),
+		fmt.Sprintf("Start the proxy, or set %s=1 to run without it.", envvar.NoHostProxy),
+		cause,
+	)
+}
+
+func errHostProxyLoopbackOnLinux() error {
+	return newCLIError(
+		"Your proxy listens on a loopback address, which containers can't reach on Linux",
+		fmt.Sprintf("Make the proxy listen on an address containers can reach, or set %s=1.", envvar.NoHostProxy),
+		nil,
+	)
+}
+
+func errHostProxyInvalid(cause error) error {
+	return newCLIError(
+		"The proxy URL in your environment isn't valid",
+		fmt.Sprintf("Fix HTTPS_PROXY, or set %s=1.", envvar.NoHostProxy),
+		cause,
+	)
+}
+
+func errHostProxyCAFile(e *hostproxy.CAFileError) error {
+	return newCLIError(
+		fmt.Sprintf("%s points to a CA file that can't be used", e.Var),
+		fmt.Sprintf("Fix or unset %s, or set %s=1.", e.Var, envvar.NoHostProxy),
+		e.Err,
+	)
 }

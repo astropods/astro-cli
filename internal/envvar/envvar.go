@@ -8,6 +8,8 @@ const (
 	ClientSecret = "ASTRO_CLIENT_SECRET"
 	Account      = "ASTRO_ACCOUNT"
 	NoTelemetry  = "ASTRO_NO_TELEMETRY"
+	// NoHostProxy stops dev containers inheriting the host's proxy environment.
+	NoHostProxy = "ASTRO_NO_HOST_PROXY"
 	// Via names the caller that started this process, such as "mcp" for a child of ast mcp.
 	Via = "ASTRO_VIA"
 )
