@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -105,7 +106,7 @@ func TestGetCurrentAccountTokenWithMachineCredentialsNeedsExactlyOneAccount(t *t
 
 	_, err := getCurrentAccountToken(t.Context())
 
-	require.EqualError(t, err, errMachineAccountLookup(nil).Error())
+	require.EqualError(t, err, errMachineAccountLookup(errors.Unwrap(err)).Error())
 }
 
 func TestForceAccountTokenWithMachineCredentialsSkipsTheProfile(t *testing.T) {

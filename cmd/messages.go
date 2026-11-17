@@ -192,7 +192,6 @@ func errMachineAuthFailed(err error) error {
 	}
 	return newCLIError(
 		"Signing in as an app failed",
-		fmt.Sprintf("Astropods didn't accept the client ID and secret in %s and %s.", envvar.ClientID, envvar.ClientSecret),
 		"Check both values, or add a new client secret to the app in Settings > OAuth apps.",
 		err,
 	)
@@ -201,7 +200,6 @@ func errMachineAuthFailed(err error) error {
 func errMachineAccountLookup(err error) error {
 	return newCLIError(
 		"The app's account couldn't be found",
-		fmt.Sprintf("Astropods didn't return exactly one account for the app in %s.", envvar.ClientID),
 		"Check that the app still exists in Settings > OAuth apps.",
 		err,
 	)
@@ -209,8 +207,7 @@ func errMachineAccountLookup(err error) error {
 
 func errMachineAccountMismatch(requested, bound string) error {
 	return newCLIError(
-		fmt.Sprintf("%s names the wrong account", envvar.Account),
-		fmt.Sprintf("%s is %q, but the app in %s belongs to %q.", envvar.Account, requested, envvar.ClientID, bound),
+		fmt.Sprintf("%s is %q, but the app in %s belongs to %q", envvar.Account, requested, envvar.ClientID, bound),
 		fmt.Sprintf("Set %s to %q, or remove it.", envvar.Account, bound),
 		nil,
 	)
@@ -223,7 +220,6 @@ func msgMachineCommandUnsupported() string {
 func errNeedsPerson(command string) error {
 	return newCLIError(
 		fmt.Sprintf("'%s %s' needs a person", buildinfo.BinaryName, command),
-		fmt.Sprintf("It can't run while %s is set, because an app signs in on its own.", envvar.ClientID),
 		fmt.Sprintf("Remove the command from the job, or unset %s to run it as yourself.", envvar.ClientID),
 		nil,
 	)
@@ -232,7 +228,6 @@ func errNeedsPerson(command string) error {
 func errAccountNotLoggedIn() error {
 	return newCLIError(
 		"You're not signed in",
-		"This command calls Astropods, which needs you to sign in first.",
 		fmt.Sprintf("Run '%s login' to sign in.", buildinfo.BinaryName),
 		nil,
 	)
@@ -241,7 +236,6 @@ func errAccountNotLoggedIn() error {
 func errAuthSessionEnded(cause error) error {
 	return newCLIError(
 		"Your session has ended",
-		"Astropods signed you out, so the CLI can't renew your access.",
 		msgFixSignIn(),
 		cause,
 	)
@@ -250,7 +244,6 @@ func errAuthSessionEnded(cause error) error {
 func errAuthNoRefreshToken(cause error) error {
 	return newCLIError(
 		"Your session can't be renewed",
-		"The saved sign-in has no refresh token, so the CLI can't get new access.",
 		msgFixSignIn(),
 		cause,
 	)
@@ -262,7 +255,6 @@ func errAuthFailed(cause error) error {
 	}
 	return newCLIError(
 		"Signing in failed",
-		"The CLI couldn't get access from your saved sign-in.",
 		msgFixSignIn(),
 		cause,
 	)
@@ -283,7 +275,6 @@ func msgFixAskForPermission() string {
 func msgFixRetryLater() string {
 	return "Wait a minute and run the command again. If it keeps failing, contact support."
 }
-
 
 func msgRequestFailedHeadline(status int) string {
 	switch {
@@ -312,8 +303,7 @@ func errServerUnreachable(cause *url.Error) *cliError {
 		host = u.Host
 	}
 	return newCLIError(
-		"Can't reach Astropods",
-		fmt.Sprintf("The CLI couldn't connect to %s.", host),
+		fmt.Sprintf("Can't reach Astropods at %s", host),
 		"Check your network connection and run the command again.",
 		cause,
 	)
@@ -426,7 +416,7 @@ func errServerStatus(status int, summary string) error {
 }
 
 func errRegistrationUnauthorized(summary string) error {
-	return newCLIError(msgRequestFailedHeadline(http.StatusUnauthorized), sentence(summary), msgFixSignIn(), nil)
+	return newCLIError(msgRequestFailedHeadline(http.StatusUnauthorized), msgFixSignIn(), serverSentence(summary))
 }
 
 func msgPrivateVisibilityExistingDeploymentsWarning() string {

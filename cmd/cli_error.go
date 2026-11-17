@@ -12,42 +12,48 @@ import (
 	"github.com/astropods/astro-cli/internal/auth"
 )
 
-// cliError is a failure the CLI explains in three parts: what failed, why, and
-// what to do next.
+// cliError is a failure the CLI explains in three parts: what failed, the error
+// that caused it, and what to do next.
 type cliError struct {
 	headline string
-	reason   string
 	fix      string
 	cause    error
 }
 
 func (e *cliError) Error() string {
 	parts := []string{e.headline + "."}
-	for _, s := range []string{e.reason, e.fix} {
-		if s != "" {
-			parts = append(parts, s)
-		}
+	if e.cause != nil {
+		parts = append(parts, sentence(e.cause.Error()))
+	}
+	if e.fix != "" {
+		parts = append(parts, e.fix)
 	}
 	return strings.Join(parts, " ")
 }
 
 func (e *cliError) Unwrap() error { return e.cause }
 
-func newCLIError(headline, reason, fix string, cause error) *cliError {
-	return &cliError{headline: headline, reason: reason, fix: fix, cause: cause}
+func newCLIError(headline, fix string, cause error) *cliError {
+	return &cliError{headline: headline, fix: fix, cause: cause}
+}
+
+// serverSentence is the server's explanation as an error, or nil when it sent
+// none.
+func serverSentence(text string) error {
+	if s := sentence(text); s != "" {
+		return errors.New(s)
+	}
+	return nil
 }
 
 func printExecutionError(w io.Writer, err error) {
 	e := explainError(err)
 	fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, e.headline, colorReset) //nolint:errcheck
-	if e.reason != "" {
-		fmt.Fprintf(w, "  %s\n", e.reason) //nolint:errcheck
+	if e.cause != nil {
+		fmt.Fprintf(w, "  %s\n", sentence(e.cause.Error())) //nolint:errcheck
 	}
 	if e.fix != "" {
 		fmt.Fprintf(w, "  %s→ %s%s\n", colorBold, e.fix, colorReset) //nolint:errcheck
-	}
-	if e.cause != nil {
-		fmt.Fprintf(w, "  %sCause: %s%s\n", colorDim, e.cause, colorReset) //nolint:errcheck
 	}
 }
 
@@ -59,23 +65,22 @@ func explainError(err error) *cliError {
 		return ce
 	}
 	if errors.Is(err, errDirtyWorkingTree) {
-		return newCLIError(msgDirtyPushBlockedHeadline(), "", msgDirtyPushBlockedRemediation(), nil)
+		return newCLIError(msgDirtyPushBlockedHeadline(), msgDirtyPushBlockedRemediation(), nil)
 	}
 	var apiErr *apiError
 	if errors.As(err, &apiErr) {
 		if apiErr.isBillingSuspended() {
-			return newCLIError(msgBillingSuspendedHeadline(), sentence(apiErr.detailSentence()), billingNextStep(apiErr.Action), err)
+			return newCLIError(msgBillingSuspendedHeadline(), billingNextStep(apiErr.Action), serverSentence(apiErr.detailSentence()))
 		}
 		return explainAPIError(err, apiErr)
 	}
 	if unreachable := asUnreachable(err); unreachable != nil {
 		return errServerUnreachable(unreachable)
 	}
-	return newCLIError(strings.TrimRight(err.Error(), "."), "", "", nil)
+	return newCLIError(strings.TrimRight(err.Error(), "."), "", nil)
 }
 
 func explainAPIError(err error, apiErr *apiError) *cliError {
-	reason := sentence(apiErr.detailSentence())
 	headline := msgRequestFailedHeadline(apiErr.StatusCode)
 	refused := apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden
 	switch {
@@ -88,11 +93,11 @@ func explainAPIError(err error, apiErr *apiError) *cliError {
 			headline = capitalize(context)
 		}
 	}
-	var cause error
-	if reason == "" {
+	cause := serverSentence(apiErr.detailSentence())
+	if cause == nil {
 		cause = err
 	}
-	return newCLIError(headline, reason, apiErrorFix(apiErr), cause)
+	return newCLIError(headline, apiErrorFix(apiErr), cause)
 }
 
 func apiErrorFix(apiErr *apiError) string {
