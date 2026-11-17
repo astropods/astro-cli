@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	composeBuilder "github.com/astropods/astro-cli/internal/compose"
+	"github.com/astropods/astro-cli/internal/envvar"
 	"github.com/astropods/astro-cli/internal/hostproxy"
 )
 
@@ -87,8 +88,12 @@ func TestBuildDevComposeProject_NoHostProxyMatchesBuildProject(t *testing.T) {
 }
 
 func TestHostEnvSnapshot_IgnoresProjectVarsExportedAfterIt(t *testing.T) {
-	t.Setenv("HTTPS_PROXY", "")
-	t.Setenv("SSL_CERT_FILE", "")
+	for _, k := range []string{
+		"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
+		"SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE", envvar.NoHostProxy,
+	} {
+		t.Setenv(k, "")
+	}
 	snapshot := hostEnvSnapshot()
 	t.Setenv("HTTPS_PROXY", "http://proxy.from-project-vars:3128")
 	t.Setenv("SSL_CERT_FILE", "/project/ca.pem")

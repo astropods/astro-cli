@@ -22,7 +22,7 @@ func runtimeTestProject() *types.Project {
 
 func proxyRuntime() *Runtime {
 	return &Runtime{
-		Env:        map[string]string{"HTTPS_PROXY": "http://host.docker.internal:10144", "NODE_USE_ENV_PROXY": "1"},
+		Env:        map[string]string{"HTTPS_PROXY": "http://host.docker.internal:10144", "https_proxy": "http://host.docker.internal:10144", "NODE_USE_ENV_PROXY": "1"},
 		Mounts:     []Mount{{Source: "/home/u/.ast/proxy/ca-bundle.pem", Target: "/etc/astro/proxy/ca-bundle.pem"}},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		NoProxy:    []string{"localhost", "127.0.0.1"},
@@ -87,5 +87,47 @@ func TestApplyRuntime_ExistingKeysWinAndAreReported(t *testing.T) {
 	overridden := ApplyRuntime(p, proxyRuntime())
 
 	assert.Equal(t, []string{"HTTPS_PROXY"}, overridden)
-	assert.Equal(t, "http://corp-proxy:3128", envVal(p.Services["agent"].Environment, "HTTPS_PROXY"), "a value the agent already sets is kept")
+	env := p.Services["agent"].Environment
+	assert.Equal(t, "http://corp-proxy:3128", envVal(env, "HTTPS_PROXY"), "a value the agent already sets is kept")
+	_, set := env["https_proxy"]
+	assert.False(t, set, "the other case form isn't injected, or the agent would see two proxies")
+	assert.Equal(t, "http://host.docker.internal:10144", envVal(p.Services["ingestion-docs"].Environment, "HTTPS_PROXY"))
+}
+
+func TestApplyRuntime_GroupsSkipTogether(t *testing.T) {
+	cases := []struct {
+		name      string
+		agentSets string
+		skipped   []string
+	}{
+		{"lowercase https_proxy", "https_proxy", []string{"HTTPS_PROXY", "https_proxy"}},
+		{"no_proxy", "no_proxy", []string{"NO_PROXY", "no_proxy"}},
+		{"one CA variable", "REQUESTS_CA_BUNDLE", []string{"SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := runtimeTestProject()
+			agent := p.Services["agent"]
+			agent.Environment[tc.agentSets] = strp("agent-value")
+			p.Services["agent"] = agent
+			rt := proxyRuntime()
+			for _, k := range []string{"SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"} {
+				rt.Env[k] = "/etc/astro/proxy/ca-bundle.pem"
+			}
+
+			overridden := ApplyRuntime(p, rt)
+
+			assert.Equal(t, []string{tc.agentSets}, overridden)
+			env := p.Services["agent"].Environment
+			for _, k := range tc.skipped {
+				if k == tc.agentSets {
+					assert.Equal(t, "agent-value", envVal(env, k))
+					continue
+				}
+				_, set := env[k]
+				assert.False(t, set, "%s is in the agent's group, so it isn't injected", k)
+			}
+			assert.Equal(t, "1", envVal(env, "NODE_USE_ENV_PROXY"), "keys outside the group are still injected")
+		})
+	}
 }

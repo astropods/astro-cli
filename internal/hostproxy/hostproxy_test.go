@@ -178,13 +178,15 @@ func TestRuntime_RoutesAndTrustsTheHostCAs(t *testing.T) {
 	assert.Equal(t, "http://host.docker.internal:10144", rt.Env["https_proxy"])
 	assert.NotContains(t, rt.Env, "HTTP_PROXY", "the host set no HTTP proxy, so the containers get none")
 	assert.Equal(t, "1", rt.Env["NODE_USE_ENV_PROXY"], "Node 24 bypasses HTTPS_PROXY without it")
-	assert.Equal(t, []string{"localhost", "127.0.0.1", ".internal"}, rt.NoProxy)
+	assert.Equal(t, []string{"localhost", "127.0.0.1", "host.docker.internal", ".internal"}, rt.NoProxy)
+	assert.Contains(t, rt.NoProxy, "host.docker.internal", "calls to host-local services must not hairpin through the proxy")
 	assert.Equal(t, []string{"host.docker.internal:host-gateway"}, rt.ExtraHosts, "a loopback proxy needs the host mapping")
 	for _, k := range []string{"SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"} {
 		assert.Equal(t, caBundleMountPath, rt.Env[k], "%s points at the combined bundle", k)
 	}
 	require.Len(t, rt.Mounts, 1)
-	assert.Equal(t, filepath.Join(bundleDir, "ca-bundle.pem"), rt.Mounts[0].Source)
+	assert.Equal(t, bundleDir, filepath.Dir(rt.Mounts[0].Source))
+	assert.Regexp(t, `^ca-bundle-[0-9a-f]{16}\.pem$`, filepath.Base(rt.Mounts[0].Source))
 
 	data, err := os.ReadFile(rt.Mounts[0].Source)
 	require.NoError(t, err)
@@ -259,4 +261,35 @@ func TestRuntime_UnusableCAFile(t *testing.T) {
 			assert.Equal(t, tc.path, caErr.Path)
 		})
 	}
+}
+
+func TestWriteCABundle_NameFollowsContent(t *testing.T) {
+	dir := t.TempDir()
+	a := writeTestCA(t, t.TempDir(), "proxy-a")
+	b := writeTestCA(t, t.TempDir(), "proxy-b")
+	derOf := func(path string) [][]byte {
+		ders, err := readCertificates(path)
+		require.NoError(t, err)
+		return ders
+	}
+
+	first, err := WriteCABundle(dir, derOf(a))
+	require.NoError(t, err)
+	again, err := WriteCABundle(dir, derOf(a))
+	require.NoError(t, err)
+	other, err := WriteCABundle(dir, derOf(b))
+	require.NoError(t, err)
+
+	assert.Equal(t, first, again, "the same CAs reuse one file")
+	assert.NotEqual(t, first, other, "different CAs never overwrite each other's mounted bundle")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	assert.ElementsMatch(t, []string{filepath.Base(first), filepath.Base(other)}, names, "no temp files are left behind")
+	info, err := os.Stat(first)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm(), "containers running as non-root can read the bundle")
 }

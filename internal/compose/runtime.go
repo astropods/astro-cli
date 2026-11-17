@@ -26,7 +26,8 @@ type Mount struct {
 }
 
 // ApplyRuntime adds rt to the agent and each ingestion job. A key the service
-// already sets keeps its value; the returned keys are those overrides.
+// already sets keeps its value, and so does the rest of its group (see
+// envGroup); the returned keys are the service's own keys that caused a skip.
 func ApplyRuntime(p *types.Project, rt *Runtime) []string {
 	if rt == nil {
 		return nil
@@ -48,9 +49,16 @@ func ApplyRuntime(p *types.Project, rt *Runtime) []string {
 			env["NO_PROXY"] = noProxy
 			env["no_proxy"] = noProxy
 		}
+		setBy := map[string][]string{}
+		for k := range svc.Environment {
+			g := envGroup(k)
+			setBy[g] = append(setBy[g], k)
+		}
 		for k, v := range env {
-			if _, set := svc.Environment[k]; set {
-				overridden[k] = true
+			if keys, set := setBy[envGroup(k)]; set {
+				for _, sk := range keys {
+					overridden[sk] = true
+				}
 				continue
 			}
 			svc.Environment[k] = &v
@@ -74,6 +82,19 @@ func ApplyRuntime(p *types.Project, rt *Runtime) []string {
 		p.Services[name] = svc
 	}
 	return slices.Sorted(maps.Keys(overridden))
+}
+
+// envGroup names the keys that must be set together: both case forms of a
+// proxy variable, and the three CA variables, so a service never ends up with
+// half its own setting and half the host's.
+func envGroup(key string) string {
+	switch upper := strings.ToUpper(key); upper {
+	case "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY":
+		return upper
+	case "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE":
+		return "CA_FILES"
+	}
+	return key
 }
 
 func receivesDevEnv(service string) bool {

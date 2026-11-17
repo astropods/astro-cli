@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -167,13 +166,14 @@ func (c *Config) Check(ctx context.Context, dial func(ctx context.Context, netwo
 	return nil, nil
 }
 
-// Runtime validates the CA files, writes the combined bundle under bundleDir,
+// Runtime validates the CA files, writes the combined bundle into bundleDir,
 // and returns what the containers need. With no CA files in the environment,
 // it adds no bundle.
 func (c *Config) Runtime(bundleDir string) (*compose.Runtime, error) {
 	rt := &compose.Runtime{
-		Env:     map[string]string{"NODE_USE_ENV_PROXY": "1"},
-		NoProxy: append([]string{"localhost", "127.0.0.1"}, c.NoProxy...),
+		Env: map[string]string{"NODE_USE_ENV_PROXY": "1"},
+		// host.docker.internal keeps calls to host-local services (Ollama, a local MCP server) off the proxy.
+		NoProxy: append([]string{"localhost", "127.0.0.1", dockerHostGateway}, c.NoProxy...),
 	}
 	if c.HTTPS != nil {
 		rt.Env["HTTPS_PROXY"] = c.HTTPS.ContainerURL.String()
@@ -206,7 +206,7 @@ func (c *Config) Runtime(bundleDir string) (*compose.Runtime, error) {
 		}
 		certs = append(certs, ders...)
 	}
-	bundle, err := WriteCABundle(filepath.Join(bundleDir, "ca-bundle.pem"), certs)
+	bundle, err := WriteCABundle(bundleDir, certs)
 	if err != nil {
 		return nil, err
 	}
