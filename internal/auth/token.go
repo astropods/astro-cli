@@ -163,6 +163,10 @@ func (m *TokenManager) rotate(
 	}
 }
 
+// IsSessionEnded reports whether the identity provider refused the refresh
+// token, so only a new sign-in can continue.
+func IsSessionEnded(err error) bool { return isRejectedGrant(err) }
+
 func isRejectedGrant(err error) bool {
 	return errors.Is(err, ErrSessionEnded) || errors.Is(err, errInvalidGrant)
 }

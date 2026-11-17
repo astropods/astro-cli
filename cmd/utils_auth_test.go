@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -220,7 +221,7 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 		creds   *auth.Credentials
 		account string
 		force   bool
-		want    error
+		want    func(error) error
 		wantIs  error
 		wantRaw bool
 	}{
@@ -228,7 +229,7 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 			name:    "refresh rejected with invalid_grant",
 			creds:   sessionTestCreds("expired", "ended-refresh", expired),
 			account: "alice",
-			want:    errAuthSessionEnded(nil),
+			want:    errAuthSessionEnded,
 			wantIs:  auth.ErrSessionEnded,
 		},
 		{
@@ -236,28 +237,28 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 			creds:   sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
 			account: "alice",
 			force:   true,
-			want:    errAuthSessionEnded(nil),
+			want:    errAuthSessionEnded,
 			wantIs:  auth.ErrSessionEnded,
 		},
 		{
 			name:    "expired token and no refresh token",
 			creds:   sessionTestCreds("expired", "", expired),
 			account: "alice",
-			want:    errAuthNoRefreshToken(nil),
+			want:    errAuthNoRefreshToken,
 			wantIs:  auth.ErrNoRefreshToken,
 		},
 		{
 			name:    "org account and no refresh token",
 			creds:   sessionTestCreds("tok", "", time.Now().Add(time.Hour)),
 			account: "acme-corp",
-			want:    errAuthNoRefreshToken(nil),
+			want:    errAuthNoRefreshToken,
 			wantIs:  auth.ErrNoRefreshToken,
 		},
 		{
 			name:    "org refresh rejected",
 			creds:   sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
 			account: "acme-corp",
-			wantRaw: true,
+			want:    errAuthSessionEnded,
 		},
 	}
 	for _, tt := range tests {
@@ -269,12 +270,12 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 
 			_, err := accountToken(context.Background(), tt.account, tt.force)
 			require.Error(t, err)
-			want := tt.want
-			if tt.wantRaw {
-				want = errAuthFailed(errors.Unwrap(err))
+			want := errAuthFailed
+			if tt.want != nil {
+				want = tt.want
 			}
-			assert.Equal(t, want.Error(), err.Error(), "the message must come from messages.go")
-			assert.Equal(t, 1, strings.Count(err.Error(), "re-authenticate"), "the login hint must appear exactly once")
+			assert.Equal(t, want(errors.Unwrap(err)).Error(), err.Error(), "the message must come from messages.go")
+			assert.Equal(t, 1, strings.Count(err.Error(), msgFixSignIn()), "the login hint must appear exactly once")
 			assert.NotContains(t, err.Error(), "..", "the message must not stutter periods")
 			if tt.wantIs != nil {
 				assert.ErrorIs(t, err, tt.wantIs, "the auth cause must stay reachable through wrapping")
@@ -290,15 +291,17 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 		wantErr func(body string) error
 	}{
 		{
-			name:    "session ended before the request",
-			creds:   sessionTestCreds("expired", "ended-refresh", time.Now().Add(-time.Hour)),
-			wantErr: func(string) error { return errAuthSessionEnded(nil) },
+			name:  "session ended before the request",
+			creds: sessionTestCreds("expired", "ended-refresh", time.Now().Add(-time.Hour)),
+			wantErr: func(string) error {
+				return errAuthSessionEnded(fmt.Errorf("%w: Session has already ended.", auth.ErrSessionEnded))
+			},
 		},
 		{
 			name:  "server rejects the token and the retry refresh fails",
 			creds: sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
 			wantErr: func(string) error {
-				return errRegistrationFailed(errRegistrationUnauthorized("unauthorized"))
+				return errRegistrationUnauthorized("unauthorized")
 			},
 		},
 	}
@@ -320,7 +323,7 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 				"spec", "", nil, "", false, false, "alice", gitmetadata.Metadata{})
 			require.Error(t, err)
 			assert.Equal(t, tt.wantErr(body).Error(), err.Error(), "the message must come from messages.go")
-			assert.Equal(t, 1, strings.Count(err.Error(), "re-authenticate"), "the login hint must appear exactly once")
+			assert.Equal(t, 1, strings.Count(err.Error(), msgFixSignIn()), "the login hint must appear exactly once")
 		})
 	}
 }

@@ -328,5 +328,5 @@ func TestAuth_LogoutClearsTheSession(t *testing.T) {
 
 	r = h.run("blueprint", "list")
 	assert.NotEqual(t, 0, r.code)
-	assert.Contains(t, r.output, "not logged in")
+	assert.Contains(t, r.output, "You're not signed in", "a signed-out command must say so")
 }

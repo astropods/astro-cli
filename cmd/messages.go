@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -186,61 +187,138 @@ func errPromptNonInteractive() error {
 }
 
 func errMachineAuthFailed(err error) error {
-	return fmt.Errorf("signing in with %s failed: %w", envvar.ClientID, err)
+	if unreachable := asUnreachable(err); unreachable != nil {
+		return errServerUnreachable(unreachable)
+	}
+	return newCLIError(
+		"Signing in as an app failed",
+		"Check both values, or add a new client secret to the app in Settings > OAuth apps.",
+		err,
+	)
 }
 
 func errMachineAccountLookup(err error) error {
-	return fmt.Errorf("could not find the account %s belongs to: %w", envvar.ClientID, err)
+	return newCLIError(
+		"The app's account couldn't be found",
+		"Check that the app still exists in Settings > OAuth apps.",
+		err,
+	)
 }
 
 func errMachineAccountMismatch(requested, bound string) error {
-	return fmt.Errorf("%s is %q, but %s belongs to %q", envvar.Account, requested, envvar.ClientID, bound)
+	return newCLIError(
+		fmt.Sprintf("%s is %q, but the app in %s belongs to %q", envvar.Account, requested, envvar.ClientID, bound),
+		fmt.Sprintf("Set %s to %q, or remove it.", envvar.Account, bound),
+		nil,
+	)
 }
 
 func msgMachineCommandUnsupported() string {
-	return fmt.Sprintf("With %s set, only '%s push' and '%s deploy -f' run. Other commands need a person signed in with '%s login'.", envvar.ClientID, buildinfo.BinaryName, buildinfo.BinaryName, buildinfo.BinaryName)
+	return fmt.Sprintf("Only '%s push' and '%s deploy -f' run with %s set. Run other commands as yourself after '%s login'.", buildinfo.BinaryName, buildinfo.BinaryName, envvar.ClientID, buildinfo.BinaryName)
 }
 
 func errNeedsPerson(command string) error {
-	return fmt.Errorf("'%s %s' needs a person; it can't run with %s", buildinfo.BinaryName, command, envvar.ClientID)
+	return newCLIError(
+		fmt.Sprintf("'%s %s' needs a person", buildinfo.BinaryName, command),
+		fmt.Sprintf("Remove the command from the job, or unset %s to run it as yourself.", envvar.ClientID),
+		nil,
+	)
 }
 
 func errAccountNotLoggedIn() error {
-	return fmt.Errorf("not logged in. Run '%s login' to authenticate", buildinfo.BinaryName)
-}
-
-type authError struct {
-	msg   string
-	cause error
-}
-
-func (e *authError) Error() string { return e.msg }
-
-func (e *authError) Unwrap() error { return e.cause }
-
-func msgReauthenticate() string {
-	return fmt.Sprintf("Run '%s login' to re-authenticate.", buildinfo.BinaryName)
+	return newCLIError(
+		"You're not signed in",
+		fmt.Sprintf("Run '%s login' to sign in.", buildinfo.BinaryName),
+		nil,
+	)
 }
 
 func errAuthSessionEnded(cause error) error {
-	return &authError{
-		msg:   "authentication failed: your session has ended. " + msgReauthenticate(),
-		cause: cause,
-	}
+	return newCLIError(
+		"Your session has ended",
+		msgFixSignIn(),
+		cause,
+	)
 }
 
 func errAuthNoRefreshToken(cause error) error {
-	return &authError{
-		msg:   "authentication failed: your session can't be renewed. " + msgReauthenticate(),
-		cause: cause,
-	}
+	return newCLIError(
+		"Your session can't be renewed",
+		msgFixSignIn(),
+		cause,
+	)
 }
 
 func errAuthFailed(cause error) error {
-	return &authError{
-		msg:   fmt.Sprintf("authentication failed: %s. %s", strings.TrimRight(cause.Error(), ". "), msgReauthenticate()),
-		cause: cause,
+	if unreachable := asUnreachable(cause); unreachable != nil {
+		return errServerUnreachable(unreachable)
 	}
+	return newCLIError(
+		"Signing in failed",
+		msgFixSignIn(),
+		cause,
+	)
+}
+
+func msgFixSignIn() string {
+	return fmt.Sprintf("Run '%s login' to sign in again.", buildinfo.BinaryName)
+}
+
+func msgFixAddAppScope(action string) string {
+	return fmt.Sprintf("Add the %s scope to the app in Settings > OAuth apps, then run the command again.", action)
+}
+
+func msgFixAskForPermission() string {
+	return "Ask an account administrator for access."
+}
+
+func msgFixRetryLater() string {
+	return "Wait a minute and run the command again. If it keeps failing, contact support."
+}
+
+func msgRequestFailedHeadline(status int) string {
+	switch {
+	case status == http.StatusUnauthorized:
+		return "Astropods didn't accept your sign-in"
+	case status == http.StatusForbidden:
+		return "You don't have permission to do this"
+	case status == http.StatusNotFound:
+		return "Astropods couldn't find what you asked for"
+	case status == http.StatusConflict:
+		return "The request conflicts with what's already there"
+	case status == http.StatusTooManyRequests:
+		return "Astropods is limiting requests"
+	case status >= http.StatusInternalServerError:
+		return "Astropods couldn't complete the request"
+	case status >= http.StatusBadRequest:
+		return "Astropods rejected the request"
+	default:
+		return "The request failed"
+	}
+}
+
+func errServerUnreachable(cause *url.Error) *cliError {
+	host := cause.URL
+	if u, err := url.Parse(cause.URL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	return newCLIError(
+		fmt.Sprintf("Can't reach Astropods at %s", host),
+		"Check your network connection and run the command again.",
+		cause,
+	)
+}
+
+func msgAppLacksScopeHeadline() string {
+	return "This app isn't allowed to do this"
+}
+
+func msgAppCommandUnsupportedHeadline() string {
+	return "This command can't run as an app"
+}
+
+func msgBillingSuspendedHeadline() string {
+	return "This account is suspended for billing"
 }
 
 func errAccountMismatch(specAccount, currentAccount string) error {
@@ -338,7 +416,7 @@ func errServerStatus(status int, summary string) error {
 }
 
 func errRegistrationUnauthorized(summary string) error {
-	return fmt.Errorf("%w\n%s", errServerStatus(http.StatusUnauthorized, summary), msgReauthenticate())
+	return newCLIError(msgRequestFailedHeadline(http.StatusUnauthorized), msgFixSignIn(), serverSentence(summary))
 }
 
 func msgPrivateVisibilityExistingDeploymentsWarning() string {

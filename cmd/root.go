@@ -3,8 +3,6 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,26 +73,6 @@ func Execute() {
 	if invoked == nil || invoked.Name() != "upgrade" {
 		notifyIfUpdateAvailable()
 	}
-}
-
-func printExecutionError(w io.Writer, err error) {
-	if errors.Is(err, errDirtyWorkingTree) {
-		fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, msgDirtyPushBlockedHeadline(), colorReset) //nolint:errcheck,gosec
-		fmt.Fprintf(w, "  %s\n", msgDirtyPushBlockedRemediation())                        //nolint:errcheck
-		return
-	}
-	fmt.Fprintln(w, err) //nolint:errcheck
-	if auth.UsesMachineCredentials() && isMemberOnlyRefusal(err) {
-		fmt.Fprintf(w, "  %s\n", msgMachineCommandUnsupported()) //nolint:errcheck
-	}
-}
-
-func isMemberOnlyRefusal(err error) bool {
-	var apiErr *apiError
-	if !errors.As(err, &apiErr) || apiErr.isAuthorizationDenied() {
-		return false
-	}
-	return apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden
 }
 
 // resolveCommandName returns a command name like "deploy" or "configure.set".
