@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/compose-spec/compose-go/v2/types"
@@ -22,31 +23,48 @@ import (
 
 // Replaced in tests.
 var (
-	hostProxyGetenv = os.Getenv
+	hostEnvSnapshot = snapshotEnv
 	hostProxyGOOS   = runtime.GOOS
 	hostProxyDial   = (&net.Dialer{Timeout: 2 * time.Second}).DialContext
 )
 
+// snapshotEnv captures the process env as it is now. Start takes it before
+// assembleDevEnv exports project variables, so only the developer's own
+// settings count as the host's.
+func snapshotEnv() func(string) string {
+	env := map[string]string{}
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			env[k] = v
+		}
+	}
+	return func(k string) string { return env[k] }
+}
+
 // buildDevComposeProject builds the compose project and routes the agent and
-// ingestion containers through the host's proxy, when the host has one.
-func buildDevComposeProject(ctx context.Context, w io.Writer, s *spec.AstroSpec, workingDir string, envVars map[string]string) (*types.Project, error) {
+// ingestion containers through the proxy in hostEnv, when it names one.
+func buildDevComposeProject(ctx context.Context, w io.Writer, s *spec.AstroSpec, workingDir string, envVars map[string]string, hostEnv func(string) string) (*types.Project, error) {
 	project, err := composeBuilder.BuildProject(s, workingDir, envVars, composeBuilder.WithWarnings(w))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build compose project: %w", err)
 	}
 
-	cfg, err := hostproxy.FromEnv(hostProxyGetenv, hostProxyGOOS)
+	cfg, err := hostproxy.FromEnv(hostEnv, hostProxyGOOS)
+	var invalid *hostproxy.InvalidProxyError
 	switch {
 	case errors.Is(err, hostproxy.ErrLoopbackOnLinux):
-		return nil, errHostProxyLoopbackOnLinux()
+		fmt.Fprint(w, msgHostProxyLoopbackSkipped()) //nolint:errcheck,gosec
+		return project, nil
+	case errors.As(err, &invalid):
+		return nil, errHostProxyInvalid(invalid.Var)
 	case err != nil:
-		return nil, errHostProxyInvalid(err)
+		return nil, err
 	case cfg == nil:
 		return project, nil
 	}
 
-	if err := cfg.Check(ctx, hostProxyDial); err != nil {
-		return nil, errHostProxyUnreachable(cfg.HostURL, err)
+	if p, err := cfg.Check(ctx, hostProxyDial); err != nil {
+		return nil, errHostProxyUnreachable(p, err)
 	}
 	dir, err := auth.ConfigDir(buildinfo.BinaryName)
 	if err != nil {

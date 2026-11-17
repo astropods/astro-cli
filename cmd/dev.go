@@ -352,6 +352,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
 	w := cmd.OutOrStdout()
+	hostEnv := hostEnvSnapshot()
 	envVars, counts, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
 		Spec:        astroSpec,
 		WorkingDir:  workingDir,
@@ -370,7 +371,7 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s→%s %sNo credentials found. Run '%s project configure' to set up.%s\n", colorCyan, colorReset, colorDim, buildinfo.BinaryName, colorReset) //nolint:errcheck,gosec
 	}
 	// Build Docker Compose project
-	project, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars)
+	project, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars, hostEnv)
 	if err != nil {
 		return err
 	}
@@ -697,6 +698,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "🔄 %s\n", msgTriggeringJob(name)) //nolint:errcheck,gosec
 	triggerVerbose, _ := cmd.Root().PersistentFlags().GetBool("verbose")
+	hostEnv := hostEnvSnapshot()
 	envVars, _, err := assembleDevEnv(cmd.Context(), w, devEnvOptions{
 		Spec:        astroSpec,
 		WorkingDir:  workingDir,
@@ -710,7 +712,7 @@ func runDevTrigger(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ingProject, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars)
+	ingProject, err := buildDevComposeProject(cmd.Context(), w, astroSpec, workingDir, envVars, hostEnv)
 	if err != nil {
 		return err
 	}
