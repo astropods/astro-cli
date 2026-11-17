@@ -66,8 +66,7 @@ func Execute() {
 	}
 
 	if execErr != nil {
-		verbose, _ := rootCmd.PersistentFlags().GetBool("verbose")
-		printExecutionError(os.Stderr, execErr, verbose)
+		printExecutionError(os.Stderr, execErr)
 		os.Exit(exitCodeFor(execErr))
 	}
 

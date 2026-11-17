@@ -37,7 +37,7 @@ func newCLIError(headline, reason, fix string, cause error) *cliError {
 	return &cliError{headline: headline, reason: reason, fix: fix, cause: cause}
 }
 
-func printExecutionError(w io.Writer, err error, verbose bool) {
+func printExecutionError(w io.Writer, err error) {
 	e := explainError(err)
 	fmt.Fprintf(w, "%s✗ %s%s\n", colorRed, e.headline, colorReset) //nolint:errcheck
 	if e.reason != "" {
@@ -46,7 +46,7 @@ func printExecutionError(w io.Writer, err error, verbose bool) {
 	if e.fix != "" {
 		fmt.Fprintf(w, "  %s→ %s%s\n", colorBold, e.fix, colorReset) //nolint:errcheck
 	}
-	if verbose && e.cause != nil {
+	if e.cause != nil {
 		fmt.Fprintf(w, "  %sCause: %s%s\n", colorDim, e.cause, colorReset) //nolint:errcheck
 	}
 }
@@ -88,7 +88,11 @@ func explainAPIError(err error, apiErr *apiError) *cliError {
 			headline = capitalize(context)
 		}
 	}
-	return newCLIError(headline, reason, apiErrorFix(apiErr), err)
+	var cause error
+	if reason == "" {
+		cause = err
+	}
+	return newCLIError(headline, reason, apiErrorFix(apiErr), cause)
 }
 
 func apiErrorFix(apiErr *apiError) string {

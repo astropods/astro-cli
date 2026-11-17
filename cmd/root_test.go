@@ -19,7 +19,7 @@ import (
 
 func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
 	var output bytes.Buffer
-	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree), false)
+	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree))
 
 	require.Equal(t,
 		"✗ "+msgDirtyPushBlockedHeadline()+"\n"+
@@ -32,7 +32,7 @@ func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
 
 func TestPrintExecutionErrorKeepsTheTextOfAnUnexplainedFailure(t *testing.T) {
 	var output bytes.Buffer
-	printExecutionError(&output, errors.New("ordinary failure"), false)
+	printExecutionError(&output, errors.New("ordinary failure"))
 	assert.Equal(t, "✗ ordinary failure\n", stripANSI(output.String()))
 }
 
@@ -190,7 +190,7 @@ func TestPrintExecutionErrorPointsAppsAtSupportedCommands(t *testing.T) {
 			t.Cleanup(func() { auth.SetMachineCredentialsOverride("", "") })
 
 			var output bytes.Buffer
-			printExecutionError(&output, tt.err, false)
+			printExecutionError(&output, tt.err)
 
 			assert.Equal(t, tt.wantHint, strings.Contains(output.String(), msgMachineCommandUnsupported()),
 				"an app gets the supported-commands hint only when the server refuses it as a non-person: %s", output.String())
