@@ -342,11 +342,11 @@ func accountToken(ctx context.Context, account string, force bool) (string, erro
 }
 
 func authFailure(err error) error {
-	var ae *authError
+	var ce *cliError
 	switch {
-	case errors.As(err, &ae):
+	case errors.As(err, &ce):
 		return err
-	case errors.Is(err, auth.ErrSessionEnded):
+	case auth.IsSessionEnded(err):
 		return errAuthSessionEnded(err)
 	case errors.Is(err, auth.ErrNoRefreshToken):
 		return errAuthNoRefreshToken(err)

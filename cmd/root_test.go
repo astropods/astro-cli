@@ -19,21 +19,21 @@ import (
 
 func TestPrintExecutionErrorFormatsDirtyPushFailure(t *testing.T) {
 	var output bytes.Buffer
-	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree))
+	printExecutionError(&output, fmt.Errorf("collect metadata: %w", errDirtyWorkingTree), false)
 
 	require.Equal(t,
-		colorRed+"✗ "+msgDirtyPushBlockedHeadline()+colorReset+"\n"+
-			"  "+msgDirtyPushBlockedRemediation()+"\n",
-		output.String(),
+		"✗ "+msgDirtyPushBlockedHeadline()+"\n"+
+			"  → "+msgDirtyPushBlockedRemediation()+"\n",
+		stripANSI(output.String()),
 	)
 	plain := stripANSI(output.String())
 	assert.Equal(t, 1, strings.Count(plain, "Push blocked"), "the failure must be printed exactly once")
 }
 
-func TestPrintExecutionErrorLeavesOtherFailuresUnchanged(t *testing.T) {
+func TestPrintExecutionErrorKeepsTheTextOfAnUnexplainedFailure(t *testing.T) {
 	var output bytes.Buffer
-	printExecutionError(&output, errors.New("ordinary failure"))
-	assert.Equal(t, "ordinary failure\n", output.String())
+	printExecutionError(&output, errors.New("ordinary failure"), false)
+	assert.Equal(t, "✗ ordinary failure\n", stripANSI(output.String()))
 }
 
 func TestResolveSpecPathFromCwd(t *testing.T) {
@@ -190,13 +190,10 @@ func TestPrintExecutionErrorPointsAppsAtSupportedCommands(t *testing.T) {
 			t.Cleanup(func() { auth.SetMachineCredentialsOverride("", "") })
 
 			var output bytes.Buffer
-			printExecutionError(&output, tt.err)
+			printExecutionError(&output, tt.err, false)
 
-			want := tt.err.Error() + "\n"
-			if tt.wantHint {
-				want += "  " + msgMachineCommandUnsupported() + "\n"
-			}
-			assert.Equal(t, want, output.String(), "an app gets the supported-commands hint only when the server refuses it as a non-person")
+			assert.Equal(t, tt.wantHint, strings.Contains(output.String(), msgMachineCommandUnsupported()),
+				"an app gets the supported-commands hint only when the server refuses it as a non-person: %s", output.String())
 		})
 	}
 }

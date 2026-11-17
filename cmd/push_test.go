@@ -858,12 +858,12 @@ func TestRegisterAgentWithServer_UnauthorizedSuggestsLogin(t *testing.T) {
 		{
 			name:    "uncoded body",
 			body:    `{"error":"invalid token"}`,
-			wantErr: errRegistrationFailed(errRegistrationUnauthorized("invalid token")).Error(),
+			wantErr: errRegistrationUnauthorized("invalid token").Error(),
 		},
 		{
 			name:    "coded body",
 			body:    `{"error":"unauthorized","code":"TOKEN_EXPIRED","details":"The token has expired."}`,
-			wantErr: errRegistrationFailed(errRegistrationUnauthorized("The token has expired.")).Error(),
+			wantErr: errRegistrationUnauthorized("The token has expired.").Error(),
 		},
 	}
 	for _, tt := range tests {
@@ -947,8 +947,8 @@ func TestPush_ExpiredCredentialsFailBeforeBuild(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected push to fail with expired credentials, got nil")
 	}
-	if !strings.Contains(err.Error(), "not authenticated") && !strings.Contains(err.Error(), "authentication failed") {
-		t.Errorf("expected auth error, got: %s", err.Error())
+	if !strings.Contains(err.Error(), msgFixSignIn()) {
+		t.Errorf("expected a sign-in error, got: %s", err.Error())
 	}
 }
 
@@ -1203,8 +1203,8 @@ func TestPush_StaleRefreshTokenFailBeforeBuild(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected push to fail with stale refresh token, got nil")
 	}
-	if !strings.Contains(err.Error(), "authentication failed") {
-		t.Errorf("expected authentication failed error, got: %s", err.Error())
+	if !strings.Contains(err.Error(), msgFixSignIn()) {
+		t.Errorf("expected a sign-in error, got: %s", err.Error())
 	}
 }
 

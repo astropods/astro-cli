@@ -459,8 +459,8 @@ func registerAgentWithServer(ctx context.Context, serverURL, agentName, buildID,
 	if errors.As(err, &apiErr) && apiErr.isStructured() {
 		return apiErr
 	}
-	var authErr *authError
-	if errors.As(err, &authErr) {
+	var cliErr *cliError
+	if errors.As(err, &cliErr) {
 		return err
 	}
 	return errRegistrationFailed(err)

@@ -257,7 +257,7 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 			name:    "org refresh rejected",
 			creds:   sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
 			account: "acme-corp",
-			wantRaw: true,
+			want:    errAuthSessionEnded(nil),
 		},
 	}
 	for _, tt := range tests {
@@ -274,7 +274,7 @@ func TestAccountToken_SaysReauthenticateOnce(t *testing.T) {
 				want = errAuthFailed(errors.Unwrap(err))
 			}
 			assert.Equal(t, want.Error(), err.Error(), "the message must come from messages.go")
-			assert.Equal(t, 1, strings.Count(err.Error(), "re-authenticate"), "the login hint must appear exactly once")
+			assert.Equal(t, 1, strings.Count(err.Error(), msgFixSignIn()), "the login hint must appear exactly once")
 			assert.NotContains(t, err.Error(), "..", "the message must not stutter periods")
 			if tt.wantIs != nil {
 				assert.ErrorIs(t, err, tt.wantIs, "the auth cause must stay reachable through wrapping")
@@ -298,7 +298,7 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 			name:  "server rejects the token and the retry refresh fails",
 			creds: sessionTestCreds("tok", "ended-refresh", time.Now().Add(time.Hour)),
 			wantErr: func(string) error {
-				return errRegistrationFailed(errRegistrationUnauthorized("unauthorized"))
+				return errRegistrationUnauthorized("unauthorized")
 			},
 		},
 	}
@@ -320,7 +320,7 @@ func TestRegisterAgentWithServer_SaysReauthenticateOnce(t *testing.T) {
 				"spec", "", nil, "", false, false, "alice", gitmetadata.Metadata{})
 			require.Error(t, err)
 			assert.Equal(t, tt.wantErr(body).Error(), err.Error(), "the message must come from messages.go")
-			assert.Equal(t, 1, strings.Count(err.Error(), "re-authenticate"), "the login hint must appear exactly once")
+			assert.Equal(t, 1, strings.Count(err.Error(), msgFixSignIn()), "the login hint must appear exactly once")
 		})
 	}
 }

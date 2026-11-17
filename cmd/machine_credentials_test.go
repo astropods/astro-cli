@@ -105,7 +105,7 @@ func TestGetCurrentAccountTokenWithMachineCredentialsNeedsExactlyOneAccount(t *t
 
 	_, err := getCurrentAccountToken(t.Context())
 
-	require.ErrorContains(t, err, "could not find the account")
+	require.EqualError(t, err, errMachineAccountLookup(nil).Error())
 }
 
 func TestForceAccountTokenWithMachineCredentialsSkipsTheProfile(t *testing.T) {
