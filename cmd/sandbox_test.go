@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +20,7 @@ import (
 type shellServer struct {
 	mu        sync.Mutex
 	sandboxes string
+	runtime   string
 	listCode  int
 	shellCode int
 	origin    string
@@ -67,6 +69,16 @@ func newShellServer(t *testing.T, s *shellServer) *httptest.Server {
 				}
 			}
 		}
+		if strings.HasSuffix(r.URL.Path, "/runtime") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(s.runtime))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/deployments/") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"deployment":{"id":"dep-1","name":"my-agent","display_name":"My Agent"}}`))
+			return
+		}
 		code := s.listCode
 		if code == 0 {
 			code = http.StatusOK
@@ -80,9 +92,9 @@ func newShellServer(t *testing.T, s *shellServer) *httptest.Server {
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(srv.Close)
-	prev := sandboxServerURLOverride
-	sandboxServerURLOverride = srv.URL
-	t.Cleanup(func() { sandboxServerURLOverride = prev })
+	prev, prevAgent := sandboxServerURLOverride, agentServerURLOverride
+	sandboxServerURLOverride, agentServerURLOverride = srv.URL, srv.URL
+	t.Cleanup(func() { sandboxServerURLOverride, agentServerURLOverride = prev, prevAgent })
 	return srv
 }
 
@@ -94,6 +106,12 @@ func runSandboxCmd(t *testing.T, stdin string, args ...string) (string, error) {
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
 	t.Cleanup(func() {
+		for _, c := range []*cobra.Command{sandboxListCmd, sandboxShellCmd} {
+			for _, f := range []string{"agent", "id", "env", "name", "blueprint"} {
+				_ = c.Flags().Set(f, "")
+				c.Flags().Lookup(f).Changed = false
+			}
+		}
 		rootCmd.SetArgs(nil)
 		rootCmd.SetIn(nil)
 		rootCmd.SetOut(nil)
@@ -197,4 +215,76 @@ func TestSandboxShellForAnUnknownSandboxSaysHowToCheck(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, errSandboxShellNotFound().Error(), err.Error())
+}
+
+const deployedRuntime = `{"runtime":{"sandboxes":{"total":3,"recent":[{"name":"old","state":"stopped"},{"name":"live","state":"running"}]}}}`
+
+func TestSandboxListShowsADeployedAgentsSandboxes(t *testing.T) {
+	loggedIn(t)
+	newShellServer(t, &shellServer{runtime: deployedRuntime})
+
+	out, err := runSandboxCmd(t, "", "list", "--id", "dep-1")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "live")
+	assert.Contains(t, out, "old", "the list shows stopped sandboxes too")
+	assert.True(t, strings.HasSuffix(out, msgSandboxListTruncated(2, 3)+"\n"),
+		"a deployment's list holds only its most recent sandboxes, so the output must say when more exist")
+}
+
+func TestSandboxShellOpensADeployedAgentsSandbox(t *testing.T) {
+	loggedIn(t)
+	s := &shellServer{runtime: deployedRuntime}
+	srv := newShellServer(t, s)
+
+	out, err := runSandboxCmd(t, "pwd\n", "shell", "live", "--id", "dep-1")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "got: pwd\n")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	assert.Equal(t, "/api/v1/deployments/dep-1/sandboxes/live/terminal", s.path,
+		"a deployment target must use the deployment terminal, not the dev session's")
+	assert.Equal(t, srv.URL, s.origin)
+}
+
+func TestSandboxShellOnADeploymentPicksTheOnlyOpenSandbox(t *testing.T) {
+	loggedIn(t)
+	s := &shellServer{runtime: deployedRuntime}
+	newShellServer(t, s)
+
+	_, err := runSandboxCmd(t, "", "shell", "--id", "dep-1")
+
+	require.NoError(t, err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	assert.Equal(t, "/api/v1/deployments/dep-1/sandboxes/live/terminal", s.path, "a stopped sandbox has no shell to open")
+}
+
+func TestSandboxShellOnADeploymentExplainsARefusal(t *testing.T) {
+	loggedIn(t)
+	for _, tc := range []struct {
+		name string
+		code int
+		want error
+	}{
+		{"no operate access", http.StatusForbidden, errSandboxShellForbidden()},
+		{"unknown sandbox", http.StatusNotFound, errDeploymentSandboxShellNotFound()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			newShellServer(t, &shellServer{runtime: deployedRuntime, shellCode: tc.code})
+			_, err := runSandboxCmd(t, "", "shell", "live", "--id", "dep-1")
+			require.Error(t, err)
+			assert.Equal(t, tc.want.Error(), err.Error())
+		})
+	}
+}
+
+func TestSandboxCommandsTakeADevSessionOrADeploymentNotBoth(t *testing.T) {
+	loggedIn(t)
+	newShellServer(t, &shellServer{runtime: deployedRuntime})
+
+	_, err := runSandboxCmd(t, "", "list", "--agent", "my-agent", "--id", "dep-1")
+
+	require.Error(t, err, "--agent names a dev session and --id a deployment, so both at once is ambiguous")
 }

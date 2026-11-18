@@ -1493,12 +1493,12 @@ func errSandboxListFailed(err error) error {
 }
 
 func msgSandboxNoneYet(agent string) string {
-	return fmt.Sprintf("Your dev session for %s holds no sandboxes yet. The agent creates one when it first attaches.", agent)
+	return fmt.Sprintf("%s has no sandboxes yet. The agent creates one when it first attaches.", agent)
 }
 
 func errSandboxShellNoSandbox(agent string) error {
 	return newCLIError(
-		fmt.Sprintf("Your dev session for %s holds no sandboxes yet", agent),
+		fmt.Sprintf("%s has no open sandboxes", agent),
 		"Use the agent until it attaches a sandbox, then try again.",
 		nil,
 	)
@@ -1506,7 +1506,7 @@ func errSandboxShellNoSandbox(agent string) error {
 
 func errSandboxShellWhich(names []string) error {
 	return newCLIError(
-		"Your dev session holds more than one sandbox",
+		"There is more than one sandbox",
 		fmt.Sprintf("Name one: '%s sandbox shell <name>'. The sandboxes are %s.", buildinfo.BinaryName, strings.Join(names, ", ")),
 		nil,
 	)
@@ -1522,4 +1522,24 @@ func errSandboxShellNotFound() error {
 
 func errSandboxShellConnect(err error) error {
 	return newCLIError("Connecting to the sandbox's shell failed", "", err)
+}
+
+func msgSandboxListTruncated(shown, total int) string {
+	return fmt.Sprintf("Showing the %d most recent of %d sandboxes.", shown, total)
+}
+
+func errDeploymentSandboxShellNotFound() error {
+	return newCLIError(
+		"The shell could not open",
+		fmt.Sprintf("Check the name with '%s sandbox list' and the same agent flags.", buildinfo.BinaryName),
+		nil,
+	)
+}
+
+func errSandboxShellForbidden() error {
+	return newCLIError(
+		"You can't open a shell on this agent's sandboxes",
+		"Ask an account admin for operate access to the agent.",
+		nil,
+	)
 }

@@ -33,7 +33,7 @@ func websocketURL(httpURL string) string {
 
 // runShell relays a terminal between the local terminal and the server's
 // WebSocket until either side closes it.
-func runShell(ctx context.Context, httpURL, token, origin string, in io.Reader, out io.Writer) error {
+func runShell(ctx context.Context, httpURL, token, origin string, notFound error, in io.Reader, out io.Writer) error {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token)
 	header.Set("Origin", strings.TrimSuffix(origin, "/"))
@@ -44,7 +44,10 @@ func runShell(ctx context.Context, httpURL, token, origin string, in io.Reader, 
 	}
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusNotFound {
-			return errSandboxShellNotFound()
+			return notFound
+		}
+		if resp != nil && resp.StatusCode == http.StatusForbidden {
+			return errSandboxShellForbidden()
 		}
 		return errSandboxShellConnect(err)
 	}
