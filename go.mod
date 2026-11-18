@@ -23,6 +23,7 @@ require (
 	github.com/gofrs/flock v0.13.0
 	github.com/google/go-containerregistry v0.20.7
 	github.com/google/jsonschema-go v0.4.3
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/joho/godotenv v1.5.1
 	github.com/moby/buildkit v0.29.0
 	github.com/moby/moby/api v1.54.2

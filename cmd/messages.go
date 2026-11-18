@@ -1471,3 +1471,55 @@ func msgDeployFilePlan(plan deployPlan) string {
 func msgDeployFileNothingDeployed(total int) string {
 	return fmt.Sprintf("Dry run: checked %s. Nothing was deployed.", plural(total, "environment"))
 }
+
+func errSandboxAgentUnknown(err error) error {
+	return newCLIError(
+		"No agent to find a dev session for",
+		fmt.Sprintf("Run '%s sandbox' in your agent's directory, or pass --agent.", buildinfo.BinaryName),
+		err,
+	)
+}
+
+func errSandboxNoDevSession(agent string) error {
+	return newCLIError(
+		fmt.Sprintf("You have no dev session for %s", agent),
+		fmt.Sprintf("Start one with '%s dev' in another terminal, then try again.", buildinfo.BinaryName),
+		nil,
+	)
+}
+
+func errSandboxListFailed(err error) error {
+	return newCLIError("Listing the dev session's sandboxes failed", "", err)
+}
+
+func msgSandboxNoneYet(agent string) string {
+	return fmt.Sprintf("Your dev session for %s holds no sandboxes yet. The agent creates one when it first attaches.", agent)
+}
+
+func errSandboxShellNoSandbox(agent string) error {
+	return newCLIError(
+		fmt.Sprintf("Your dev session for %s holds no sandboxes yet", agent),
+		"Use the agent until it attaches a sandbox, then try again.",
+		nil,
+	)
+}
+
+func errSandboxShellWhich(names []string) error {
+	return newCLIError(
+		"Your dev session holds more than one sandbox",
+		fmt.Sprintf("Name one: '%s sandbox shell <name>'. The sandboxes are %s.", buildinfo.BinaryName, strings.Join(names, ", ")),
+		nil,
+	)
+}
+
+func errSandboxShellNotFound() error {
+	return newCLIError(
+		"The shell could not open",
+		fmt.Sprintf("Check the name with '%s sandbox list', and that '%s dev' is still running.", buildinfo.BinaryName, buildinfo.BinaryName),
+		nil,
+	)
+}
+
+func errSandboxShellConnect(err error) error {
+	return newCLIError("Connecting to the sandbox's shell failed", "", err)
+}
