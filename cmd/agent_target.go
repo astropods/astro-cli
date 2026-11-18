@@ -21,11 +21,16 @@ func deploymentLabel(dep *agentDeployment) string {
 }
 
 func registerAgentTargetFlags(cmd *cobra.Command) {
+	addAgentTargetFlags(cmd)
+	cmd.MarkFlagsOneRequired("name", "id", "env") //nolint:errcheck,gosec
+}
+
+// addAgentTargetFlags registers the deployment target flags without requiring one.
+func addAgentTargetFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "Display name or blueprint name (from agent list; not a deployment ID)")
 	cmd.Flags().String("id", "", "Deployment ID (from agent list)")
 	cmd.Flags().String("env", "", "Environment the agent runs in")
 	cmd.Flags().StringP("blueprint", "b", "", "Blueprint of the agent, with --env (default: the name in ./astropods.yml)")
-	cmd.MarkFlagsOneRequired("name", "id", "env")       //nolint:errcheck,gosec
 	cmd.MarkFlagsMutuallyExclusive("name", "id", "env") //nolint:errcheck,gosec
 	cmd.MarkFlagsMutuallyExclusive("name", "blueprint") //nolint:errcheck,gosec
 	cmd.MarkFlagsMutuallyExclusive("id", "blueprint")   //nolint:errcheck,gosec
