@@ -21,6 +21,8 @@ type shellResize struct {
 	Rows int    `json:"rows"`
 }
 
+const endOfTransmission = 0x04
+
 // shellDialer is replaced in tests.
 var shellDialer = websocket.DefaultDialer
 
@@ -106,6 +108,11 @@ func runShell(ctx context.Context, httpURL, token, origin string, notFound error
 				if werr := send(websocket.BinaryMessage, append([]byte(nil), buf[:n]...)); werr != nil {
 					return
 				}
+			}
+			if errors.Is(err, io.EOF) {
+				// The shell runs on a terminal, so end of input reaches it as Ctrl-D.
+				_ = send(websocket.BinaryMessage, []byte{endOfTransmission})
+				return
 			}
 			if err != nil {
 				writeMu.Lock()

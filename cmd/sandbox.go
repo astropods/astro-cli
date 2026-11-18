@@ -27,7 +27,7 @@ var sandboxListCmd = &cobra.Command{
 var sandboxShellCmd = &cobra.Command{
 	Use:   "shell [name]",
 	Short: "Open a shell in a deployed agent's or your dev session's sandbox",
-	Long:  "Open an interactive root shell in a sandbox. With --id, --env or --name, a deployed agent's sandbox, which needs operate access to the agent. Without them, a sandbox your 'ast dev' session holds. With no name, the shell opens in the only sandbox. It ends when you run 'exit'.",
+	Long:  "Open an interactive root shell in a sandbox. With --id, --env or --name, a deployed agent's sandbox, which needs operate access to the agent. Without them, a sandbox your 'ast dev' session holds. With no name, the shell opens in the only sandbox. It ends when you run 'exit'. Piped input runs as commands, and the shell exits when the input ends: echo 'ls' | ast sandbox shell",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runSandboxShell,
 }

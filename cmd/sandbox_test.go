@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
@@ -64,6 +65,12 @@ func newShellServer(t *testing.T, s *shellServer) *httptest.Server {
 					s.input.Write(data)
 				}
 				s.mu.Unlock()
+				if kind == websocket.BinaryMessage && bytes.HasSuffix(data, []byte{endOfTransmission}) {
+					_ = conn.WriteMessage(websocket.BinaryMessage, []byte("exit\r\n"))
+					_ = conn.WriteControl(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, "shell exited"), time.Now().Add(time.Second))
+					return
+				}
 				if kind == websocket.BinaryMessage {
 					_ = conn.WriteMessage(websocket.BinaryMessage, append([]byte("got: "), data...))
 				}
@@ -170,7 +177,7 @@ func TestSandboxShellRelaysKeystrokesAndOutput(t *testing.T) {
 	assert.Equal(t, "/api/v1/accounts/alice/dev-sessions/my-agent/sandboxes/conv-1/terminal", s.path)
 	assert.Equal(t, srv.URL, s.origin, "the server refuses a terminal with no Origin, so the CLI sends its own URL")
 	assert.True(t, strings.HasPrefix(s.bearer, "Bearer "))
-	assert.Equal(t, "ls\n", s.input.String())
+	assert.Equal(t, "ls\n\x04", s.input.String(), "end of input must reach the shell as Ctrl-D, so it exits on its own")
 	require.NotEmpty(t, s.resizes, "the shell starts at 0x0, so the CLI must size it on open")
 	assert.Equal(t, shellResize{Type: "resize", Cols: 80, Rows: 24}, s.resizes[0])
 }
@@ -287,4 +294,16 @@ func TestSandboxCommandsTakeADevSessionOrADeploymentNotBoth(t *testing.T) {
 	_, err := runSandboxCmd(t, "", "list", "--agent", "my-agent", "--id", "dep-1")
 
 	require.Error(t, err, "--agent names a dev session and --id a deployment, so both at once is ambiguous")
+}
+
+func TestSandboxShellRunsPipedInputAndWaitsForTheShellToExit(t *testing.T) {
+	loggedIn(t)
+	newShellServer(t, &shellServer{})
+
+	out, err := runSandboxCmd(t, "ls\n", "shell", "conv-1", "--agent", "my-agent")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "got: ls\n", "piped commands must run and their output must arrive before the CLI returns")
+	assert.True(t, strings.HasSuffix(out, "exit\r\n"),
+		"the CLI must return only after the shell exits, not as soon as stdin ends")
 }
