@@ -161,3 +161,21 @@ After pushing, **navigate to the Astropods platform** to see your agent and depl
 ### `build` — Build containers (optional)
 
 Build agent and custom component containers from the spec. This step is optional: when you run `ast push`, a build is done automatically if needed. Use `ast build` when you only want to build images (e.g. for local testing) without pushing.
+
+### `github` — Act on GitHub pull requests and issues
+
+`ast github` wraps the locally installed `gh` and `git` so an agent driving the CLI can read an issue, push a branch, open a pull request, and comment on it, without a separate GitHub client. This is unrelated to `ast push`, which registers a blueprint with Astropods rather than touching GitHub.
+
+```bash
+ast github issue view 42
+ast github push --set-upstream
+ast github pr create --title "Fix the thing" --body "Fixes the thing."
+ast github pr comment 7 --body "Addressed the feedback."
+ast github pr view 7 --json
+ast github pr view 7 --fields number,title,state
+ast github pr checks 7
+```
+
+`pr`/`issue` commands run `gh`, so run `gh auth login` first; they use whatever account that already authenticated. `push` runs only `git`, so it uses git's own credentials (an SSH key, a credential helper, ...) and needs no `gh` login. `--repo OWNER/REPO` targets a repository other than the one in the current directory, the same as a plain `gh` invocation. Inside an `ast dev` session that shared a GitHub connection, every one of these commands uses that connection's token instead, so a sandboxed agent with no local git or `gh` credentials still works.
+
+`--json` prints a standard field set; `--fields` narrows it to a comma-separated list and implies `--json`. `pr checks` passes `gh`'s exit code through, so `8` means checks are still running and `1` means one failed — check the status rather than parsing the output to decide whether CI has finished. `--remote` on `push` takes a configured remote's name, not a URL.
