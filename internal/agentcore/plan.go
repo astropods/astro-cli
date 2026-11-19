@@ -21,13 +21,12 @@ import (
 // checks a spec against these up front and rejects specs that need more.
 type Capabilities struct {
 	PersistentDisk bool // durable volume — true via S3 Files/EFS mount
-	Replicas       bool // operator-pinned replica count — false (serverless)
 	WebIngress     bool // agent-served web UI at a URL — false (invoke-only)
 }
 
 // AgentCoreCaps are the fixed capabilities of the AgentCore Runtime backend.
 func AgentCoreCaps() Capabilities {
-	return Capabilities{PersistentDisk: true, Replicas: false, WebIngress: false}
+	return Capabilities{PersistentDisk: true, WebIngress: false}
 }
 
 // Options are the deploy-time knobs that aren't in the spec: the resolved image,
@@ -150,11 +149,6 @@ func Build(s *spec.AstroSpec, opts Options) (*Plan, error) {
 		return nil, &RejectionError{Reason: fmt.Sprintf(
 			"agent.interfaces.frontend=true requires WebIngress, which AgentCore Runtime does not "+
 				"support (invoke-only). Front the web UI with a BFF, or run this agent on EKS. (%s)", s.Name)}
-	}
-	if s.Agent.Distributed && !caps.Replicas {
-		return nil, &RejectionError{Reason: fmt.Sprintf(
-			"agent.distributed=true pins replicas, which AgentCore Runtime does not support "+
-				"(serverless, per-session). (%s)", s.Name)}
 	}
 	if opts.ImageArch != "" && opts.ImageArch != "arm64" {
 		return nil, &RejectionError{Reason: fmt.Sprintf(

@@ -53,9 +53,6 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	} else if astroSpec.Agent.Image != "" {
 		fmt.Printf("  image:  %s%s%s\n", colorYellow, astroSpec.Agent.Image, colorReset)
 	}
-	if astroSpec.Agent.Distributed {
-		fmt.Printf("  multi-replica: yes\n")
-	}
 	printInputList(astroSpec.Agent.Inputs, "  ")
 	fmt.Println()
 
