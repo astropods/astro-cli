@@ -1543,3 +1543,55 @@ func errSandboxShellForbidden() error {
 		nil,
 	)
 }
+
+func errInsightsDays(days int) error {
+	return fmt.Errorf("--days must be 7, 14, 30, or 90, not %d", days)
+}
+
+func errInsightsLimit(max int) error {
+	return fmt.Errorf("--limit must be from 1 to %d", max)
+}
+
+func errInsightsOffset() error {
+	return fmt.Errorf("--offset must not be negative")
+}
+
+func errInsightsNoRange(days int) error {
+	return fmt.Errorf("the server returned no %d-day Insights range", days)
+}
+
+func errInsightsForbidden(account string) error {
+	return newCLIError(
+		fmt.Sprintf("You can't read Insights for %q", account),
+		"Ask an account admin for access to Insights.",
+		nil,
+	)
+}
+
+func msgInsightsWindow(days int, from, to string) string {
+	if from == "" || to == "" {
+		return fmt.Sprintf("Last %d complete days", days)
+	}
+	return fmt.Sprintf("Last %d complete days, %s to %s", days, from, to)
+}
+
+// msgInsightsChange is the change from the period before, or "" when the
+// server reports none.
+func msgInsightsChange(pct *float64) string {
+	if pct == nil {
+		return ""
+	}
+	return fmt.Sprintf("  (%+.0f%% from the period before)", *pct)
+}
+
+func msgInsightsNoSpend() string {
+	return "No spend in this period."
+}
+
+func msgInsightsDailyTopFive() string {
+	return "Shows the five agents that spent the most in the period, as on the Insights chart."
+}
+
+func msgInsightsMore(shown, total int) string {
+	return fmt.Sprintf("Showing %d of %d. Use --offset %d for the next page.", shown, total, shown)
+}
