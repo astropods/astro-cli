@@ -1556,6 +1556,10 @@ func errInsightsOffset() error {
 	return fmt.Errorf("--offset must not be negative")
 }
 
+func errInsightsNoRange(days int) error {
+	return fmt.Errorf("the server returned no %d-day Insights range", days)
+}
+
 func errInsightsForbidden(account string) error {
 	return newCLIError(
 		fmt.Sprintf("You can't read Insights for %q", account),

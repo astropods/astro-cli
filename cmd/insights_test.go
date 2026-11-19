@@ -146,6 +146,13 @@ func TestInsightsCommands(t *testing.T) {
 			wantOut:   []string{"sasbot", msgUsageDollars(4.0), "88.9%", msgUsageDollars(4.5), msgInsightsMore(1, 2)},
 		},
 		{
+			name:      "agents without the requested range keep their rows",
+			cmd:       insightsAgentsCmd,
+			flags:     map[string]string{"days": "30", "limit": "1"},
+			wantQuery: url.Values{"days": {"30"}, "agents_limit": {"1"}, "agents_offset": {"0"}},
+			wantOut:   []string{msgInsightsWindow(30, "", ""), "sasbot", msgUsageDollars(4.0)},
+		},
+		{
 			name:      "people",
 			cmd:       insightsPeopleCmd,
 			flags:     map[string]string{"days": "7"},
@@ -245,10 +252,12 @@ func TestInsightsJSON(t *testing.T) {
 
 func TestInsightsRefusals(t *testing.T) {
 	cases := []struct {
-		name    string
-		cmd     *cobra.Command
-		flags   map[string]string
-		status  int
+		name   string
+		cmd    *cobra.Command
+		flags  map[string]string
+		status int
+		// body is what the server returns; nil means an error body.
+		body    any
 		wantErr error
 		// wantNoCall is true when the flags are refused before any request.
 		wantNoCall bool
@@ -257,6 +266,8 @@ func TestInsightsRefusals(t *testing.T) {
 		{name: "limit too large", cmd: insightsAgentsCmd, flags: map[string]string{"limit": strconv.Itoa(insightsMaxLimit + 1)}, wantErr: errInsightsLimit(insightsMaxLimit), wantNoCall: true},
 		{name: "negative offset", cmd: insightsPeopleCmd, flags: map[string]string{"offset": "-1"}, wantErr: errInsightsOffset(), wantNoCall: true},
 		{name: "no access", cmd: insightsSummaryCmd, status: http.StatusForbidden, wantErr: errInsightsForbidden("testaccount")},
+		{name: "summary without the requested range", cmd: insightsSummaryCmd, flags: map[string]string{"days": "30"}, body: insightsPayload(), wantErr: errInsightsNoRange(30)},
+		{name: "daily without the requested range", cmd: insightsDailyCmd, flags: map[string]string{"days": "30"}, body: insightsPayload(), wantErr: errInsightsNoRange(30)},
 	}
 
 	for _, tc := range cases {
@@ -265,7 +276,11 @@ func TestInsightsRefusals(t *testing.T) {
 			if status == 0 {
 				status = http.StatusOK
 			}
-			queries := setupInsightsTest(t, status, map[string]any{"error": "forbidden"})
+			body := tc.body
+			if body == nil {
+				body = map[string]any{"error": "forbidden"}
+			}
+			queries := setupInsightsTest(t, status, body)
 
 			_, err := runInsights(t, tc.cmd, tc.flags)
 

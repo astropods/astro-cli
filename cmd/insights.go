@@ -250,7 +250,8 @@ type insightsPeopleOutput struct {
 
 // fetchInsights reads the Insights page model for the active account, with the
 // tables scoped to --days. table names the table whose --limit and --offset
-// apply; the others keep the server's defaults.
+// apply; the others keep the server's defaults. With no table, the response must
+// carry the --days range.
 func fetchInsights(cmd *cobra.Command, table string) (AccountToken, insightsResponse, insightsRange, insightsWindow, error) {
 	var resp insightsResponse
 	days, _ := cmd.Flags().GetInt("days")
@@ -283,7 +284,12 @@ func fetchInsights(cmd *cobra.Command, table string) (AccountToken, insightsResp
 	if err != nil {
 		return at, resp, insightsRange{}, insightsWindow{}, err
 	}
-	rng := resp.Ranges[strconv.Itoa(days)+"d"]
+	rng, ok := resp.Ranges[strconv.Itoa(days)+"d"]
+	// summary and daily read their numbers from the range. agents and people only
+	// take its dates for the header, so they go on without them.
+	if !ok && table == "" {
+		return at, resp, insightsRange{}, insightsWindow{}, errInsightsNoRange(days)
+	}
 	window := insightsWindow{
 		Account: at.Account,
 		Days:    days,
