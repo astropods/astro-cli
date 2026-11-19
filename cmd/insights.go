@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/astropods/astro-cli/internal/auth"
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	"github.com/astropods/astro-cli/internal/theme"
 )
@@ -278,7 +280,7 @@ func fetchInsights(cmd *cobra.Command, table string) (AccountToken, insightsResp
 	}
 	u := apiPath(insightsBaseURL(), url.PathEscape(at.Account), "accounts", "insights") + "?" + query.Encode()
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &resp)
-	if status == http.StatusForbidden {
+	if status == http.StatusForbidden && !insightsRefusalExplained(err) {
 		return at, resp, insightsRange{}, insightsWindow{}, errInsightsForbidden(at.Account)
 	}
 	if err != nil {
@@ -297,6 +299,18 @@ func fetchInsights(cmd *cobra.Command, table string) (AccountToken, insightsResp
 		To:      insightsDate(rng.Period.End),
 	}
 	return at, resp, rng, window, nil
+}
+
+// insightsRefusalExplained reports a 403 that explainError already words better
+// than errInsightsForbidden: a coded refusal such as AUTHORIZATION_DENIED or
+// BILLING_SUSPENDED, which carries the server's sentence, or any refusal of a
+// machine credential.
+func insightsRefusalExplained(err error) bool {
+	if auth.UsesMachineCredentials() {
+		return true
+	}
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.isStructured()
 }
 
 func insightsDate(timestamp string) string {

@@ -250,6 +250,25 @@ func TestInsightsJSON(t *testing.T) {
 	}
 }
 
+var (
+	insightsDenied = map[string]any{
+		"error": "authorization denied", "code": "AUTHORIZATION_DENIED", "action": "insights:read_summary",
+		"details": "Your access does not grant insights:read_summary.",
+	}
+	insightsSuspended = map[string]any{
+		"error": "billing suspended", "code": "BILLING_SUSPENDED", "action": "add_card",
+		"details": "This account has no payment method.",
+	}
+)
+
+// insightsAPIError is the error apiCall returns for a 403 with body.
+func insightsAPIError(t *testing.T, body map[string]any) error {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	return newAPIError(http.StatusForbidden, raw)
+}
+
 func TestInsightsRefusals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -266,6 +285,14 @@ func TestInsightsRefusals(t *testing.T) {
 		{name: "limit too large", cmd: insightsAgentsCmd, flags: map[string]string{"limit": strconv.Itoa(insightsMaxLimit + 1)}, wantErr: errInsightsLimit(insightsMaxLimit), wantNoCall: true},
 		{name: "negative offset", cmd: insightsPeopleCmd, flags: map[string]string{"offset": "-1"}, wantErr: errInsightsOffset(), wantNoCall: true},
 		{name: "no access", cmd: insightsSummaryCmd, status: http.StatusForbidden, wantErr: errInsightsForbidden("testaccount")},
+		{
+			name: "a permission refusal keeps the server's sentence", cmd: insightsSummaryCmd, status: http.StatusForbidden,
+			body: insightsDenied, wantErr: insightsAPIError(t, insightsDenied),
+		},
+		{
+			name: "a billing suspension is not called a missing permission", cmd: insightsSummaryCmd, status: http.StatusForbidden,
+			body: insightsSuspended, wantErr: insightsAPIError(t, insightsSuspended),
+		},
 		{name: "summary without the requested range", cmd: insightsSummaryCmd, flags: map[string]string{"days": "30"}, body: insightsPayload(), wantErr: errInsightsNoRange(30)},
 		{name: "daily without the requested range", cmd: insightsDailyCmd, flags: map[string]string{"days": "30"}, body: insightsPayload(), wantErr: errInsightsNoRange(30)},
 	}
@@ -286,6 +313,13 @@ func TestInsightsRefusals(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Equal(t, tc.wantErr.Error(), err.Error())
+			if tc.body != nil && tc.status == http.StatusForbidden {
+				assert.NotEqual(t, errInsightsForbidden("testaccount").Error(), err.Error())
+				var apiErr *apiError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, tc.body.(map[string]any)["code"], apiErr.Code)
+				assert.Contains(t, err.Error(), tc.body.(map[string]any)["details"])
+			}
 			if tc.wantNoCall {
 				assert.Empty(t, *queries)
 			}
