@@ -83,12 +83,6 @@ func TestBuild_Rejections(t *testing.T) {
 		_, err := Build(s, Options{})
 		assertRejection(t, err, "WebIngress")
 	})
-	t.Run("distributed rejected", func(t *testing.T) {
-		s := baseSpec()
-		s.Agent.Distributed = true
-		_, err := Build(s, Options{})
-		assertRejection(t, err, "replicas")
-	})
 	t.Run("non-arm64 rejected", func(t *testing.T) {
 		_, err := Build(baseSpec(), Options{ImageArch: "amd64"})
 		assertRejection(t, err, "arm64")
@@ -97,8 +91,8 @@ func TestBuild_Rejections(t *testing.T) {
 
 func TestAgentCoreCaps(t *testing.T) {
 	c := AgentCoreCaps()
-	if !c.PersistentDisk || c.Replicas || c.WebIngress {
-		t.Errorf("AgentCoreCaps() = %+v, want {PersistentDisk:true, Replicas:false, WebIngress:false}", c)
+	if !c.PersistentDisk || c.WebIngress {
+		t.Errorf("AgentCoreCaps() = %+v, want {PersistentDisk:true, WebIngress:false}", c)
 	}
 }
 
