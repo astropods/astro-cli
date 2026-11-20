@@ -143,18 +143,7 @@ func runBlueprintBuildsRebuild(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "github", "rebuild")
-	var started rebuildResponse
-	status, err := apiCall(cmd.Context(), http.MethodPost, u, nil, at.Token, verbose, &started)
-	if isConcealed(err) {
-		return err
-	}
-	switch status {
-	case http.StatusNotFound:
-		return errRebuildUnavailable(name, at.Account)
-	case http.StatusUnprocessableEntity:
-		return errRebuildGitHubNotConnected()
-	}
+	started, err := startServerBuild(cmd.Context(), at, name, verbose)
 	if err != nil {
 		return err
 	}
@@ -167,6 +156,27 @@ func runBlueprintBuildsRebuild(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintln(w) //nolint:errcheck,gosec
 	return tailBuildLogs(cmd.Context(), w, started.BuildID, buildLogsFetcher(cmd.Context(), at, name, started.BuildID, verbose))
+}
+
+// startServerBuild builds the head of the blueprint's connected branch or
+// hosted source on the server, cancelling any build still running.
+func startServerBuild(ctx context.Context, at AccountToken, name string, verbose bool) (rebuildResponse, error) {
+	u := apiPath(blueprintBaseURL(), at.Account, "agents", name, "github", "rebuild")
+	var started rebuildResponse
+	status, err := apiCall(ctx, http.MethodPost, u, nil, at.Token, verbose, &started)
+	if isConcealed(err) {
+		return rebuildResponse{}, err
+	}
+	switch status {
+	case http.StatusNotFound:
+		return rebuildResponse{}, errRebuildUnavailable(name, at.Account)
+	case http.StatusUnprocessableEntity:
+		return rebuildResponse{}, errRebuildGitHubNotConnected()
+	}
+	if err != nil {
+		return rebuildResponse{}, err
+	}
+	return started, nil
 }
 
 // Resolving an org token rotates the stored refresh token, which breaks any other

@@ -77,6 +77,7 @@ var mcpPolicies = map[string]mcpPolicy{
 	"billing set":              {class: mcpWrite},
 	"blueprint build":          {class: mcpWrite, timeout: mcpLongTimeout},
 	"blueprint builds rebuild": {class: mcpWrite, excludeFlags: []string{"tail"}},
+	"blueprint connect":        {class: mcpWrite, excludeFlags: []string{"no-browser"}},
 	"blueprint deploy":         {class: mcpWrite, args: "<blueprint>", timeout: mcpLongTimeout, excludeFlags: []string{"secret"}},
 	"blueprint push":           {class: mcpWrite, timeout: mcpLongTimeout},
 	"blueprint set":            {class: mcpWrite},
