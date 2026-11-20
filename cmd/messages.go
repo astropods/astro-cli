@@ -1037,6 +1037,176 @@ func msgTailBuildLogs(name, buildID string) string {
 	return fmt.Sprintf("Stream its logs with: %s blueprint builds logs %s %s --tail", buildinfo.BinaryName, name, buildID)
 }
 
+func errConnectNeedsBlueprintName() error {
+	return newCLIError(
+		"Name the blueprint to connect",
+		"Pass its name, or run this in a project directory with an astropods.yml.",
+		nil,
+	)
+}
+
+func errConnectNoRemote(cause error) error {
+	return newCLIError(
+		"There's no GitHub repository here to connect",
+		"Run this in a clone with a GitHub origin remote, or pass --repo owner/repo.",
+		cause,
+	)
+}
+
+func errConnectNotGitHub(remote string) error {
+	return newCLIError(
+		"Astropods builds only from GitHub repositories",
+		"Pass --repo with a GitHub repository.",
+		fmt.Errorf("%s isn't a github.com remote", remote),
+	)
+}
+
+func errConnectUnreadableRepo(remote string) error {
+	return newCLIError(
+		fmt.Sprintf("Can't read a GitHub repository from %q", remote),
+		"Pass --repo as owner/repo or a GitHub URL.",
+		nil,
+	)
+}
+
+func errConnectNeedsBranch(cause error) error {
+	return newCLIError("Name a branch to build", "Check out a branch, or pass --branch.", cause)
+}
+
+func errConnectGitHubCheckFailed(err error) error {
+	return fmt.Errorf("couldn't check your GitHub authorization: %w", err)
+}
+
+func errConnectGitHubAuthorizationRequired(authorizeURL string) error {
+	return newCLIError(
+		"GitHub isn't authorized for your account yet",
+		fmt.Sprintf("Open %s to authorize GitHub, then run the command again.", authorizeURL),
+		nil,
+	)
+}
+
+func errConnectGitHubAuthorizationTimedOut(authorizeURL string) error {
+	return newCLIError(
+		"GitHub authorization didn't finish",
+		fmt.Sprintf("Finish authorizing at %s, then run the command again.", authorizeURL),
+		nil,
+	)
+}
+
+func errConnectGitHubNotConnected() error {
+	return newCLIError(
+		"Astropods can't use your GitHub authorization",
+		"Run the command again to authorize GitHub.",
+		nil,
+	)
+}
+
+func errConnectRepoNotFound(repo string) error {
+	return newCLIError(
+		fmt.Sprintf("Can't find %s on GitHub", repo),
+		"Check the repository name and that your GitHub account can read it.",
+		nil,
+	)
+}
+
+func errConnectRepoAccessDenied(repo string) error {
+	return newCLIError(
+		fmt.Sprintf("GitHub denied access to %s", repo),
+		"Check that the repository's GitHub organization allows Astropods and that you've signed in with its SSO, then run the command again.",
+		nil,
+	)
+}
+
+func errConnectRepoPushRequired(repo string) error {
+	return newCLIError(
+		fmt.Sprintf("You need push access to %s to connect it", repo),
+		"Fork it and connect your fork instead.",
+		nil,
+	)
+}
+
+func errConnectWebhookPermission(repo string) error {
+	return newCLIError(
+		fmt.Sprintf("Astropods couldn't add its push webhook to %s", repo),
+		"Ask someone who can manage the repository's webhooks to connect it once. After that, others can connect it without that permission.",
+		errors.New("your GitHub account can't manage webhooks on this repository"),
+	)
+}
+
+func errConnectWebhookUnavailable() error {
+	return newCLIError("Astropods can't set up GitHub webhooks", "Contact support.", nil)
+}
+
+func errConnectGitHubRateLimited() error {
+	return newCLIError("GitHub's rate limit was reached", "Wait a few minutes and run the command again.", nil)
+}
+
+func errConnectBranchNotOnGitHub(repo, branch string) error {
+	return newCLIError(
+		fmt.Sprintf("%s has no branch %s on GitHub", repo, branch),
+		fmt.Sprintf("Push it first, for example with 'git push -u origin %s', or pass --branch with a branch that exists.", branch),
+		nil,
+	)
+}
+
+func errConnectRepoAlreadyConnected(repo string, cause error) error {
+	return newCLIError(
+		fmt.Sprintf("%s is already connected to another blueprint", repo),
+		"Connect a different repository or --path, or disconnect that blueprint in the web app first.",
+		cause,
+	)
+}
+
+func errConnectRepoConnectedTo(repo, blueprint string) error {
+	return errConnectRepoAlreadyConnected(repo, fmt.Errorf("it's connected to %s", blueprint))
+}
+
+func msgConnectAuthorizeGitHub() string {
+	return "Authorize GitHub in your browser to continue:"
+}
+
+func msgConnectBrowserFailed() string {
+	return "Couldn't open a browser. Open the link above to continue."
+}
+
+func msgConnectWaitingForGitHub() string {
+	return "Waiting for GitHub authorization…"
+}
+
+func msgConnectGitHubAuthorized(login string) string {
+	if login == "" {
+		return "GitHub authorized"
+	}
+	return fmt.Sprintf("GitHub authorized as %s", login)
+}
+
+func msgConnecting(name, repo, branch string) string {
+	return fmt.Sprintf("Connecting %s to %s on %s", name, repo, branch)
+}
+
+func msgConnected(name, repo, branch string) string {
+	return fmt.Sprintf("Connected %s to %s. Pushes to %s build it.", name, repo, branch)
+}
+
+// msgConnectBuildsUseLogin names whose GitHub authorization the server builds
+// with, because the connection keeps using it after this command ends.
+func msgConnectBuildsUseLogin(login string) string {
+	return fmt.Sprintf("Builds read the repository with the GitHub account %s.", login)
+}
+
+func msgConnectBuildStarted(buildID, commitSHA, commitMessage string) string {
+	return strings.TrimSpace(fmt.Sprintf("Build %s started from commit %s %s", buildID, shortSHA(commitSHA), commitTitle(commitMessage)))
+}
+
+func msgConnectBuildNotStarted(name string, err error) string {
+	return fmt.Sprintf("The repository is connected, but the first build didn't start: %s Start it with '%s blueprint builds rebuild %s'.",
+		sentence(err.Error()), buildinfo.BinaryName, name)
+}
+
+func msgConnectNoSpecOnBranch(repo, branch string) string {
+	return fmt.Sprintf("%s has no astropods.yml on %s yet, so no build was started. The next push that adds one builds the blueprint.", repo, branch)
+}
+
 func errEnvironmentsUnavailable(blueprint string) error {
 	return fmt.Errorf("blueprint %q is public; environments are only available for private blueprints", blueprint)
 }
