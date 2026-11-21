@@ -8,15 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/moby/moby/client"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
 	gitmetadata "github.com/astropods/astro-cli/internal/git"
-	"github.com/astropods/astro-cli/internal/theme"
 	"github.com/astropods/astro-cli/internal/tui"
 	spec "github.com/astropods/astro-spec"
+	deployspec "github.com/astropods/astro-spec/deploy"
 )
 
 // PushPipelineConfig holds all parameters for a push pipeline.
@@ -458,33 +457,25 @@ func (p *PushPipeline) printSkippedComponents() {
 	}
 }
 
-// PrintSuccess prints the success box after a completed push.
+// PrintSuccess prints the push summary and the command that deploys the build.
 func (p *PushPipeline) PrintSuccess() {
 	agentURL := fmt.Sprintf("%s/%s/%s",
 		strings.TrimSuffix(buildinfo.DefaultServerURL, "/"), p.cfg.Account, p.cfg.AgentName)
+	fmt.Fprint(progressW(), msgPushSuccess(p.cfg.AgentName, p.tag, string(p.visibility), agentURL, p.deployCommand())) //nolint:errcheck,gosec
+}
 
-	bold := lipgloss.NewStyle().Bold(true)
-	dim := lipgloss.NewStyle().Faint(true)
-	link := lipgloss.NewStyle().Foreground(theme.Primary).Underline(true)
-
-	var lines []string
-	lines = append(lines, bold.Render("✓ Pushed successfully!"))
-	lines = append(lines, dim.Render("Blueprint is "+string(p.visibility)))
-	lines = append(lines, "")
-	lines = append(lines, "  "+bold.Render(p.cfg.AgentName)+"  "+dim.Render("build "+p.tag))
-
-	urlLine := "  " + dim.Render("View online → ") + link.Render(agentURL)
-	urlBelowBox := ""
-	if limit := theme.BoxContentWidth(); limit > 0 && lipgloss.Width(urlLine) > limit {
-		urlLine = "  " + dim.Render("View online →")
-		urlBelowBox = link.Render(agentURL)
+// deployCommand deploys this build: from the project's deploy file when it
+// has one, otherwise directly.
+func (p *PushPipeline) deployCommand() string {
+	dir := filepath.Dir(p.cfg.SpecPath)
+	file := filepath.Join(dir, deployspec.FileName)
+	if _, err := os.Stat(file); err != nil {
+		return fmt.Sprintf("%s deploy --build %s", buildinfo.BinaryName, p.tag)
 	}
-	lines = append(lines, urlLine)
-
-	fmt.Fprintln(progressW())                   //nolint:errcheck,gosec
-	fmt.Fprintln(progressW(), theme.Box(lines)) //nolint:errcheck,gosec
-	if urlBelowBox != "" {
-		fmt.Fprintln(progressW(), urlBelowBox) //nolint:errcheck,gosec
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, file); err == nil && !strings.HasPrefix(rel, "..") {
+			file = rel
+		}
 	}
-	fmt.Fprintln(progressW()) //nolint:errcheck,gosec
+	return fmt.Sprintf("%s deploy -f %s --build %s", buildinfo.BinaryName, file, p.tag)
 }

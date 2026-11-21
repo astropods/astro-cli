@@ -1695,3 +1695,21 @@ func msgInsightsDailyTopFive() string {
 func msgInsightsMore(shown, total int) string {
 	return fmt.Sprintf("Showing %d of %d. Use --offset %d for the next page.", shown, total, shown)
 }
+
+// msgPushSuccess is the summary after a push: what was pushed, where to view
+// it, and the command that deploys it.
+func msgPushSuccess(name, build, visibility, url, deployCommand string) string {
+	bold := func(s string) string { return colorBold + s + colorReset }
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%s✓%s Pushed %s\n\n", colorGreen, colorReset, bold(name))
+	rows := [][2]string{{"Build", build}}
+	if visibility != "" {
+		rows = append(rows, [2]string{"Visibility", visibility})
+	}
+	rows = append(rows, [2]string{"View", url})
+	for _, r := range rows {
+		fmt.Fprintf(&b, "    %-13s%s\n", r[0], bold(r[1]))
+	}
+	fmt.Fprintf(&b, "\n    %sDeploy it:%s  %s\n\n", colorDim, colorReset, deployCommand)
+	return b.String()
+}

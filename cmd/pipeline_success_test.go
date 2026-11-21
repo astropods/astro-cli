@@ -2,92 +2,84 @@ package cmd
 
 import (
 	"context"
-	"strconv"
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func successPipeline() *PushPipeline {
+func successPipeline(specPath string) *PushPipeline {
 	p := NewPushPipeline(context.Background(), PushPipelineConfig{
 		Account:   "astro-preview",
 		AgentName: "credit-eater",
+		SpecPath:  specPath,
 	})
 	p.tag = "09182293"
 	p.visibility = VisibilityPublic
 	return p
 }
 
-func boxRows(out string) []string {
-	var rows []string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.ContainsAny(line, "╔║╚") {
-			rows = append(rows, line)
-		}
-	}
-	return rows
+func TestMsgPushSuccessLayout(t *testing.T) {
+	out := ansiRE.ReplaceAllString(msgPushSuccess("sasbot", "e67f35a5", "private", "https://astropod.ai/saswatds/sasbot", "ast deploy -f astropods.deploy.yml --build e67f35a5"), "")
+
+	assert.Equal(t, "\n"+
+		"✓ Pushed sasbot\n"+
+		"\n"+
+		"    Build        e67f35a5\n"+
+		"    Visibility   private\n"+
+		"    View         https://astropod.ai/saswatds/sasbot\n"+
+		"\n"+
+		"    Deploy it:  ast deploy -f astropods.deploy.yml --build e67f35a5\n"+
+		"\n", out)
 }
 
-func TestPrintSuccessBoxFitsTerminal(t *testing.T) {
-	for _, columns := range []int{120, 68, 60, 40, 24} {
-		t.Run(strconv.Itoa(columns)+" columns", func(t *testing.T) {
-			t.Setenv("COLUMNS", strconv.Itoa(columns))
+func TestMsgPushSuccessWeights(t *testing.T) {
+	out := msgPushSuccess("sasbot", "e67f35a5", "private", "https://astropod.ai/saswatds/sasbot", "ast deploy --build e67f35a5")
 
-			rows := boxRows(captureStdout(t, successPipeline().PrintSuccess))
-			require.NotEmpty(t, rows, "output must contain a box")
-
-			width := lipgloss.Width(rows[0])
-			assert.LessOrEqual(t, width, columns, "box must fit the terminal")
-			for _, row := range rows {
-				assert.Equal(t, width, lipgloss.Width(row), "every row must match the frame width: %q", row)
-			}
-		})
-	}
+	assert.Contains(t, out, "Pushed "+colorBold+"sasbot"+colorReset, "the blueprint name is bold")
+	assert.Contains(t, out, "    Build        "+colorBold+"e67f35a5"+colorReset, "labels are regular and the build ID, the value to copy, is bold")
+	assert.Contains(t, out, colorDim+"Deploy it:"+colorReset+"  ast deploy --build e67f35a5", "the hint label is faint and the command plain, so it copies cleanly")
 }
 
-func TestPrintSuccessURLPlacement(t *testing.T) {
-	agentURL := strings.TrimSuffix(buildinfo.DefaultServerURL, "/") + "/astro-preview/credit-eater"
+func TestMsgPushSuccessOmitsAnUnresolvedVisibility(t *testing.T) {
+	out := ansiRE.ReplaceAllString(msgPushSuccess("sasbot", "e67f35a5", "", "https://x", "ast deploy --build e67f35a5"), "")
 
-	tests := []struct {
-		name     string
-		columns  string
-		inBox    bool
-		wantLine string
+	assert.NotContains(t, out, "Visibility")
+}
+
+func TestPrintSuccessPrintsTheSummaryForThisPush(t *testing.T) {
+	dir := t.TempDir()
+	p := successPipeline(filepath.Join(dir, "astropods.yml"))
+
+	out := captureStdout(t, p.PrintSuccess)
+
+	assert.Equal(t, msgPushSuccess("credit-eater", "09182293", "public",
+		buildinfo.DefaultServerURL+"/astro-preview/credit-eater",
+		buildinfo.BinaryName+" deploy --build 09182293"), out)
+}
+
+func TestPushDeployCommand(t *testing.T) {
+	cases := []struct {
+		name       string
+		deployFile bool
+		want       string
 	}{
-		{name: "inside the box when it fits", columns: "200", inBox: true},
-		{name: "below the box when it does not fit", columns: "60", inBox: false, wantLine: agentURL},
+		{"with a deploy file next to astropods.yml", true, buildinfo.BinaryName + " deploy -f astropods.deploy.yml --build 09182293"},
+		{"without one", false, buildinfo.BinaryName + " deploy --build 09182293"},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("COLUMNS", tt.columns)
-
-			out := captureStdout(t, successPipeline().PrintSuccess)
-
-			if tt.inBox {
-				assert.Contains(t, out, "View online → "+agentURL)
-				return
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+			if tc.deployFile {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "astropods.deploy.yml"), []byte("spec: deploy/v1\n"), 0o600))
 			}
 
-			assert.NotContains(t, out, "View online → "+agentURL, "the box must not hold the URL")
-			var standalone bool
-			for _, line := range strings.Split(out, "\n") {
-				if strings.TrimSpace(line) == tt.wantLine {
-					standalone = true
-				}
-			}
-			assert.True(t, standalone, "the URL must sit unbroken on its own line, got:\n%s", out)
+			assert.Equal(t, tc.want, successPipeline(filepath.Join(dir, "astropods.yml")).deployCommand(),
+				"the hint must be a command that deploys exactly the build just pushed")
 		})
 	}
-}
-
-func TestPrintSuccessNamesTheBuildIDForDeployBuild(t *testing.T) {
-	out := captureStdout(t, successPipeline().PrintSuccess)
-
-	assert.Contains(t, out, "build 09182293", "the box must label the ID with the same word as ast deploy --build")
-	assert.NotContains(t, out, "tag 09182293", "calling the build ID a tag sends readers looking for a different value")
 }
