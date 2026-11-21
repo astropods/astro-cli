@@ -198,6 +198,14 @@ func templateSizing(t deployTemplateResponse, key string) string {
 	if c == nil {
 		return "default"
 	}
+	sizing := componentSizing(*c)
+	if c.HighAvailability != nil && *c.HighAvailability {
+		sizing += ", high availability"
+	}
+	return sizing
+}
+
+func componentSizing(c deployTemplateComponent) string {
 	if c.Sizing != nil && c.Sizing.Mode == deployspec.SizingAuto {
 		bounds := []string{}
 		if s := sizeRange("cpu", c.Sizing.Min, c.Sizing.Max, func(s *deployTemplateSize) string { return s.CPU }); s != "" {

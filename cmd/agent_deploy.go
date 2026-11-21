@@ -104,8 +104,9 @@ type deployTemplateProvisioning struct {
 }
 
 type deployTemplateComponent struct {
-	Compute *deployTemplateSize `json:"compute,omitempty"`
-	Sizing  *struct {
+	Compute          *deployTemplateSize `json:"compute,omitempty"`
+	HighAvailability *bool               `json:"high_availability,omitempty"`
+	Sizing           *struct {
 		Mode string              `json:"mode"`
 		Min  *deployTemplateSize `json:"min,omitempty"`
 		Max  *deployTemplateSize `json:"max,omitempty"`

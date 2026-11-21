@@ -120,6 +120,17 @@ func TestMsgDeployFilePlan(t *testing.T) {
 			want: "    build              2f1c4341 → ba7eeeff\n",
 		},
 		{
+			name: "a label longer than the column widens it for every row",
+			plan: deployPlan{New: true, Build: deployPlanRow{Label: "build", After: "e67f35a5"},
+				Rows: []deployPlanRow{
+					{Label: "sizing agent", After: "auto"},
+					{Label: "sizing knowledge.journal", After: "fixed (cpu 500m, memory 1Gi), high availability"},
+				}},
+			want: "    build                    e67f35a5 (latest registered)\n" +
+				"    sizing agent             auto\n" +
+				"    sizing knowledge.journal fixed (cpu 500m, memory 1Gi), high availability\n",
+		},
+		{
 			name: "a new agent",
 			plan: deployPlan{New: true, Build: deployPlanRow{Label: "build", After: "ba7eeeff"},
 				Rows: []deployPlanRow{{Label: "interfaces", After: "web"}}, Kept: []string{"models"}},
@@ -146,4 +157,25 @@ func TestDeployFileDryRunPrintsThePlan(t *testing.T) {
 		"main holds an agent, so its plan lists what the redeploy keeps")
 	assert.Contains(t, out, "(defaults)\n", "qa has no agent, so its plan lists what a new agent gets by default")
 	assert.Contains(t, out, msgDeployFileNothingDeployed(2))
+}
+
+func TestTemplateSizingShowsHighAvailability(t *testing.T) {
+	on, off := true, false
+	fixed := &deployTemplateSize{CPU: "500m", Memory: "1Gi"}
+	cases := []struct {
+		name string
+		ha   *bool
+		want string
+	}{
+		{"on", &on, "fixed (cpu 500m, memory 1Gi), high availability"},
+		{"off", &off, "fixed (cpu 500m, memory 1Gi)"},
+		{"not echoed", nil, "fixed (cpu 500m, memory 1Gi)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl := deployTemplateResponse{}
+			tmpl.Provisioning.Knowledge = map[string]deployTemplateComponent{"journal": {Compute: fixed, HighAvailability: tc.ha}}
+			assert.Equal(t, tc.want, templateSizing(tmpl, "knowledge.journal"), "the dry run must show whether the entry runs as a database cluster")
+		})
+	}
 }

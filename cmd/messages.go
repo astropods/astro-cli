@@ -1423,8 +1423,13 @@ func msgDeployFileEnvironmentFailed(env string, err error) string {
 
 func msgDeployFilePlan(plan deployPlan) string {
 	var b strings.Builder
+	width := len("not in file")
+	for _, r := range append([]deployPlanRow{plan.Build}, plan.Rows...) {
+		width = max(width, len(r.Label))
+	}
+	width = max(width, 18)
 	line := func(label, value string) {
-		fmt.Fprintf(&b, "    %-18s %s\n", label, value)
+		fmt.Fprintf(&b, "    %-*s %s\n", width, label, value)
 	}
 	switch {
 	case plan.New:
