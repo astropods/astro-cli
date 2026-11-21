@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,13 +11,32 @@ import (
 	deployspec "github.com/astropods/astro-spec/deploy"
 )
 
-// deployPlanRow is one field the deploy file sets. Before is empty for a new
-// agent, and NotCompared marks a value the template does not echo back.
+// deployPlanRow is one setting the deploy file sets. Key names the entry for
+// a per-entry setting such as a model. Before is empty for a new agent, and
+// NotCompared marks a value the template does not echo back.
 type deployPlanRow struct {
 	Label       string
+	Key         string
 	Before      string
 	After       string
 	NotCompared bool
+}
+
+// deployPlanSizing is one component's sizing, split into table cells. HA is
+// empty for a component without high availability.
+type deployPlanSizing struct {
+	Mode   string
+	CPU    string
+	Memory string
+	HA     string
+}
+
+// deployPlanResource is one component under resources. Before is nil for a
+// new agent.
+type deployPlanResource struct {
+	Name   string
+	Before *deployPlanSizing
+	After  deployPlanSizing
 }
 
 type deployPlan struct {
@@ -24,9 +44,11 @@ type deployPlan struct {
 	Pinned bool
 	Build  deployPlanRow
 	// Latest is the newest registered build, set only when it differs from Build.After.
-	Latest string
-	Rows   []deployPlanRow
-	Kept   []string
+	Latest    string
+	Rows      []deployPlanRow
+	Resources []deployPlanResource
+	// Kept names what the file leaves out.
+	Kept []string
 }
 
 // storedDeployTemplate is the template a deployment runs today. With no
@@ -49,64 +71,84 @@ func buildDeployPlan(entry deployspec.Environment, stored *deployTemplateRespons
 		}
 		return f(*stored)
 	}
-	add := func(label string, f func(deployTemplateResponse) string) {
-		plan.Rows = append(plan.Rows, deployPlanRow{Label: label, Before: before(f), After: f(proposed)})
+	add := func(label, key string, f func(deployTemplateResponse) string) {
+		plan.Rows = append(plan.Rows, deployPlanRow{Label: label, Key: key, Before: before(f), After: f(proposed)})
 	}
 
-	plan.Build = deployPlanRow{Label: "build", Before: before(templateBuild), After: templateBuild(proposed)}
+	plan.Build = deployPlanRow{Label: "Build", Before: before(templateBuild), After: templateBuild(proposed)}
 	if latestBuild != plan.Build.After {
 		plan.Latest = latestBuild
 	}
 
 	if entry.Cluster != "" {
-		add("cluster", templateCluster)
+		add("Cluster", "", templateCluster)
 	} else {
 		plan.Kept = append(plan.Kept, "cluster")
 	}
 	if len(entry.Models) > 0 {
 		for _, name := range sortedKeys(entry.Models) {
-			add("model "+name, func(t deployTemplateResponse) string { return templateModel(t, name) })
+			add("Model", name, func(t deployTemplateResponse) string { return templateModel(t, name) })
 		}
 	} else {
 		plan.Kept = append(plan.Kept, "models")
 	}
 	if entry.Interfaces != nil {
-		add("interfaces", templateAdapters)
+		add("Interfaces", "", templateAdapters)
 	} else {
 		plan.Kept = append(plan.Kept, "interfaces")
 	}
 	if entry.Public != nil {
-		add("public", templatePublic)
+		add("Public", "", templatePublic)
 	} else {
 		plan.Kept = append(plan.Kept, "public")
 	}
 	if len(entry.Variables) > 0 {
-		plan.Rows = append(plan.Rows, deployPlanRow{Label: "variables", After: variableNames(entry.Variables), NotCompared: true})
+		plan.Rows = append(plan.Rows, deployPlanRow{Label: "Variables", After: variableNames(entry.Variables), NotCompared: true})
 	} else {
 		plan.Kept = append(plan.Kept, "variables")
 	}
 	if len(entry.Schedules) > 0 {
 		for _, name := range sortedKeys(entry.Schedules) {
-			add("schedule "+name, func(t deployTemplateResponse) string { return t.Schedules[name] })
+			add("Schedule", name, func(t deployTemplateResponse) string { return t.Schedules[name] })
 		}
 	} else {
 		plan.Kept = append(plan.Kept, "schedules")
 	}
 	if len(entry.Knowledge) > 0 {
 		for _, name := range sortedKeys(entry.Knowledge) {
-			add("knowledge "+name, func(t deployTemplateResponse) string { return templateKnowledge(t, name) })
+			add("Knowledge", name, func(t deployTemplateResponse) string { return templateKnowledge(t, name) })
 		}
 	} else {
-		plan.Kept = append(plan.Kept, "knowledge")
+		plan.Kept = append(plan.Kept, "knowledge bindings")
 	}
 	if entry.Resources != nil {
-		for _, key := range resourceKeys(*entry.Resources) {
-			add("sizing "+key, func(t deployTemplateResponse) string { return templateSizing(t, key) })
+		keys := resourceKeys(*entry.Resources)
+		for _, key := range keys {
+			r := deployPlanResource{Name: resourceName(key, keys), After: templateSizing(proposed, key)}
+			if stored != nil {
+				b := templateSizing(*stored, key)
+				r.Before = &b
+			}
+			plan.Resources = append(plan.Resources, r)
 		}
 	} else {
 		plan.Kept = append(plan.Kept, "resources")
 	}
 	return plan
+}
+
+// resourceName is the entry name, or group.name when two groups share it.
+func resourceName(key string, keys []string) string {
+	_, name, found := strings.Cut(key, ".")
+	if !found {
+		return key
+	}
+	for _, other := range keys {
+		if _, n, ok := strings.Cut(other, "."); ok && other != key && n == name {
+			return key
+		}
+	}
+	return name
 }
 
 func templateBuild(t deployTemplateResponse) string {
@@ -173,13 +215,13 @@ func templateKnowledge(t deployTemplateResponse, name string) string {
 	return b.ARN
 }
 
-func templateSizing(t deployTemplateResponse, key string) string {
+func templateSizing(t deployTemplateResponse, key string) deployPlanSizing {
 	p := t.Provisioning
 	var c *deployTemplateComponent
+	group, name, _ := strings.Cut(key, ".")
 	if key == "agent" {
 		c = p.Agent
 	} else {
-		group, name, _ := strings.Cut(key, ".")
 		var m map[string]deployTemplateComponent
 		switch group {
 		case "models":
@@ -196,43 +238,36 @@ func templateSizing(t deployTemplateResponse, key string) string {
 		}
 	}
 	if c == nil {
-		return "default"
+		return deployPlanSizing{Mode: "default"}
 	}
-	sizing := componentSizing(*c)
-	if c.HighAvailability != nil && *c.HighAvailability {
-		sizing += ", high availability"
-	}
-	return sizing
-}
-
-func componentSizing(c deployTemplateComponent) string {
+	s := deployPlanSizing{Mode: deployspec.SizingFixed}
 	if c.Sizing != nil && c.Sizing.Mode == deployspec.SizingAuto {
-		bounds := []string{}
-		if s := sizeRange("cpu", c.Sizing.Min, c.Sizing.Max, func(s *deployTemplateSize) string { return s.CPU }); s != "" {
-			bounds = append(bounds, s)
+		s.Mode = deployspec.SizingAuto
+		s.CPU = sizeRange(c.Sizing.Min, c.Sizing.Max, func(s *deployTemplateSize) string { return s.CPU })
+		s.Memory = sizeRange(c.Sizing.Min, c.Sizing.Max, func(s *deployTemplateSize) string { return s.Memory })
+	} else if c.Compute != nil {
+		s.CPU, s.Memory = c.Compute.CPU, c.Compute.Memory
+	}
+	if c.HighAvailability != nil && *c.HighAvailability {
+		s.HA = "on"
+		if n := templateKnowledgeReplicas(t, name); group == "knowledge" && n > 1 {
+			s.HA = fmt.Sprintf("on, %d instances", n)
 		}
-		if s := sizeRange("memory", c.Sizing.Min, c.Sizing.Max, func(s *deployTemplateSize) string { return s.Memory }); s != "" {
-			bounds = append(bounds, s)
-		}
-		if len(bounds) == 0 {
-			return "auto"
-		}
-		return "auto (" + strings.Join(bounds, ", ") + ")"
 	}
-	if c.Compute == nil {
-		return "fixed"
-	}
-	var parts []string
-	if c.Compute.CPU != "" {
-		parts = append(parts, "cpu "+c.Compute.CPU)
-	}
-	if c.Compute.Memory != "" {
-		parts = append(parts, "memory "+c.Compute.Memory)
-	}
-	return "fixed (" + strings.Join(parts, ", ") + ")"
+	return s
 }
 
-func sizeRange(label string, min, max *deployTemplateSize, get func(*deployTemplateSize) string) string {
+func templateKnowledgeReplicas(t deployTemplateResponse, name string) int {
+	var tmpl struct {
+		Knowledge map[string]struct {
+			Replicas int `json:"replicas"`
+		} `json:"knowledge"`
+	}
+	_ = json.Unmarshal(t.Template, &tmpl)
+	return tmpl.Knowledge[name].Replicas
+}
+
+func sizeRange(min, max *deployTemplateSize, get func(*deployTemplateSize) string) string {
 	lo, hi := "", ""
 	if min != nil {
 		lo = get(min)
@@ -243,7 +278,7 @@ func sizeRange(label string, min, max *deployTemplateSize, get func(*deployTempl
 	if lo == "" && hi == "" {
 		return ""
 	}
-	return label + " " + lo + "–" + hi
+	return lo + "–" + hi
 }
 
 func variableNames(vars map[string]deployspec.Variable) string {

@@ -1422,55 +1422,150 @@ func msgDeployFileEnvironmentFailed(env string, err error) string {
 }
 
 func msgDeployFilePlan(plan deployPlan) string {
-	var b strings.Builder
-	width := len("not in file")
-	for _, r := range append([]deployPlanRow{plan.Build}, plan.Rows...) {
-		width = max(width, len(r.Label))
+	bold := func(s string) string { return colorBold + s + colorReset }
+	faint := func(s string) string { return colorDim + s + colorReset }
+	changed := func(before, after string) string {
+		if before == "" {
+			before = "none"
+		}
+		return faint(before+" →") + " " + bold(after)
 	}
-	width = max(width, 18)
-	line := func(label, value string) {
-		fmt.Fprintf(&b, "    %-*s %s\n", width, label, value)
-	}
+	kept := append([]string(nil), plan.Kept...)
+
+	type line struct{ label, value string }
+	var lines []line
 	switch {
 	case plan.New:
-		line(plan.Build.Label, plan.Build.After+" (latest registered)")
+		lines = append(lines, line{"Build", bold(plan.Build.After) + "  " + faint("latest registered")})
 	case plan.Build.Before == plan.Build.After && plan.Latest != "":
-		line(plan.Build.Label, plan.Build.After+" (kept; "+plan.Latest+" is newer, deploy it with --build "+plan.Latest+")")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("kept, "+plan.Latest+" is newer: use --build "+plan.Latest)})
 	case plan.Build.Before == plan.Build.After && !plan.Pinned:
-		line(plan.Build.Label, plan.Build.After+" (kept, the latest build)")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("kept, the latest build")})
 	case plan.Build.Before == plan.Build.After:
-		line(plan.Build.Label, plan.Build.After+" (unchanged)")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("unchanged")})
 	default:
-		line(plan.Build.Label, plan.Build.Before+" → "+plan.Build.After)
+		lines = append(lines, line{"Build", changed(plan.Build.Before, plan.Build.After)})
 	}
 	for _, r := range plan.Rows {
 		after := r.After
 		if after == "" {
 			after = "none"
 		}
-		switch {
-		case plan.New:
-			line(r.Label, after)
-		case r.NotCompared:
-			line(r.Label, "set "+after)
-		case r.Before == r.After:
-			line(r.Label, after+" (unchanged)")
-		default:
-			before := r.Before
-			if before == "" {
-				before = "none"
+		if !plan.New && !r.NotCompared && r.Before == r.After {
+			kept = append(kept, strings.TrimSpace(strings.ToLower(r.Label)+" "+r.Key))
+			continue
+		}
+		value := bold(after)
+		if !plan.New && !r.NotCompared {
+			value = changed(r.Before, after)
+		}
+		if r.Key != "" {
+			value = r.Key + "  " + value
+		}
+		lines = append(lines, line{r.Label, value})
+	}
+
+	var resources []deployPlanResource
+	for _, r := range plan.Resources {
+		if r.Before != nil && *r.Before == r.After {
+			kept = append(kept, r.Name+" sizing")
+			continue
+		}
+		resources = append(resources, r)
+	}
+
+	width := len("Resources")
+	for _, l := range lines {
+		width = max(width, len(l.label))
+	}
+	for _, r := range resources {
+		width = max(width, len(r.Name))
+	}
+	width += 3
+	pad := func(s string, w int) string { return s + strings.Repeat(" ", max(w-len(s), 0)) }
+
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString("    " + pad(l.label, width) + l.value + "\n")
+	}
+
+	if len(resources) > 0 {
+		cell := func(before *deployPlanSizing, get func(deployPlanSizing) string, after deployPlanSizing) (plain, styled string) {
+			a := get(after)
+			if a == "" {
+				a = "–"
 			}
-			line(r.Label, before+" → "+after)
+			if before == nil || get(*before) == get(after) {
+				if a == "–" {
+					return a, faint(a)
+				}
+				return a, bold(a)
+			}
+			bv := get(*before)
+			if bv == "" {
+				bv = "–"
+			}
+			return bv + " → " + a, faint(bv+" →") + " " + bold(a)
+		}
+		columns := []struct {
+			title string
+			get   func(deployPlanSizing) string
+		}{
+			{"sizing", func(s deployPlanSizing) string { return s.Mode }},
+			{"cpu", func(s deployPlanSizing) string { return s.CPU }},
+			{"memory", func(s deployPlanSizing) string { return s.Memory }},
+		}
+		for _, r := range resources {
+			if r.After.HA != "" || (r.Before != nil && r.Before.HA != "") {
+				columns = append(columns, struct {
+					title string
+					get   func(deployPlanSizing) string
+				}{"high availability", func(s deployPlanSizing) string { return s.HA }})
+				break
+			}
+		}
+		widths := make([]int, len(columns))
+		cells := make([][][2]string, len(resources))
+		for i, r := range resources {
+			cells[i] = make([][2]string, len(columns))
+			for j, c := range columns {
+				plain, styled := cell(r.Before, c.get, r.After)
+				cells[i][j] = [2]string{plain, styled}
+				widths[j] = max(widths[j], len([]rune(plain)), len(c.title))
+			}
+		}
+		padCell := func(plain, styled string, w int) string {
+			return styled + strings.Repeat(" ", max(w-len([]rune(plain)), 0)+3)
+		}
+		b.WriteString("\n    " + bold(pad("Resources", width)[:len("Resources")]) + strings.Repeat(" ", width-len("Resources")))
+		for j, c := range columns {
+			b.WriteString(padCell(c.title, faint(c.title), widths[j]))
+		}
+		b.WriteString("\n")
+		for i, r := range resources {
+			b.WriteString("    " + pad(r.Name, width))
+			for j := range columns {
+				b.WriteString(padCell(cells[i][j][0], cells[i][j][1], widths[j]))
+			}
+			b.WriteString("\n")
 		}
 	}
-	if len(plan.Kept) > 0 {
-		verb := "kept"
+
+	if len(kept) > 0 {
+		heading := "Kept: "
 		if plan.New {
-			verb = "defaults"
+			heading = "Defaults: "
 		}
-		line("not in file", strings.Join(plan.Kept, ", ")+" ("+verb+")")
+		b.WriteString("\n    " + faint(heading+strings.Join(kept, ", ")) + "\n")
 	}
-	return b.String()
+	return strings.Join(trimLineEnds(strings.Split(b.String(), "\n")), "\n")
+}
+
+func trimLineEnds(lines []string) []string {
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
 }
 
 func msgDeployFileNothingDeployed(total int) string {
