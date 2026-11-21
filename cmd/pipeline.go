@@ -471,7 +471,7 @@ func (p *PushPipeline) PrintSuccess() {
 	lines = append(lines, bold.Render("✓ Pushed successfully!"))
 	lines = append(lines, dim.Render("Blueprint is "+string(p.visibility)))
 	lines = append(lines, "")
-	lines = append(lines, "  "+bold.Render(p.cfg.AgentName)+"  "+dim.Render("tag "+p.tag))
+	lines = append(lines, "  "+bold.Render(p.cfg.AgentName)+"  "+dim.Render("build "+p.tag))
 
 	urlLine := "  " + dim.Render("View online → ") + link.Render(agentURL)
 	urlBelowBox := ""

@@ -84,3 +84,10 @@ func TestPrintSuccessURLPlacement(t *testing.T) {
 		})
 	}
 }
+
+func TestPrintSuccessNamesTheBuildIDForDeployBuild(t *testing.T) {
+	out := captureStdout(t, successPipeline().PrintSuccess)
+
+	assert.Contains(t, out, "build 09182293", "the box must label the ID with the same word as ast deploy --build")
+	assert.NotContains(t, out, "tag 09182293", "calling the build ID a tag sends readers looking for a different value")
+}
