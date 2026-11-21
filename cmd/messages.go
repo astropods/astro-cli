@@ -1474,12 +1474,9 @@ func msgDeployFilePlan(plan deployPlan) string {
 		resources = append(resources, r)
 	}
 
-	width := len("Resources")
+	width := 0
 	for _, l := range lines {
 		width = max(width, len(l.label))
-	}
-	for _, r := range resources {
-		width = max(width, len(r.Name))
 	}
 	width += 3
 	pad := func(s string, w int) string { return s + strings.Repeat(" ", max(w-len(s), 0)) }
@@ -1493,36 +1490,38 @@ func msgDeployFilePlan(plan deployPlan) string {
 		cell := func(before *deployPlanSizing, get func(deployPlanSizing) string, after deployPlanSizing) (plain, styled string) {
 			a := get(after)
 			if a == "" {
-				a = "–"
+				a = "-"
 			}
 			if before == nil || get(*before) == get(after) {
-				if a == "–" {
+				if a == "-" {
 					return a, faint(a)
 				}
 				return a, bold(a)
 			}
 			bv := get(*before)
 			if bv == "" {
-				bv = "–"
+				bv = "-"
 			}
 			return bv + " → " + a, faint(bv+" →") + " " + bold(a)
 		}
-		columns := []struct {
+		type column struct {
 			title string
 			get   func(deployPlanSizing) string
-		}{
-			{"sizing", func(s deployPlanSizing) string { return s.Mode }},
-			{"cpu", func(s deployPlanSizing) string { return s.CPU }},
-			{"memory", func(s deployPlanSizing) string { return s.Memory }},
+		}
+		columns := []column{
+			{"SIZING", func(s deployPlanSizing) string { return s.Mode }},
+			{"CPU", func(s deployPlanSizing) string { return s.CPU }},
+			{"MEMORY", func(s deployPlanSizing) string { return s.Memory }},
 		}
 		for _, r := range resources {
 			if r.After.HA != "" || (r.Before != nil && r.Before.HA != "") {
-				columns = append(columns, struct {
-					title string
-					get   func(deployPlanSizing) string
-				}{"high availability", func(s deployPlanSizing) string { return s.HA }})
+				columns = append(columns, column{"HA", func(s deployPlanSizing) string { return s.HA }})
 				break
 			}
+		}
+		nameWidth := len("NAME")
+		for _, r := range resources {
+			nameWidth = max(nameWidth, len(r.Name))
 		}
 		widths := make([]int, len(columns))
 		cells := make([][][2]string, len(resources))
@@ -1534,18 +1533,19 @@ func msgDeployFilePlan(plan deployPlan) string {
 				widths[j] = max(widths[j], len([]rune(plain)), len(c.title))
 			}
 		}
-		padCell := func(plain, styled string, w int) string {
-			return styled + strings.Repeat(" ", max(w-len([]rune(plain)), 0)+3)
+		const gap = "   "
+		padTo := func(plain, styled string, w int) string {
+			return styled + strings.Repeat(" ", max(w-len([]rune(plain)), 0)) + gap
 		}
-		b.WriteString("\n    " + bold(pad("Resources", width)[:len("Resources")]) + strings.Repeat(" ", width-len("Resources")))
+		b.WriteString("\n    " + pad("NAME", nameWidth) + gap)
 		for j, c := range columns {
-			b.WriteString(padCell(c.title, faint(c.title), widths[j]))
+			b.WriteString(padTo(c.title, c.title, widths[j]))
 		}
 		b.WriteString("\n")
 		for i, r := range resources {
-			b.WriteString("    " + pad(r.Name, width))
+			b.WriteString("    " + pad(r.Name, nameWidth) + gap)
 			for j := range columns {
-				b.WriteString(padCell(cells[i][j][0], cells[i][j][1], widths[j]))
+				b.WriteString(padTo(cells[i][j][0], cells[i][j][1], widths[j]))
 			}
 			b.WriteString("\n")
 		}

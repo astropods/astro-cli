@@ -122,9 +122,9 @@ func TestMsgDeployFilePlanLayout(t *testing.T) {
 				"    Model        default  claude-sonnet-4-6\n" +
 				"    Interfaces   web, mesh\n" +
 				"\n" +
-				"    Resources    sizing   cpu     memory      high availability\n" +
-				"    agent        auto     25m–1   256Mi–4Gi   –\n" +
-				"    journal      fixed    500m    1Gi         on, 3 instances\n" +
+				"    NAME      SIZING   CPU     MEMORY      HA\n" +
+				"    agent     auto     25m–1   256Mi–4Gi   -\n" +
+				"    journal   fixed    500m    1Gi         on, 3 instances\n" +
 				"\n" +
 				"    Defaults: cluster, variables\n",
 		},
@@ -142,22 +142,22 @@ func TestMsgDeployFilePlanLayout(t *testing.T) {
 				"    Model       default  claude-sonnet-4-6 → claude-opus-4-8\n" +
 				"    Variables   LOG_LEVEL\n" +
 				"\n" +
-				"    Resources   sizing         cpu         memory\n" +
-				"    agent       auto → fixed   25m–1 → 1   256Mi–4Gi → 2Gi\n" +
+				"    NAME    SIZING         CPU         MEMORY\n" +
+				"    agent   auto → fixed   25m–1 → 1   256Mi–4Gi → 2Gi\n" +
 				"\n" +
 				"    Kept: cluster, interfaces\n",
 		},
 		{
 			name: "a redeploy that changes nothing keeps the build and every field",
 			plan: deployPlan{Build: kept, Resources: []deployPlanResource{{Name: "agent", Before: &auto, After: auto}}},
-			want: "    Build       2f1c4341  kept, the latest build\n" +
+			want: "    Build   2f1c4341  kept, the latest build\n" +
 				"\n" +
 				"    Kept: agent sizing\n",
 		},
 		{
 			name: "a pinned build",
 			plan: deployPlan{Pinned: true, Build: deployPlanRow{Label: "Build", Before: "2f1c4341", After: "ba7eeeff"}},
-			want: "    Build       2f1c4341 → ba7eeeff\n",
+			want: "    Build   2f1c4341 → ba7eeeff\n",
 		},
 	}
 	for _, tc := range cases {
@@ -175,9 +175,9 @@ func TestMsgDeployFilePlanWeights(t *testing.T) {
 		Kept:      []string{"cluster"}})
 
 	assert.Contains(t, out, colorDim+"claude-sonnet-4-6 →"+colorReset+" "+colorBold+"claude-opus-4-8"+colorReset, "the old value is faint and the new one bold")
-	assert.Contains(t, out, "    Model       default  ", "labels and keys stay regular weight")
-	assert.Contains(t, out, colorBold+"Resources"+colorReset, "the table heading is bold")
-	assert.Contains(t, out, colorDim+"sizing"+colorReset, "column headings are faint")
+	assert.Contains(t, out, "    Model   default  ", "labels and keys stay regular weight")
+	assert.NotContains(t, out, "Resources", "the NAME header row introduces the table on its own")
+	assert.Contains(t, out, "    NAME      SIZING   ", "column headings are plain uppercase, like kubectl")
 	assert.Contains(t, out, colorBold+"on"+colorReset, "high availability is a value, so it is bold")
 	assert.Contains(t, out, colorDim+"Kept: cluster"+colorReset, "what the deploy leaves alone is faint")
 }
