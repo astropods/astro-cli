@@ -57,18 +57,22 @@ func TestBuildDeployPlanComparesEachFieldTheFileSets(t *testing.T) {
 	plan := buildDeployPlan(entry, &stored, proposed, false, "2f1c4341")
 
 	assert.False(t, plan.New)
-	assert.Equal(t, deployPlanRow{Label: "build", Before: "2f1c4341", After: "2f1c4341"}, plan.Build)
+	assert.Equal(t, deployPlanRow{Label: "Build", Before: "2f1c4341", After: "2f1c4341"}, plan.Build)
 	assert.Empty(t, plan.Latest, "the kept build is already the latest")
 	assert.Equal(t, []deployPlanRow{
-		{Label: "cluster", Before: "use1", After: "euw1"},
-		{Label: "model default", Before: "claude-sonnet-4-6", After: "claude-opus-4-8"},
-		{Label: "interfaces", Before: "web, mesh", After: "web"},
-		{Label: "public", Before: "web off, custom off", After: "web on, custom off"},
-		{Label: "variables", After: "API_KEY (ref API_KEY), LOG_LEVEL", NotCompared: true},
-		{Label: "schedule nightly", Before: "0 3 * * *", After: "0 3 * * *"},
-		{Label: "knowledge docs", Before: "kb-docs", After: "kb-docs-v2"},
-		{Label: "sizing agent", Before: "auto (cpu 25m–1, memory 256Mi–4Gi)", After: "fixed (cpu 1, memory 2Gi)"},
+		{Label: "Cluster", Before: "use1", After: "euw1"},
+		{Label: "Model", Key: "default", Before: "claude-sonnet-4-6", After: "claude-opus-4-8"},
+		{Label: "Interfaces", Before: "web, mesh", After: "web"},
+		{Label: "Public", Before: "web off, custom off", After: "web on, custom off"},
+		{Label: "Variables", After: "API_KEY (ref API_KEY), LOG_LEVEL", NotCompared: true},
+		{Label: "Schedule", Key: "nightly", Before: "0 3 * * *", After: "0 3 * * *"},
+		{Label: "Knowledge", Key: "docs", Before: "kb-docs", After: "kb-docs-v2"},
 	}, plan.Rows)
+	assert.Equal(t, []deployPlanResource{{
+		Name:   "agent",
+		Before: &deployPlanSizing{Mode: "auto", CPU: "25m–1", Memory: "256Mi–4Gi"},
+		After:  deployPlanSizing{Mode: "fixed", CPU: "1", Memory: "2Gi"},
+	}}, plan.Resources)
 	assert.Empty(t, plan.Kept, "the file sets every field")
 }
 
@@ -78,7 +82,8 @@ func TestBuildDeployPlanListsWhatTheFileLeavesOut(t *testing.T) {
 	plan := buildDeployPlan(planEntry(t, "    branch: main\n"), &stored, stored, false, "2f1c4341")
 
 	assert.Empty(t, plan.Rows)
-	assert.Equal(t, []string{"cluster", "models", "interfaces", "public", "variables", "schedules", "knowledge", "resources"}, plan.Kept)
+	assert.Empty(t, plan.Resources)
+	assert.Equal(t, []string{"cluster", "models", "interfaces", "public", "variables", "schedules", "knowledge bindings", "resources"}, plan.Kept)
 }
 
 func TestBuildDeployPlanReportsANewerBuild(t *testing.T) {
@@ -89,50 +94,92 @@ func TestBuildDeployPlanReportsANewerBuild(t *testing.T) {
 	assert.Equal(t, "ba7eeeff", plan.Latest, "a redeploy keeps its build, so the plan must say a newer one exists")
 }
 
-func TestMsgDeployFilePlan(t *testing.T) {
-	kept := deployPlanRow{Label: "build", Before: "2f1c4341", After: "2f1c4341"}
+func plainPlan(plan deployPlan) string {
+	return ansiRE.ReplaceAllString(msgDeployFilePlan(plan), "")
+}
+
+func TestMsgDeployFilePlanLayout(t *testing.T) {
+	kept := deployPlanRow{Label: "Build", Before: "2f1c4341", After: "2f1c4341"}
+	auto := deployPlanSizing{Mode: "auto", CPU: "25m–1", Memory: "256Mi–4Gi"}
 	cases := []struct {
 		name string
 		plan deployPlan
 		want string
 	}{
 		{
-			name: "a redeploy that changes a field and keeps the rest",
-			plan: deployPlan{Build: kept, Rows: []deployPlanRow{
-				{Label: "model default", Before: "claude-sonnet-4-6", After: "claude-opus-4-8"},
-				{Label: "interfaces", Before: "web", After: "web"},
-				{Label: "variables", After: "LOG_LEVEL", NotCompared: true},
-			}, Kept: []string{"cluster", "schedules"}},
-			want: "    build              2f1c4341 (kept, the latest build)\n" +
-				"    model default      claude-sonnet-4-6 → claude-opus-4-8\n" +
-				"    interfaces         web (unchanged)\n" +
-				"    variables          set LOG_LEVEL\n" +
-				"    not in file        cluster, schedules (kept)\n",
+			name: "a new agent with a high availability knowledge entry",
+			plan: deployPlan{New: true, Build: deployPlanRow{Label: "Build", After: "e67f35a5"},
+				Rows: []deployPlanRow{
+					{Label: "Model", Key: "default", After: "claude-sonnet-4-6"},
+					{Label: "Interfaces", After: "web, mesh"},
+				},
+				Resources: []deployPlanResource{
+					{Name: "agent", After: auto},
+					{Name: "journal", After: deployPlanSizing{Mode: "fixed", CPU: "500m", Memory: "1Gi", HA: "on, 3 instances"}},
+				},
+				Kept: []string{"cluster", "variables"}},
+			want: "    Build        e67f35a5  latest registered\n" +
+				"    Model        default  claude-sonnet-4-6\n" +
+				"    Interfaces   web, mesh\n" +
+				"\n" +
+				"    NAME      SIZING   CPU     MEMORY      HA\n" +
+				"    agent     auto     25m–1   256Mi–4Gi   -\n" +
+				"    journal   fixed    500m    1Gi         on, 3 instances\n" +
+				"\n" +
+				"    Defaults: cluster, variables\n",
 		},
 		{
-			name: "a redeploy with a newer build available",
-			plan: deployPlan{Build: kept, Latest: "ba7eeeff"},
-			want: "    build              2f1c4341 (kept; ba7eeeff is newer, deploy it with --build ba7eeeff)\n",
+			name: "a redeploy shows what changes and folds the rest into Kept",
+			plan: deployPlan{Build: kept, Latest: "ba7eeeff",
+				Rows: []deployPlanRow{
+					{Label: "Model", Key: "default", Before: "claude-sonnet-4-6", After: "claude-opus-4-8"},
+					{Label: "Interfaces", Before: "web", After: "web"},
+					{Label: "Variables", After: "LOG_LEVEL", NotCompared: true},
+				},
+				Resources: []deployPlanResource{{Name: "agent", Before: &auto, After: deployPlanSizing{Mode: "fixed", CPU: "1", Memory: "2Gi"}}},
+				Kept:      []string{"cluster"}},
+			want: "    Build       2f1c4341  kept, ba7eeeff is newer: use --build ba7eeeff\n" +
+				"    Model       default  claude-sonnet-4-6 → claude-opus-4-8\n" +
+				"    Variables   LOG_LEVEL\n" +
+				"\n" +
+				"    NAME    SIZING         CPU         MEMORY\n" +
+				"    agent   auto → fixed   25m–1 → 1   256Mi–4Gi → 2Gi\n" +
+				"\n" +
+				"    Kept: cluster, interfaces\n",
+		},
+		{
+			name: "a redeploy that changes nothing keeps the build and every field",
+			plan: deployPlan{Build: kept, Resources: []deployPlanResource{{Name: "agent", Before: &auto, After: auto}}},
+			want: "    Build   2f1c4341  kept, the latest build\n" +
+				"\n" +
+				"    Kept: agent sizing\n",
 		},
 		{
 			name: "a pinned build",
-			plan: deployPlan{Pinned: true, Build: deployPlanRow{Label: "build", Before: "2f1c4341", After: "ba7eeeff"}},
-			want: "    build              2f1c4341 → ba7eeeff\n",
-		},
-		{
-			name: "a new agent",
-			plan: deployPlan{New: true, Build: deployPlanRow{Label: "build", After: "ba7eeeff"},
-				Rows: []deployPlanRow{{Label: "interfaces", After: "web"}}, Kept: []string{"models"}},
-			want: "    build              ba7eeeff (latest registered)\n" +
-				"    interfaces         web\n" +
-				"    not in file        models (defaults)\n",
+			plan: deployPlan{Pinned: true, Build: deployPlanRow{Label: "Build", Before: "2f1c4341", After: "ba7eeeff"}},
+			want: "    Build   2f1c4341 → ba7eeeff\n",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, msgDeployFilePlan(tc.plan))
+			assert.Equal(t, tc.want, plainPlan(tc.plan))
 		})
 	}
+}
+
+func TestMsgDeployFilePlanWeights(t *testing.T) {
+	auto := deployPlanSizing{Mode: "auto"}
+	out := msgDeployFilePlan(deployPlan{Build: deployPlanRow{Label: "Build", Before: "2f1c4341", After: "ba7eeeff"},
+		Rows:      []deployPlanRow{{Label: "Model", Key: "default", Before: "claude-sonnet-4-6", After: "claude-opus-4-8"}},
+		Resources: []deployPlanResource{{Name: "journal", Before: &auto, After: deployPlanSizing{Mode: "fixed", HA: "on"}}},
+		Kept:      []string{"cluster"}})
+
+	assert.Contains(t, out, colorDim+"claude-sonnet-4-6 →"+colorReset+" "+colorBold+"claude-opus-4-8"+colorReset, "the old value is faint and the new one bold")
+	assert.Contains(t, out, "    Model   default  ", "labels and keys stay regular weight")
+	assert.NotContains(t, out, "Resources", "the NAME header row introduces the table on its own")
+	assert.Contains(t, out, "    NAME      SIZING   ", "column headings are plain uppercase, like kubectl")
+	assert.Contains(t, out, colorBold+"on"+colorReset, "high availability is a value, so it is bold")
+	assert.Contains(t, out, colorDim+"Kept: cluster"+colorReset, "what the deploy leaves alone is faint")
 }
 
 func TestDeployFileDryRunPrintsThePlan(t *testing.T) {
@@ -142,8 +189,36 @@ func TestDeployFileDryRunPrintsThePlan(t *testing.T) {
 	out, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy)
 
 	require.NoError(t, err)
-	assert.Contains(t, out, "    not in file        cluster, models, interfaces, public, variables, schedules, knowledge, resources (kept)\n",
+	assert.Contains(t, out, "    Kept: cluster, models, interfaces, public, variables, schedules, knowledge bindings, resources\n",
 		"main holds an agent, so its plan lists what the redeploy keeps")
-	assert.Contains(t, out, "(defaults)\n", "qa has no agent, so its plan lists what a new agent gets by default")
+	assert.Contains(t, out, "    Defaults: ", "qa has no agent, so its plan lists what a new agent gets by default")
 	assert.Contains(t, out, msgDeployFileNothingDeployed(2))
+}
+
+func TestTemplateSizingShowsHighAvailability(t *testing.T) {
+	on, off := true, false
+	fixed := &deployTemplateSize{CPU: "500m", Memory: "1Gi"}
+	cases := []struct {
+		name string
+		ha   *bool
+		want deployPlanSizing
+	}{
+		{"on", &on, deployPlanSizing{Mode: "fixed", CPU: "500m", Memory: "1Gi", HA: "on, 3 instances"}},
+		{"off", &off, deployPlanSizing{Mode: "fixed", CPU: "500m", Memory: "1Gi"}},
+		{"not echoed", nil, deployPlanSizing{Mode: "fixed", CPU: "500m", Memory: "1Gi"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpl := planTemplate(t, `{"template": {"knowledge": {"journal": {"replicas": 3}}}}`)
+			tmpl.Provisioning.Knowledge = map[string]deployTemplateComponent{"journal": {Compute: fixed, HighAvailability: tc.ha}}
+			assert.Equal(t, tc.want, templateSizing(tmpl, "knowledge.journal"), "the dry run must show whether the entry runs as a database cluster")
+		})
+	}
+}
+
+func TestResourceNameUsesTheGroupOnlyWhenNamesCollide(t *testing.T) {
+	keys := []string{"agent", "models.default", "knowledge.default", "knowledge.journal"}
+	assert.Equal(t, "agent", resourceName("agent", keys))
+	assert.Equal(t, "journal", resourceName("knowledge.journal", keys))
+	assert.Equal(t, "models.default", resourceName("models.default", keys), "two entries named default need their group to tell them apart")
 }

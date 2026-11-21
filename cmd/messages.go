@@ -1422,50 +1422,150 @@ func msgDeployFileEnvironmentFailed(env string, err error) string {
 }
 
 func msgDeployFilePlan(plan deployPlan) string {
-	var b strings.Builder
-	line := func(label, value string) {
-		fmt.Fprintf(&b, "    %-18s %s\n", label, value)
+	bold := func(s string) string { return colorBold + s + colorReset }
+	faint := func(s string) string { return colorDim + s + colorReset }
+	changed := func(before, after string) string {
+		if before == "" {
+			before = "none"
+		}
+		return faint(before+" →") + " " + bold(after)
 	}
+	kept := append([]string(nil), plan.Kept...)
+
+	type line struct{ label, value string }
+	var lines []line
 	switch {
 	case plan.New:
-		line(plan.Build.Label, plan.Build.After+" (latest registered)")
+		lines = append(lines, line{"Build", bold(plan.Build.After) + "  " + faint("latest registered")})
 	case plan.Build.Before == plan.Build.After && plan.Latest != "":
-		line(plan.Build.Label, plan.Build.After+" (kept; "+plan.Latest+" is newer, deploy it with --build "+plan.Latest+")")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("kept, "+plan.Latest+" is newer: use --build "+plan.Latest)})
 	case plan.Build.Before == plan.Build.After && !plan.Pinned:
-		line(plan.Build.Label, plan.Build.After+" (kept, the latest build)")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("kept, the latest build")})
 	case plan.Build.Before == plan.Build.After:
-		line(plan.Build.Label, plan.Build.After+" (unchanged)")
+		lines = append(lines, line{"Build", faint(plan.Build.After) + "  " + faint("unchanged")})
 	default:
-		line(plan.Build.Label, plan.Build.Before+" → "+plan.Build.After)
+		lines = append(lines, line{"Build", changed(plan.Build.Before, plan.Build.After)})
 	}
 	for _, r := range plan.Rows {
 		after := r.After
 		if after == "" {
 			after = "none"
 		}
-		switch {
-		case plan.New:
-			line(r.Label, after)
-		case r.NotCompared:
-			line(r.Label, "set "+after)
-		case r.Before == r.After:
-			line(r.Label, after+" (unchanged)")
-		default:
-			before := r.Before
-			if before == "" {
-				before = "none"
+		if !plan.New && !r.NotCompared && r.Before == r.After {
+			kept = append(kept, strings.TrimSpace(strings.ToLower(r.Label)+" "+r.Key))
+			continue
+		}
+		value := bold(after)
+		if !plan.New && !r.NotCompared {
+			value = changed(r.Before, after)
+		}
+		if r.Key != "" {
+			value = r.Key + "  " + value
+		}
+		lines = append(lines, line{r.Label, value})
+	}
+
+	var resources []deployPlanResource
+	for _, r := range plan.Resources {
+		if r.Before != nil && *r.Before == r.After {
+			kept = append(kept, r.Name+" sizing")
+			continue
+		}
+		resources = append(resources, r)
+	}
+
+	width := 0
+	for _, l := range lines {
+		width = max(width, len(l.label))
+	}
+	width += 3
+	pad := func(s string, w int) string { return s + strings.Repeat(" ", max(w-len(s), 0)) }
+
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString("    " + pad(l.label, width) + l.value + "\n")
+	}
+
+	if len(resources) > 0 {
+		cell := func(before *deployPlanSizing, get func(deployPlanSizing) string, after deployPlanSizing) (plain, styled string) {
+			a := get(after)
+			if a == "" {
+				a = "-"
 			}
-			line(r.Label, before+" → "+after)
+			if before == nil || get(*before) == get(after) {
+				if a == "-" {
+					return a, faint(a)
+				}
+				return a, bold(a)
+			}
+			bv := get(*before)
+			if bv == "" {
+				bv = "-"
+			}
+			return bv + " → " + a, faint(bv+" →") + " " + bold(a)
+		}
+		type column struct {
+			title string
+			get   func(deployPlanSizing) string
+		}
+		columns := []column{
+			{"SIZING", func(s deployPlanSizing) string { return s.Mode }},
+			{"CPU", func(s deployPlanSizing) string { return s.CPU }},
+			{"MEMORY", func(s deployPlanSizing) string { return s.Memory }},
+		}
+		for _, r := range resources {
+			if r.After.HA != "" || (r.Before != nil && r.Before.HA != "") {
+				columns = append(columns, column{"HA", func(s deployPlanSizing) string { return s.HA }})
+				break
+			}
+		}
+		nameWidth := len("NAME")
+		for _, r := range resources {
+			nameWidth = max(nameWidth, len(r.Name))
+		}
+		widths := make([]int, len(columns))
+		cells := make([][][2]string, len(resources))
+		for i, r := range resources {
+			cells[i] = make([][2]string, len(columns))
+			for j, c := range columns {
+				plain, styled := cell(r.Before, c.get, r.After)
+				cells[i][j] = [2]string{plain, styled}
+				widths[j] = max(widths[j], len([]rune(plain)), len(c.title))
+			}
+		}
+		const gap = "   "
+		padTo := func(plain, styled string, w int) string {
+			return styled + strings.Repeat(" ", max(w-len([]rune(plain)), 0)) + gap
+		}
+		b.WriteString("\n    " + pad("NAME", nameWidth) + gap)
+		for j, c := range columns {
+			b.WriteString(padTo(c.title, c.title, widths[j]))
+		}
+		b.WriteString("\n")
+		for i, r := range resources {
+			b.WriteString("    " + pad(r.Name, nameWidth) + gap)
+			for j := range columns {
+				b.WriteString(padTo(cells[i][j][0], cells[i][j][1], widths[j]))
+			}
+			b.WriteString("\n")
 		}
 	}
-	if len(plan.Kept) > 0 {
-		verb := "kept"
+
+	if len(kept) > 0 {
+		heading := "Kept: "
 		if plan.New {
-			verb = "defaults"
+			heading = "Defaults: "
 		}
-		line("not in file", strings.Join(plan.Kept, ", ")+" ("+verb+")")
+		b.WriteString("\n    " + faint(heading+strings.Join(kept, ", ")) + "\n")
 	}
-	return b.String()
+	return strings.Join(trimLineEnds(strings.Split(b.String(), "\n")), "\n")
+}
+
+func trimLineEnds(lines []string) []string {
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	return lines
 }
 
 func msgDeployFileNothingDeployed(total int) string {
@@ -1594,4 +1694,22 @@ func msgInsightsDailyTopFive() string {
 
 func msgInsightsMore(shown, total int) string {
 	return fmt.Sprintf("Showing %d of %d. Use --offset %d for the next page.", shown, total, shown)
+}
+
+// msgPushSuccess is the summary after a push: what was pushed, where to view
+// it, and the command that deploys it.
+func msgPushSuccess(name, build, visibility, url, deployCommand string) string {
+	bold := func(s string) string { return colorBold + s + colorReset }
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%s✓%s Pushed %s\n\n", colorGreen, colorReset, bold(name))
+	rows := [][2]string{{"Build", build}}
+	if visibility != "" {
+		rows = append(rows, [2]string{"Visibility", visibility})
+	}
+	rows = append(rows, [2]string{"View", url})
+	for _, r := range rows {
+		fmt.Fprintf(&b, "    %-13s%s\n", r[0], bold(r[1]))
+	}
+	fmt.Fprintf(&b, "\n    %sDeploy it:%s  %s\n\n", colorDim, colorReset, deployCommand)
+	return b.String()
 }
