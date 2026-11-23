@@ -123,7 +123,15 @@ has.
 saved for the current directory. It sends each one as a plaintext value, not
 a secret reference, so a saved API key reaches the deployment as its value.
 To use an account secret for a key, also pass `--var KEY=@SECRET_NAME`. For
-the same key, `--var` wins over `--vars-file`, which wins over `--from-local`.
+the same key, `--var` and `--var-from-file` win over `--vars-file`, which wins
+over `--from-local`.
+
+`--var-from-file KEY=PATH` sets a variable to a file's contents, newlines
+included, so a PEM key or certificate needs no pasting:
+`ast deploy <name> --var-from-file TLS_KEY=./key.pem`. The file must be text
+and at most 256 KB; convert a binary certificate to PEM first. A key can't be
+given to both `--var` and `--var-from-file`. `ast project configure` takes the
+same flag to save the value locally.
 
 ### `push` — Build, package, and register with Astropods
 

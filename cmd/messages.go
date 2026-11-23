@@ -657,6 +657,34 @@ func errNoLocalProjectVars() error {
 	return fmt.Errorf("--from-local found no saved variables for this directory. Run '%s project configure' here first", buildinfo.BinaryName)
 }
 
+func errInvalidVarFromFile(raw string) error {
+	return fmt.Errorf("invalid --var-from-file %q: expected KEY=PATH, e.g. --var-from-file TLS_KEY=./key.pem", raw)
+}
+
+func errVarFromFileNotFound(key, path string) error {
+	return fmt.Errorf("--var-from-file %s: no file at %s", key, path)
+}
+
+func errReadVarFromFile(key string, err error) error {
+	return fmt.Errorf("--var-from-file %s: %w", key, err)
+}
+
+func errVarFromFileIsDir(key, path string) error {
+	return fmt.Errorf("--var-from-file %s: %s is a directory, not a file", key, path)
+}
+
+func errVarFromFileTooLarge(key, path string, limit int) error {
+	return fmt.Errorf("--var-from-file %s: %s is larger than %d KB", key, path, limit/1024)
+}
+
+func errVarFromFileNotText(key, path string) error {
+	return fmt.Errorf("--var-from-file %s: %s isn't text. Convert it to PEM or base64-encode it first", key, path)
+}
+
+func errVarAndVarFromFile(key string) error {
+	return fmt.Errorf("%s is set by both --var and --var-from-file; pass it once", key)
+}
+
 func msgDevPortsMoved(moved []string) string {
 	if len(moved) == 0 {
 		return ""

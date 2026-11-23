@@ -17,10 +17,28 @@ func TestParseDeployVarsFromLocal(t *testing.T) {
 		name    string
 		stored  map[string]string
 		envFile string
+		keyFile string // written to key.pem when set
 		args    []string
 		want    map[string]deployVarInput
 		wantErr error
 	}{
+		{
+			name:    "--var-from-file wins over --vars-file and a saved value",
+			stored:  map[string]string{"TLS_KEY": "saved", "REGION": "us"},
+			envFile: "TLS_KEY=from-env\n",
+			keyFile: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+			args:    []string{"--from-local", "--vars-file", ".env", "--var-from-file", "TLS_KEY=key.pem"},
+			want: map[string]deployVarInput{
+				"TLS_KEY": {Value: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n"},
+				"REGION":  {Value: "us"},
+			},
+		},
+		{
+			name:    "--var and --var-from-file for one key is an error",
+			keyFile: "abc\n",
+			args:    []string{"--var", "TLS_KEY=inline", "--var-from-file", "TLS_KEY=key.pem"},
+			wantErr: errVarAndVarFromFile("TLS_KEY"),
+		},
 		{
 			name:   "saved values become plain variables",
 			stored: map[string]string{"OPENAI_API_KEY": "sk-local", "MODEL": "gpt"},
@@ -69,6 +87,9 @@ func TestParseDeployVarsFromLocal(t *testing.T) {
 			t.Chdir(workingDir)
 			if tt.envFile != "" {
 				require.NoError(t, os.WriteFile(".env", []byte(tt.envFile), 0o600))
+			}
+			if tt.keyFile != "" {
+				require.NoError(t, os.WriteFile("key.pem", []byte(tt.keyFile), 0o600))
 			}
 			if tt.stored != nil {
 				require.NoError(t, config.SetProjectVars(buildinfo.BinaryName, workingDir, "ag", tt.stored))

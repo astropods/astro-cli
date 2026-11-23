@@ -35,6 +35,7 @@ func registerConfigureFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", "Print stored config vars in the given format: env or json")
 	cmd.Flags().String("vars-file", "", "Import variables from an env file")
 	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
+	cmd.Flags().StringArray("var-from-file", nil, "Set a variable to a file's contents, such as a PEM key (KEY=PATH, repeatable; text up to 256 KB)")
 	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
 }
 
@@ -226,10 +227,11 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 
 	importFile, _ := cmd.Flags().GetString("vars-file")
 	setVals, _ := cmd.Flags().GetStringArray("var")
+	fileVals, _ := cmd.Flags().GetStringArray("var-from-file")
 	unsetKeys, _ := cmd.Flags().GetStringArray("rm-var")
 
-	if importFile != "" || len(setVals) > 0 || len(unsetKeys) > 0 {
-		return runConfigureFlags(cmd, importFile, setVals, unsetKeys)
+	if importFile != "" || len(setVals) > 0 || len(fileVals) > 0 || len(unsetKeys) > 0 {
+		return runConfigureFlags(cmd, importFile, setVals, fileVals, unsetKeys)
 	}
 
 	workingDir, err := os.Getwd()
@@ -459,15 +461,22 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys []string) error {
+func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, fileVals, unsetKeys []string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	// Read every file before writing anything, so a bad path leaves the store
+	// as it was.
+	fileValues, err := readVarFiles(fileVals)
+	if err != nil {
+		return err
+	}
+
 	// Resolve spec for project name (needed by MergeProjectVars).
 	var specName string
-	if importFile != "" || len(setVals) > 0 {
+	if importFile != "" || len(setVals) > 0 || len(fileValues) > 0 {
 		specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
 		if err != nil {
 			return err
@@ -490,14 +499,20 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 		fmt.Printf("Imported %d variable(s) from %s\n", len(vars), importFile)
 	}
 
-	if len(setVals) > 0 {
-		vars := make(map[string]string, len(setVals))
+	if len(setVals) > 0 || len(fileValues) > 0 {
+		vars := make(map[string]string, len(setVals)+len(fileValues))
 		for _, kv := range setVals {
 			idx := strings.IndexByte(kv, '=')
 			if idx < 0 {
 				return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
 			}
 			vars[kv[:idx]] = kv[idx+1:]
+		}
+		for k, v := range fileValues {
+			if _, exists := vars[k]; exists {
+				return errVarAndVarFromFile(k)
+			}
+			vars[k] = v
 		}
 		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, vars); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)

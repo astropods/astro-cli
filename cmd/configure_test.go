@@ -382,12 +382,50 @@ func TestConfigurePersistence_VarPersistsValues(t *testing.T) {
 	writePersistenceSpec(t, projectDir, "@org/my-agent")
 	t.Chdir(projectDir)
 
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil))
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"OTHER_KEY=other-1"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"OTHER_KEY=other-1"}, nil, nil))
 
 	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
 	require.Equal(t, "sk-1", vars["API_KEY"])
 	require.Equal(t, "other-1", vars["OTHER_KEY"], "second --var must not clobber first")
+}
+
+func TestConfigurePersistence_VarFromFile(t *testing.T) {
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----\n"
+	tests := []struct {
+		name     string
+		setVals  []string
+		wantVars map[string]string
+		wantErr  error
+	}{
+		{
+			name:     "the file's contents are stored verbatim beside --var values",
+			setVals:  []string{"REGION=us"},
+			wantVars: map[string]string{"REGION": "us", "TLS_CERT": pem},
+		},
+		{
+			name:    "the same key in --var is an error",
+			setVals: []string{"TLS_CERT=inline"},
+			wantErr: errVarAndVarFromFile("TLS_CERT"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			projectDir := t.TempDir()
+			writePersistenceSpec(t, projectDir, "@org/my-agent")
+			t.Chdir(projectDir)
+			require.NoError(t, os.WriteFile("cert.pem", []byte(pem), 0o600))
+
+			err := runConfigureFlags(configureCmd, "", tt.setVals, []string{"TLS_CERT=cert.pem"}, nil)
+			if tt.wantErr != nil {
+				require.EqualError(t, err, tt.wantErr.Error())
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantVars, persistenceVarsFor(t, readPersistenceStore(t), projectDir))
+		})
+	}
 }
 
 func TestConfigurePersistence_VarEmptyValueIsStored(t *testing.T) {
@@ -396,9 +434,9 @@ func TestConfigurePersistence_VarEmptyValueIsStored(t *testing.T) {
 	writePersistenceSpec(t, projectDir, "@org/my-agent")
 	t.Chdir(projectDir)
 
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1"}, nil, nil))
 	// --var KEY= stores an empty string, replacing any existing value.
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY="}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY="}, nil, nil))
 
 	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
 	require.Contains(t, vars, "API_KEY", "--var KEY= must store the key (with empty value)")
@@ -411,8 +449,8 @@ func TestConfigurePersistence_RmVarRemovesKey(t *testing.T) {
 	writePersistenceSpec(t, projectDir, "@org/my-agent")
 	t.Chdir(projectDir)
 
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1", "OTHER=keep"}, nil))
-	require.NoError(t, runConfigureFlags(configureCmd, "", nil, []string{"API_KEY"}))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-1", "OTHER=keep"}, nil, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", nil, nil, []string{"API_KEY"}))
 
 	vars := persistenceVarsFor(t, readPersistenceStore(t), projectDir)
 	require.NotContains(t, vars, "API_KEY", "API_KEY should be removed by --rm-var")
@@ -430,7 +468,7 @@ func TestConfigurePersistence_DoesNotEchoSecret(t *testing.T) {
 	configureCmd.SetOut(out)
 	t.Cleanup(func() { configureCmd.SetOut(nil) })
 
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=" + secret}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=" + secret}, nil, nil))
 	require.NotContains(t, out.String(), secret, "--var must not echo the secret value")
 }
 
@@ -446,10 +484,10 @@ func TestConfigurePersistence_SymlinkPathConsistency(t *testing.T) {
 	require.NoError(t, os.Symlink(realDir, linkDir))
 
 	t.Chdir(realDir)
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-real"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"API_KEY=sk-real"}, nil, nil))
 
 	t.Chdir(linkDir)
-	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"EXTRA=added-via-symlink"}, nil))
+	require.NoError(t, runConfigureFlags(configureCmd, "", []string{"EXTRA=added-via-symlink"}, nil, nil))
 
 	cfg := readPersistenceStore(t)
 	require.Len(t, cfg.Projects, 1, "symlinked path must resolve to same store entry")
