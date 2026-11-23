@@ -26,10 +26,10 @@ func TestParseDeployVarsFromLocal(t *testing.T) {
 			name:    "--var-from-file wins over --vars-file and a saved value",
 			stored:  map[string]string{"TLS_KEY": "saved", "REGION": "us"},
 			envFile: "TLS_KEY=from-env\n",
-			keyFile: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+			keyFile: "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n",
 			args:    []string{"--from-local", "--vars-file", ".env", "--var-from-file", "TLS_KEY=key.pem"},
 			want: map[string]deployVarInput{
-				"TLS_KEY": {Value: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n"},
+				"TLS_KEY": {Value: "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----\n"},
 				"REGION":  {Value: "us"},
 			},
 		},

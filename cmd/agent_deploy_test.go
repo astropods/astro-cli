@@ -116,7 +116,7 @@ func TestParseDeployVars(t *testing.T) {
 }
 
 func TestReadVarFiles(t *testing.T) {
-	const pem = "-----BEGIN PRIVATE KEY-----\nMIIBVQIBADANBgkqhkiG9w0B\nAQEFAASCAT8wggE7AgEAAkEA\n-----END PRIVATE KEY-----\n"
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBVQIBADANBgkqhkiG9w0B\nAQEFAASCAT8wggE7AgEAAkEA\n-----END CERTIFICATE-----\n"
 	dir := t.TempDir()
 	write := func(name string, data []byte) string {
 		path := filepath.Join(dir, name)
