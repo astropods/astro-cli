@@ -125,6 +125,7 @@ func TestReadVarFiles(t *testing.T) {
 	}
 	pemPath := write("key.pem", []byte(pem))
 	crlfPath := write("crlf.pem", []byte("line one\r\nline two\r\n"))
+	bomPath := write("bom.pem", []byte("\xEF\xBB\xBF"+pem))
 	emptyPath := write("empty.txt", nil)
 	equalsPath := write("a=b.pem", []byte(pem))
 	atLimitPath := write("at-limit.txt", bytes.Repeat([]byte("a"), maxVarFileSize))
@@ -149,6 +150,11 @@ func TestReadVarFiles(t *testing.T) {
 			name:  "CRLF line endings are kept",
 			flags: []string{"NOTE=" + crlfPath},
 			want:  map[string]string{"NOTE": "line one\r\nline two\r\n"},
+		},
+		{
+			name:  "a leading byte-order mark is dropped",
+			flags: []string{"TLS_KEY=" + bomPath},
+			want:  map[string]string{"TLS_KEY": pem},
 		},
 		{
 			name:  "an empty file is an empty value",

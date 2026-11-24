@@ -297,6 +297,9 @@ func readVarFile(key, path string) (string, error) {
 	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
 		return "", errVarFromFileNotText(key, path)
 	}
+	// Editors on Windows can add a byte-order mark, and PEM parsers then can't find
+	// the BEGIN line. The web deploy form drops it too.
+	data = bytes.TrimPrefix(data, []byte("\xEF\xBB\xBF"))
 	return string(data), nil
 }
 
