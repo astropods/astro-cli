@@ -969,6 +969,29 @@ func errRedeployLatestWithBuild() error {
 	return fmt.Errorf("--latest and --build are mutually exclusive: --latest resolves the newest build, --build pins one")
 }
 
+func msgAgentRedeployLong() string {
+	return `Redeploy an existing agent. It keeps its build unless you pick another.
+
+In a terminal, redeploy compares the agent's build with the newest build its
+blueprint has published. When they differ, it asks whether to deploy the newer
+build. No, the default, keeps the current build. Esc cancels the redeploy.
+
+--build, --latest, --dry-run, --json and --non-interactive skip the question,
+as does a session with no terminal.`
+}
+
+func msgRedeployLatestUsage() string {
+	return "Redeploy the blueprint's newest published build without asking"
+}
+
+func msgRedeployNewerBuildTitle() string {
+	return "Deploy the newer build?"
+}
+
+func msgRedeployNewerBuildDescription(current, newest string) string {
+	return fmt.Sprintf("The agent runs build %s. Its blueprint's newest published build is %s.\nNo redeploys %s.", current, newest, current)
+}
+
 func errBlueprintNotFound(name, account string) error {
 	return fmt.Errorf("blueprint %q not found in account %q", name, account)
 }

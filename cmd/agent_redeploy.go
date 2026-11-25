@@ -1,23 +1,30 @@
 package cmd
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/spf13/cobra"
+
+	"github.com/astropods/astro-cli/internal/tui"
 )
 
 var agentRedeployCmd = &cobra.Command{
 	Use:   "redeploy",
 	Short: "Redeploy an existing agent",
+	Long:  msgAgentRedeployLong(),
 	Args:  agentTargetArgs,
 	RunE:  runAgentRedeploy,
 }
+
+// redeployConfirm asks whether to deploy the newer build. Tests replace it.
+var redeployConfirm = confirm
 
 func init() {
 	agentCmd.AddCommand(agentRedeployCmd)
 	registerDeployCommonFlags(agentRedeployCmd)
 	registerAgentTargetFlags(agentRedeployCmd)
-	agentRedeployCmd.Flags().Bool("latest", false, "Redeploy the blueprint's newest published build")
+	agentRedeployCmd.Flags().Bool("latest", false, msgRedeployLatestUsage())
 }
 
 func runAgentRedeploy(cmd *cobra.Command, args []string) error {
@@ -69,8 +76,18 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if latest {
-		build, err = latestDeploymentBuild(cmd, at, dep, verbose)
+	switch {
+	case latest:
+		_, build, err = deploymentBuilds(cmd, at, dep, verbose)
+		if err != nil {
+			return err
+		}
+	case build == "" && !deployClusterPromptSuppressed(cmd) && interactiveTerminal():
+		build, err = offerNewerBuild(cmd, at, dep, verbose)
+		if errors.Is(err, tui.ErrCanceled) {
+			printCanceled(cmd.OutOrStdout())
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -93,17 +110,50 @@ func runAgentRedeploy(cmd *cobra.Command, args []string) error {
 	return runDeployWithRequest(cmd, at, verbose, at.Account, dep.Name, dep.DisplayName, nil, req, dryRun, nil)
 }
 
-func latestDeploymentBuild(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (string, error) {
+// offerNewerBuild asks whether to deploy the blueprint's newest published
+// build when the deployment runs another one. It returns the build to pin, or
+// "" to keep the deployment's current build. A blueprint with no published
+// build leaves nothing to offer, so the redeploy goes on as before.
+func offerNewerBuild(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (string, error) {
+	current, newest, err := deploymentBuilds(cmd, at, dep, verbose)
+	var none noPublishedBuildError
+	if errors.As(err, &none) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if current == "" || newest == current {
+		return "", nil
+	}
+	ok, err := redeployConfirm(msgRedeployNewerBuildTitle(), msgRedeployNewerBuildDescription(current, newest))
+	if err != nil || !ok {
+		return "", err
+	}
+	return newest, nil
+}
+
+// deploymentBuilds returns the build the deployment runs and the newest build
+// its blueprint has published, from the publisher's account.
+func deploymentBuilds(cmd *cobra.Command, at AccountToken, dep *agentDeployment, verbose bool) (current, newest string, err error) {
 	full, err := getAgentDeploymentFull(cmd.Context(), dep.ID, at, verbose)
 	if err != nil {
-		return "", errAgentDeploymentNotFoundForID(dep.ID)
+		return "", "", errAgentDeploymentNotFoundForID(dep.ID)
 	}
 	publisher := full.SourceAccount
 	if publisher == "" {
 		publisher = at.Account
 	}
-	return latestBlueprintBuild(cmd, at, publisher, dep.Name, verbose)
+	newest, err = latestBlueprintBuild(cmd, at, publisher, dep.Name, verbose)
+	return full.BuildID, newest, err
 }
+
+// noPublishedBuildError marks a lookup that found no build to deploy: the
+// blueprint is not in the publisher's account, or it has published nothing.
+// --latest fails on it, and the redeploy question treats it as nothing to offer.
+type noPublishedBuildError struct{ error }
+
+func (e noPublishedBuildError) Unwrap() error { return e.error }
 
 // latestBlueprintBuild returns the build ID of the blueprint's most recently
 // published version.
@@ -117,14 +167,14 @@ func latestBlueprintBuild(cmd *cobra.Command, at AccountToken, publisher, name s
 	var bp blueprintItem
 	status, err := apiCall(cmd.Context(), http.MethodGet, u, nil, at.Token, verbose, &bp)
 	if isNotFound(status, err) {
-		return "", errBlueprintNotFound(name, publisher)
+		return "", noPublishedBuildError{errBlueprintNotFound(name, publisher)}
 	}
 	if err != nil {
 		return "", err
 	}
 	v := blueprintLatestVersion(bp.Versions)
 	if v == nil || v.BuildID == "" {
-		return "", errBlueprintNoPublishedBuild(name)
+		return "", noPublishedBuildError{errBlueprintNoPublishedBuild(name)}
 	}
 	return v.BuildID, nil
 }

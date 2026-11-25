@@ -11,12 +11,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/astropods/astro-cli/internal/tui"
 )
 
 func setupAgentRedeployTest(t *testing.T, handler http.Handler) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	writeAccountTestCredentials(t, accountTestCreds("testaccount"))
+
+	// The newer-build question needs a terminal. Tests that want it stub one in.
+	stubInteractiveTerminal(t, false)
 
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
@@ -199,6 +204,11 @@ func makeRedeployCapturingHandler(t *testing.T, deployments []agentDeployment, c
 		switch {
 		case r.URL.Path == "/api/v1/deployments":
 			jsonHandler(http.StatusOK, listDeploymentsResponse{Deployments: deployments, Count: len(deployments)})(w, r)
+		case r.URL.Path == "/api/v1/deployments/"+deployments[0].ID:
+			d := deployments[0]
+			jsonHandler(http.StatusOK, agentDeploymentFullResponse{Deployment: agentDeploymentFull{
+				ID: d.ID, Name: d.Name, DisplayName: d.DisplayName, BuildID: d.BuildID,
+			}})(w, r)
 		case strings.HasSuffix(r.URL.Path, "/deployment-template"):
 			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
 				http.Error(w, "bad body", http.StatusBadRequest)
@@ -462,4 +472,95 @@ func TestRunAgentRedeployLatestNeedsAPublishedBuild(t *testing.T) {
 	err := runAgentRedeploy(agentRedeployCmd, nil)
 	require.EqualError(t, err, errBlueprintNoPublishedBuild("my-bp").Error())
 	assert.Empty(t, captured.Build)
+}
+
+func TestRunAgentRedeployOffersTheNewerBuild(t *testing.T) {
+	newer := []blueprintVersionSummary{
+		{BuildID: "build-old", PublishedAt: "2026-09-01T00:00:00Z"},
+		{BuildID: "build-new", PublishedAt: "2026-09-10T00:00:00Z"},
+	}
+	cases := []struct {
+		name             string
+		current          string
+		versions         []blueprintVersionSummary
+		blueprintStatus  int
+		interactive      bool
+		flags            map[string]string
+		answer           bool
+		answerErr        error
+		wantAsked        bool
+		wantBuild        string
+		wantNoDeploy     bool
+		wantErr          string
+		wantCanceledOnly bool
+	}{
+		{name: "newer build and yes deploys it", current: "build-old", versions: newer, interactive: true, answer: true, wantAsked: true, wantBuild: "build-new"},
+		{name: "newer build and no keeps the current build", current: "build-old", versions: newer, interactive: true, wantAsked: true},
+		{name: "esc deploys nothing", current: "build-old", versions: newer, interactive: true, answerErr: tui.ErrCanceled, wantAsked: true, wantNoDeploy: true, wantCanceledOnly: true},
+		{name: "same build asks nothing", current: "build-new", versions: newer, interactive: true},
+		{name: "no published build asks nothing", current: "build-old", interactive: true},
+		{name: "missing blueprint asks nothing", current: "build-old", versions: newer, blueprintStatus: http.StatusNotFound, interactive: true},
+		{name: "no terminal asks nothing", current: "build-old", versions: newer},
+		{name: "--build asks nothing", current: "build-old", versions: newer, interactive: true, flags: map[string]string{"build": "build-pinned"}, wantBuild: "build-pinned"},
+		{name: "--latest asks nothing", current: "build-old", versions: newer, interactive: true, flags: map[string]string{"latest": "true"}, wantBuild: "build-new"},
+		{name: "--dry-run asks nothing", current: "build-old", versions: newer, interactive: true, flags: map[string]string{"dry-run": "true"}, wantNoDeploy: true},
+		{name: "--json asks nothing", current: "build-old", versions: newer, interactive: true, flags: map[string]string{"json": "true"}},
+		{name: "a failed blueprint lookup fails the redeploy", current: "build-old", versions: newer, blueprintStatus: http.StatusInternalServerError, interactive: true, wantNoDeploy: true, wantErr: "500"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deployments := []agentDeployment{
+				{ID: "dep-1", Name: "my-bp", DisplayName: "my-agent", BuildID: tc.current, Status: "active"},
+			}
+			var captured deployTemplateRequest
+			bp := makeRedeployBlueprintHandler(t, deployments, tc.versions, "", &captured)
+			deployCalled := false
+			setupAgentRedeployTest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case tc.blueprintStatus != 0 && r.URL.Path == "/api/v1/agents/testaccount/my-bp":
+					jsonHandler(tc.blueprintStatus, map[string]any{"error": http.StatusText(tc.blueprintStatus)})(w, r)
+					return
+				case r.URL.Path == "/api/v1/deploy":
+					deployCalled = true
+				}
+				bp.ServeHTTP(w, r)
+			}))
+			stubInteractiveTerminal(t, tc.interactive)
+			for name, value := range tc.flags {
+				setRedeployFlag(t, name, value)
+			}
+
+			asked := false
+			prev := redeployConfirm
+			t.Cleanup(func() { redeployConfirm = prev })
+			redeployConfirm = func(title, description string) (bool, error) {
+				asked = true
+				assert.Equal(t, msgRedeployNewerBuildTitle(), title)
+				assert.Equal(t, msgRedeployNewerBuildDescription("build-old", "build-new"), description)
+				return tc.answer, tc.answerErr
+			}
+
+			buf := &bytes.Buffer{}
+			agentRedeployCmd.SetOut(buf)
+			agentRedeployCmd.SetContext(context.Background())
+
+			setAgentTargetName(t, agentRedeployCmd, "my-agent")
+			err := runAgentRedeploy(agentRedeployCmd, nil)
+
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantAsked, asked, "whether the newer build was offered")
+			assert.Equal(t, tc.wantBuild, captured.Build)
+			assert.Equal(t, !tc.wantNoDeploy, deployCalled, "whether the deploy POST was sent")
+			if tc.wantCanceledOnly {
+				var want bytes.Buffer
+				printCanceled(&want)
+				assert.Equal(t, want.String(), buf.String())
+			}
+		})
+	}
 }
