@@ -305,7 +305,7 @@ func TestConfigureNonSecretVars_UnreferencedProviderExcluded(t *testing.T) {
 // ─── Interactive form ────────────────────────────────────────────────────────
 
 func TestConfigureFormKeepsMultilineValues(t *testing.T) {
-	const pem = "-----BEGIN PRIVATE KEY-----\nMIIBszCCAVmgAwIBAgIU\n-----END PRIVATE KEY-----\n"
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----\n"
 	tests := []struct {
 		name      string
 		stored    string
