@@ -439,10 +439,11 @@ func TestConfigurePersistence_VarPersistsValues(t *testing.T) {
 func TestConfigurePersistence_VarFromFile(t *testing.T) {
 	const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----\n"
 	tests := []struct {
-		name     string
-		setVals  []string
-		wantVars map[string]string
-		wantErr  error
+		name       string
+		importFile string // contents of a --vars-file, if any
+		setVals    []string
+		wantVars   map[string]string
+		wantErr    error
 	}{
 		{
 			name:     "the file's contents are stored verbatim beside --var values",
@@ -454,6 +455,12 @@ func TestConfigurePersistence_VarFromFile(t *testing.T) {
 			setVals: []string{"TLS_CERT=inline"},
 			wantErr: errVarAndVarFromFile("TLS_CERT"),
 		},
+		{
+			name:       "the same key in --var is an error before --vars-file is imported",
+			importFile: "REGION=us\n",
+			setVals:    []string{"TLS_CERT=inline"},
+			wantErr:    errVarAndVarFromFile("TLS_CERT"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -462,10 +469,16 @@ func TestConfigurePersistence_VarFromFile(t *testing.T) {
 			writePersistenceSpec(t, projectDir, "@org/my-agent")
 			t.Chdir(projectDir)
 			require.NoError(t, os.WriteFile("cert.pem", []byte(pem), 0o600))
+			importPath := ""
+			if tt.importFile != "" {
+				importPath = "vars.env"
+				require.NoError(t, os.WriteFile(importPath, []byte(tt.importFile), 0o600))
+			}
 
-			err := runConfigureFlags(configureCmd, "", tt.setVals, []string{"TLS_CERT=cert.pem"}, nil)
+			err := runConfigureFlags(configureCmd, importPath, tt.setVals, []string{"TLS_CERT=cert.pem"}, nil)
 			if tt.wantErr != nil {
 				require.EqualError(t, err, tt.wantErr.Error())
+				require.Empty(t, config.GetProjectVars(buildinfo.BinaryName, projectDir), "an error must leave the store empty")
 				return
 			}
 			require.NoError(t, err)

@@ -497,11 +497,25 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, fileVals,
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	// Read every file before writing anything, so a bad path leaves the store
-	// as it was.
+	// Check every flag and read every file before writing anything, so a bad flag
+	// or file leaves the store as it was.
 	fileValues, err := readVarFiles(fileVals)
 	if err != nil {
 		return err
+	}
+	setVars := make(map[string]string, len(setVals)+len(fileValues))
+	for _, kv := range setVals {
+		idx := strings.IndexByte(kv, '=')
+		if idx < 0 {
+			return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
+		}
+		setVars[kv[:idx]] = kv[idx+1:]
+	}
+	for k, v := range fileValues {
+		if _, exists := setVars[k]; exists {
+			return errVarAndVarFromFile(k)
+		}
+		setVars[k] = v
 	}
 
 	// Resolve spec for project name (needed by MergeProjectVars).
@@ -529,25 +543,11 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, fileVals,
 		fmt.Printf("Imported %d variable(s) from %s\n", len(vars), importFile)
 	}
 
-	if len(setVals) > 0 || len(fileValues) > 0 {
-		vars := make(map[string]string, len(setVals)+len(fileValues))
-		for _, kv := range setVals {
-			idx := strings.IndexByte(kv, '=')
-			if idx < 0 {
-				return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
-			}
-			vars[kv[:idx]] = kv[idx+1:]
-		}
-		for k, v := range fileValues {
-			if _, exists := vars[k]; exists {
-				return errVarAndVarFromFile(k)
-			}
-			vars[k] = v
-		}
-		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, vars); err != nil {
+	if len(setVars) > 0 {
+		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, setVars); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		for k := range vars {
+		for k := range setVars {
 			fmt.Printf("Set %s\n", k)
 		}
 	}
