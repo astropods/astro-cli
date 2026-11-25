@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/stretchr/testify/require"
 
 	"github.com/astropods/astro-cli/internal/buildinfo"
@@ -297,6 +299,50 @@ func TestConfigureNonSecretVars_UnreferencedProviderExcluded(t *testing.T) {
 	}
 	if _, ok := keys["UNUSED_Y"]; ok {
 		t.Error("UNUSED_Y must not appear — provider is unreferenced")
+	}
+}
+
+// ─── Interactive form ────────────────────────────────────────────────────────
+
+func TestConfigureFormKeepsMultilineValues(t *testing.T) {
+	const pem = "-----BEGIN PRIVATE KEY-----\nMIIBszCCAVmgAwIBAgIU\n-----END PRIVATE KEY-----\n"
+	tests := []struct {
+		name      string
+		stored    string
+		dotenv    string
+		typed     string // keys typed into the field
+		wantShown string // what the field starts with
+		want      string // what the form submits; blank leaves the stored value alone
+	}{
+		{name: "a stored PEM left blank is left alone", stored: pem, want: ""},
+		{name: "a PEM from .env left blank is still migrated", dotenv: pem, want: pem},
+		{name: "a typed value replaces a held one", stored: pem, typed: "new-key", want: "new-key"},
+		{name: "a one-line value is still pre-filled", stored: "us-east-1", wantShown: "us-east-1", want: "us-east-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vars := []varEntry{{key: "TLS_KEY"}}
+			stored := map[string]string{}
+			existing := map[string]string{"TLS_KEY": tt.dotenv}
+			if tt.stored != "" {
+				stored["TLS_KEY"] = tt.stored
+				existing["TLS_KEY"] = tt.stored
+			}
+			ptrs, held := prefillFormVars(vars, existing)
+			require.Equal(t, tt.wantShown, *ptrs["TLS_KEY"])
+
+			// Type into a real input and leave it, as Enter does. Leaving writes the
+			// input's one-line text back through the pointer.
+			inp := huh.NewInput().Value(ptrs["TLS_KEY"])
+			inp.WithKeyMap(huh.NewDefaultKeyMap())
+			inp.Focus()
+			if tt.typed != "" {
+				inp.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.typed)})
+			}
+			inp.Blur()
+
+			require.Equal(t, tt.want, collectFormVars(vars, ptrs, held, stored)["TLS_KEY"])
+		})
 	}
 }
 
