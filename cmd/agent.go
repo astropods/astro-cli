@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -453,17 +452,16 @@ func deploymentStatusColor(status string) *color.Color {
 // prompts. It prints why it stopped when it returns false.
 func confirmDelete(cmd *cobra.Command, title, description string, accepted ...string) bool {
 	w := cmd.OutOrStdout()
-	confirm, _ := cmd.Flags().GetString("confirm")
-	if slices.Contains(accepted, confirm) {
+	typed, _ := cmd.Flags().GetString("confirm")
+	if slices.Contains(accepted, typed) {
 		return true
 	}
-	if confirm != "" {
+	if typed != "" {
 		fmt.Fprintf(w, "%sCanceled. Confirmation does not match.%s\n", colorDim, colorReset) //nolint:errcheck,gosec
 		return false
 	}
-	var confirmed bool
-	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Description(description).Value(&confirmed)))
-	if err := runForm(form); err != nil || !confirmed {
+	confirmed, err := confirm(title, description)
+	if err != nil || !confirmed {
 		printCanceled(w)
 		return false
 	}

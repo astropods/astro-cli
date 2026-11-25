@@ -64,6 +64,18 @@ func runForm(form *huh.Form) error {
 	return nil
 }
 
+// confirm asks a yes-or-no question whose default is No. It returns
+// tui.ErrCanceled when the person presses esc or ctrl+c, so a caller can tell
+// a cancel from an explicit No.
+func confirm(title, description string) (bool, error) {
+	var ok bool
+	form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Description(description).Value(&ok)))
+	if err := runForm(form); err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 const nonInteractiveFlag = "non-interactive"
 
 func nonInteractive() bool {

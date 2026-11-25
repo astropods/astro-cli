@@ -36,15 +36,8 @@ func gatewayBaseURL() string {
 }
 
 var (
-	gatewayConfirm = func(title, description string) (bool, error) {
-		var ok bool
-		form := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Description(description).Value(&ok)))
-		if err := runForm(form); err != nil {
-			return false, err
-		}
-		return ok, nil
-	}
-	gatewayPick = func(title, description string, options []string) (string, error) {
+	gatewayConfirm = confirm
+	gatewayPick    = func(title, description string, options []string) (string, error) {
 		var picked string
 		opts := make([]huh.Option[string], 0, len(options))
 		for _, o := range options {

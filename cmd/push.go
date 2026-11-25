@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/astropods/astro-cli/internal/auth"
@@ -725,22 +724,7 @@ func getAgentFromServer(ctx context.Context, serverURL, accountName, agentName s
 // callers can distinguish cancellation from an explicit "No".
 func confirmVisibilityChange(current, desired string) (bool, error) {
 	title, description := visibilityChangePrompt(current, desired)
-
-	var confirmed bool
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title(title).
-				Description(description).
-				Value(&confirmed),
-		),
-	)
-
-	if err := runForm(form); err != nil {
-		return false, err
-	}
-
-	return confirmed, nil
+	return confirm(title, description)
 }
 
 func visibilityChangePrompt(current, desired string) (string, string) {
