@@ -180,9 +180,9 @@ func TestDeployFileRefusals(t *testing.T) {
 
 	t.Run("flags the file sets", func(t *testing.T) {
 		setupEnvTest(t)
-		setDeployFlags(t, "file", writeDeployFileProject(t, twoEnvs), "var", "X=1", "cluster", "c1")
+		setDeployFlags(t, "file", writeDeployFileProject(t, twoEnvs), "var", "X=1", "var-from-file", "Y=key.pem", "cluster", "c1")
 		_, err := runWithOutput(t, blueprintDeployCmd, runBlueprintDeploy)
-		require.EqualError(t, err, errDeployFileFlags([]string{"--var", "--cluster"}).Error())
+		require.EqualError(t, err, errDeployFileFlags([]string{"--var", "--var-from-file", "--cluster"}).Error())
 	})
 
 	t.Run("an environment the file does not declare", func(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 )
 
 // deployFileExcludedFlags set what the deploy file owns, so -f refuses them.
-var deployFileExcludedFlags = []string{"adapter", "var", "vars-file", "from-local", "schedule", "cluster", "name", "image", "secret", "secrets-file"}
+var deployFileExcludedFlags = []string{"adapter", "var", "var-from-file", "vars-file", "from-local", "schedule", "cluster", "name", "image", "secret", "secrets-file"}
 
 func runDeployFile(cmd *cobra.Command, args []string, path string) error {
 	if len(args) > 0 {

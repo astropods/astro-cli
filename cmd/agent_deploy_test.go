@@ -115,6 +115,122 @@ func TestParseDeployVars(t *testing.T) {
 	}
 }
 
+func TestReadVarFiles(t *testing.T) {
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBVQIBADANBgkqhkiG9w0B\nAQEFAASCAT8wggE7AgEAAkEA\n-----END CERTIFICATE-----\n"
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+		return path
+	}
+	pemPath := write("key.pem", []byte(pem))
+	crlfPath := write("crlf.pem", []byte("line one\r\nline two\r\n"))
+	bomPath := write("bom.pem", []byte("\xEF\xBB\xBF"+pem))
+	emptyPath := write("empty.txt", nil)
+	equalsPath := write("a=b.pem", []byte(pem))
+	atLimitPath := write("at-limit.txt", bytes.Repeat([]byte("a"), maxVarFileSize))
+	overLimitPath := write("over-limit.txt", bytes.Repeat([]byte("a"), maxVarFileSize+1))
+	// DER-style bytes with no NUL: invalid UTF-8 is what catches these.
+	binaryPath := write("cert.der", []byte{0x30, 0x82, 0xff, 0xfe})
+	nulPath := write("nul.txt", []byte("abc\x00def"))
+	missingPath := filepath.Join(dir, "missing.pem")
+
+	cases := []struct {
+		name    string
+		flags   []string
+		want    map[string]string
+		wantErr error
+	}{
+		{
+			name:  "a PEM is kept byte for byte, trailing newline included",
+			flags: []string{"TLS_KEY=" + pemPath},
+			want:  map[string]string{"TLS_KEY": pem},
+		},
+		{
+			name:  "CRLF line endings are kept",
+			flags: []string{"NOTE=" + crlfPath},
+			want:  map[string]string{"NOTE": "line one\r\nline two\r\n"},
+		},
+		{
+			name:  "a leading byte-order mark is dropped",
+			flags: []string{"TLS_KEY=" + bomPath},
+			want:  map[string]string{"TLS_KEY": pem},
+		},
+		{
+			name:  "an empty file is an empty value",
+			flags: []string{"EMPTY=" + emptyPath},
+			want:  map[string]string{"EMPTY": ""},
+		},
+		{
+			name:  "only the first = splits key from path",
+			flags: []string{"TLS_KEY=" + equalsPath},
+			want:  map[string]string{"TLS_KEY": pem},
+		},
+		{
+			name:  "a file at the size limit is accepted",
+			flags: []string{"BIG=" + atLimitPath},
+			want:  map[string]string{"BIG": strings.Repeat("a", maxVarFileSize)},
+		},
+		{
+			name:  "several flags",
+			flags: []string{"TLS_KEY=" + pemPath, "EMPTY=" + emptyPath},
+			want:  map[string]string{"TLS_KEY": pem, "EMPTY": ""},
+		},
+		{
+			name:    "no equals sign",
+			flags:   []string{"TLS_KEY"},
+			wantErr: errInvalidVarFromFile("TLS_KEY"),
+		},
+		{
+			name:    "empty key",
+			flags:   []string{"=" + pemPath},
+			wantErr: errInvalidVarFromFile("=" + pemPath),
+		},
+		{
+			name:    "empty path",
+			flags:   []string{"TLS_KEY="},
+			wantErr: errInvalidVarFromFile("TLS_KEY="),
+		},
+		{
+			name:    "missing file",
+			flags:   []string{"TLS_KEY=" + missingPath},
+			wantErr: errVarFromFileNotFound("TLS_KEY", missingPath),
+		},
+		{
+			name:    "directory",
+			flags:   []string{"TLS_KEY=" + dir},
+			wantErr: errVarFromFileIsDir("TLS_KEY", dir),
+		},
+		{
+			name:    "one byte over the size limit",
+			flags:   []string{"BIG=" + overLimitPath},
+			wantErr: errVarFromFileTooLarge("BIG", overLimitPath, maxVarFileSize),
+		},
+		{
+			name:    "binary without a NUL byte",
+			flags:   []string{"TLS_CERT=" + binaryPath},
+			wantErr: errVarFromFileNotText("TLS_CERT", binaryPath),
+		},
+		{
+			name:    "a NUL byte",
+			flags:   []string{"NOTE=" + nulPath},
+			wantErr: errVarFromFileNotText("NOTE", nulPath),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := readVarFiles(tc.flags)
+			if tc.wantErr != nil {
+				assert.EqualError(t, err, tc.wantErr.Error())
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestPatchTemplateTarget(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -498,6 +614,34 @@ func TestRunBlueprintDeployVarsFile(t *testing.T) {
 	assert.Equal(t, deployVarInput{Value: "from_file"}, capturedReq.Variables["FILE_VAR"])
 	// --var takes precedence over --vars-file
 	assert.Equal(t, deployVarInput{Value: "flag_val"}, capturedReq.Variables["OVERRIDDEN"])
+}
+
+func TestRunBlueprintDeployVarFromFile(t *testing.T) {
+	var capturedReq deployTemplateRequest
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/deployment-template") {
+			json.NewDecoder(r.Body).Decode(&capturedReq) //nolint:errcheck
+			jsonHandler(http.StatusOK, map[string]any{
+				"template":   json.RawMessage(`{}`),
+				"validation": map[string]any{"valid": true},
+			})(w, r)
+		} else if r.URL.Path == "/api/v1/deploy" {
+			jsonHandler(http.StatusAccepted, map[string]any{"status": "pending", "deployment_id": "dep-1"})(w, r)
+		}
+	})
+	setupBlueprintDeployTest(t, handler)
+
+	const pem = "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----\n"
+	path := filepath.Join(t.TempDir(), "cert.pem")
+	require.NoError(t, os.WriteFile(path, []byte(pem), 0o600))
+	setDeployFlag(t, "var-from-file", "TLS_CERT="+path)
+
+	blueprintDeployCmd.SetOut(&bytes.Buffer{})
+	blueprintDeployCmd.SetContext(context.Background())
+	require.NoError(t, runBlueprintDeploy(blueprintDeployCmd, []string{"my-agent"}))
+
+	assert.Equal(t, deployVarInput{Value: pem}, capturedReq.Variables["TLS_CERT"], "the server gets the file's newlines intact")
 }
 
 func TestRunBlueprintDeployBuildFlag(t *testing.T) {

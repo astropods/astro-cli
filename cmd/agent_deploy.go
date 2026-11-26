@@ -1,13 +1,17 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"github.com/joho/godotenv"
@@ -153,8 +157,9 @@ its plan: the build, what the file changes, and what it leaves as is.
 func registerDeployCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArray("adapter", nil, "Adapter to enable: web or slack (default: web; repeatable). insecure-web is accepted as web")
 	cmd.Flags().StringArray("var", nil, "Variable: KEY=VALUE, KEY=@SECRET_NAME, or KEY=@ (secret named KEY); escape literal @ with \\@ (repeatable)")
+	cmd.Flags().StringArray("var-from-file", nil, "Variable set to a file's contents, such as a PEM key: KEY=PATH; text up to 256 KB (repeatable)")
 	cmd.Flags().String("vars-file", "", "Load variables from a .env file")
-	cmd.Flags().Bool("from-local", false, "Load variables saved by 'project configure' in the current directory as plaintext values, not secret references; --var and --vars-file take precedence")
+	cmd.Flags().Bool("from-local", false, "Load variables saved by 'project configure' in the current directory as plaintext values, not secret references; --var, --var-from-file, and --vars-file take precedence")
 	cmd.Flags().StringArray("schedule", nil, "Job schedule: <job>=<cron expression> (repeatable)")
 	cmd.Flags().String("build", "", "Pin to a specific build ID")
 	cmd.Flags().String("cluster", "", "Cluster to deploy to (default: the account default, or the agent's current cluster on redeploy)")
@@ -240,13 +245,85 @@ func buildDeployInterfaces(adapters []string) (*deployTemplateInterfaces, error)
 	return &deployTemplateInterfaces{Adapters: serverAdapters}, nil
 }
 
-// parseDeployVarsFromCmd reads --var, --vars-file, and --from-local and merges
-// them. For the same key, --var wins over --vars-file, which wins over --from-local.
+// maxVarFileSize matches the web deploy form's attachment limit, so a file
+// that attaches there is accepted here too.
+const maxVarFileSize = 256 * 1024
+
+// readVarFiles reads --var-from-file KEY=PATH flags into KEY → the file's
+// contents, byte for byte. Only text is accepted: the value travels as a JSON
+// string, and encoding/json swaps bytes that aren't UTF-8 for U+FFFD without
+// an error, so a binary file would reach the agent corrupted.
+func readVarFiles(flags []string) (map[string]string, error) {
+	result := make(map[string]string, len(flags))
+	for _, raw := range flags {
+		key, path, ok := strings.Cut(raw, "=")
+		if !ok || key == "" || path == "" {
+			return nil, errInvalidVarFromFile(raw)
+		}
+		value, err := readVarFile(key, path)
+		if err != nil {
+			return nil, err
+		}
+		result[key] = value
+	}
+	return result, nil
+}
+
+func readVarFile(key, path string) (string, error) {
+	f, err := os.Open(path) //nolint:gosec // the user names the file to read
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", errVarFromFileNotFound(key, path)
+	}
+	if err != nil {
+		return "", errReadVarFromFile(key, err)
+	}
+	defer f.Close() //nolint:errcheck
+	info, err := f.Stat()
+	if err != nil {
+		return "", errReadVarFromFile(key, err)
+	}
+	if info.IsDir() {
+		return "", errVarFromFileIsDir(key, path)
+	}
+	// Read past the cap rather than trust info.Size(): a pipe such as <(...)
+	// reports size 0.
+	data, err := io.ReadAll(io.LimitReader(f, maxVarFileSize+1))
+	if err != nil {
+		return "", errReadVarFromFile(key, err)
+	}
+	if len(data) > maxVarFileSize {
+		return "", errVarFromFileTooLarge(key, path, maxVarFileSize)
+	}
+	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+		return "", errVarFromFileNotText(key, path)
+	}
+	// Editors on Windows can add a byte-order mark, and PEM parsers then can't find
+	// the BEGIN line. The web deploy form drops it too.
+	data = bytes.TrimPrefix(data, []byte("\xEF\xBB\xBF"))
+	return string(data), nil
+}
+
+// parseDeployVarsFromCmd reads --var, --var-from-file, --vars-file, and
+// --from-local and merges them. For the same key, --var and --var-from-file
+// win over --vars-file, which wins over --from-local. A key given to both --var
+// and --var-from-file is an error: the two arrays keep no order between them.
 func parseDeployVarsFromCmd(cmd *cobra.Command) (map[string]deployVarInput, error) {
 	varFlags, _ := cmd.Flags().GetStringArray("var")
 	vars, err := parseDeployVars(varFlags)
 	if err != nil {
 		return nil, err
+	}
+
+	varFileFlags, _ := cmd.Flags().GetStringArray("var-from-file")
+	fileValues, err := readVarFiles(varFileFlags)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range fileValues {
+		if _, exists := vars[k]; exists {
+			return nil, errVarAndVarFromFile(k)
+		}
+		vars[k] = deployVarInput{Value: v}
 	}
 
 	varsFile, _ := cmd.Flags().GetString("vars-file")

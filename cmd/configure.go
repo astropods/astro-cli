@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,6 +36,7 @@ func registerConfigureFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("output", "o", "", "Print stored config vars in the given format: env or json")
 	cmd.Flags().String("vars-file", "", "Import variables from an env file")
 	cmd.Flags().StringArray("var", nil, "Set a variable (KEY=VALUE, repeatable)")
+	cmd.Flags().StringArray("var-from-file", nil, "Set a variable to a file's contents, such as a PEM key (KEY=PATH, repeatable; text up to 256 KB)")
 	cmd.Flags().StringArray("rm-var", nil, "Remove a variable (KEY, repeatable)")
 }
 
@@ -78,6 +80,7 @@ type configureApp struct {
 	varPtrs        map[string]*string
 	allVars        []varEntry
 	existing       map[string]string
+	held           map[string]string // values left out of their fields; see prefillFormVars
 	formHeight     int
 	focusedIdx     int
 	revealed       map[string]bool
@@ -90,10 +93,14 @@ func (m *configureApp) buildForm() {
 	for _, v := range m.allVars {
 		desc := v.description
 		if m.existing[v.key] != "" {
+			note := "already set"
+			if _, ok := m.held[v.key]; ok {
+				note = "already set; leave blank to keep it"
+			}
 			if desc != "" {
-				desc += " (already set)"
+				desc += " (" + note + ")"
 			} else {
-				desc = "already set"
+				desc = note
 			}
 		}
 		inp := huh.NewInput().
@@ -219,6 +226,40 @@ func runConfigureOut(format string) error {
 	return nil
 }
 
+// prefillFormVars returns one form pointer per var, pre-filled with its existing
+// or .env value. The form's one-line input turns newlines and tabs into spaces and
+// saves the result, which breaks a PEM key. So a value with a control character
+// starts blank instead, and is returned in held for collectFormVars.
+func prefillFormVars(allVars []varEntry, existing map[string]string) (ptrs map[string]*string, held map[string]string) {
+	ptrs = make(map[string]*string, len(allVars))
+	held = make(map[string]string)
+	for _, v := range allVars {
+		val := existing[v.key]
+		if strings.ContainsFunc(val, unicode.IsControl) {
+			held[v.key] = val
+			val = ""
+		}
+		ptrs[v.key] = &val
+	}
+	return ptrs, held
+}
+
+// collectFormVars returns each var's submitted value. A blank field whose held
+// value came from .env gets that value back, so it migrates like the rest of .env.
+// One whose held value is already stored stays blank, which leaves the stored value
+// untouched; saving it again would trim its trailing newline.
+func collectFormVars(allVars []varEntry, ptrs map[string]*string, held, stored map[string]string) map[string]string {
+	vals := make(map[string]string, len(allVars))
+	for _, v := range allVars {
+		val := *ptrs[v.key]
+		if h, ok := held[v.key]; ok && strings.TrimSpace(val) == "" && h != stored[v.key] {
+			val = h
+		}
+		vals[v.key] = val
+	}
+	return vals
+}
+
 func runConfigure(cmd *cobra.Command, args []string) error {
 	if format, _ := cmd.Flags().GetString("output"); format != "" {
 		return runConfigureOut(format)
@@ -226,10 +267,11 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 
 	importFile, _ := cmd.Flags().GetString("vars-file")
 	setVals, _ := cmd.Flags().GetStringArray("var")
+	fileVals, _ := cmd.Flags().GetStringArray("var-from-file")
 	unsetKeys, _ := cmd.Flags().GetStringArray("rm-var")
 
-	if importFile != "" || len(setVals) > 0 || len(unsetKeys) > 0 {
-		return runConfigureFlags(cmd, importFile, setVals, unsetKeys)
+	if importFile != "" || len(setVals) > 0 || len(fileVals) > 0 || len(unsetKeys) > 0 {
+		return runConfigureFlags(cmd, importFile, setVals, fileVals, unsetKeys)
 	}
 
 	workingDir, err := os.Getwd()
@@ -353,18 +395,14 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build one pointer per var (pre-populated with existing/dotenv values)
 	allVars := append(append(credVars, messagingVars...), inputVars...)
-	varPtrs := make(map[string]*string, len(allVars))
-	for _, v := range allVars {
-		val := existing[v.key]
-		varPtrs[v.key] = &val
-	}
+	varPtrs, held := prefillFormVars(allVars, existing)
 
 	app := &configureApp{
 		varPtrs:  varPtrs,
 		allVars:  allVars,
 		existing: existing,
+		held:     held,
 		revealed: make(map[string]bool),
 	}
 	if _, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil { //nolint:gosec
@@ -382,13 +420,7 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Collect results
-	newVars := make(map[string]string, len(allVars))
-	for _, v := range allVars {
-		if ptr := varPtrs[v.key]; ptr != nil {
-			newVars[v.key] = *ptr
-		}
-	}
+	newVars := collectFormVars(allVars, varPtrs, held, stored)
 
 	// In the TUI path a blank submission means "leave existing value alone".
 	// Filter out blank entries before calling MergeProjectVars, which skips
@@ -455,15 +487,36 @@ func runConfigure(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys []string) error {
+func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, fileVals, unsetKeys []string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
+	// Check every flag and read every file before writing anything, so a bad flag
+	// or file leaves the store as it was.
+	fileValues, err := readVarFiles(fileVals)
+	if err != nil {
+		return err
+	}
+	setVars := make(map[string]string, len(setVals)+len(fileValues))
+	for _, kv := range setVals {
+		idx := strings.IndexByte(kv, '=')
+		if idx < 0 {
+			return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
+		}
+		setVars[kv[:idx]] = kv[idx+1:]
+	}
+	for k, v := range fileValues {
+		if _, exists := setVars[k]; exists {
+			return errVarAndVarFromFile(k)
+		}
+		setVars[k] = v
+	}
+
 	// Resolve spec for project name (needed by MergeProjectVars).
 	var specName string
-	if importFile != "" || len(setVals) > 0 {
+	if importFile != "" || len(setVals) > 0 || len(fileValues) > 0 {
 		specPath, err := resolveSpecPath(flagString(cmd, "file"), workingDir)
 		if err != nil {
 			return err
@@ -486,19 +539,11 @@ func runConfigureFlags(cmd *cobra.Command, importFile string, setVals, unsetKeys
 		fmt.Printf("Imported %d variable(s) from %s\n", len(vars), importFile)
 	}
 
-	if len(setVals) > 0 {
-		vars := make(map[string]string, len(setVals))
-		for _, kv := range setVals {
-			idx := strings.IndexByte(kv, '=')
-			if idx < 0 {
-				return fmt.Errorf("--var %q: expected KEY=VALUE", kv)
-			}
-			vars[kv[:idx]] = kv[idx+1:]
-		}
-		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, vars); err != nil {
+	if len(setVars) > 0 {
+		if err := config.SetProjectVars(buildinfo.BinaryName, workingDir, specName, setVars); err != nil {
 			return fmt.Errorf("failed to save config: %w", err)
 		}
-		for k := range vars {
+		for k := range setVars {
 			fmt.Printf("Set %s\n", k)
 		}
 	}
