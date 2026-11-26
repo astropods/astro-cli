@@ -327,32 +327,12 @@ func BuildProject(
 			service.Image = container.Image
 		}
 
-		// Port mapping
-		if container.Port > 0 {
+		if knowledge.Container != nil && knowledge.Container.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(container.Port), //nolint:gosec
-					Published: fmt.Sprintf("%d", container.Port),
+					Target:    uint32(knowledge.Container.Port), //nolint:gosec
+					Published: fmt.Sprintf("%d", knowledge.Container.Port),
 				},
-			}
-		} else if knowledge.Provider == "qdrant" {
-			// Expose Qdrant dashboard on default port in dev mode
-			qdrantPort := spec.GetProvider("qdrant").DefaultPort
-			service.Ports = []types.ServicePortConfig{
-				{
-					Target:    uint32(qdrantPort), //nolint:gosec
-					Published: fmt.Sprintf("%d", qdrantPort),
-				},
-			}
-		}
-
-		// Publish extra ports defined by the provider (e.g. Neo4j bolt on 7687)
-		if prov := spec.GetProvider(knowledge.Provider); len(prov.ExtraPorts) > 0 {
-			for _, ep := range prov.ExtraPorts {
-				service.Ports = append(service.Ports, types.ServicePortConfig{
-					Target:    uint32(ep.Port), //nolint:gosec
-					Published: fmt.Sprintf("%d", ep.Port),
-				})
 			}
 		}
 
@@ -826,41 +806,48 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	for name, knowledge := range s.Knowledge {
 		if !knowledge.DeploysContainer(s.Providers) {
-			// Cloud provider credentials are injected via CloudCredentialKeys above.
 			continue
 		}
-
-		serviceName := fmt.Sprintf("knowledge-%s", name)
-
+		host := fmt.Sprintf("knowledge-%s", name)
 		prov := spec.GetProvider(knowledge.Provider)
+		port := knowledge.ResolvedContainer().Port
 		if prov.EnvPrefix != "" {
-			hostKey := prov.EnvPrefix + "_HOST"
-			portKey := prov.EnvPrefix + "_PORT"
-			env[hostKey] = &serviceName
-			port := fmt.Sprintf("%d", prov.ConnectPort())
-			env[portKey] = &port
+			port = prov.ConnectPort()
+		}
+		portStr := fmt.Sprintf("%d", port)
+		url := ""
+		if prov.URLScheme != "" {
+			url = fmt.Sprintf("%s://%s:%d", prov.URLScheme, host, port)
+		}
 
-			// For postgres, mirror prod and inject the full USER/PASSWORD/DB
-			// triple so the agent can connect without the user having to
-			// declare them as inputs. Sidecar gets the same values via
-			// BuildProject's postgres block — keep these in sync.
-			if knowledge.Provider == "postgres" {
-				user, password, dbName := postgresDevCredentials(s, envVars)
-				env["POSTGRES_USER"] = &user
-				env["POSTGRES_PASSWORD"] = &password
-				env["POSTGRES_DB"] = &dbName
+		for _, key := range spec.AgentKeysForComponent(s, "knowledge", name) {
+			switch {
+			case strings.HasSuffix(key, "_HOST"):
+				env[key] = &host
+				if knowledge.Provider == "postgres" {
+					user, password, dbName := postgresDevCredentials(s, envVars)
+					base := strings.TrimSuffix(key, "HOST")
+					env[base+"USER"] = &user
+					env[base+"PASSWORD"] = &password
+					env[base+"DB"] = &dbName
+				}
+			case strings.HasSuffix(key, "_PORT") && port > 0:
+				env[key] = &portStr
+			case strings.HasSuffix(key, "_URL"):
+				env[key] = &url
 			}
 		}
 	}
 
 	// Cloud-integration credentials are injected via CloudCredentialKeys above.
 
-	// Custom-provider variables — names come from spec.CustomProviderCredentialKeys,
-	// the same source of truth the deployer uses in prod. Resolver-correct names
-	// only: agent code (and .env entries) must use the prefixed name.
-	for credKey := range spec.CustomProviderCredentialKeys(s) {
-		if val, ok := envVars[credKey]; ok {
-			env[credKey] = &val
+	for key, pv := range spec.CustomProviderVariableKeys(s) {
+		val := pv.Variable.Default
+		if v, ok := envVars[key]; ok {
+			val = v
+		}
+		if val != "" {
+			env[key] = &val
 		}
 	}
 

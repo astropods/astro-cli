@@ -833,66 +833,48 @@ func TestBuildProject_IntegrationInputsInjected(t *testing.T) {
 	}
 }
 
-func TestBuildProject_KnowledgeExtraPortsPublished(t *testing.T) {
-	s := &spec.AstroSpec{
-		Name:  "my-agent",
-		Agent: spec.Container{Image: "agent:latest"},
-		Knowledge: map[string]spec.Knowledge{
-			"graph": {Provider: "neo4j"},
+func TestBuildProject_KnowledgeHostPorts(t *testing.T) {
+	tests := []struct {
+		name      string
+		knowledge map[string]spec.Knowledge
+		want      map[string][]string
+	}{
+		{
+			name: "provider-mode entries publish no host ports, so duplicates cannot collide",
+			knowledge: map[string]spec.Knowledge{
+				"docs":   {Provider: "qdrant"},
+				"images": {Provider: "qdrant"},
+				"graph":  {Provider: "neo4j"},
+			},
+			want: map[string][]string{"knowledge-docs": nil, "knowledge-images": nil, "knowledge-graph": nil},
+		},
+		{
+			name:      "container-mode entry with a port publishes that port",
+			knowledge: map[string]spec.Knowledge{"blob": {Container: &spec.ContainerConfig{Image: "minio:1", Port: 9000}}},
+			want:      map[string][]string{"knowledge-blob": {"9000"}},
+		},
+		{
+			name:      "container-mode entry without a port publishes nothing",
+			knowledge: map[string]spec.Knowledge{"blob": {Container: &spec.ContainerConfig{Image: "minio:1"}}},
+			want:      map[string][]string{"knowledge-blob": nil},
 		},
 	}
 
-	project, err := BuildProject(s, "/work", nil)
-	if err != nil {
-		t.Fatalf("BuildProject() error = %v", err)
-	}
-
-	svc, ok := project.Services["knowledge-graph"]
-	if !ok {
-		t.Fatal("missing knowledge-graph service")
-	}
-
-	hasBoltPort := false
-	hasDefaultPort := false
-	for _, p := range svc.Ports {
-		if p.Target == 7687 && p.Published == "7687" {
-			hasBoltPort = true
-		}
-		if p.Target == 7474 && p.Published == "7474" {
-			hasDefaultPort = true
-		}
-	}
-	if !hasDefaultPort {
-		t.Error("Neo4j default HTTP port 7474 should be published")
-	}
-	if !hasBoltPort {
-		t.Error("Neo4j bolt port 7687 should be published via ExtraPorts")
-	}
-}
-
-func TestBuildProject_QdrantExtraPortsPublished(t *testing.T) {
-	s := &spec.AstroSpec{
-		Name:  "my-agent",
-		Agent: spec.Container{Image: "agent:latest"},
-		Knowledge: map[string]spec.Knowledge{
-			"docs": {Provider: "qdrant"},
-		},
-	}
-
-	project, err := BuildProject(s, "/work", nil)
-	if err != nil {
-		t.Fatalf("BuildProject() error = %v", err)
-	}
-
-	svc := project.Services["knowledge-docs"]
-	hasGrpcPort := false
-	for _, p := range svc.Ports {
-		if p.Target == 6334 && p.Published == "6334" {
-			hasGrpcPort = true
-		}
-	}
-	if !hasGrpcPort {
-		t.Error("Qdrant gRPC port 6334 should be published via ExtraPorts")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &spec.AstroSpec{Name: "my-agent", Agent: spec.Container{Image: "agent:latest"}, Knowledge: tt.knowledge}
+			project, err := BuildProject(s, "/work", nil)
+			require.NoError(t, err)
+			for service, wantPublished := range tt.want {
+				svc, ok := project.Services[service]
+				require.True(t, ok, "missing service %s", service)
+				var published []string
+				for _, p := range svc.Ports {
+					published = append(published, p.Published)
+				}
+				assert.Equal(t, wantPublished, published, "%s host ports", service)
+			}
+		})
 	}
 }
 
@@ -1505,6 +1487,71 @@ func TestBuildProject_KnowledgePortIsTheOneAgentsConnectOn(t *testing.T) {
 			agent := project.Services["agent"]
 			assert.Equal(t, "knowledge-graph", envVal(agent.Environment, tt.hostKey))
 			assert.Equal(t, tt.wantPort, envVal(agent.Environment, tt.portKey))
+		})
+	}
+}
+
+func TestBuildEnvironment_KnowledgeKeysMatchDeploy(t *testing.T) {
+	tests := []struct {
+		name      string
+		knowledge map[string]spec.Knowledge
+		want      map[string]string
+		absent    []string
+	}{
+		{
+			name: "duplicate qdrant entries get qualified keys and the first alphabetically gets the bare ones",
+			knowledge: map[string]spec.Knowledge{
+				"images": {Provider: "qdrant"},
+				"docs":   {Provider: "qdrant"},
+			},
+			want: map[string]string{
+				"QDRANT_DOCS_HOST":   "knowledge-docs",
+				"QDRANT_DOCS_URL":    "http://knowledge-docs:6333",
+				"QDRANT_IMAGES_HOST": "knowledge-images",
+				"QDRANT_IMAGES_PORT": "6333",
+				"QDRANT_HOST":        "knowledge-docs",
+				"QDRANT_URL":         "http://knowledge-docs:6333",
+			},
+		},
+		{
+			name:      "redis gets a redis URL and no password in dev",
+			knowledge: map[string]spec.Knowledge{"cache": {Provider: "redis"}},
+			want:      map[string]string{"REDIS_HOST": "knowledge-cache", "REDIS_URL": "redis://knowledge-cache:6379"},
+			absent:    []string{"REDIS_PASSWORD"},
+		},
+		{
+			name: "duplicate postgres entries get qualified credentials",
+			knowledge: map[string]spec.Knowledge{
+				"postgres": {Provider: "postgres"},
+				"users":    {Provider: "postgres"},
+			},
+			want: map[string]string{
+				"POSTGRES_HOST":       "knowledge-postgres",
+				"POSTGRES_USER":       "astro",
+				"POSTGRES_USERS_HOST": "knowledge-users",
+				"POSTGRES_USERS_USER": "astro",
+				"POSTGRES_USERS_DB":   "my_agent",
+			},
+			absent: []string{"POSTGRES_URL", "POSTGRES_POSTGRES_HOST"},
+		},
+		{
+			name:      "container-mode entry gets section-prefixed keys",
+			knowledge: map[string]spec.Knowledge{"blob": {Container: &spec.ContainerConfig{Image: "minio:1", Port: 9000}}},
+			want:      map[string]string{"KNOWLEDGE_BLOB_HOST": "knowledge-blob", "KNOWLEDGE_BLOB_PORT": "9000"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &spec.AstroSpec{Name: "my-agent", Agent: spec.Container{Image: "agent:latest"}, Knowledge: tt.knowledge}
+			env := BuildEnvironment(s, map[string]string{})
+			for key, want := range tt.want {
+				assert.Equal(t, want, envVal(env, key), "%s must match what a deploy injects (RFC-1 §8.2)", key)
+			}
+			for _, key := range tt.absent {
+				_, ok := env[key]
+				assert.False(t, ok, "%s must not be set", key)
+			}
 		})
 	}
 }
