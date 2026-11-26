@@ -184,6 +184,10 @@ func init() {
 	blueprintGetCmd.Flags().Bool("template", false, "Show deployment variables and secrets")
 
 	blueprintCreateCmd.Flags().StringP("visibility", "V", string(VisibilityPrivate), "Set visibility: public or private")
+	// A bool, with --repo carrying the repository: cobra's NoOptDefVal would
+	// accept only --connect=<url> and read the space form's URL as an argument.
+	blueprintCreateCmd.Flags().Bool("connect", false, "Connect a GitHub repository so pushes build the blueprint")
+	registerConnectFlags(blueprintCreateCmd)
 	blueprintSetCmd.Flags().StringP("visibility", "V", "", "Set visibility: public or private")
 	registerPushFlags(blueprintPushCmd)
 	blueprintBuildCmd.Flags().StringP("file", "f", "", "Path to spec file (default: astropods.yml)")
@@ -480,6 +484,21 @@ func printBlueprintNextSteps(w io.Writer) {
 
 func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	opts := connectOptionsFromFlags(cmd)
+	// --repo implies --connect: naming a repository and not connecting it would
+	// mean nothing here.
+	connecting := flagBool(cmd, "connect") || opts.Repo != ""
+	var target connectTarget
+	if connecting {
+		_, specDir, err := resolveConnectBlueprint(cmd, args)
+		if err != nil {
+			return err
+		}
+		if target, err = resolveConnectTarget(opts, specDir); err != nil {
+			return err
+		}
+	}
+
 	at, verbose, err := cmdAuth(cmd)
 	if err != nil {
 		return err
@@ -492,6 +511,20 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 	visibility := string(vis)
 
 	w := cmd.OutOrStdout()
+	body := map[string]any{"name": name, "visibility": visibility}
+	var prepared preparedConnection
+	if connecting {
+		if prepared, err = prepareConnection(cmd.Context(), at, target, opts.NoBrowser, verbose, w); err != nil {
+			return err
+		}
+		if err := checkRepoNotConnected(cmd.Context(), at, prepared, verbose); err != nil {
+			return err
+		}
+		// The server sets up the push webhook before it creates the blueprint,
+		// so a repository it can't build from leaves no blueprint behind.
+		body["github"] = map[string]string{"repo_full_name": prepared.Base}
+	}
+
 	fmt.Fprintf(w, "%s→%s Creating blueprint %s%s%s\n", colorCyan, colorReset, colorBold, name, colorReset) //nolint:errcheck,gosec
 
 	u := apiPath(blueprintBaseURL(), at.Account, "agents")
@@ -499,17 +532,21 @@ func runBlueprintCreate(cmd *cobra.Command, args []string) error {
 		Account string `json:"account"`
 		Name    string `json:"name"`
 	}
-	status, err := apiCall(cmd.Context(), http.MethodPost, u, map[string]string{
-		"name":       name,
-		"visibility": visibility,
-	}, at.Token, verbose, &created)
+	status, err := apiCall(cmd.Context(), http.MethodPost, u, body, at.Token, verbose, &created)
 	if status == http.StatusConflict {
 		return fmt.Errorf("blueprint %q already exists in account %q", name, at.Account)
 	}
 	if err != nil {
+		if connecting {
+			return explainGitHubError(err, prepared.Base)
+		}
 		return err
 	}
 
+	if connecting {
+		_, err = finishConnection(cmd.Context(), at, name, prepared, opts.NoBuild, verbose, w)
+		return err
+	}
 	printBlueprintNextSteps(w)
 	return nil
 }
