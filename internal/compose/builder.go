@@ -327,32 +327,12 @@ func BuildProject(
 			service.Image = container.Image
 		}
 
-		// Port mapping
-		if container.Port > 0 {
+		if knowledge.Container != nil && knowledge.Container.Port > 0 {
 			service.Ports = []types.ServicePortConfig{
 				{
-					Target:    uint32(container.Port), //nolint:gosec
-					Published: fmt.Sprintf("%d", container.Port),
+					Target:    uint32(knowledge.Container.Port), //nolint:gosec
+					Published: fmt.Sprintf("%d", knowledge.Container.Port),
 				},
-			}
-		} else if knowledge.Provider == "qdrant" {
-			// Expose Qdrant dashboard on default port in dev mode
-			qdrantPort := spec.GetProvider("qdrant").DefaultPort
-			service.Ports = []types.ServicePortConfig{
-				{
-					Target:    uint32(qdrantPort), //nolint:gosec
-					Published: fmt.Sprintf("%d", qdrantPort),
-				},
-			}
-		}
-
-		// Publish extra ports defined by the provider (e.g. Neo4j bolt on 7687)
-		if prov := spec.GetProvider(knowledge.Provider); len(prov.ExtraPorts) > 0 {
-			for _, ep := range prov.ExtraPorts {
-				service.Ports = append(service.Ports, types.ServicePortConfig{
-					Target:    uint32(ep.Port), //nolint:gosec
-					Published: fmt.Sprintf("%d", ep.Port),
-				})
 			}
 		}
 
