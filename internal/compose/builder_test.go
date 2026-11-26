@@ -1509,6 +1509,71 @@ func TestBuildProject_KnowledgePortIsTheOneAgentsConnectOn(t *testing.T) {
 	}
 }
 
+func TestBuildEnvironment_KnowledgeKeysMatchDeploy(t *testing.T) {
+	tests := []struct {
+		name      string
+		knowledge map[string]spec.Knowledge
+		want      map[string]string
+		absent    []string
+	}{
+		{
+			name: "duplicate qdrant entries get qualified keys and the first alphabetically gets the bare ones",
+			knowledge: map[string]spec.Knowledge{
+				"images": {Provider: "qdrant"},
+				"docs":   {Provider: "qdrant"},
+			},
+			want: map[string]string{
+				"QDRANT_DOCS_HOST":   "knowledge-docs",
+				"QDRANT_DOCS_URL":    "http://knowledge-docs:6333",
+				"QDRANT_IMAGES_HOST": "knowledge-images",
+				"QDRANT_IMAGES_PORT": "6333",
+				"QDRANT_HOST":        "knowledge-docs",
+				"QDRANT_URL":         "http://knowledge-docs:6333",
+			},
+		},
+		{
+			name:      "redis gets a redis URL and no password in dev",
+			knowledge: map[string]spec.Knowledge{"cache": {Provider: "redis"}},
+			want:      map[string]string{"REDIS_HOST": "knowledge-cache", "REDIS_URL": "redis://knowledge-cache:6379"},
+			absent:    []string{"REDIS_PASSWORD"},
+		},
+		{
+			name: "duplicate postgres entries get qualified credentials",
+			knowledge: map[string]spec.Knowledge{
+				"postgres": {Provider: "postgres"},
+				"users":    {Provider: "postgres"},
+			},
+			want: map[string]string{
+				"POSTGRES_HOST":       "knowledge-postgres",
+				"POSTGRES_USER":       "astro",
+				"POSTGRES_USERS_HOST": "knowledge-users",
+				"POSTGRES_USERS_USER": "astro",
+				"POSTGRES_USERS_DB":   "my_agent",
+			},
+			absent: []string{"POSTGRES_URL", "POSTGRES_POSTGRES_HOST"},
+		},
+		{
+			name:      "container-mode entry gets section-prefixed keys",
+			knowledge: map[string]spec.Knowledge{"blob": {Container: &spec.ContainerConfig{Image: "minio:1", Port: 9000}}},
+			want:      map[string]string{"KNOWLEDGE_BLOB_HOST": "knowledge-blob", "KNOWLEDGE_BLOB_PORT": "9000"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &spec.AstroSpec{Name: "my-agent", Agent: spec.Container{Image: "agent:latest"}, Knowledge: tt.knowledge}
+			env := BuildEnvironment(s, map[string]string{})
+			for key, want := range tt.want {
+				assert.Equal(t, want, envVal(env, key), "%s must match what a deploy injects (RFC-1 §8.2)", key)
+			}
+			for _, key := range tt.absent {
+				_, ok := env[key]
+				assert.False(t, ok, "%s must not be set", key)
+			}
+		})
+	}
+}
+
 func TestBuildProject_IngestionContainerEnvironmentInjected(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "my-agent",

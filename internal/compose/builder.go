@@ -826,29 +826,35 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	for name, knowledge := range s.Knowledge {
 		if !knowledge.DeploysContainer(s.Providers) {
-			// Cloud provider credentials are injected via CloudCredentialKeys above.
 			continue
 		}
-
-		serviceName := fmt.Sprintf("knowledge-%s", name)
-
+		host := fmt.Sprintf("knowledge-%s", name)
 		prov := spec.GetProvider(knowledge.Provider)
+		port := knowledge.ResolvedContainer().Port
 		if prov.EnvPrefix != "" {
-			hostKey := prov.EnvPrefix + "_HOST"
-			portKey := prov.EnvPrefix + "_PORT"
-			env[hostKey] = &serviceName
-			port := fmt.Sprintf("%d", prov.ConnectPort())
-			env[portKey] = &port
+			port = prov.ConnectPort()
+		}
+		portStr := fmt.Sprintf("%d", port)
+		url := ""
+		if prov.URLScheme != "" {
+			url = fmt.Sprintf("%s://%s:%d", prov.URLScheme, host, port)
+		}
 
-			// For postgres, mirror prod and inject the full USER/PASSWORD/DB
-			// triple so the agent can connect without the user having to
-			// declare them as inputs. Sidecar gets the same values via
-			// BuildProject's postgres block — keep these in sync.
-			if knowledge.Provider == "postgres" {
-				user, password, dbName := postgresDevCredentials(s, envVars)
-				env["POSTGRES_USER"] = &user
-				env["POSTGRES_PASSWORD"] = &password
-				env["POSTGRES_DB"] = &dbName
+		for _, key := range spec.AgentKeysForComponent(s, "knowledge", name) {
+			switch {
+			case strings.HasSuffix(key, "_HOST"):
+				env[key] = &host
+				if knowledge.Provider == "postgres" {
+					user, password, dbName := postgresDevCredentials(s, envVars)
+					base := strings.TrimSuffix(key, "HOST")
+					env[base+"USER"] = &user
+					env[base+"PASSWORD"] = &password
+					env[base+"DB"] = &dbName
+				}
+			case strings.HasSuffix(key, "_PORT") && port > 0:
+				env[key] = &portStr
+			case strings.HasSuffix(key, "_URL"):
+				env[key] = &url
 			}
 		}
 	}
