@@ -855,12 +855,13 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 
 	// Cloud-integration credentials are injected via CloudCredentialKeys above.
 
-	// Custom-provider variables — names come from spec.CustomProviderCredentialKeys,
-	// the same source of truth the deployer uses in prod. Resolver-correct names
-	// only: agent code (and .env entries) must use the prefixed name.
-	for credKey := range spec.CustomProviderCredentialKeys(s) {
-		if val, ok := envVars[credKey]; ok {
-			env[credKey] = &val
+	for key, pv := range spec.CustomProviderVariableKeys(s) {
+		val := pv.Variable.Default
+		if v, ok := envVars[key]; ok {
+			val = v
+		}
+		if val != "" {
+			env[key] = &val
 		}
 	}
 
