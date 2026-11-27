@@ -6,6 +6,7 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	spec "github.com/astropods/astro-spec"
@@ -699,11 +700,19 @@ func BuildProject(
 		})
 	}
 
-	// If the agent serves its own frontend, publish the configured dev port (default 80).
-	if s.Agent.HasFrontend() {
+	frontendName := s.Agent.FrontendPortName()
+	for _, name := range s.Agent.SortedPortNames() {
+		if name == frontendName {
+			agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
+				Target:    FrontendTargetPort(s),
+				Published: FrontendHostPort,
+			})
+			continue
+		}
+		p := s.Agent.ResolvedPorts()[name]
 		agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
-			Target:    FrontendTargetPort(s),
-			Published: FrontendHostPort,
+			Target:    uint32(p.Port), //nolint:gosec
+			Published: strconv.Itoa(p.Port),
 		})
 	}
 
@@ -899,28 +908,39 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		env["GRPC_SERVER_ADDR"] = &grpcAddr
 	}
 
-	// Frontend agents: inject PORT so frameworks that read process.env.PORT
-	// (Express, FastAPI, etc.) bind to the port the compose builder publishes
-	// — the dev override when set, otherwise 80 (matching the prod contract).
-	if s.Agent.HasFrontend() {
-		port := "80"
-		if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil && s.Dev.Interfaces.Frontend.Port != 0 {
-			port = fmt.Sprintf("%d", s.Dev.Interfaces.Frontend.Port)
-		}
+	for k, v := range s.Agent.PortEnv() {
+		env[k] = &v
+	}
+	if p := legacyDevFrontendPort(s); p != 0 {
+		port := strconv.Itoa(p)
 		env["PORT"] = &port
+		env[spec.PortEnvName(spec.DefaultFrontendPortName)] = &port
 	}
 
 	return env
 }
 
-// FrontendTargetPort is the container port the agent's frontend listens on.
 func FrontendTargetPort(s *spec.AstroSpec) uint32 {
-	if s.Dev != nil && s.Dev.Interfaces != nil && s.Dev.Interfaces.Frontend != nil {
-		if p := s.Dev.Interfaces.Frontend.Port; p > 0 && p <= 65535 {
-			return uint32(p)
-		}
+	if p := legacyDevFrontendPort(s); p != 0 {
+		return uint32(p) //nolint:gosec
 	}
-	return 80
+	if _, p, ok := s.Agent.FrontendPort(); ok {
+		return uint32(p.Port) //nolint:gosec
+	}
+	return 0
+}
+
+func legacyDevFrontendPort(s *spec.AstroSpec) int {
+	if len(s.Agent.Ports) > 0 || !s.Agent.UsesDefaultFrontendPort() {
+		return 0
+	}
+	if s.Dev == nil || s.Dev.Interfaces == nil || s.Dev.Interfaces.Frontend == nil {
+		return 0
+	}
+	if p := s.Dev.Interfaces.Frontend.Port; p > 0 && p <= 65535 {
+		return p
+	}
+	return 0
 }
 
 // buildMessagingPorts creates port mappings for the astro-messaging sidecar

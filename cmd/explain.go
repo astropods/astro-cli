@@ -56,6 +56,8 @@ func printExplain(astroSpec *spec.AstroSpec, specDir, workingDir string) error {
 	printInputList(astroSpec.Agent.Inputs, "  ")
 	fmt.Println()
 
+	printPorts(astroSpec.Agent)
+
 	// ── Models ──────────────────────────────────────────────────────────────
 	if len(astroSpec.Models) > 0 {
 		sectionHeader("Models", "AI inference servers")
@@ -588,6 +590,36 @@ func printInputSummaryLine(inp spec.Input, indent, scope string) {
 }
 
 // ── Misc helpers ─────────────────────────────────────────────────────────────
+
+func printPorts(c spec.Container) {
+	names := c.SortedPortNames()
+	if len(names) == 0 {
+		return
+	}
+	sectionHeader("Ports", "ports the agent container listens on")
+	ports := c.ResolvedPorts()
+	frontend := c.FrontendPortName()
+	for _, name := range names {
+		p := ports[name]
+		var tags []string
+		switch {
+		case name == frontend:
+			tags = append(tags, "frontend")
+		case p.Expose:
+			tags = append(tags, "public, open")
+		default:
+			tags = append(tags, "internal")
+		}
+		if name == frontend && c.UsesDefaultFrontendPort() {
+			tags = append(tags, "default")
+		}
+		fmt.Printf("  %s%s%s  %d/%s  %s(%s)%s  %s\n", colorBold, name, colorReset, p.Port, p.EffectiveProtocol(), colorDim, strings.Join(tags, ", "), colorReset, spec.PortEnvName(name))
+	}
+	if _, p, ok := c.FrontendPort(); ok {
+		fmt.Printf("  %sPORT=%d%s\n", colorDim, p.Port, colorReset)
+	}
+	fmt.Println()
+}
 
 func sectionHeader(title, subtitle string) {
 	fmt.Printf("%s%s%s  %s%s%s\n", colorBold, colorBlue, title, colorDim, subtitle, colorReset)

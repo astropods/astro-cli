@@ -348,6 +348,9 @@ func runDevStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse spec: %w", err)
 	}
 	warnDeprecatedMetaFields(specPath, workingDir)
+	for _, w := range spec.DeprecationWarnings(astroSpec) {
+		fmt.Printf("  %s⚠%s %s\n", colorYellow, colorReset, w)
+	}
 
 	fmt.Printf("%s→%s Agent: %s%s%s\n", colorCyan, colorReset, colorBold, astroSpec.Name, colorReset)
 
@@ -790,13 +793,23 @@ type readyURLs struct {
 	Frontend string
 	Chat     string
 	Webhooks map[string]string // ingestion name to URL
+	Ports    map[string]string // agent port name to host address
 }
 
 func readyURLsFor(s *spec.AstroSpec, ports devHostPorts, chatAddr string) readyURLs {
-	urls := readyURLs{Webhooks: map[string]string{}}
+	urls := readyURLs{Webhooks: map[string]string{}, Ports: map[string]string{}}
 	if s.Agent.HasFrontend() {
 		if port := ports.host("agent", composeBuilder.FrontendTargetPort(s)); port != "" {
 			urls.Frontend = "http://localhost:" + port
+		}
+	}
+	frontendName := s.Agent.FrontendPortName()
+	for name, p := range s.Agent.ResolvedPorts() {
+		if name == frontendName {
+			continue
+		}
+		if port := ports.host("agent", uint32(p.Port)); port != "" { //nolint:gosec
+			urls.Ports[name] = "localhost:" + port
 		}
 	}
 	if chatAddr != "" {
@@ -834,6 +847,10 @@ func printReadyBlock(s *spec.AstroSpec, urls readyURLs, background bool) {
 
 	if urls.Chat != "" {
 		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Chat)+"  "+dim.Render("(chat)"))
+	}
+
+	for _, name := range sortedKeys(urls.Ports) {
+		lines = append(lines, primary.Render("➜")+"  "+boldPrimary.Render(urls.Ports[name])+"  "+dim.Render("("+name+" port)"))
 	}
 
 	// Webhook endpoints

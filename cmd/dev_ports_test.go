@@ -200,7 +200,7 @@ func TestChatURLForAddr(t *testing.T) {
 func TestReadyURLsFor(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "ag",
-		Agent: spec.Container{Image: "x", Interfaces: &spec.Interfaces{Frontend: true}},
+		Agent: spec.Container{Image: "x", Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}}},
 		Ingestion: map[string]spec.Ingestion{
 			"hooks":   {Trigger: spec.IngestionTrigger{Type: "webhook"}},
 			"nightly": {Trigger: spec.IngestionTrigger{Type: "schedule"}},

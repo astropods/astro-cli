@@ -79,7 +79,7 @@ func TestBuild_NetworkMode(t *testing.T) {
 func TestBuild_Rejections(t *testing.T) {
 	t.Run("frontend rejected", func(t *testing.T) {
 		s := baseSpec()
-		s.Agent.Interfaces = &spec.Interfaces{Frontend: true}
+		s.Agent.Interfaces = &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}}
 		_, err := Build(s, Options{})
 		assertRejection(t, err, "WebIngress")
 	})
