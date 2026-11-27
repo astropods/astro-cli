@@ -143,6 +143,7 @@ The platform also auto-injects these variables into the agent container that you
 | `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version` (fall back to a literal, e.g. `?? "dev"`).  |
 | `ASTRO_AGENT_ID`              | Deployment ID of the running agent.                                                            |
 | `ASTRO_EXTERNAL_AGENT_URL`    | The agent's **public** HTTPS URL, e.g. `https://<host>`. Injected only when the agent exposes an endpoint (`agent.interfaces.frontend: true`) and a public host resolves. Use it to build absolute callback/webhook URLs that point back at your agent — see [OAuth-protected MCP servers](#connecting-to-oauth-protected-mcp-servers). |
+| `ASTRO_EXT_URL_<NAME>`        | The public HTTPS URL of one exposed port in `agent.ports`, e.g. `ASTRO_EXT_URL_HOOKS`. Injected for each port that sets `expose: true` and has a public host. An exposed port that is not the frontend is open to the internet with no sign-in. |
 | `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host. Reachable from other components in the deployment, **not** from the public internet. Injected only when the agent has a port. |
 
 > `ast project start` does not run a collector locally, so `OTEL_EXPORTER_OTLP_ENDPOINT` is absent during local dev. Guard your instrumentation setup on the env var so your agent boots cleanly in both environments.
