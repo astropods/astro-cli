@@ -593,7 +593,7 @@ func BuildProject(
 		}
 
 		// Environment variables - inherit from agent
-		service.Environment = BuildEnvironment(s, envVars)
+		service.Environment = withoutAgentPortEnv(BuildEnvironment(s, envVars))
 		for k, v := range ingestion.Container.Environment {
 			val := v
 			service.Environment[k] = &val
@@ -700,21 +700,7 @@ func BuildProject(
 		})
 	}
 
-	frontendName := s.Agent.FrontendPortName()
-	for _, name := range s.Agent.SortedPortNames() {
-		if name == frontendName {
-			agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
-				Target:    FrontendTargetPort(s),
-				Published: FrontendHostPort,
-			})
-			continue
-		}
-		p := s.Agent.ResolvedPorts()[name]
-		agentService.Ports = append(agentService.Ports, types.ServicePortConfig{
-			Target:    uint32(p.Port), //nolint:gosec
-			Published: strconv.Itoa(p.Port),
-		})
-	}
+	agentService.Ports = append(agentService.Ports, agentPortConfigs(s, project, agentService.Ports)...)
 
 	// Add agent service last
 	project.Services["agent"] = agentService
@@ -917,6 +903,47 @@ func BuildEnvironment(s *spec.AstroSpec, envVars map[string]string) types.Mappin
 		env[spec.PortEnvName(spec.DefaultFrontendPortName)] = &port
 	}
 
+	return env
+}
+
+func agentPortConfigs(s *spec.AstroSpec, project *types.Project, agentPorts []types.ServicePortConfig) []types.ServicePortConfig {
+	claimed := map[string]bool{}
+	for _, svc := range project.Services {
+		for _, p := range svc.Ports {
+			claimed[p.Published] = true
+		}
+	}
+	for _, p := range agentPorts {
+		claimed[p.Published] = true
+	}
+	frontendName := s.Agent.FrontendPortName()
+	if frontendName != "" {
+		claimed[FrontendHostPort] = true
+	}
+	var out []types.ServicePortConfig
+	for _, name := range s.Agent.SortedPortNames() {
+		if name == frontendName {
+			out = append(out, types.ServicePortConfig{Target: FrontendTargetPort(s), Published: FrontendHostPort})
+			continue
+		}
+		p := s.Agent.ResolvedPorts()[name]
+		published := strconv.Itoa(p.Port)
+		if claimed[published] {
+			published = ""
+		}
+		claimed[published] = true
+		out = append(out, types.ServicePortConfig{Target: uint32(p.Port), Published: published}) //nolint:gosec
+	}
+	return out
+}
+
+func withoutAgentPortEnv(env types.MappingWithEquals) types.MappingWithEquals {
+	delete(env, "PORT")
+	for k := range env {
+		if strings.HasPrefix(k, spec.PortEnvPrefix) {
+			delete(env, k)
+		}
+	}
 	return env
 }
 

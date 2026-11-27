@@ -136,3 +136,51 @@ func TestFrontendTargetPort(t *testing.T) {
 		Ports:      map[string]spec.AgentPort{"web": {Port: 3000, Expose: true}},
 	}}), "a named frontend targets its declared port")
 }
+
+func TestBuildProject_AgentPortClashingWithAProjectHostPortGetsAFreeOne(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "my-agent",
+		Agent: spec.Container{
+			Image:      "agent:latest",
+			Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
+			Ports: map[string]spec.AgentPort{
+				"web":   {Port: 3000, Expose: true},
+				"admin": {Port: 3200},
+				"hooks": {Port: 3001},
+				"api":   {Port: 9000},
+			},
+		},
+		Ingestion: map[string]spec.Ingestion{
+			"inbox": {Container: spec.ContainerConfig{Image: "ingest:latest"}, Trigger: spec.IngestionTrigger{Type: "webhook"}},
+		},
+	}
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+	got := map[uint32]string{}
+	for _, p := range project.Services["agent"].Ports {
+		got[p.Target] = p.Published
+	}
+	assert.Equal(t, map[uint32]string{3000: FrontendHostPort, 3200: "", 3001: "", 9000: "9000"}, got,
+		"a port whose number the frontend or the webhook ingestion already publishes is left for Docker to place")
+}
+
+func TestBuildProject_IngestionGetsNoAgentPortEnv(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "my-agent",
+		Agent: spec.Container{
+			Image:      "agent:latest",
+			Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
+			Ports:      map[string]spec.AgentPort{"web": {Port: 3000, Expose: true}, "admin": {Port: 9000}},
+		},
+		Ingestion: map[string]spec.Ingestion{
+			"inbox": {Container: spec.ContainerConfig{Image: "ingest:latest"}, Trigger: spec.IngestionTrigger{Type: "webhook"}},
+		},
+	}
+	project, err := BuildProject(s, "/work", nil)
+	require.NoError(t, err)
+	ingestionEnv := project.Services["ingestion-inbox"].Environment
+	for _, k := range []string{"PORT", "ASTRO_PORT_WEB", "ASTRO_PORT_ADMIN"} {
+		assert.NotContains(t, ingestionEnv, k, "the webhook ingestion must not inherit the agent's %s", k)
+	}
+	assert.Equal(t, "3000", envVal(project.Services["agent"].Environment, "PORT"), "the agent still gets its frontend PORT")
+}
