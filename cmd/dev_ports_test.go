@@ -200,7 +200,7 @@ func TestChatURLForAddr(t *testing.T) {
 func TestReadyURLsFor(t *testing.T) {
 	s := &spec.AstroSpec{
 		Name:  "ag",
-		Agent: spec.Container{Image: "x", Interfaces: &spec.Interfaces{Frontend: true}},
+		Agent: spec.Container{Image: "x", Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}}},
 		Ingestion: map[string]spec.Ingestion{
 			"hooks":   {Trigger: spec.IngestionTrigger{Type: "webhook"}},
 			"nightly": {Trigger: spec.IngestionTrigger{Type: "schedule"}},
@@ -214,7 +214,29 @@ func TestReadyURLsFor(t *testing.T) {
 		Frontend: "http://localhost:55002",
 		Chat:     "http://localhost:55003",
 		Webhooks: map[string]string{},
+		Ports:    map[string]string{},
 	}, urls, "the webhook publishes no port, so it gets no URL")
+}
+
+func TestReadyURLsFor_ListsNonFrontendPorts(t *testing.T) {
+	s := &spec.AstroSpec{
+		Name: "ag",
+		Agent: spec.Container{
+			Image:      "x",
+			Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
+			Ports: map[string]spec.AgentPort{
+				"web":   {Port: 3000, Expose: true},
+				"admin": {Port: 9000},
+				"debug": {Port: 9229},
+			},
+		},
+	}
+	ports := devHostPorts{"agent": {3000: 3200, 9000: 9000}}
+
+	urls := readyURLsFor(s, ports, "")
+
+	assert.Equal(t, "http://localhost:3200", urls.Frontend, "the frontend port maps to its published host port")
+	assert.Equal(t, map[string]string{"admin": "localhost:9000"}, urls.Ports, "only non-frontend ports with a published host port are listed")
 }
 
 func TestMsgDevPortsMovedIsSilentWhenNothingMoved(t *testing.T) {

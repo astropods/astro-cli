@@ -143,7 +143,7 @@ The platform also auto-injects these variables into the agent container that you
 | `ASTRO_AGENT_BUILD`           | Build hash; use as OpenTelemetry `service.version` (fall back to a literal, e.g. `?? "dev"`).  |
 | `ASTRO_AGENT_ID`              | Deployment ID of the running agent.                                                            |
 | `ASTRO_EXTERNAL_AGENT_URL`    | The agent's **public** HTTPS URL, e.g. `https://<host>`. Injected only when the agent exposes an endpoint (`agent.interfaces.frontend: true`) and a public host resolves. Use it to build absolute callback/webhook URLs that point back at your agent — see [OAuth-protected MCP servers](#connecting-to-oauth-protected-mcp-servers). |
-| `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host. Reachable from other components in the deployment, **not** from the public internet. |
+| `ASTRO_AGENT_URL` / `ASTRO_AGENT_HOST` | Cluster-internal service URL / host. Reachable from other components in the deployment, **not** from the public internet. Injected only when the agent has a port. |
 
 > `ast project start` does not run a collector locally, so `OTEL_EXPORTER_OTLP_ENDPOINT` is absent during local dev. Guard your instrumentation setup on the env var so your agent boots cleanly in both environments.
 
@@ -359,7 +359,7 @@ Custom containers inject `KNOWLEDGE_{UPPER(name)}_HOST` and `KNOWLEDGE_{UPPER(na
 
 ## Frontend Agents
 
-Some agents serve their own web UI rather than (or in addition to) the messaging protocol. Declare this in `astropods.yml` and ensure your container handles port 80.
+Some agents serve their own web UI rather than (or in addition to) the messaging protocol. Declare this in `astropods.yml` and make the container listen on the frontend port.
 
 ### `astropods.yml`
 
@@ -374,16 +374,14 @@ agent:
   interfaces:
     frontend: true    # agent serves its own UI
     messaging: false  # no messaging sidecar
-
-dev:
-  interfaces:
-    frontend:
-      port: 80        # port the container listens on locally (default: 80)
+  ports:
+    web: { port: 3000, expose: true }   # the frontend port; omit for the default http: 80
+    admin: 9000                         # internal: reachable inside the deployment only
 ```
 
 **Critical:** `interfaces` MUST be nested under `agent:`. Placing it at the top level of the spec is silently ignored — the frontend will not be routed.
 
-In production the platform always routes to **port 80**. Your container must `EXPOSE 80` and start on that port. Use `dev.interfaces.frontend.port` only when your local dev server runs on a different port.
+The frontend port is the one exposed `agent.ports` entry, or `http: 80` when none is declared. The platform sets `PORT` to it and injects `ASTRO_PORT_<NAME>` for every port, in local dev and in production. Bind to `PORT`. An exposed port on an agent without `frontend` is open to the internet with no sign-in. `dev.interfaces.frontend.port` is deprecated: set the port in `agent.ports`.
 
 ### Production container requirements
 

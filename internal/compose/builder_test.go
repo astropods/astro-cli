@@ -1156,7 +1156,7 @@ func TestBuildProject_FrontendInterface(t *testing.T) {
 		Name: "my-agent",
 		Agent: spec.Container{
 			Image:      "agent:latest",
-			Interfaces: &spec.Interfaces{Frontend: true},
+			Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
 		},
 	}
 
@@ -1183,7 +1183,7 @@ func TestBuildEnvironment_FrontendInjectsPORT(t *testing.T) {
 			Name: "my-agent",
 			Agent: spec.Container{
 				Image:      "agent:latest",
-				Interfaces: &spec.Interfaces{Frontend: true},
+				Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
 			},
 		}
 		env := BuildEnvironment(s, nil)
@@ -1197,7 +1197,7 @@ func TestBuildEnvironment_FrontendInjectsPORT(t *testing.T) {
 			Name: "my-agent",
 			Agent: spec.Container{
 				Image:      "agent:latest",
-				Interfaces: &spec.Interfaces{Frontend: true},
+				Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
 			},
 			Dev: &spec.Dev{
 				Interfaces: &spec.DevInterfaces{
@@ -1228,7 +1228,7 @@ func TestBuildProject_FrontendInterfaceCustomPort(t *testing.T) {
 		Name: "my-agent",
 		Agent: spec.Container{
 			Image:      "agent:latest",
-			Interfaces: &spec.Interfaces{Frontend: true},
+			Interfaces: &spec.Interfaces{Frontend: spec.Frontend{Enabled: true}},
 		},
 		Dev: &spec.Dev{
 			Interfaces: &spec.DevInterfaces{
